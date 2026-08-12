@@ -1,5 +1,36 @@
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+# Editors
+**/.vscode/*
+!**/.vscode/extensions.json
+!**/.vscode/settings.json
+.idea/
+.fleet/
+.zed/
+*.swp
+*.swo
+*~
 
+# Operating systems
 .DS_Store
+Thumbs.db
+
+# Rust and application build output
+target/
+dist/
+gen/schemas/
+**/*.rs.bk
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# Coverage and profiling output
+coverage/
+*.profraw
