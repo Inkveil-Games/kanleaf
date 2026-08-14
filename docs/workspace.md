@@ -560,6 +560,31 @@ must not invalidate internal references.
 
 ---
 
+## 13.1 Structured server persistence
+
+The initial self-hosted Kanleaf server uses one PostgreSQL database as the
+canonical store for structured server data.
+
+```text
+Kanleaf server
+    ↓
+PostgreSQL
+    ├── Users
+    ├── WorkspaceMemberships
+    ├── Workspaces
+    └── Projects
+```
+
+Do not create one database per Workspace. Workspace IDs and memberships provide
+the logical tenant, permission, and data boundaries within the server database.
+
+This decision does not define the future local/offline architecture. SQLite may
+still be considered later as a local cache, and sync behavior requires separate
+design work. PostgreSQL does not replace the Markdown vault: vault content
+remains a distinct, filesystem-oriented concern.
+
+---
+
 # 14. Workspace UI philosophy
 
 Do not treat the workspace homepage as a generic SaaS dashboard.
@@ -675,7 +700,9 @@ Workspace should be treated as a future collaboration and security boundary, not
 
 The current Kanleaf implementation already has basic login and registration behavior.
 
-Authentication persistence and the database are not yet implemented.
+The initial self-hosted server persistence target is PostgreSQL. Until that
+migration is complete, the current backend still stores authentication and
+workspace state in memory.
 
 The next milestone should focus on validating the Workspace model without prematurely implementing collaboration.
 

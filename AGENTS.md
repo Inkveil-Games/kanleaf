@@ -100,8 +100,16 @@ Structured task metadata needs a proper persistence layer, while Markdown stays
 filesystem-based. Keep persistence concerns sufficiently separate from domain
 logic so the implementation can evolve.
 
-PostgreSQL, SQLite, and other options have not been permanently selected. Do not
-silently make a lasting storage choice without discussing options and trade-offs.
+The initial self-hosted Kanleaf server uses one PostgreSQL database as the
+canonical persistence layer for structured server data. Workspaces are logical
+tenant and security boundaries inside that database; do not create one database
+per Workspace.
+
+This server decision does not select the future local/offline architecture.
+SQLite may still be considered later for a local cache. Markdown and vault data
+remain a separate, filesystem-oriented concern and are not replaced by
+PostgreSQL. Sync and offline behavior require separate design work.
+
 Do not commit local databases, vault contents, secrets, build output, or
 machine-specific editor state unless explicitly required as development
 fixtures or shared project configuration.
@@ -163,7 +171,7 @@ creates a new project directory.
 
 Do not silently make these permanent architectural decisions:
 
-- PostgreSQL vs. SQLite vs. another database;
+- the future local/offline cache and synchronization architecture;
 - the exact Markdown vault layout;
 - the exact mapping between task entities and Markdown files;
 - a Markdown frontmatter schema;
