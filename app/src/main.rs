@@ -1,5 +1,7 @@
+mod api;
 mod app;
 mod auth;
+mod workspace;
 
 use app::App;
 use dioxus::prelude::*;
