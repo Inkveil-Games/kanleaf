@@ -291,6 +291,11 @@ h1 {
   white-space: nowrap;
 }
 
+.server-status {
+  color: #84bd9a;
+  font-size: 10px;
+}
+
 .server-setting.editing {
   align-items: stretch;
   flex-direction: column;

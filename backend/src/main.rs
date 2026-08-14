@@ -7,6 +7,7 @@ use std::{env, error::Error, io};
 
 use axum::{
     Json, Router,
+    extract::State,
     http::{HeaderValue, Method, header::CONTENT_TYPE},
     routing::get,
 };
@@ -18,6 +19,13 @@ use tower_http::cors::CorsLayer;
 #[derive(Serialize)]
 struct HelloResponse {
     message: &'static str,
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    version: &'static str,
+    database: &'static str,
 }
 
 #[tokio::main]
@@ -36,8 +44,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     sqlx::migrate!("./migrations").run(&database).await?;
     let listener = TcpListener::bind(&address).await?;
     let state = state::AppState::new(database);
+    let health_router = Router::new()
+        .route("/api/health", get(health))
+        .with_state(state.clone());
     let app = Router::new()
         .route("/api/hello", get(hello))
+        .merge(health_router)
         .nest("/api/auth", auth::router(state.clone()))
         .nest("/api/workspaces", workspace::router(state.clone()))
         .merge(project::router(state))
@@ -47,6 +59,43 @@ async fn main() -> Result<(), Box<dyn Error>> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn health(
+    State(state): State<state::AppState>,
+) -> (axum::http::StatusCode, Json<HealthResponse>) {
+    match sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(state.db())
+        .await
+    {
+        Ok(1) => (
+            axum::http::StatusCode::OK,
+            Json(HealthResponse {
+                status: "ok",
+                version: env!("CARGO_PKG_VERSION"),
+                database: "ok",
+            }),
+        ),
+        Ok(_) => (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(HealthResponse {
+                status: "error",
+                version: env!("CARGO_PKG_VERSION"),
+                database: "unavailable",
+            }),
+        ),
+        Err(error) => {
+            eprintln!("Database health check failed: {error}");
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(HealthResponse {
+                    status: "error",
+                    version: env!("CARGO_PKG_VERSION"),
+                    database: "unavailable",
+                }),
+            )
+        }
+    }
 }
 
 async fn hello() -> Json<HelloResponse> {
@@ -65,4 +114,19 @@ fn cors() -> CorsLayer {
         ])
         .allow_methods([Method::GET, Method::POST, Method::PATCH])
         .allow_headers([CONTENT_TYPE, axum::http::header::AUTHORIZATION])
+}
+
+#[cfg(all(test, feature = "postgres-tests"))]
+mod tests {
+    use super::*;
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn health_reports_database_and_package_version(pool: sqlx::PgPool) {
+        let (status, Json(response)) = health(State(state::AppState::new(pool))).await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(response.status, "ok");
+        assert_eq!(response.database, "ok");
+        assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    }
 }

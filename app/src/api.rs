@@ -17,6 +17,18 @@ struct ApiErrorResponse {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct HealthResponse {
+    status: String,
+    version: String,
+    database: String,
+}
+
+pub struct ServerConnection {
+    pub url: String,
+    pub version: String,
+}
+
 pub async fn get_json<R>(path: &str, token: &str) -> Result<R, String>
 where
     R: DeserializeOwned,
@@ -79,6 +91,31 @@ pub fn configure_server_url(value: &str) -> Result<String, String> {
     store_server_url(&normalized)?;
     SERVER_URL.with(|server_url| *server_url.borrow_mut() = normalized.clone());
     Ok(normalized)
+}
+
+pub async fn check_server(value: &str) -> Result<ServerConnection, String> {
+    let url = normalize_server_url(value)?;
+    let response = Request::get(&format!("{url}/api/health"))
+        .send()
+        .await
+        .map_err(|_| "Could not reach this server.".to_owned())?;
+    let response_ok = response.ok();
+    let health = response
+        .json::<HealthResponse>()
+        .await
+        .map_err(|_| "The server responded, but it is not a Kanleaf server.".to_owned())?;
+
+    if health.database != "ok" {
+        return Err("The Kanleaf server is reachable, but its database is unavailable.".to_owned());
+    }
+    if !response_ok || health.status != "ok" {
+        return Err("The Kanleaf server is not healthy.".to_owned());
+    }
+
+    Ok(ServerConnection {
+        url,
+        version: health.version,
+    })
 }
 
 fn normalize_server_url(value: &str) -> Result<String, String> {

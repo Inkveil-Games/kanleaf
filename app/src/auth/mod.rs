@@ -390,20 +390,32 @@ fn ServerSetting(current_url: String, on_changed: EventHandler<String>) -> Eleme
     let mut editing = use_signal(|| false);
     let mut value = use_signal(|| current_url.clone());
     let mut error = use_signal(|| None::<String>);
+    let mut connected_version = use_signal(|| None::<String>);
+    let mut checking = use_signal(|| false);
 
     if *editing.read() {
         return rsx! {
             form {
                 class: "server-setting editing",
-                onsubmit: move |event| {
+                onsubmit: move |event| async move {
                     event.prevent_default();
                     let submitted_url = value.read().clone();
-                    match crate::api::configure_server_url(&submitted_url) {
-                        Ok(url) => {
-                            value.set(url.clone());
-                            error.set(None);
-                            editing.set(false);
-                            on_changed.call(url);
+                    error.set(None);
+                    checking.set(true);
+                    let result = crate::api::check_server(&submitted_url).await;
+                    checking.set(false);
+
+                    match result {
+                        Ok(connection) => {
+                            match crate::api::configure_server_url(&connection.url) {
+                                Ok(url) => {
+                                    value.set(url.clone());
+                                    connected_version.set(Some(connection.version));
+                                    editing.set(false);
+                                    on_changed.call(url);
+                                }
+                                Err(message) => error.set(Some(message)),
+                            }
                         }
                         Err(message) => error.set(Some(message)),
                     }
@@ -422,10 +434,16 @@ fn ServerSetting(current_url: String, on_changed: EventHandler<String>) -> Eleme
                     },
                 }
                 div { class: "server-actions",
-                    button { class: "text-button", r#type: "submit", "Save" }
+                    button {
+                        class: "text-button",
+                        r#type: "submit",
+                        disabled: *checking.read(),
+                        if *checking.read() { "Checking…" } else { "Save" }
+                    }
                     button {
                         class: "text-button muted",
                         r#type: "button",
+                        disabled: *checking.read(),
                         onclick: move |_| {
                             value.set(current_url.clone());
                             error.set(None);
@@ -445,6 +463,9 @@ fn ServerSetting(current_url: String, on_changed: EventHandler<String>) -> Eleme
         div { class: "server-setting",
             span { "Server:" }
             code { title: "{current_url}", "{current_url}" }
+            if let Some(version) = connected_version.read().clone() {
+                span { class: "server-status", title: "Connected", "v{version}" }
+            }
             button {
                 class: "text-button",
                 r#type: "button",
