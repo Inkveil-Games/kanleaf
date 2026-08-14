@@ -77,3 +77,49 @@ make db-down
 ```
 
 This keeps the PostgreSQL data in its Docker volume.
+
+## Self-host
+
+The self-host stack runs the Kanleaf backend and PostgreSQL together. Run these
+commands from the repository root.
+
+Create a private deployment configuration file, then edit its data directory,
+bind address, port, and PostgreSQL password:
+
+```bash
+cp infra/self-host/.env.example infra/self-host/.env
+```
+
+`infra/self-host/.env` is ignored by Git. Use a strong URL-safe database
+password because Compose uses it to construct `DATABASE_URL`.
+
+Start the stack:
+
+```bash
+docker compose \
+  --env-file infra/self-host/.env \
+  -f infra/self-host/compose.yaml \
+  up -d --build
+```
+
+The backend runs migrations automatically. Check it after the services start:
+
+```bash
+curl http://127.0.0.1:3000/api/health
+```
+
+Use the address and port configured in `infra/self-host/.env` if they differ.
+The login screen's **Server** control lets each client select this address
+without rebuilding Kanleaf.
+
+View logs or stop the stack with:
+
+```bash
+docker compose --env-file infra/self-host/.env -f infra/self-host/compose.yaml logs -f
+docker compose --env-file infra/self-host/.env -f infra/self-host/compose.yaml down
+```
+
+Stopping the stack keeps PostgreSQL files under
+`KANLEAF_DATA_DIR/postgres`. PostgreSQL is not published to the host. To expose
+Kanleaf directly on a trusted LAN or VPN, set `KANLEAF_BIND_ADDRESS=0.0.0.0`.
+TLS, domains, reverse proxies, and VPNs remain external deployment concerns.
