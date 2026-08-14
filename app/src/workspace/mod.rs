@@ -1,11 +1,13 @@
 mod api;
 mod sidebar;
+mod task_list;
 
 use dioxus::prelude::*;
 
 use crate::project::Project;
 use api::{Workspace, list as list_workspaces};
 use sidebar::WorkspaceSidebar;
+use task_list::TaskCollection;
 
 #[derive(Clone, Debug, PartialEq)]
 enum WorkspaceView {
@@ -66,7 +68,7 @@ pub fn WorkspaceShell(token: String, user_email: String, on_logout: EventHandler
     rsx! {
         main { class: "workspace-shell",
             WorkspaceSidebar {
-                token,
+                token: token.clone(),
                 user_email,
                 workspace: workspace_value,
                 projects,
@@ -81,8 +83,34 @@ pub fn WorkspaceShell(token: String, user_email: String, on_logout: EventHandler
                 header { class: "content-header",
                     h1 { "{page_title}" }
                 }
-                div { class: "content-empty",
-                    p { "{empty_message}" }
+                if let Some(workspace) = workspace.read().clone() {
+                    match &active_view_value {
+                        WorkspaceView::Inbox => rsx! {
+                            TaskCollection {
+                                key: "{workspace.id}:inbox",
+                                token: token.clone(),
+                                workspace_id: workspace.id,
+                                project_id: None,
+                            }
+                        },
+                        WorkspaceView::Project(project_id) => rsx! {
+                            TaskCollection {
+                                key: "{workspace.id}:{project_id}",
+                                token: token.clone(),
+                                workspace_id: workspace.id,
+                                project_id: Some(project_id.clone()),
+                            }
+                        },
+                        _ => rsx! {
+                            div { class: "content-empty",
+                                p { "{empty_message}" }
+                            }
+                        },
+                    }
+                } else if !*loading.read() {
+                    div { class: "content-empty",
+                        p { "No workspace selected." }
+                    }
                 }
                 if let Some(message) = error_message {
                     p { class: "shell-error", role: "alert", "{message}" }

@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod auth;
 mod project;
+mod task;
 mod workspace;
 
 use app::App;
