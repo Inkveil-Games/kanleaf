@@ -3,8 +3,8 @@ use dioxus::prelude::*;
 use crate::{
     project::Project,
     task::{
-        Task, TaskStatus, create, list_inbox, list_project, update_project, update_status,
-        update_title,
+        Task, TaskStatus, create, get_content, list_inbox, list_project, update_content,
+        update_project, update_status, update_title,
     },
 };
 
@@ -213,6 +213,19 @@ mod tests {
         assert!(task_belongs_to_scope(&task, &Some("project-a".to_owned())));
         assert!(!task_belongs_to_scope(&task, &Some("project-b".to_owned())));
     }
+
+    #[test]
+    fn save_shortcut_accepts_control_and_command() {
+        let key = Key::Character("s".to_owned());
+
+        assert!(is_save_shortcut(&key, Modifiers::CONTROL));
+        assert!(is_save_shortcut(&key, Modifiers::META));
+        assert!(!is_save_shortcut(&key, Modifiers::SHIFT));
+        assert!(!is_save_shortcut(
+            &Key::Character("x".to_owned()),
+            Modifiers::CONTROL
+        ));
+    }
 }
 
 #[component]
@@ -226,6 +239,31 @@ fn TaskDetail(
     let mut title = use_signal(|| task.title.clone());
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let mut markdown = use_signal(String::new);
+    let mut saved_markdown = use_signal(String::new);
+    let mut content_loading = use_signal(|| true);
+    let content_saving = use_signal(|| false);
+    let mut content_error = use_signal(|| None::<String>);
+
+    let token_for_content_load = token.clone();
+    let workspace_for_content_load = workspace_id.clone();
+    let task_for_content_load = task.id.clone();
+    use_future(move || {
+        let token = token_for_content_load.clone();
+        let workspace_id = workspace_for_content_load.clone();
+        let task_id = task_for_content_load.clone();
+        async move {
+            match get_content(&token, &workspace_id, &task_id).await {
+                Ok(content) => {
+                    markdown.set(content.clone());
+                    saved_markdown.set(content);
+                    content_error.set(None);
+                }
+                Err(message) => content_error.set(Some(message)),
+            }
+            content_loading.set(false);
+        }
+    });
 
     let title_updated = on_updated;
     let status_updated = on_updated;
@@ -236,9 +274,16 @@ fn TaskDetail(
     let token_for_status = token.clone();
     let workspace_for_status = workspace_id.clone();
     let task_for_status = task.id.clone();
-    let token_for_project = token;
-    let workspace_for_project = workspace_id;
+    let token_for_project = token.clone();
+    let workspace_for_project = workspace_id.clone();
     let task_for_project = task.id.clone();
+    let token_for_content_save = token.clone();
+    let workspace_for_content_save = workspace_id.clone();
+    let task_for_content_save = task.id.clone();
+    let token_for_shortcut = token;
+    let workspace_for_shortcut = workspace_id;
+    let task_for_shortcut = task.id.clone();
+    let has_unsaved_content = *markdown.read() != *saved_markdown.read();
 
     rsx! {
         article { class: "task-detail",
@@ -354,8 +399,82 @@ fn TaskDetail(
                 }
             }
 
-            div { class: "task-document-placeholder",
-                p { "Markdown content will be added in a later milestone." }
+            form {
+                class: "task-document-editor",
+                onsubmit: move |event| {
+                    event.prevent_default();
+                    let token = token_for_content_save.clone();
+                    let workspace_id = workspace_for_content_save.clone();
+                    let task_id = task_for_content_save.clone();
+                    let content = markdown.read().clone();
+                    async move {
+                        save_markdown(
+                            token,
+                            workspace_id,
+                            task_id,
+                            content,
+                            saved_markdown,
+                            content_saving,
+                            content_error,
+                        )
+                        .await;
+                    }
+                },
+                div { class: "task-document-toolbar",
+                    span { class: "task-document-label", "Markdown" }
+                    span {
+                        class: if has_unsaved_content { "task-document-state unsaved" } else { "task-document-state" },
+                        if *content_loading.read() {
+                            "Loading…"
+                        } else if *content_saving.read() {
+                            "Saving…"
+                        } else if has_unsaved_content {
+                            "Unsaved"
+                        } else {
+                            "Saved"
+                        }
+                    }
+                    button {
+                        r#type: "submit",
+                        disabled: *content_loading.read()
+                            || *content_saving.read()
+                            || !has_unsaved_content,
+                        "Save"
+                    }
+                }
+                textarea {
+                    class: "task-markdown-editor",
+                    aria_label: "Task Markdown content",
+                    placeholder: "Write Markdown…",
+                    disabled: *content_loading.read(),
+                    value: markdown,
+                    oninput: move |event| markdown.set(event.value()),
+                    onkeydown: move |event| {
+                        if !is_save_shortcut(&event.key(), event.modifiers()) {
+                            return;
+                        }
+                        event.prevent_default();
+                        let token = token_for_shortcut.clone();
+                        let workspace_id = workspace_for_shortcut.clone();
+                        let task_id = task_for_shortcut.clone();
+                        let content = markdown.read().clone();
+                        spawn(async move {
+                            save_markdown(
+                                token,
+                                workspace_id,
+                                task_id,
+                                content,
+                                saved_markdown,
+                                content_saving,
+                                content_error,
+                            )
+                            .await;
+                        });
+                    },
+                }
+                if let Some(message) = content_error.read().clone() {
+                    p { class: "task-document-error", role: "alert", "{message}" }
+                }
             }
 
             if let Some(message) = error.read().clone() {
@@ -363,4 +482,33 @@ fn TaskDetail(
             }
         }
     }
+}
+
+async fn save_markdown(
+    token: String,
+    workspace_id: String,
+    task_id: String,
+    content: String,
+    mut saved_markdown: Signal<String>,
+    mut saving: Signal<bool>,
+    mut error: Signal<Option<String>>,
+) {
+    if *saving.read() {
+        return;
+    }
+
+    saving.set(true);
+    match update_content(&token, &workspace_id, &task_id, &content).await {
+        Ok(saved) => {
+            saved_markdown.set(saved);
+            error.set(None);
+        }
+        Err(message) => error.set(Some(message)),
+    }
+    saving.set(false);
+}
+
+fn is_save_shortcut(key: &Key, modifiers: Modifiers) -> bool {
+    matches!(key, Key::Character(value) if value.eq_ignore_ascii_case("s"))
+        && (modifiers.contains(Modifiers::CONTROL) || modifiers.contains(Modifiers::META))
 }

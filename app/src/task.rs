@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::api::{get_json, patch_json, post_json};
+use crate::api::{get_json, patch_json, post_json, put_json};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,6 +73,16 @@ struct UpdateStatusRequest {
 #[derive(Serialize)]
 struct UpdateProjectRequest<'a> {
     project_id: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct MarkdownContentResponse {
+    content: String,
+}
+
+#[derive(Serialize)]
+struct MarkdownContentRequest<'a> {
+    content: &'a str,
 }
 
 pub async fn list_inbox(token: &str, workspace_id: &str) -> Result<Vec<Task>, String> {
@@ -149,6 +159,30 @@ pub async fn update_project(
         &UpdateProjectRequest { project_id },
     )
     .await
+}
+
+pub async fn get_content(token: &str, workspace_id: &str, task_id: &str) -> Result<String, String> {
+    get_json::<MarkdownContentResponse>(
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/content"),
+        token,
+    )
+    .await
+    .map(|response| response.content)
+}
+
+pub async fn update_content(
+    token: &str,
+    workspace_id: &str,
+    task_id: &str,
+    content: &str,
+) -> Result<String, String> {
+    put_json::<_, MarkdownContentResponse>(
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/content"),
+        token,
+        &MarkdownContentRequest { content },
+    )
+    .await
+    .map(|response| response.content)
 }
 
 #[cfg(test)]

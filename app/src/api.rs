@@ -74,6 +74,21 @@ where
     decode(response).await
 }
 
+pub async fn put_json<T, R>(path: &str, token: &str, body: &T) -> Result<R, String>
+where
+    T: Serialize + ?Sized,
+    R: DeserializeOwned,
+{
+    let response = Request::put(&url(path))
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(body)
+        .map_err(|_| "Could not prepare the request.".to_owned())?
+        .send()
+        .await
+        .map_err(|_| "Could not reach the Kanleaf backend.".to_owned())?;
+    decode(response).await
+}
+
 async fn decode<R>(response: Response) -> Result<R, String>
 where
     R: DeserializeOwned,
