@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::time::SystemTime;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use axum::{
@@ -15,20 +12,11 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
-struct AppState {
-    auth: Arc<Mutex<AuthStore>>,
-}
-
-#[derive(Default)]
-struct AuthStore {
-    users: HashMap<String, User>,
-    sessions: HashMap<String, String>,
-}
-
-struct User {
-    password_hash: String,
-}
+use crate::state::{AppState, AppStore, StoredUser};
+use kanleaf_backend::domain::{
+    user::UserId,
+    workspace::{Workspace, WorkspaceMembership, WorkspaceRole},
+};
 
 #[derive(Deserialize)]
 struct EmailRequest {
@@ -116,14 +104,14 @@ impl IntoResponse for ApiError {
     }
 }
 
-pub fn router() -> Router {
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/email", post(check_email))
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/forgot-password", post(forgot_password))
-        .with_state(AppState::default())
+        .with_state(state)
 }
 
 async fn check_email(
@@ -131,7 +119,7 @@ async fn check_email(
     Json(request): Json<EmailRequest>,
 ) -> Result<Json<EmailStatusResponse>, ApiError> {
     let email = normalize_email(&request.email)?;
-    let exists = auth_store(&state)?.users.contains_key(&email);
+    let exists = app_store(&state)?.users.contains_key(&email);
 
     Ok(Json(EmailStatusResponse { exists }))
 }
@@ -147,7 +135,7 @@ async fn register(
         return Err(ApiError::bad_request("The passwords do not match."));
     }
 
-    if auth_store(&state)?.users.contains_key(&email) {
+    if app_store(&state)?.users.contains_key(&email) {
         return Err(ApiError {
             status: StatusCode::CONFLICT,
             message: "An account already exists for this email.",
@@ -159,8 +147,13 @@ async fn register(
         .await
         .map_err(ApiError::internal)??;
     let token = Uuid::new_v4().to_string();
+    let user_id = UserId::new();
+    let personal_workspace =
+        Workspace::new("Personal", SystemTime::now()).map_err(ApiError::internal)?;
+    let personal_workspace_id = personal_workspace.id();
+    let membership = WorkspaceMembership::new(personal_workspace_id, user_id, WorkspaceRole::Owner);
 
-    let mut store = auth_store(&state)?;
+    let mut store = app_store(&state)?;
     if store.users.contains_key(&email) {
         return Err(ApiError {
             status: StatusCode::CONFLICT,
@@ -168,8 +161,18 @@ async fn register(
         });
     }
 
-    store.users.insert(email.clone(), User { password_hash });
-    store.sessions.insert(token.clone(), email.clone());
+    store.users.insert(
+        email.clone(),
+        StoredUser {
+            id: user_id,
+            password_hash,
+        },
+    );
+    store.sessions.insert(token.clone(), user_id);
+    store
+        .workspaces
+        .insert(personal_workspace_id, personal_workspace);
+    store.workspace_memberships.push(membership);
 
     Ok((StatusCode::CREATED, Json(AuthResponse { email, token })))
 }
@@ -179,10 +182,10 @@ async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
     let email = normalize_email(&request.email)?;
-    let password_hash = auth_store(&state)?
+    let (user_id, password_hash) = app_store(&state)?
         .users
         .get(&email)
-        .map(|user| user.password_hash.clone())
+        .map(|user| (user.id, user.password_hash.clone()))
         .ok_or_else(ApiError::unauthorized)?;
     let password = request.password;
     let password_is_valid =
@@ -195,9 +198,7 @@ async fn login(
     }
 
     let token = Uuid::new_v4().to_string();
-    auth_store(&state)?
-        .sessions
-        .insert(token.clone(), email.clone());
+    app_store(&state)?.sessions.insert(token.clone(), user_id);
 
     Ok(Json(AuthResponse { email, token }))
 }
@@ -206,7 +207,7 @@ async fn logout(
     State(state): State<AppState>,
     Json(request): Json<LogoutRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    auth_store(&state)?.sessions.remove(&request.token);
+    app_store(&state)?.sessions.remove(&request.token);
 
     Ok(Json(MessageResponse {
         message: "Signed out.",
@@ -223,11 +224,8 @@ async fn forgot_password(
     }))
 }
 
-fn auth_store(state: &AppState) -> Result<MutexGuard<'_, AuthStore>, ApiError> {
-    state
-        .auth
-        .lock()
-        .map_err(|_| ApiError::internal("authentication store lock was poisoned"))
+fn app_store(state: &AppState) -> Result<std::sync::MutexGuard<'_, AppStore>, ApiError> {
+    state.lock().map_err(ApiError::internal)
 }
 
 fn normalize_email(email: &str) -> Result<String, ApiError> {
@@ -296,5 +294,55 @@ mod tests {
         let hash = hash_password("correct horse").unwrap();
         assert!(verify_password("correct horse", &hash).unwrap());
         assert!(!verify_password("wrong password", &hash).unwrap());
+    }
+
+    #[tokio::test]
+    async fn registration_creates_an_isolated_personal_workspace() {
+        let state = AppState::default();
+
+        for email in ["first@example.com", "second@example.com"] {
+            let _ = register(
+                State(state.clone()),
+                Json(RegisterRequest {
+                    email: email.to_owned(),
+                    password: "correct horse".to_owned(),
+                    password_confirmation: "correct horse".to_owned(),
+                }),
+            )
+            .await
+            .unwrap();
+        }
+
+        let store = state.lock().unwrap();
+        let first_user_id = store.users["first@example.com"].id;
+        let second_user_id = store.users["second@example.com"].id;
+        let first_memberships = store
+            .workspace_memberships
+            .iter()
+            .filter(|membership| membership.user_id() == first_user_id)
+            .collect::<Vec<_>>();
+        let second_memberships = store
+            .workspace_memberships
+            .iter()
+            .filter(|membership| membership.user_id() == second_user_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(store.workspaces.len(), 2);
+        assert_eq!(first_memberships.len(), 1);
+        assert_eq!(second_memberships.len(), 1);
+        assert_eq!(first_memberships[0].role(), WorkspaceRole::Owner);
+        assert_eq!(second_memberships[0].role(), WorkspaceRole::Owner);
+        assert_ne!(
+            first_memberships[0].workspace_id(),
+            second_memberships[0].workspace_id()
+        );
+        assert_eq!(
+            store.workspaces[&first_memberships[0].workspace_id()].name(),
+            "Personal"
+        );
+        assert_eq!(
+            store.workspaces[&second_memberships[0].workspace_id()].name(),
+            "Personal"
+        );
     }
 }

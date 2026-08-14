@@ -1,4 +1,5 @@
 mod auth;
+mod state;
 
 use std::{env, error::Error};
 
@@ -20,9 +21,10 @@ struct HelloResponse {
 async fn main() -> Result<(), Box<dyn Error>> {
     let address = env::var("BACKEND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let listener = TcpListener::bind(&address).await?;
+    let state = state::AppState::default();
     let app = Router::new()
         .route("/api/hello", get(hello))
-        .nest("/api/auth", auth::router())
+        .nest("/api/auth", auth::router(state))
         .layer(cors());
 
     println!("Backend listening on http://{address}");
