@@ -2,26 +2,26 @@
 
 use dioxus::prelude::*;
 
-use crate::auth::{AuthFlow, logout};
+use crate::auth::{AuthFlow, AuthSession, logout};
 use crate::workspace::WorkspaceShell;
 
 static CSS: Asset = asset!("/assets/styles.css");
 
 pub fn App() -> Element {
-    let mut session_token = use_signal(|| None::<String>);
+    let mut session = use_signal(|| None::<AuthSession>);
 
-    if let Some(token) = session_token.read().clone() {
-        let token_for_shell = token.clone();
-        let token_for_logout = token.clone();
+    if let Some(current_session) = session.read().clone() {
+        let token_for_logout = current_session.token.clone();
         return rsx! {
             document::Link { rel: "stylesheet", href: CSS }
             WorkspaceShell {
-                token: token_for_shell,
+                token: current_session.token,
+                user_email: current_session.email,
                 on_logout: move |_| {
                     let token = token_for_logout.clone();
                     spawn(async move {
                         let _ = logout(&token).await;
-                        session_token.set(None);
+                        session.set(None);
                     });
                 }
             }
@@ -31,7 +31,7 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: CSS }
         AuthFlow {
-            on_authenticated: move |token| session_token.set(Some(token)),
+            on_authenticated: move |authenticated_session| session.set(Some(authenticated_session)),
         }
     }
 }

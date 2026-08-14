@@ -38,18 +38,6 @@ where
     decode(response).await
 }
 
-pub async fn post_empty_json<R>(path: &str, token: &str) -> Result<R, String>
-where
-    R: DeserializeOwned,
-{
-    let response = Request::post(&url(path))
-        .header("Authorization", &format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|_| "Could not reach the Kanleaf backend.".to_owned())?;
-    decode(response).await
-}
-
 async fn decode<R>(response: Response) -> Result<R, String>
 where
     R: DeserializeOwned,

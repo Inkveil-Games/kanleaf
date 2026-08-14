@@ -6,6 +6,12 @@ pub use api::logout;
 use api::{email_exists, login, register, request_password_reset};
 
 #[derive(Clone, PartialEq)]
+pub struct AuthSession {
+    pub email: String,
+    pub token: String,
+}
+
+#[derive(Clone, PartialEq)]
 enum AuthStep {
     Email,
     Login { email: String },
@@ -14,7 +20,7 @@ enum AuthStep {
 }
 
 #[component]
-pub fn AuthFlow(on_authenticated: EventHandler<String>) -> Element {
+pub fn AuthFlow(on_authenticated: EventHandler<AuthSession>) -> Element {
     let mut step = use_signal(|| AuthStep::Email);
     let mut email = use_signal(String::new);
     let mut password = use_signal(String::new);
@@ -138,7 +144,10 @@ pub fn AuthFlow(on_authenticated: EventHandler<String>) -> Element {
                             match result {
                                 Ok(token) => {
                                     password.set(String::new());
-                                    on_authenticated.call(token);
+                                    on_authenticated.call(AuthSession {
+                                        email: account_email,
+                                        token,
+                                    });
                                 }
                                 Err(message) => error.set(Some(message)),
                             }
@@ -242,7 +251,10 @@ pub fn AuthFlow(on_authenticated: EventHandler<String>) -> Element {
                                 Ok(token) => {
                                     password.set(String::new());
                                     password_confirmation.set(String::new());
-                                    on_authenticated.call(token);
+                                    on_authenticated.call(AuthSession {
+                                        email: account_email,
+                                        token,
+                                    });
                                 }
                                 Err(message) => error.set(Some(message)),
                             }
