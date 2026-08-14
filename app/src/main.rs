@@ -1,4 +1,5 @@
 mod app;
+mod auth;
 
 use app::App;
 use dioxus::prelude::*;
