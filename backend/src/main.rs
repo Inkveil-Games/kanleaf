@@ -1,6 +1,7 @@
 mod auth;
 mod project;
 mod state;
+mod task;
 mod workspace;
 
 use std::{env, error::Error, io};
@@ -52,7 +53,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .merge(health_router)
         .nest("/api/auth", auth::router(state.clone()))
         .nest("/api/workspaces", workspace::router(state.clone()))
-        .merge(project::router(state))
+        .merge(project::router(state.clone()))
+        .merge(task::router(state))
         .layer(cors());
 
     println!("Backend listening on http://{address}");
