@@ -91,6 +91,7 @@ pub fn WorkspaceShell(token: String, user_email: String, on_logout: EventHandler
                                 token: token.clone(),
                                 workspace_id: workspace.id,
                                 project_id: None,
+                                projects: project_items.clone(),
                             }
                         },
                         WorkspaceView::Project(project_id) => rsx! {
@@ -99,6 +100,7 @@ pub fn WorkspaceShell(token: String, user_email: String, on_logout: EventHandler
                                 token: token.clone(),
                                 workspace_id: workspace.id,
                                 project_id: Some(project_id.clone()),
+                                projects: project_items.clone(),
                             }
                         },
                         _ => rsx! {

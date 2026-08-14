@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::api::{get_json, post_json};
+use crate::api::{get_json, patch_json, post_json};
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Todo,
@@ -26,6 +26,23 @@ impl TaskStatus {
             Self::Done => "done",
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Todo => "todo",
+            Self::InProgress => "in_progress",
+            Self::Done => "done",
+        }
+    }
+
+    pub fn from_value(value: &str) -> Option<Self> {
+        match value {
+            "todo" => Some(Self::Todo),
+            "in_progress" => Some(Self::InProgress),
+            "done" => Some(Self::Done),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -40,6 +57,21 @@ pub struct Task {
 #[derive(Serialize)]
 struct CreateTaskRequest<'a> {
     title: &'a str,
+    project_id: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct UpdateTitleRequest<'a> {
+    title: &'a str,
+}
+
+#[derive(Serialize)]
+struct UpdateStatusRequest {
+    status: TaskStatus,
+}
+
+#[derive(Serialize)]
+struct UpdateProjectRequest<'a> {
     project_id: Option<&'a str>,
 }
 
@@ -77,6 +109,48 @@ pub async fn create(
     .await
 }
 
+pub async fn update_title(
+    token: &str,
+    workspace_id: &str,
+    task_id: &str,
+    title: &str,
+) -> Result<Task, String> {
+    patch_json(
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+        token,
+        &UpdateTitleRequest { title },
+    )
+    .await
+}
+
+pub async fn update_status(
+    token: &str,
+    workspace_id: &str,
+    task_id: &str,
+    status: TaskStatus,
+) -> Result<Task, String> {
+    patch_json(
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+        token,
+        &UpdateStatusRequest { status },
+    )
+    .await
+}
+
+pub async fn update_project(
+    token: &str,
+    workspace_id: &str,
+    task_id: &str,
+    project_id: Option<&str>,
+) -> Result<Task, String> {
+    patch_json(
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+        token,
+        &UpdateProjectRequest { project_id },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +163,11 @@ mod tests {
         assert_eq!(TaskStatus::Todo.class_name(), "todo");
         assert_eq!(TaskStatus::InProgress.class_name(), "in-progress");
         assert_eq!(TaskStatus::Done.class_name(), "done");
+        assert_eq!(TaskStatus::Todo.as_str(), "todo");
+        assert_eq!(
+            TaskStatus::from_value("in_progress"),
+            Some(TaskStatus::InProgress)
+        );
+        assert_eq!(TaskStatus::from_value("blocked"), None);
     }
 }
