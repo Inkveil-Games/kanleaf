@@ -1,4 +1,5 @@
 mod auth;
+mod project;
 mod state;
 mod workspace;
 
@@ -26,7 +27,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = Router::new()
         .route("/api/hello", get(hello))
         .nest("/api/auth", auth::router(state.clone()))
-        .nest("/api/workspaces", workspace::router(state))
+        .nest("/api/workspaces", workspace::router(state.clone()))
+        .merge(project::router(state))
         .layer(cors());
 
     println!("Backend listening on http://{address}");
@@ -49,6 +51,6 @@ fn cors() -> CorsLayer {
             HeaderValue::from_static("http://tauri.localhost"),
             HeaderValue::from_static("tauri://localhost"),
         ])
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::PATCH])
         .allow_headers([CONTENT_TYPE, axum::http::header::AUTHORIZATION])
 }

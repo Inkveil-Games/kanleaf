@@ -5,6 +5,7 @@ use std::{
 };
 
 use kanleaf_backend::domain::{
+    project::Project,
     user::UserId,
     workspace::{Workspace, WorkspaceId, WorkspaceMembership},
 };
@@ -21,6 +22,7 @@ pub struct AppStore {
     pub workspaces: HashMap<WorkspaceId, Workspace>,
     pub workspace_memberships: Vec<WorkspaceMembership>,
     pub active_workspaces: HashMap<UserId, WorkspaceId>,
+    pub projects: Vec<Project>,
 }
 
 pub struct StoredUser {

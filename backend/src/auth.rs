@@ -104,6 +104,13 @@ impl ApiError {
             message,
         }
     }
+
+    pub fn not_found(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {

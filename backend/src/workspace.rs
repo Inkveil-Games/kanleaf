@@ -207,14 +207,15 @@ fn ensure_membership(
     user_id: UserId,
     workspace_id: WorkspaceId,
 ) -> Result<(), WorkspaceOperationError> {
-    store
-        .workspace_memberships
-        .iter()
-        .any(|membership| {
-            membership.user_id() == user_id && membership.workspace_id() == workspace_id
-        })
+    has_membership(store, user_id, workspace_id)
         .then_some(())
         .ok_or(WorkspaceOperationError::AccessDenied)
+}
+
+pub(crate) fn has_membership(store: &AppStore, user_id: UserId, workspace_id: WorkspaceId) -> bool {
+    store.workspace_memberships.iter().any(|membership| {
+        membership.user_id() == user_id && membership.workspace_id() == workspace_id
+    })
 }
 
 fn map_domain_error(error: WorkspaceError) -> WorkspaceOperationError {
