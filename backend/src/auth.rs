@@ -356,7 +356,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let state = AppState::new(pool.clone());
+        let state = AppState::new(
+            pool.clone(),
+            kanleaf_backend::vault::Vault::new(std::env::temp_dir().join("kanleaf-auth-test")),
+        );
 
         let Json(response) = login(
             State(state.clone()),

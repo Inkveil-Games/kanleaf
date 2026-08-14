@@ -50,7 +50,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     sqlx::migrate!("./migrations").run(&database).await?;
     let listener = TcpListener::bind(&address).await?;
-    let state = state::AppState::new(database);
+    println!("Vault data directory: {}", vault.root().display());
+    let state = state::AppState::new(database, vault);
     let health_router = Router::new()
         .route("/api/health", get(health))
         .with_state(state.clone());
@@ -64,7 +65,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .layer(cors());
 
     println!("Backend listening on http://{address}");
-    println!("Vault data directory: {}", vault.root().display());
     axum::serve(listener, app).await?;
 
     Ok(())
@@ -121,7 +121,7 @@ fn cors() -> CorsLayer {
             HeaderValue::from_static("http://tauri.localhost"),
             HeaderValue::from_static("tauri://localhost"),
         ])
-        .allow_methods([Method::GET, Method::POST, Method::PATCH])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH])
         .allow_headers([CONTENT_TYPE, axum::http::header::AUTHORIZATION])
 }
 
@@ -131,7 +131,11 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn health_reports_database_and_package_version(pool: sqlx::PgPool) {
-        let (status, Json(response)) = health(State(state::AppState::new(pool))).await;
+        let state = state::AppState::new(
+            pool,
+            Vault::new(std::env::temp_dir().join("kanleaf-health-test")),
+        );
+        let (status, Json(response)) = health(State(state)).await;
 
         assert_eq!(status, axum::http::StatusCode::OK);
         assert_eq!(response.status, "ok");

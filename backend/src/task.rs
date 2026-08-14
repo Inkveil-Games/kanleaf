@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use axum::{
     Json, Router,
+    extract::DefaultBodyLimit,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
@@ -34,6 +35,16 @@ struct UpdateTaskRequest {
     status: Option<String>,
     #[serde(default, deserialize_with = "deserialize_project_update")]
     project_id: ProjectUpdate,
+}
+
+#[derive(Deserialize)]
+struct MarkdownContentRequest {
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MarkdownContentResponse {
+    content: String,
 }
 
 #[derive(Default)]
@@ -114,6 +125,12 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/workspaces/{workspace_id}/tasks/{task_id}",
             get(get_task).patch(update_task),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/content",
+            get(get_task_content)
+                .put(update_task_content)
+                .layer(DefaultBodyLimit::max(1024 * 1024)),
         )
         .with_state(state)
 }
@@ -196,10 +213,7 @@ async fn get_task(
     let workspace_id = parse_workspace_id(&workspace_id)?;
     let task_id = parse_task_id(&task_id)?;
     ensure_workspace_access(&state, user_id, workspace_id).await?;
-    let task = task::find_for_user(state.db(), user_id, workspace_id, task_id)
-        .await
-        .map_err(ApiError::internal)?
-        .ok_or(TaskOperationError::NotFound)?;
+    let task = find_task(&state, user_id, workspace_id, task_id).await?;
 
     Ok(Json((&task).into()))
 }
@@ -214,10 +228,7 @@ async fn update_task(
     let workspace_id = parse_workspace_id(&workspace_id)?;
     let task_id = parse_task_id(&task_id)?;
     ensure_workspace_access(&state, user_id, workspace_id).await?;
-    let mut task = task::find_for_user(state.db(), user_id, workspace_id, task_id)
-        .await
-        .map_err(ApiError::internal)?
-        .ok_or(TaskOperationError::NotFound)?;
+    let mut task = find_task(&state, user_id, workspace_id, task_id).await?;
     let now = SystemTime::now();
 
     if let Some(title) = request.title {
@@ -242,6 +253,60 @@ async fn update_task(
         })?;
 
     Ok(Json((&task).into()))
+}
+
+async fn get_task_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((workspace_id, task_id)): Path<(String, String)>,
+) -> Result<Json<MarkdownContentResponse>, ApiError> {
+    let user_id = authenticated_user(&headers, &state).await?;
+    let workspace_id = parse_workspace_id(&workspace_id)?;
+    let task_id = parse_task_id(&task_id)?;
+    ensure_workspace_access(&state, user_id, workspace_id).await?;
+    find_task(&state, user_id, workspace_id, task_id).await?;
+    let content = state
+        .vault()
+        .read_task_markdown(workspace_id, task_id)
+        .await
+        .map_err(ApiError::internal)?
+        .unwrap_or_default();
+
+    Ok(Json(MarkdownContentResponse { content }))
+}
+
+async fn update_task_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((workspace_id, task_id)): Path<(String, String)>,
+    Json(request): Json<MarkdownContentRequest>,
+) -> Result<Json<MarkdownContentResponse>, ApiError> {
+    let user_id = authenticated_user(&headers, &state).await?;
+    let workspace_id = parse_workspace_id(&workspace_id)?;
+    let task_id = parse_task_id(&task_id)?;
+    ensure_workspace_access(&state, user_id, workspace_id).await?;
+    find_task(&state, user_id, workspace_id, task_id).await?;
+    state
+        .vault()
+        .write_task_markdown(workspace_id, task_id, &request.content)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(MarkdownContentResponse {
+        content: request.content,
+    }))
+}
+
+async fn find_task(
+    state: &AppState,
+    user_id: UserId,
+    workspace_id: WorkspaceId,
+    task_id: TaskId,
+) -> Result<Task, ApiError> {
+    task::find_for_user(state.db(), user_id, workspace_id, task_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| TaskOperationError::NotFound.into())
 }
 
 fn parse_workspace_id(value: &str) -> Result<WorkspaceId, ApiError> {
@@ -367,7 +432,12 @@ mod tests {
         session::create(&pool, user_b, "token-b", UNIX_EPOCH)
             .await
             .unwrap();
-        let state = AppState::new(pool);
+        let state = AppState::new(
+            pool,
+            kanleaf_backend::vault::Vault::new(
+                std::env::temp_dir().join(format!("kanleaf-task-api-{}", uuid::Uuid::new_v4())),
+            ),
+        );
 
         let (status, Json(created)) = create_task(
             State(state.clone()),
@@ -555,6 +625,155 @@ mod tests {
         .unwrap();
         assert_eq!(inbox.len(), 1);
         assert_eq!(inbox[0].id, created.id);
+    }
+
+    #[cfg(feature = "postgres-tests")]
+    #[sqlx::test(migrations = "./migrations")]
+    async fn task_markdown_api_persists_and_enforces_workspace_boundaries(pool: sqlx::PgPool) {
+        let user_a = UserId::new();
+        let workspace_a = Workspace::new("Workspace A", UNIX_EPOCH).unwrap();
+        user::register_with_personal_workspace(
+            &pool,
+            user_a,
+            "task-content-a@example.com",
+            "hash-a",
+            &workspace_a,
+            WorkspaceRole::Owner,
+            UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let user_b = UserId::new();
+        let workspace_b = Workspace::new("Workspace B", UNIX_EPOCH).unwrap();
+        user::register_with_personal_workspace(
+            &pool,
+            user_b,
+            "task-content-b@example.com",
+            "hash-b",
+            &workspace_b,
+            WorkspaceRole::Owner,
+            UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        session::create(&pool, user_a, "content-token-a", UNIX_EPOCH)
+            .await
+            .unwrap();
+        session::create(&pool, user_b, "content-token-b", UNIX_EPOCH)
+            .await
+            .unwrap();
+
+        let task_a = Task::new(workspace_a.id(), None, "Task A", user_a, UNIX_EPOCH).unwrap();
+        let task_b = Task::new(workspace_b.id(), None, "Task B", user_b, UNIX_EPOCH).unwrap();
+        assert!(task::create_for_user(&pool, user_a, &task_a).await.unwrap());
+        assert!(task::create_for_user(&pool, user_b, &task_b).await.unwrap());
+
+        let data_root =
+            std::env::temp_dir().join(format!("kanleaf-task-content-{}", uuid::Uuid::new_v4()));
+        let state = AppState::new(pool.clone(), kanleaf_backend::vault::Vault::new(&data_root));
+        let task_a_path = (workspace_a.id().to_string(), task_a.id().to_string());
+
+        let Json(empty) = get_task_content(
+            State(state.clone()),
+            authorization("content-token-a"),
+            Path(task_a_path.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(empty.content, "");
+
+        let markdown = "# Kanleaf\n\n  Exact Markdown content.  \n";
+        let Json(saved) = update_task_content(
+            State(state.clone()),
+            authorization("content-token-a"),
+            Path(task_a_path.clone()),
+            Json(MarkdownContentRequest {
+                content: markdown.to_owned(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.content, markdown);
+
+        let restarted_state =
+            AppState::new(pool.clone(), kanleaf_backend::vault::Vault::new(&data_root));
+        let Json(after_restart) = get_task_content(
+            State(restarted_state.clone()),
+            authorization("content-token-a"),
+            Path(task_a_path.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(after_restart.content, markdown);
+
+        let outsider_read = get_task_content(
+            State(restarted_state.clone()),
+            authorization("content-token-b"),
+            Path(task_a_path.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            outsider_read.into_response().status(),
+            StatusCode::FORBIDDEN
+        );
+        let outsider_write = update_task_content(
+            State(restarted_state.clone()),
+            authorization("content-token-b"),
+            Path(task_a_path),
+            Json(MarkdownContentRequest {
+                content: "Stolen".to_owned(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            outsider_write.into_response().status(),
+            StatusCode::FORBIDDEN
+        );
+
+        let crossed_task = update_task_content(
+            State(restarted_state.clone()),
+            authorization("content-token-a"),
+            Path((workspace_a.id().to_string(), task_b.id().to_string())),
+            Json(MarkdownContentRequest {
+                content: "Crossed".to_owned(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(crossed_task.into_response().status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            restarted_state
+                .vault()
+                .read_task_markdown(workspace_a.id(), task_b.id())
+                .await
+                .unwrap(),
+            None
+        );
+
+        let missing_task_id = TaskId::new();
+        let missing_task = update_task_content(
+            State(restarted_state.clone()),
+            authorization("content-token-a"),
+            Path((workspace_a.id().to_string(), missing_task_id.to_string())),
+            Json(MarkdownContentRequest {
+                content: "Orphan".to_owned(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_task.into_response().status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            restarted_state
+                .vault()
+                .read_task_markdown(workspace_a.id(), missing_task_id)
+                .await
+                .unwrap(),
+            None
+        );
+
+        tokio::fs::remove_dir_all(data_root).await.unwrap();
     }
 
     #[cfg(feature = "postgres-tests")]
