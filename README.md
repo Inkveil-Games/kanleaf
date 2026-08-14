@@ -46,7 +46,9 @@ make backend
 ```
 
 The backend listens on <http://127.0.0.1:3000> and runs pending database
-migrations automatically.
+migrations automatically. Task Markdown files are stored under
+`KANLEAF_DATA_DIR/vaults`; the development default is `./data/vaults` in the
+repository root.
 
 ### Desktop app
 
@@ -93,6 +95,13 @@ cp infra/self-host/.env.example infra/self-host/.env
 `infra/self-host/.env` is ignored by Git. Use a strong URL-safe database
 password because Compose uses it to construct `DATABASE_URL`.
 
+Create the vault directory with access for the non-root backend container. If
+you changed `KANLEAF_DATA_DIR`, replace `/srv/kanleaf` below with that path:
+
+```bash
+sudo install -d -o 10001 -g 10001 /srv/kanleaf/vaults
+```
+
 Start the stack:
 
 ```bash
@@ -119,7 +128,8 @@ docker compose --env-file infra/self-host/.env -f infra/self-host/compose.yaml l
 docker compose --env-file infra/self-host/.env -f infra/self-host/compose.yaml down
 ```
 
-Stopping the stack keeps PostgreSQL files under
-`KANLEAF_DATA_DIR/postgres`. PostgreSQL is not published to the host. To expose
-Kanleaf directly on a trusted LAN or VPN, set `KANLEAF_BIND_ADDRESS=0.0.0.0`.
-TLS, domains, reverse proxies, and VPNs remain external deployment concerns.
+Stopping the stack keeps PostgreSQL files under `KANLEAF_DATA_DIR/postgres` and
+Task Markdown files under `KANLEAF_DATA_DIR/vaults`. PostgreSQL is not published
+to the host. To expose Kanleaf directly on a trusted LAN or VPN, set
+`KANLEAF_BIND_ADDRESS=0.0.0.0`. TLS, domains, reverse proxies, and VPNs remain
+external deployment concerns.

@@ -26,8 +26,13 @@ services:
     environment:
       BACKEND_ADDRESS: 0.0.0.0:3000
       DATABASE_URL: postgres://${POSTGRES_USER:-kanleaf}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/self-host/.env}@postgres:5432/${POSTGRES_DB:-kanleaf}
+      KANLEAF_DATA_DIR: /data
     ports:
       - "${KANLEAF_BIND_ADDRESS:-127.0.0.1}:${KANLEAF_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ${KANLEAF_DATA_DIR:-/srv/kanleaf}/vaults
+        target: /data/vaults
     depends_on:
       postgres:
         condition: service_healthy

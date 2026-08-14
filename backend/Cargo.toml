@@ -15,7 +15,7 @@ serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "time", "migrate", "macros"] }
 time = "0.3"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread"] }
 tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1", features = ["v4"] }
 

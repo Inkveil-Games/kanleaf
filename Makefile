@@ -6,6 +6,7 @@ export
 endif
 
 DATABASE_URL ?= postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf
+KANLEAF_DATA_DIR ?= $(CURDIR)/data
 
 .PHONY: db-up db-down db-logs backend
 
@@ -19,4 +20,4 @@ db-logs:
 	$(COMPOSE) logs -f postgres
 
 backend:
-	cd backend && DATABASE_URL="$(DATABASE_URL)" cargo run --locked
+	cd backend && DATABASE_URL="$(DATABASE_URL)" KANLEAF_DATA_DIR="$(abspath $(KANLEAF_DATA_DIR))" cargo run --locked

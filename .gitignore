@@ -25,6 +25,7 @@ gen/schemas/
 !.env.example
 
 # Local runtime data
+data/
 *.db
 *.sqlite
 *.sqlite3
