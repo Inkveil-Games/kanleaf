@@ -2,64 +2,78 @@
 
 ## Quickstart
 
-Install Docker with the Compose plugin and the required Rust CLIs first:
+Run all commands below from the repository root unless a step says otherwise.
+
+Requirements:
+
+- Rust and Cargo
+- Docker with the Compose plugin
+- Tauri CLI 2
+- Dioxus CLI 0.7
+
+Install the Rust CLIs if needed:
 
 ```bash
 cargo install tauri-cli --version '^2.0.0' --locked
 cargo install dioxus-cli --version '^0.7.0' --locked
 ```
 
-Create the local environment file from the repository root. This creates an
-ignored `.env` file in the current directory:
+On Linux, make sure `docker info` works without `sudo`. If it reports a socket
+permission error, run the following once, then log out and back in:
+
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+```
+
+Create the local environment file. This creates an ignored `.env` file in the
+repository root:
 
 ```bash
 cp .env.example .env
 ```
 
-### PostgreSQL
-
-Run from the repository root. This starts PostgreSQL and stores its data in the
-named `kanleaf_postgres_data` Docker volume:
+Start PostgreSQL:
 
 ```bash
 make db-up
 ```
 
-Stop PostgreSQL without deleting its data:
-
-```bash
-make db-down
-```
-
-### Backend server
-
-Run from the repository root:
+Start the backend in the first terminal:
 
 ```bash
 make backend
 ```
 
-The server listens on <http://127.0.0.1:3000> by default.
+The backend listens on <http://127.0.0.1:3000> and runs pending database
+migrations automatically.
 
-### Desktop
+### Desktop app
 
-In another terminal, run from the repository root:
+Start the desktop app in a second terminal:
 
 ```bash
 cd app
 cargo tauri dev
 ```
 
-This starts the Dioxus development server and the Rust/Tauri app. The backend
-server runs separately.
-
 ### Web only
 
-To run only the web UI, use another terminal from the repository root:
+To run the web UI without the desktop shell, use a second terminal instead:
 
 ```bash
 cd app
 dx serve --port 1420
 ```
 
-Open <http://localhost:1420>. The backend server still runs separately.
+Open <http://localhost:1420>. The backend must remain running separately.
+
+### Stop
+
+Stop PostgreSQL from the repository root:
+
+```bash
+make db-down
+```
+
+This keeps the PostgreSQL data in its Docker volume.
