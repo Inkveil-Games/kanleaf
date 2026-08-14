@@ -5,10 +5,11 @@ use std::time::{Duration, UNIX_EPOCH};
 use kanleaf_backend::{
     domain::{
         project::Project,
+        task::{Task, TaskStatus},
         user::UserId,
         workspace::{Workspace, WorkspaceRole},
     },
-    persistence::{project, session, user, workspace},
+    persistence::{project, session, task, user, workspace},
 };
 use sqlx::PgPool;
 
@@ -337,4 +338,160 @@ async fn projects_persist_with_workspace_and_membership_isolation(pool: PgPool) 
         .await
         .unwrap();
     assert_eq!(project_count, 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn tasks_persist_with_inbox_project_and_workspace_isolation(pool: PgPool) {
+    let user_a = UserId::new();
+    let workspace_a = Workspace::new("Workspace A", UNIX_EPOCH).unwrap();
+    user::register_with_personal_workspace(
+        &pool,
+        user_a,
+        "task-a@example.com",
+        "hash-a",
+        &workspace_a,
+        WorkspaceRole::Owner,
+        UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    let user_b = UserId::new();
+    let workspace_b = Workspace::new("Workspace B", UNIX_EPOCH).unwrap();
+    user::register_with_personal_workspace(
+        &pool,
+        user_b,
+        "task-b@example.com",
+        "hash-b",
+        &workspace_b,
+        WorkspaceRole::Owner,
+        UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+
+    let project_a = Project::new(workspace_a.id(), "Project A", UNIX_EPOCH).unwrap();
+    let project_b = Project::new(workspace_b.id(), "Project B", UNIX_EPOCH).unwrap();
+    project::create_for_user(&pool, user_a, &project_a)
+        .await
+        .unwrap();
+    project::create_for_user(&pool, user_b, &project_b)
+        .await
+        .unwrap();
+
+    let mut inbox_task =
+        Task::new(workspace_a.id(), None, "Inbox task", user_a, UNIX_EPOCH).unwrap();
+    let mut project_task = Task::new(
+        workspace_a.id(),
+        Some(project_a.id()),
+        "Project task",
+        user_a,
+        UNIX_EPOCH + Duration::from_secs(1),
+    )
+    .unwrap();
+    assert!(
+        task::create_for_user(&pool, user_a, &inbox_task)
+            .await
+            .unwrap()
+    );
+    assert!(
+        task::create_for_user(&pool, user_a, &project_task)
+            .await
+            .unwrap()
+    );
+
+    let outsider_task =
+        Task::new(workspace_a.id(), None, "Outsider task", user_b, UNIX_EPOCH).unwrap();
+    let crossed_task = Task::new(
+        workspace_a.id(),
+        Some(project_b.id()),
+        "Crossed task",
+        user_a,
+        UNIX_EPOCH,
+    )
+    .unwrap();
+    assert!(
+        !task::create_for_user(&pool, user_b, &outsider_task)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !task::create_for_user(&pool, user_a, &crossed_task)
+            .await
+            .unwrap()
+    );
+
+    assert_eq!(
+        task::list_inbox_for_user(&pool, user_a, workspace_a.id())
+            .await
+            .unwrap(),
+        vec![inbox_task.clone()]
+    );
+    assert_eq!(
+        task::list_project_for_user(&pool, user_a, workspace_a.id(), project_a.id())
+            .await
+            .unwrap(),
+        vec![project_task.clone()]
+    );
+    assert!(
+        task::list_inbox_for_user(&pool, user_b, workspace_a.id())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        task::find_for_user(&pool, user_b, workspace_a.id(), inbox_task.id())
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let updated_at = UNIX_EPOCH + Duration::from_secs(2);
+    inbox_task.rename("Inbox task renamed", updated_at).unwrap();
+    inbox_task.set_status(TaskStatus::InProgress, updated_at);
+    inbox_task.move_to_project(Some(project_a.id()), updated_at);
+    assert_eq!(
+        task::update_for_user(&pool, user_a, &inbox_task)
+            .await
+            .unwrap(),
+        Some(inbox_task.clone())
+    );
+    assert!(
+        task::list_inbox_for_user(&pool, user_a, workspace_a.id())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    project_task.set_status(TaskStatus::Done, updated_at);
+    project_task.move_to_project(None, updated_at);
+    task::update_for_user(&pool, user_a, &project_task)
+        .await
+        .unwrap();
+    assert_eq!(
+        task::list_inbox_for_user(&pool, user_a, workspace_a.id())
+            .await
+            .unwrap(),
+        vec![project_task.clone()]
+    );
+    assert_eq!(
+        task::find_for_user(&pool, user_a, workspace_a.id(), project_task.id())
+            .await
+            .unwrap()
+            .unwrap()
+            .status(),
+        TaskStatus::Done
+    );
+
+    let database_rejected_crossed_project = sqlx::query(
+        "INSERT INTO tasks \
+            (id, workspace_id, project_id, title, status, created_by, created_at, updated_at) \
+         VALUES ($1, $2, $3, 'Invalid', 'todo', $4, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::from(workspace_a.id()))
+    .bind(uuid::Uuid::from(project_b.id()))
+    .bind(uuid::Uuid::from(user_a))
+    .execute(&pool)
+    .await;
+    assert!(database_rejected_crossed_project.is_err());
 }
