@@ -33,6 +33,18 @@ impl FromStr for ProjectId {
     }
 }
 
+impl From<Uuid> for ProjectId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ProjectId> for Uuid {
+    fn from(value: ProjectId) -> Self {
+        value.0
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Project {
     id: ProjectId,
@@ -48,7 +60,7 @@ impl Project {
         name: impl Into<String>,
         now: SystemTime,
     ) -> Result<Self, ProjectError> {
-        let name = validated_name(name.into())?;
+        let name = Self::validated_name(name)?;
 
         Ok(Self {
             id: ProjectId::new(),
@@ -57,6 +69,32 @@ impl Project {
             created_at: now,
             updated_at: now,
         })
+    }
+
+    pub fn restore(
+        id: ProjectId,
+        workspace_id: WorkspaceId,
+        name: impl Into<String>,
+        created_at: SystemTime,
+        updated_at: SystemTime,
+    ) -> Result<Self, ProjectError> {
+        Ok(Self {
+            id,
+            workspace_id,
+            name: Self::validated_name(name)?,
+            created_at,
+            updated_at,
+        })
+    }
+
+    pub fn validated_name(name: impl Into<String>) -> Result<String, ProjectError> {
+        let name = name.into();
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(ProjectError::EmptyName);
+        }
+
+        Ok(name.to_owned())
     }
 
     pub fn id(&self) -> ProjectId {
@@ -80,7 +118,7 @@ impl Project {
     }
 
     pub fn rename(&mut self, name: impl Into<String>, now: SystemTime) -> Result<(), ProjectError> {
-        self.name = validated_name(name.into())?;
+        self.name = Self::validated_name(name)?;
         self.updated_at = now;
         Ok(())
     }
@@ -99,14 +137,7 @@ impl fmt::Display for ProjectError {
     }
 }
 
-fn validated_name(name: String) -> Result<String, ProjectError> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(ProjectError::EmptyName);
-    }
-
-    Ok(name.to_owned())
-}
+impl std::error::Error for ProjectError {}
 
 #[cfg(test)]
 mod tests {

@@ -4,10 +4,11 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use kanleaf_backend::{
     domain::{
+        project::Project,
         user::UserId,
         workspace::{Workspace, WorkspaceRole},
     },
-    persistence::{session, user, workspace},
+    persistence::{project, session, user, workspace},
 };
 use sqlx::PgPool;
 
@@ -223,4 +224,117 @@ async fn sessions_store_only_token_digests_and_can_be_invalidated(pool: PgPool) 
 
     session::delete(&pool, token).await.unwrap();
     assert_eq!(session::user_for_token(&pool, token).await.unwrap(), None);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn projects_persist_with_workspace_and_membership_isolation(pool: PgPool) {
+    let user_a = UserId::new();
+    let workspace_a = Workspace::new("Personal", UNIX_EPOCH).unwrap();
+    user::register_with_personal_workspace(
+        &pool,
+        user_a,
+        "project-a@example.com",
+        "hash-a",
+        &workspace_a,
+        WorkspaceRole::Owner,
+        UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    let user_b = UserId::new();
+    let workspace_b = Workspace::new("Personal", UNIX_EPOCH).unwrap();
+    user::register_with_personal_workspace(
+        &pool,
+        user_b,
+        "project-b@example.com",
+        "hash-b",
+        &workspace_b,
+        WorkspaceRole::Owner,
+        UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+
+    let project_a = Project::new(workspace_a.id(), "Project A", UNIX_EPOCH).unwrap();
+    let project_b = Project::new(workspace_b.id(), "Project B", UNIX_EPOCH).unwrap();
+    assert!(
+        project::create_for_user(&pool, user_a, &project_a)
+            .await
+            .unwrap()
+    );
+    assert!(
+        project::create_for_user(&pool, user_b, &project_b)
+            .await
+            .unwrap()
+    );
+
+    let guessed_project = Project::new(workspace_a.id(), "Guessed", UNIX_EPOCH).unwrap();
+    assert!(
+        !project::create_for_user(&pool, user_b, &guessed_project)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        project::list_for_user(&pool, user_a, workspace_a.id())
+            .await
+            .unwrap(),
+        vec![project_a.clone()]
+    );
+    assert_eq!(
+        project::list_for_user(&pool, user_b, workspace_b.id())
+            .await
+            .unwrap(),
+        vec![project_b.clone()]
+    );
+    assert!(
+        project::list_for_user(&pool, user_b, workspace_a.id())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        project::rename_for_user(
+            &pool,
+            user_b,
+            workspace_a.id(),
+            project_a.id(),
+            "Stolen",
+            UNIX_EPOCH,
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+        project::rename_for_user(
+            &pool,
+            user_a,
+            workspace_a.id(),
+            project_b.id(),
+            "Crossed",
+            UNIX_EPOCH,
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+
+    let renamed = project::rename_for_user(
+        &pool,
+        user_a,
+        workspace_a.id(),
+        project_a.id(),
+        "Project A Renamed",
+        UNIX_EPOCH + Duration::from_secs(1),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(renamed.name(), "Project A Renamed");
+
+    let project_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(project_count, 2);
 }
