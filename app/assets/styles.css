@@ -269,6 +269,71 @@ h1 {
   background: #34321f;
 }
 
+.server-setting {
+  min-width: 0;
+  margin-top: 26px;
+  padding-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid #35363d;
+  color: #777781;
+  font-size: 11px;
+}
+
+.server-setting code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #a5a5ad;
+  font-family: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-setting.editing {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.server-setting.editing label {
+  color: #b9b9bf;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.server-setting.editing input {
+  width: 100%;
+  height: 39px;
+  padding: 0 11px;
+  border: 1px solid #3a3b42;
+  border-radius: 8px;
+  outline: none;
+  color: var(--ink);
+  background: #18191d;
+  font-size: 12px;
+}
+
+.server-setting.editing input:focus {
+  border-color: #8b85ff;
+  box-shadow: 0 0 0 3px rgb(139 133 255 / 15%);
+}
+
+.server-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.text-button.muted {
+  color: #81818a;
+}
+
+.server-error {
+  margin: 0;
+  color: #ffaaa5;
+  font-size: 11px;
+}
+
 .workspace-shell {
   height: 100vh;
   display: grid;

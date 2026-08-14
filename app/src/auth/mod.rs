@@ -28,6 +28,7 @@ pub fn AuthFlow(on_authenticated: EventHandler<AuthSession>) -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut notice = use_signal(|| None::<String>);
     let mut loading = use_signal(|| false);
+    let mut server_url = use_signal(crate::api::server_url);
 
     let current_step = step.read().clone();
     let error_message = error.read().clone();
@@ -365,7 +366,90 @@ pub fn AuthFlow(on_authenticated: EventHandler<AuthSession>) -> Element {
                 span { "Kanleaf" }
             }
             section { class: "auth-container",
-                article { class: "auth-card", {form} }
+                article { class: "auth-card",
+                    {form}
+                    ServerSetting {
+                        current_url: server_url.read().clone(),
+                        on_changed: move |url| {
+                            server_url.set(url);
+                            password.set(String::new());
+                            password_confirmation.set(String::new());
+                            error.set(None);
+                            notice.set(None);
+                            step.set(AuthStep::Email);
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ServerSetting(current_url: String, on_changed: EventHandler<String>) -> Element {
+    let mut editing = use_signal(|| false);
+    let mut value = use_signal(|| current_url.clone());
+    let mut error = use_signal(|| None::<String>);
+
+    if *editing.read() {
+        return rsx! {
+            form {
+                class: "server-setting editing",
+                onsubmit: move |event| {
+                    event.prevent_default();
+                    let submitted_url = value.read().clone();
+                    match crate::api::configure_server_url(&submitted_url) {
+                        Ok(url) => {
+                            value.set(url.clone());
+                            error.set(None);
+                            editing.set(false);
+                            on_changed.call(url);
+                        }
+                        Err(message) => error.set(Some(message)),
+                    }
+                },
+                label { r#for: "server-url", "Kanleaf server" }
+                input {
+                    id: "server-url",
+                    r#type: "url",
+                    inputmode: "url",
+                    spellcheck: false,
+                    autofocus: true,
+                    value,
+                    oninput: move |event| {
+                        value.set(event.value());
+                        error.set(None);
+                    },
+                }
+                div { class: "server-actions",
+                    button { class: "text-button", r#type: "submit", "Save" }
+                    button {
+                        class: "text-button muted",
+                        r#type: "button",
+                        onclick: move |_| {
+                            value.set(current_url.clone());
+                            error.set(None);
+                            editing.set(false);
+                        },
+                        "Cancel"
+                    }
+                }
+                if let Some(message) = error.read().clone() {
+                    p { class: "server-error", role: "alert", "{message}" }
+                }
+            }
+        };
+    }
+
+    rsx! {
+        div { class: "server-setting",
+            span { "Server:" }
+            code { title: "{current_url}", "{current_url}" }
+            button {
+                class: "text-button",
+                r#type: "button",
+                onclick: move |_| editing.set(true),
+                "Change"
             }
         }
     }
