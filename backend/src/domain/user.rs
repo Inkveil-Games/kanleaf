@@ -22,3 +22,15 @@ impl fmt::Display for UserId {
         self.0.fmt(formatter)
     }
 }
+
+impl From<Uuid> for UserId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl From<UserId> for Uuid {
+    fn from(value: UserId) -> Self {
+        value.0
+    }
+}

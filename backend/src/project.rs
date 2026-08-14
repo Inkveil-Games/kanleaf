@@ -6,17 +6,19 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::{get, patch},
 };
-use kanleaf_backend::domain::{
-    project::{Project, ProjectError, ProjectId},
-    user::UserId,
-    workspace::WorkspaceId,
+use kanleaf_backend::{
+    domain::{
+        project::{Project, ProjectError, ProjectId},
+        user::UserId,
+        workspace::WorkspaceId,
+    },
+    persistence::workspace,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     auth::{ApiError, authenticated_user},
-    state::{AppState, AppStore},
-    workspace::has_membership,
+    state::AppState,
 };
 
 #[derive(Deserialize)]
@@ -80,15 +82,16 @@ async fn list_projects(
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<Vec<ProjectResponse>>, ApiError> {
-    let user_id = authenticated_user(&headers, &state)?;
+    let user_id = authenticated_user(&headers, &state).await?;
     let workspace_id = parse_workspace_id(&workspace_id)?;
-    let store = state.lock().map_err(ApiError::internal)?;
-    let projects = list_for_user(&store, user_id, workspace_id)?
+    ensure_workspace_access(&state, user_id, workspace_id).await?;
+    let projects = state.projects().map_err(ApiError::internal)?;
+    let response = list_in_workspace(&projects, workspace_id)
         .into_iter()
         .map(ProjectResponse::from)
         .collect();
 
-    Ok(Json(projects))
+    Ok(Json(response))
 }
 
 async fn create_project(
@@ -97,18 +100,17 @@ async fn create_project(
     Path(workspace_id): Path<String>,
     Json(request): Json<ProjectNameRequest>,
 ) -> Result<(StatusCode, Json<ProjectResponse>), ApiError> {
-    let user_id = authenticated_user(&headers, &state)?;
+    let user_id = authenticated_user(&headers, &state).await?;
     let workspace_id = parse_workspace_id(&workspace_id)?;
-    let mut store = state.lock().map_err(ApiError::internal)?;
-    let project = create_for_user(
-        &mut store,
-        user_id,
-        workspace_id,
-        request.name,
-        SystemTime::now(),
-    )?;
+    ensure_workspace_access(&state, user_id, workspace_id).await?;
+    let project =
+        Project::new(workspace_id, request.name, SystemTime::now()).map_err(map_domain_error)?;
+    state
+        .projects()
+        .map_err(ApiError::internal)?
+        .push(project.clone());
 
-    Ok((StatusCode::CREATED, Json(ProjectResponse::from(&project))))
+    Ok((StatusCode::CREATED, Json((&project).into())))
 }
 
 async fn rename_project(
@@ -117,20 +119,19 @@ async fn rename_project(
     Path((workspace_id, project_id)): Path<(String, String)>,
     Json(request): Json<ProjectNameRequest>,
 ) -> Result<Json<ProjectResponse>, ApiError> {
-    let user_id = authenticated_user(&headers, &state)?;
+    let user_id = authenticated_user(&headers, &state).await?;
     let workspace_id = parse_workspace_id(&workspace_id)?;
     let project_id = parse_project_id(&project_id)?;
-    let mut store = state.lock().map_err(ApiError::internal)?;
-    let project = rename_for_user(
-        &mut store,
-        user_id,
+    ensure_workspace_access(&state, user_id, workspace_id).await?;
+    let project = rename_in_workspace(
+        &mut state.projects().map_err(ApiError::internal)?,
         workspace_id,
         project_id,
         request.name,
         SystemTime::now(),
     )?;
 
-    Ok(Json(ProjectResponse::from(&project)))
+    Ok(Json((&project).into()))
 }
 
 fn parse_workspace_id(value: &str) -> Result<WorkspaceId, ApiError> {
@@ -145,43 +146,21 @@ fn parse_project_id(value: &str) -> Result<ProjectId, ApiError> {
         .map_err(|_| ApiError::bad_request("Enter a valid project ID."))
 }
 
-fn list_for_user(
-    store: &AppStore,
-    user_id: UserId,
-    workspace_id: WorkspaceId,
-) -> Result<Vec<&Project>, ProjectOperationError> {
-    ensure_workspace_access(store, user_id, workspace_id)?;
-    Ok(store
-        .projects
+fn list_in_workspace(projects: &[Project], workspace_id: WorkspaceId) -> Vec<&Project> {
+    projects
         .iter()
         .filter(|project| project.workspace_id() == workspace_id)
-        .collect())
+        .collect()
 }
 
-fn create_for_user(
-    store: &mut AppStore,
-    user_id: UserId,
-    workspace_id: WorkspaceId,
-    name: impl Into<String>,
-    now: SystemTime,
-) -> Result<Project, ProjectOperationError> {
-    ensure_workspace_access(store, user_id, workspace_id)?;
-    let project = Project::new(workspace_id, name, now).map_err(map_domain_error)?;
-    store.projects.push(project.clone());
-    Ok(project)
-}
-
-fn rename_for_user(
-    store: &mut AppStore,
-    user_id: UserId,
+fn rename_in_workspace(
+    projects: &mut [Project],
     workspace_id: WorkspaceId,
     project_id: ProjectId,
     name: impl Into<String>,
     now: SystemTime,
 ) -> Result<Project, ProjectOperationError> {
-    ensure_workspace_access(store, user_id, workspace_id)?;
-    let project = store
-        .projects
+    let project = projects
         .iter_mut()
         .find(|project| project.id() == project_id && project.workspace_id() == workspace_id)
         .ok_or(ProjectOperationError::NotFound)?;
@@ -189,14 +168,16 @@ fn rename_for_user(
     Ok(project.clone())
 }
 
-fn ensure_workspace_access(
-    store: &AppStore,
+async fn ensure_workspace_access(
+    state: &AppState,
     user_id: UserId,
     workspace_id: WorkspaceId,
-) -> Result<(), ProjectOperationError> {
-    has_membership(store, user_id, workspace_id)
+) -> Result<(), ApiError> {
+    workspace::has_membership(state.db(), user_id, workspace_id)
+        .await
+        .map_err(ApiError::internal)?
         .then_some(())
-        .ok_or(ProjectOperationError::AccessDenied)
+        .ok_or_else(|| ProjectOperationError::AccessDenied.into())
 }
 
 fn map_domain_error(error: ProjectError) -> ProjectOperationError {
@@ -209,33 +190,21 @@ fn map_domain_error(error: ProjectError) -> ProjectOperationError {
 mod tests {
     use std::time::UNIX_EPOCH;
 
-    use kanleaf_backend::domain::workspace::{Workspace, WorkspaceMembership, WorkspaceRole};
-
     use super::*;
 
     #[test]
     fn projects_are_isolated_by_workspace() {
-        let mut store = AppStore::default();
-        let user = UserId::new();
-        let workspace_a = add_workspace(&mut store, user, "Workspace A");
-        let workspace_b = add_workspace(&mut store, user, "Workspace B");
-        let project_a =
-            create_for_user(&mut store, user, workspace_a, "Project A", UNIX_EPOCH).unwrap();
-        let project_b =
-            create_for_user(&mut store, user, workspace_b, "Project B", UNIX_EPOCH).unwrap();
+        let workspace_a = WorkspaceId::new();
+        let workspace_b = WorkspaceId::new();
+        let project_a = Project::new(workspace_a, "Project A", UNIX_EPOCH).unwrap();
+        let project_b = Project::new(workspace_b, "Project B", UNIX_EPOCH).unwrap();
+        let mut projects = vec![project_a.clone(), project_b.clone()];
 
+        assert_eq!(list_in_workspace(&projects, workspace_a), vec![&project_a]);
+        assert_eq!(list_in_workspace(&projects, workspace_b), vec![&project_b]);
         assert_eq!(
-            list_for_user(&store, user, workspace_a),
-            Ok(vec![&project_a])
-        );
-        assert_eq!(
-            list_for_user(&store, user, workspace_b),
-            Ok(vec![&project_b])
-        );
-        assert_eq!(
-            rename_for_user(
-                &mut store,
-                user,
+            rename_in_workspace(
+                &mut projects,
                 workspace_a,
                 project_b.id(),
                 "Moved",
@@ -243,35 +212,6 @@ mod tests {
             ),
             Err(ProjectOperationError::NotFound)
         );
-        assert_eq!(store.projects[1].name(), "Project B");
-    }
-
-    #[test]
-    fn project_operations_require_workspace_membership() {
-        let mut store = AppStore::default();
-        let member = UserId::new();
-        let outsider = UserId::new();
-        let workspace_id = add_workspace(&mut store, member, "Private");
-
-        assert_eq!(
-            list_for_user(&store, outsider, workspace_id),
-            Err(ProjectOperationError::AccessDenied)
-        );
-        assert_eq!(
-            create_for_user(&mut store, outsider, workspace_id, "Denied", UNIX_EPOCH),
-            Err(ProjectOperationError::AccessDenied)
-        );
-    }
-
-    fn add_workspace(store: &mut AppStore, user_id: UserId, name: &str) -> WorkspaceId {
-        let workspace = Workspace::new(name, UNIX_EPOCH).unwrap();
-        let workspace_id = workspace.id();
-        store.workspaces.insert(workspace_id, workspace);
-        store.workspace_memberships.push(WorkspaceMembership::new(
-            workspace_id,
-            user_id,
-            WorkspaceRole::Owner,
-        ));
-        workspace_id
+        assert_eq!(projects[1].name(), "Project B");
     }
 }

@@ -33,6 +33,18 @@ impl FromStr for WorkspaceId {
     }
 }
 
+impl From<Uuid> for WorkspaceId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl From<WorkspaceId> for Uuid {
+    fn from(value: WorkspaceId) -> Self {
+        value.0
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Workspace {
     id: WorkspaceId,
@@ -43,7 +55,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(name: impl Into<String>, now: SystemTime) -> Result<Self, WorkspaceError> {
-        let name = validated_name(name.into())?;
+        let name = Self::validated_name(name)?;
 
         Ok(Self {
             id: WorkspaceId::new(),
@@ -51,6 +63,30 @@ impl Workspace {
             created_at: now,
             updated_at: now,
         })
+    }
+
+    pub fn restore(
+        id: WorkspaceId,
+        name: impl Into<String>,
+        created_at: SystemTime,
+        updated_at: SystemTime,
+    ) -> Result<Self, WorkspaceError> {
+        Ok(Self {
+            id,
+            name: Self::validated_name(name)?,
+            created_at,
+            updated_at,
+        })
+    }
+
+    pub fn validated_name(name: impl Into<String>) -> Result<String, WorkspaceError> {
+        let name = name.into();
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(WorkspaceError::EmptyName);
+        }
+
+        Ok(name.to_owned())
     }
 
     pub fn id(&self) -> WorkspaceId {
@@ -74,7 +110,7 @@ impl Workspace {
         name: impl Into<String>,
         now: SystemTime,
     ) -> Result<(), WorkspaceError> {
-        self.name = validated_name(name.into())?;
+        self.name = Self::validated_name(name)?;
         self.updated_at = now;
         Ok(())
     }
@@ -116,6 +152,16 @@ pub enum WorkspaceRole {
     Member,
 }
 
+impl WorkspaceRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Admin => "admin",
+            Self::Member => "member",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorkspaceError {
     EmptyName,
@@ -129,14 +175,7 @@ impl fmt::Display for WorkspaceError {
     }
 }
 
-fn validated_name(name: String) -> Result<String, WorkspaceError> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(WorkspaceError::EmptyName);
-    }
-
-    Ok(name.to_owned())
-}
+impl std::error::Error for WorkspaceError {}
 
 #[cfg(test)]
 mod tests {

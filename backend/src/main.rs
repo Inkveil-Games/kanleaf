@@ -3,7 +3,7 @@ mod project;
 mod state;
 mod workspace;
 
-use std::{env, error::Error};
+use std::{env, error::Error, io};
 
 use axum::{
     Json, Router,
@@ -11,6 +11,7 @@ use axum::{
     routing::get,
 };
 use serde::Serialize;
+use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -22,8 +23,19 @@ struct HelloResponse {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let address = env::var("BACKEND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
+    let database_url = env::var("DATABASE_URL").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "DATABASE_URL must be set to a PostgreSQL connection URL",
+        )
+    })?;
+    let database = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await?;
+    sqlx::migrate!("./migrations").run(&database).await?;
     let listener = TcpListener::bind(&address).await?;
-    let state = state::AppState::default();
+    let state = state::AppState::new(database);
     let app = Router::new()
         .route("/api/hello", get(hello))
         .nest("/api/auth", auth::router(state.clone()))

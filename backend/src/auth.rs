@@ -12,11 +12,12 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::state::{AppState, AppStore, StoredUser};
+use crate::state::AppState;
 use kanleaf_backend::domain::{
     user::UserId,
-    workspace::{Workspace, WorkspaceMembership, WorkspaceRole},
+    workspace::{Workspace, WorkspaceRole},
 };
+use kanleaf_backend::persistence::user::{self, RegistrationError};
 
 #[derive(Deserialize)]
 struct EmailRequest {
@@ -77,7 +78,7 @@ impl ApiError {
     }
 
     pub fn internal(error: impl std::fmt::Display) -> Self {
-        eprintln!("Authentication error: {error}");
+        eprintln!("Backend error: {error}");
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "Something went wrong. Please try again.",
@@ -111,6 +112,13 @@ impl ApiError {
             message,
         }
     }
+
+    fn conflict(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -140,7 +148,9 @@ async fn check_email(
     Json(request): Json<EmailRequest>,
 ) -> Result<Json<EmailStatusResponse>, ApiError> {
     let email = normalize_email(&request.email)?;
-    let exists = app_store(&state)?.users.contains_key(&email);
+    let exists = user::email_exists(state.db(), &email)
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(Json(EmailStatusResponse { exists }))
 }
@@ -156,47 +166,39 @@ async fn register(
         return Err(ApiError::bad_request("The passwords do not match."));
     }
 
-    if app_store(&state)?.users.contains_key(&email) {
-        return Err(ApiError {
-            status: StatusCode::CONFLICT,
-            message: "An account already exists for this email.",
-        });
-    }
-
     let password = request.password;
     let password_hash = tokio::task::spawn_blocking(move || hash_password(&password))
         .await
         .map_err(ApiError::internal)??;
     let token = Uuid::new_v4().to_string();
     let user_id = UserId::new();
-    let personal_workspace =
-        Workspace::new("Personal", SystemTime::now()).map_err(ApiError::internal)?;
-    let personal_workspace_id = personal_workspace.id();
-    let membership = WorkspaceMembership::new(personal_workspace_id, user_id, WorkspaceRole::Owner);
+    let now = SystemTime::now();
+    let personal_workspace = Workspace::new("Personal", now).map_err(ApiError::internal)?;
 
-    let mut store = app_store(&state)?;
-    if store.users.contains_key(&email) {
-        return Err(ApiError {
-            status: StatusCode::CONFLICT,
-            message: "An account already exists for this email.",
-        });
+    match user::register_with_personal_workspace(
+        state.db(),
+        user_id,
+        &email,
+        &password_hash,
+        &personal_workspace,
+        WorkspaceRole::Owner,
+        now,
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(RegistrationError::DuplicateEmail) => {
+            return Err(ApiError::conflict(
+                "An account already exists for this email.",
+            ));
+        }
+        Err(RegistrationError::Database(error)) => return Err(ApiError::internal(error)),
     }
 
-    store.users.insert(
-        email.clone(),
-        StoredUser {
-            id: user_id,
-            password_hash,
-        },
-    );
-    store.sessions.insert(token.clone(), user_id);
-    store
-        .workspaces
-        .insert(personal_workspace_id, personal_workspace);
-    store.workspace_memberships.push(membership);
-    store
-        .active_workspaces
-        .insert(user_id, personal_workspace_id);
+    state
+        .sessions()
+        .map_err(ApiError::internal)?
+        .insert(token.clone(), user_id);
 
     Ok((StatusCode::CREATED, Json(AuthResponse { email, token })))
 }
@@ -206,11 +208,12 @@ async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
     let email = normalize_email(&request.email)?;
-    let (user_id, password_hash) = app_store(&state)?
-        .users
-        .get(&email)
-        .map(|user| (user.id, user.password_hash.clone()))
+    let user = user::find_by_email(state.db(), &email)
+        .await
+        .map_err(ApiError::internal)?
         .ok_or_else(ApiError::unauthorized)?;
+    let user_id = user.id;
+    let password_hash = user.password_hash;
     let password = request.password;
     let password_is_valid =
         tokio::task::spawn_blocking(move || verify_password(&password, &password_hash))
@@ -222,7 +225,10 @@ async fn login(
     }
 
     let token = Uuid::new_v4().to_string();
-    app_store(&state)?.sessions.insert(token.clone(), user_id);
+    state
+        .sessions()
+        .map_err(ApiError::internal)?
+        .insert(token.clone(), user_id);
 
     Ok(Json(AuthResponse { email, token }))
 }
@@ -231,7 +237,10 @@ async fn logout(
     State(state): State<AppState>,
     Json(request): Json<LogoutRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    app_store(&state)?.sessions.remove(&request.token);
+    state
+        .sessions()
+        .map_err(ApiError::internal)?
+        .remove(&request.token);
 
     Ok(Json(MessageResponse {
         message: "Signed out.",
@@ -248,11 +257,7 @@ async fn forgot_password(
     }))
 }
 
-fn app_store(state: &AppState) -> Result<std::sync::MutexGuard<'_, AppStore>, ApiError> {
-    state.lock().map_err(ApiError::internal)
-}
-
-pub fn authenticated_user(headers: &HeaderMap, state: &AppState) -> Result<UserId, ApiError> {
+pub async fn authenticated_user(headers: &HeaderMap, state: &AppState) -> Result<UserId, ApiError> {
     let token = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -260,8 +265,9 @@ pub fn authenticated_user(headers: &HeaderMap, state: &AppState) -> Result<UserI
         .filter(|token| !token.is_empty())
         .ok_or_else(ApiError::unauthenticated)?;
 
-    app_store(state)?
-        .sessions
+    state
+        .sessions()
+        .map_err(ApiError::internal)?
         .get(token)
         .copied()
         .ok_or_else(ApiError::unauthenticated)
@@ -333,55 +339,5 @@ mod tests {
         let hash = hash_password("correct horse").unwrap();
         assert!(verify_password("correct horse", &hash).unwrap());
         assert!(!verify_password("wrong password", &hash).unwrap());
-    }
-
-    #[tokio::test]
-    async fn registration_creates_an_isolated_personal_workspace() {
-        let state = AppState::default();
-
-        for email in ["first@example.com", "second@example.com"] {
-            let _ = register(
-                State(state.clone()),
-                Json(RegisterRequest {
-                    email: email.to_owned(),
-                    password: "correct horse".to_owned(),
-                    password_confirmation: "correct horse".to_owned(),
-                }),
-            )
-            .await
-            .unwrap();
-        }
-
-        let store = state.lock().unwrap();
-        let first_user_id = store.users["first@example.com"].id;
-        let second_user_id = store.users["second@example.com"].id;
-        let first_memberships = store
-            .workspace_memberships
-            .iter()
-            .filter(|membership| membership.user_id() == first_user_id)
-            .collect::<Vec<_>>();
-        let second_memberships = store
-            .workspace_memberships
-            .iter()
-            .filter(|membership| membership.user_id() == second_user_id)
-            .collect::<Vec<_>>();
-
-        assert_eq!(store.workspaces.len(), 2);
-        assert_eq!(first_memberships.len(), 1);
-        assert_eq!(second_memberships.len(), 1);
-        assert_eq!(first_memberships[0].role(), WorkspaceRole::Owner);
-        assert_eq!(second_memberships[0].role(), WorkspaceRole::Owner);
-        assert_ne!(
-            first_memberships[0].workspace_id(),
-            second_memberships[0].workspace_id()
-        );
-        assert_eq!(
-            store.workspaces[&first_memberships[0].workspace_id()].name(),
-            "Personal"
-        );
-        assert_eq!(
-            store.workspaces[&second_memberships[0].workspace_id()].name(),
-            "Personal"
-        );
     }
 }

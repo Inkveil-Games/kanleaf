@@ -4,35 +4,35 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use kanleaf_backend::domain::{
-    project::Project,
-    user::UserId,
-    workspace::{Workspace, WorkspaceId, WorkspaceMembership},
-};
+use kanleaf_backend::domain::{project::Project, user::UserId};
+use sqlx::PgPool;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
-    store: Arc<Mutex<AppStore>>,
-}
-
-#[derive(Default)]
-pub struct AppStore {
-    pub users: HashMap<String, StoredUser>,
-    pub sessions: HashMap<String, UserId>,
-    pub workspaces: HashMap<WorkspaceId, Workspace>,
-    pub workspace_memberships: Vec<WorkspaceMembership>,
-    pub active_workspaces: HashMap<UserId, WorkspaceId>,
-    pub projects: Vec<Project>,
-}
-
-pub struct StoredUser {
-    pub id: UserId,
-    pub password_hash: String,
+    db: PgPool,
+    sessions: Arc<Mutex<HashMap<String, UserId>>>,
+    projects: Arc<Mutex<Vec<Project>>>,
 }
 
 impl AppState {
-    pub fn lock(&self) -> Result<MutexGuard<'_, AppStore>, StateError> {
-        self.store.lock().map_err(|_| StateError::Poisoned)
+    pub fn new(db: PgPool) -> Self {
+        Self {
+            db,
+            sessions: Arc::default(),
+            projects: Arc::default(),
+        }
+    }
+
+    pub fn db(&self) -> &PgPool {
+        &self.db
+    }
+
+    pub fn sessions(&self) -> Result<MutexGuard<'_, HashMap<String, UserId>>, StateError> {
+        self.sessions.lock().map_err(|_| StateError::Poisoned)
+    }
+
+    pub fn projects(&self) -> Result<MutexGuard<'_, Vec<Project>>, StateError> {
+        self.projects.lock().map_err(|_| StateError::Poisoned)
     }
 }
 
