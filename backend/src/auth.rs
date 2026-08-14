@@ -17,7 +17,10 @@ use kanleaf_backend::domain::{
     user::UserId,
     workspace::{Workspace, WorkspaceRole},
 };
-use kanleaf_backend::persistence::user::{self, RegistrationError};
+use kanleaf_backend::persistence::{
+    session,
+    user::{self, RegistrationError},
+};
 
 #[derive(Deserialize)]
 struct EmailRequest {
@@ -195,10 +198,9 @@ async fn register(
         Err(RegistrationError::Database(error)) => return Err(ApiError::internal(error)),
     }
 
-    state
-        .sessions()
-        .map_err(ApiError::internal)?
-        .insert(token.clone(), user_id);
+    session::create(state.db(), user_id, &token, SystemTime::now())
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok((StatusCode::CREATED, Json(AuthResponse { email, token })))
 }
@@ -225,10 +227,9 @@ async fn login(
     }
 
     let token = Uuid::new_v4().to_string();
-    state
-        .sessions()
-        .map_err(ApiError::internal)?
-        .insert(token.clone(), user_id);
+    session::create(state.db(), user_id, &token, SystemTime::now())
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(Json(AuthResponse { email, token }))
 }
@@ -237,10 +238,9 @@ async fn logout(
     State(state): State<AppState>,
     Json(request): Json<LogoutRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    state
-        .sessions()
-        .map_err(ApiError::internal)?
-        .remove(&request.token);
+    session::delete(state.db(), &request.token)
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(Json(MessageResponse {
         message: "Signed out.",
@@ -253,7 +253,7 @@ async fn forgot_password(
     normalize_email(&request.email)?;
 
     Ok(Json(MessageResponse {
-        message: "Password reset is unavailable while accounts are stored in memory. Restart the backend to clear local accounts.",
+        message: "Password reset is not available yet.",
     }))
 }
 
@@ -265,11 +265,9 @@ pub async fn authenticated_user(headers: &HeaderMap, state: &AppState) -> Result
         .filter(|token| !token.is_empty())
         .ok_or_else(ApiError::unauthenticated)?;
 
-    state
-        .sessions()
+    session::user_for_token(state.db(), token)
+        .await
         .map_err(ApiError::internal)?
-        .get(token)
-        .copied()
         .ok_or_else(ApiError::unauthenticated)
 }
 
@@ -339,5 +337,56 @@ mod tests {
         let hash = hash_password("correct horse").unwrap();
         assert!(verify_password("correct horse", &hash).unwrap());
         assert!(!verify_password("wrong password", &hash).unwrap());
+    }
+
+    #[cfg(feature = "postgres-tests")]
+    #[sqlx::test(migrations = "./migrations")]
+    async fn login_and_logout_use_persisted_sessions(pool: sqlx::PgPool) {
+        let user_id = UserId::new();
+        let password_hash = hash_password("correct horse").unwrap();
+        let personal = Workspace::new("Personal", SystemTime::UNIX_EPOCH).unwrap();
+        user::register_with_personal_workspace(
+            &pool,
+            user_id,
+            "person@example.com",
+            &password_hash,
+            &personal,
+            WorkspaceRole::Owner,
+            SystemTime::UNIX_EPOCH,
+        )
+        .await
+        .unwrap();
+        let state = AppState::new(pool.clone());
+
+        let Json(response) = login(
+            State(state.clone()),
+            Json(LoginRequest {
+                email: "person@example.com".to_owned(),
+                password: "correct horse".to_owned(),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            format!("Bearer {}", response.token).parse().unwrap(),
+        );
+        assert_eq!(authenticated_user(&headers, &state).await.unwrap(), user_id);
+
+        let mut invalid_headers = HeaderMap::new();
+        invalid_headers.insert(AUTHORIZATION, "Bearer invalid-token".parse().unwrap());
+        assert!(authenticated_user(&invalid_headers, &state).await.is_err());
+
+        let _ = logout(
+            State(state.clone()),
+            Json(LogoutRequest {
+                token: response.token,
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(authenticated_user(&headers, &state).await.is_err());
     }
 }

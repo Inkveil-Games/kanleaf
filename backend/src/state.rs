@@ -1,16 +1,14 @@
 use std::{
-    collections::HashMap,
     fmt,
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use kanleaf_backend::domain::{project::Project, user::UserId};
+use kanleaf_backend::domain::project::Project;
 use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct AppState {
     db: PgPool,
-    sessions: Arc<Mutex<HashMap<String, UserId>>>,
     projects: Arc<Mutex<Vec<Project>>>,
 }
 
@@ -18,17 +16,12 @@ impl AppState {
     pub fn new(db: PgPool) -> Self {
         Self {
             db,
-            sessions: Arc::default(),
             projects: Arc::default(),
         }
     }
 
     pub fn db(&self) -> &PgPool {
         &self.db
-    }
-
-    pub fn sessions(&self) -> Result<MutexGuard<'_, HashMap<String, UserId>>, StateError> {
-        self.sessions.lock().map_err(|_| StateError::Poisoned)
     }
 
     pub fn projects(&self) -> Result<MutexGuard<'_, Vec<Project>>, StateError> {

@@ -7,7 +7,7 @@ use kanleaf_backend::{
         user::UserId,
         workspace::{Workspace, WorkspaceRole},
     },
-    persistence::{user, workspace},
+    persistence::{session, user, workspace},
 };
 use sqlx::PgPool;
 
@@ -180,4 +180,47 @@ async fn workspace_operations_persist_and_require_membership(pool: PgPool) {
         workspace::active_workspace_id(&pool, owner).await.unwrap(),
         Some(kanleaf.id())
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn sessions_store_only_token_digests_and_can_be_invalidated(pool: PgPool) {
+    let user_id = UserId::new();
+    let personal = Workspace::new("Personal", UNIX_EPOCH).unwrap();
+    user::register_with_personal_workspace(
+        &pool,
+        user_id,
+        "session@example.com",
+        "hash",
+        &personal,
+        WorkspaceRole::Owner,
+        UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+
+    let token = "single-use-raw-bearer-token";
+    session::create(&pool, user_id, token, UNIX_EPOCH)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        session::user_for_token(&pool, token).await.unwrap(),
+        Some(user_id)
+    );
+    assert_eq!(
+        session::user_for_token(&pool, "invalid-token")
+            .await
+            .unwrap(),
+        None
+    );
+
+    let stored_hash: Vec<u8> = sqlx::query_scalar("SELECT token_hash FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored_hash.len(), 32);
+    assert_ne!(stored_hash, token.as_bytes());
+
+    session::delete(&pool, token).await.unwrap();
+    assert_eq!(session::user_for_token(&pool, token).await.unwrap(), None);
 }

@@ -722,6 +722,7 @@ dependencies = [
  "axum",
  "rand_core",
  "serde",
+ "sha2",
  "sqlx",
  "time",
  "tokio",

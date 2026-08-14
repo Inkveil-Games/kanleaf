@@ -12,6 +12,7 @@ argon2 = "0.5"
 axum = "0.8"
 rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "time", "migrate", "macros"] }
 time = "0.3"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
