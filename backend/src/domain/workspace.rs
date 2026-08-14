@@ -1,4 +1,4 @@
-use std::{fmt, time::SystemTime};
+use std::{fmt, str::FromStr, time::SystemTime};
 
 use uuid::Uuid;
 
@@ -22,6 +22,14 @@ impl Default for WorkspaceId {
 impl fmt::Display for WorkspaceId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+impl FromStr for WorkspaceId {
+    type Err = uuid::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(value).map(Self)
     }
 }
 

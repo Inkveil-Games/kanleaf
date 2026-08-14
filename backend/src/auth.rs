@@ -4,7 +4,7 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_ha
 use axum::{
     Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -58,7 +58,7 @@ struct MessageResponse {
 }
 
 #[derive(Debug)]
-struct ApiError {
+pub struct ApiError {
     status: StatusCode,
     message: &'static str,
 }
@@ -69,14 +69,14 @@ struct ApiErrorBody {
 }
 
 impl ApiError {
-    fn bad_request(message: &'static str) -> Self {
+    pub fn bad_request(message: &'static str) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
             message,
         }
     }
 
-    fn internal(error: impl std::fmt::Display) -> Self {
+    pub fn internal(error: impl std::fmt::Display) -> Self {
         eprintln!("Authentication error: {error}");
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -88,6 +88,20 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             message: "The password you entered is incorrect.",
+        }
+    }
+
+    pub fn unauthenticated() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            message: "Sign in to continue.",
+        }
+    }
+
+    pub fn forbidden(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message,
         }
     }
 }
@@ -173,6 +187,9 @@ async fn register(
         .workspaces
         .insert(personal_workspace_id, personal_workspace);
     store.workspace_memberships.push(membership);
+    store
+        .active_workspaces
+        .insert(user_id, personal_workspace_id);
 
     Ok((StatusCode::CREATED, Json(AuthResponse { email, token })))
 }
@@ -226,6 +243,21 @@ async fn forgot_password(
 
 fn app_store(state: &AppState) -> Result<std::sync::MutexGuard<'_, AppStore>, ApiError> {
     state.lock().map_err(ApiError::internal)
+}
+
+pub fn authenticated_user(headers: &HeaderMap, state: &AppState) -> Result<UserId, ApiError> {
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|token| !token.is_empty())
+        .ok_or_else(ApiError::unauthenticated)?;
+
+    app_store(state)?
+        .sessions
+        .get(token)
+        .copied()
+        .ok_or_else(ApiError::unauthenticated)
 }
 
 fn normalize_email(email: &str) -> Result<String, ApiError> {

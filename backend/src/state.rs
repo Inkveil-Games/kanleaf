@@ -20,6 +20,7 @@ pub struct AppStore {
     pub sessions: HashMap<String, UserId>,
     pub workspaces: HashMap<WorkspaceId, Workspace>,
     pub workspace_memberships: Vec<WorkspaceMembership>,
+    pub active_workspaces: HashMap<UserId, WorkspaceId>,
 }
 
 pub struct StoredUser {
