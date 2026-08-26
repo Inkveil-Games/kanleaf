@@ -1,5 +1,6 @@
 use axum::{
     Json, Router,
+    extract::DefaultBodyLimit,
     http::{HeaderName, HeaderValue, Method, header},
     routing::get,
 };
@@ -40,6 +41,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .route("/api/session", get(auth::session))
         .merge(workspace::routes())
         .with_state(state)
+        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(PropagateRequestIdLayer::new(REQUEST_ID_HEADER.clone()))
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::new(

@@ -55,6 +55,12 @@ impl From<axum::extract::rejection::PathRejection> for AppError {
     }
 }
 
+impl From<axum::extract::rejection::QueryRejection> for AppError {
+    fn from(_: axum::extract::rejection::QueryRejection) -> Self {
+        Self::Validation("Query parameters are invalid".to_owned())
+    }
+}
+
 pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
     error
         .as_database_error()

@@ -5,6 +5,8 @@ pub mod error;
 pub mod http;
 pub mod project;
 pub mod state;
+pub mod task;
+pub mod vault;
 pub mod workspace;
 
 pub use http::router;

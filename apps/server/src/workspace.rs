@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
-use crate::{AppState, auth::AuthenticatedUser, domain::ResourceName, error::AppError, project};
+use crate::{
+    AppState, auth::AuthenticatedUser, domain::ResourceName, error::AppError, project, task,
+};
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct WorkspaceResponse {
@@ -37,6 +39,18 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/api/workspaces/{workspace_id}/projects/{project_id}",
             patch(project::rename).delete(project::archive),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks",
+            get(task::list).post(task::create),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}",
+            get(task::get).patch(task::update).delete(task::archive),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/document",
+            get(task::read_document).put(task::write_document),
         )
 }
 

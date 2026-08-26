@@ -1,9 +1,11 @@
+use serde::Deserialize;
 use thiserror::Error;
 
 const MAX_EMAIL_LENGTH: usize = 320;
 const MIN_PASSWORD_LENGTH: usize = 10;
 const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_RESOURCE_NAME_LENGTH: usize = 120;
+const MAX_TASK_TITLE_LENGTH: usize = 300;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NormalizedEmail(String);
@@ -73,6 +75,68 @@ impl ResourceName {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskTitle(String);
+
+impl TaskTitle {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ValidationError::new("Task title cannot be empty"));
+        }
+        if value.chars().count() > MAX_TASK_TITLE_LENGTH {
+            return Err(ValidationError::new(
+                "Task title cannot exceed 300 characters",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    #[default]
+    Todo,
+    InProgress,
+    Done,
+}
+
+impl TaskStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Todo => "todo",
+            Self::InProgress => "in_progress",
+            Self::Done => "done",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPriority {
+    #[default]
+    None,
+    Low,
+    Medium,
+    High,
+}
+
+impl TaskPriority {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct ValidationError {
@@ -87,7 +151,9 @@ impl ValidationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{NormalizedEmail, ResourceName, ValidatedPassword};
+    use super::{
+        NormalizedEmail, ResourceName, TaskPriority, TaskStatus, TaskTitle, ValidatedPassword,
+    };
 
     #[test]
     fn normalizes_valid_email_addresses() {
@@ -117,5 +183,17 @@ mod tests {
         );
         assert!(ResourceName::new("   ").is_err());
         assert!(ResourceName::new(&"x".repeat(121)).is_err());
+    }
+
+    #[test]
+    fn validates_task_metadata() {
+        assert_eq!(
+            TaskTitle::new("  Ship v0.1  ").unwrap().as_str(),
+            "Ship v0.1"
+        );
+        assert!(TaskTitle::new(" ").is_err());
+        assert!(TaskTitle::new(&"x".repeat(301)).is_err());
+        assert_eq!(TaskStatus::InProgress.as_str(), "in_progress");
+        assert_eq!(TaskPriority::High.as_str(), "high");
     }
 }
