@@ -1,0 +1,38 @@
+name: kanleaf
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kanleaf
+      POSTGRES_USER: kanleaf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ${KANLEAF_DATA_DIR:-/srv/kanleaf}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanleaf -d kanleaf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kanleaf:
+    image: ${KANLEAF_IMAGE:-kanleaf:0.1.0}
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://kanleaf:${POSTGRES_PASSWORD}@postgres:5432/kanleaf
+      KANLEAF_DATA_DIR: /data
+      KANLEAF_BIND_ADDRESS: 0.0.0.0:3000
+      KANLEAF_CORS_ORIGINS: ${KANLEAF_CORS_ORIGINS:-tauri://localhost,http://tauri.localhost}
+      KANLEAF_SESSION_TTL_DAYS: ${KANLEAF_SESSION_TTL_DAYS:-30}
+      RUST_LOG: ${RUST_LOG:-kanleaf_server=info,tower_http=info}
+    ports:
+      - ${KANLEAF_PORT:-3000}:3000
+    volumes:
+      - ${KANLEAF_DATA_DIR:-/srv/kanleaf}/vaults:/data/vaults
