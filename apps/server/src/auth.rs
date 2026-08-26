@@ -39,10 +39,15 @@ struct LoginRequest {
     password: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, FromRow)]
 pub struct UserResponse {
     pub id: Uuid,
     pub email: String,
+    pub display_name: String,
+    pub theme: String,
+    pub timezone: String,
+    pub week_start: String,
+    pub date_format: String,
     pub active_workspace_id: Option<Uuid>,
 }
 
@@ -63,6 +68,11 @@ pub(crate) struct SessionResponse {
 struct LoginUser {
     id: Uuid,
     email: String,
+    display_name: String,
+    theme: String,
+    timezone: String,
+    week_start: String,
+    date_format: String,
     password_hash: String,
     active_workspace_id: Option<Uuid>,
 }
@@ -73,6 +83,11 @@ struct SessionUser {
     expires_at: DateTime<Utc>,
     user_id: Uuid,
     email: String,
+    display_name: String,
+    theme: String,
+    timezone: String,
+    week_start: String,
+    date_format: String,
     active_workspace_id: Option<Uuid>,
 }
 
@@ -134,6 +149,7 @@ async fn register_user(
     let password = ValidatedPassword::new(request.password)
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let password_hash = hash_password(password).await?;
+    let display_name = default_display_name(&email);
     let user_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
@@ -141,13 +157,15 @@ async fn register_user(
     let expires_at = session_expiry(state.session_ttl)?;
 
     let mut transaction = state.pool.begin().await?;
-    let insert_user =
-        sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)")
-            .bind(user_id)
-            .bind(email.as_str())
-            .bind(password_hash)
-            .execute(&mut *transaction)
-            .await;
+    let insert_user = sqlx::query(
+        "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(email.as_str())
+    .bind(&display_name)
+    .bind(password_hash)
+    .execute(&mut *transaction)
+    .await;
     if let Err(error) = insert_user {
         return if is_unique_violation(&error) {
             Err(AppError::Conflict(
@@ -191,6 +209,11 @@ async fn register_user(
         user: UserResponse {
             id: user_id,
             email: email.as_str().to_owned(),
+            display_name,
+            theme: "system".to_owned(),
+            timezone: "UTC".to_owned(),
+            week_start: "monday".to_owned(),
+            date_format: "locale".to_owned(),
             active_workspace_id: Some(workspace_id),
         },
     })
@@ -200,7 +223,12 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
     let email = NormalizedEmail::new(&request.email).map_err(|_| AppError::Unauthorized)?;
     let password = ValidatedPassword::new(request.password).map_err(|_| AppError::Unauthorized)?;
     let user = sqlx::query_as::<_, LoginUser>(
-        "SELECT id, email, password_hash, active_workspace_id FROM users WHERE email = $1",
+        r#"
+        SELECT id, email, display_name, theme, timezone, week_start, date_format,
+               password_hash, active_workspace_id
+        FROM users
+        WHERE email = $1
+        "#,
     )
     .bind(email.as_str())
     .fetch_optional(&state.pool)
@@ -235,6 +263,11 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
         user: UserResponse {
             id: user.id,
             email: user.email,
+            display_name: user.display_name,
+            theme: user.theme,
+            timezone: user.timezone,
+            week_start: user.week_start,
+            date_format: user.date_format,
             active_workspace_id: user.active_workspace_id,
         },
     })
@@ -285,6 +318,11 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                 sessions.expires_at,
                 users.id AS user_id,
                 users.email,
+                users.display_name,
+                users.theme,
+                users.timezone,
+                users.week_start,
+                users.date_format,
                 users.active_workspace_id
             FROM sessions
             JOIN users ON users.id = sessions.user_id
@@ -302,13 +340,35 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             user: UserResponse {
                 id: session.user_id,
                 email: session.email,
+                display_name: session.display_name,
+                theme: session.theme,
+                timezone: session.timezone,
+                week_start: session.week_start,
+                date_format: session.date_format,
                 active_workspace_id: session.active_workspace_id,
             },
         })
     }
 }
 
-async fn hash_password(password: ValidatedPassword) -> Result<String, AppError> {
+pub(crate) async fn select_user_response(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+) -> Result<UserResponse, AppError> {
+    Ok(sqlx::query_as::<_, UserResponse>(
+        r#"
+        SELECT id, email, display_name, theme, timezone, week_start, date_format,
+               active_workspace_id
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub(crate) async fn hash_password(password: ValidatedPassword) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
         let salt = random_salt()?;
         Argon2::default()
@@ -321,7 +381,7 @@ async fn hash_password(password: ValidatedPassword) -> Result<String, AppError> 
     .map_err(AppError::internal)
 }
 
-async fn verify_password(
+pub(crate) async fn verify_password(
     password: ValidatedPassword,
     password_hash: String,
 ) -> Result<bool, AppError> {
@@ -363,6 +423,16 @@ fn session_expiry(ttl: StdDuration) -> Result<DateTime<Utc>, AppError> {
     let ttl = Duration::from_std(ttl)
         .map_err(|error| AppError::internal(anyhow!("session TTL is out of range: {error}")))?;
     Ok(Utc::now() + ttl)
+}
+
+fn default_display_name(email: &NormalizedEmail) -> String {
+    email
+        .as_str()
+        .split_once('@')
+        .map_or("User", |(local, _)| local)
+        .chars()
+        .take(120)
+        .collect()
 }
 
 #[cfg(test)]

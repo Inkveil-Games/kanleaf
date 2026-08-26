@@ -16,6 +16,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 http = "1"
+jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"

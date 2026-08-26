@@ -52,6 +52,8 @@ async fn registration_creates_a_personal_workspace_and_hashed_session(pool: PgPo
     let payload = response_json(response).await;
     let token = payload["token"].as_str().unwrap();
     assert_eq!(payload["user"]["email"], "person@example.com");
+    assert_eq!(payload["user"]["display_name"], "person");
+    assert_eq!(payload["user"]["theme"], "system");
     assert!(payload["user"]["active_workspace_id"].is_string());
 
     let counts: (i64, i64, i64, i64) = sqlx::query_as(

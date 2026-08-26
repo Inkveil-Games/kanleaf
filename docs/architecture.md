@@ -60,6 +60,12 @@ workspace, and session. Login returns a random 32-byte base64url bearer token.
 Only its SHA-256 digest is stored in PostgreSQL, so a database read does not
 reveal usable sessions.
 
+Account profile and display preferences are server-synchronized. Timezone
+updates are validated against the IANA database before persistence. Password
+changes require the current password and atomically revoke every other session;
+users can also inspect session creation/expiry times and revoke sessions without
+exposing token hashes.
+
 Every workspace, project, task, and document operation resolves the session and
 checks membership on the server. Vault access occurs only after membership and
 task ownership checks. API errors use a stable JSON envelope and do not expose
