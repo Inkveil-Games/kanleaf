@@ -3,6 +3,7 @@ use thiserror::Error;
 const MAX_EMAIL_LENGTH: usize = 320;
 const MIN_PASSWORD_LENGTH: usize = 10;
 const MAX_PASSWORD_BYTES: usize = 1024;
+const MAX_RESOURCE_NAME_LENGTH: usize = 120;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NormalizedEmail(String);
@@ -52,6 +53,26 @@ impl ValidatedPassword {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceName(String);
+
+impl ResourceName {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ValidationError::new("Name cannot be empty"));
+        }
+        if value.chars().count() > MAX_RESOURCE_NAME_LENGTH {
+            return Err(ValidationError::new("Name cannot exceed 120 characters"));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct ValidationError {
@@ -66,7 +87,7 @@ impl ValidationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{NormalizedEmail, ValidatedPassword};
+    use super::{NormalizedEmail, ResourceName, ValidatedPassword};
 
     #[test]
     fn normalizes_valid_email_addresses() {
@@ -86,5 +107,15 @@ mod tests {
         assert!(ValidatedPassword::new("short".to_owned()).is_err());
         assert!(ValidatedPassword::new("long enough".to_owned()).is_ok());
         assert!(ValidatedPassword::new("x".repeat(1025)).is_err());
+    }
+
+    #[test]
+    fn trims_and_bounds_resource_names() {
+        assert_eq!(
+            ResourceName::new("  Kanleaf  ").unwrap().as_str(),
+            "Kanleaf"
+        );
+        assert!(ResourceName::new("   ").is_err());
+        assert!(ResourceName::new(&"x".repeat(121)).is_err());
     }
 }

@@ -11,7 +11,7 @@ use tower_http::{
 };
 
 use crate::AppState;
-use crate::auth;
+use crate::{auth, workspace};
 
 static REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -38,6 +38,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .route("/api/health", get(health))
         .nest("/api/auth", auth::routes())
         .route("/api/session", get(auth::session))
+        .merge(workspace::routes())
         .with_state(state)
         .layer(PropagateRequestIdLayer::new(REQUEST_ID_HEADER.clone()))
         .layer(TraceLayer::new_for_http())

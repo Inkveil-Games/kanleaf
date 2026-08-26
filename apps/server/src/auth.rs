@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     domain::{NormalizedEmail, ValidatedPassword},
-    error::AppError,
+    error::{AppError, is_unique_violation},
 };
 
 const PERSONAL_WORKSPACE_NAME: &str = "Personal";
@@ -363,13 +363,6 @@ fn session_expiry(ttl: StdDuration) -> Result<DateTime<Utc>, AppError> {
     let ttl = Duration::from_std(ttl)
         .map_err(|error| AppError::internal(anyhow!("session TTL is out of range: {error}")))?;
     Ok(Utc::now() + ttl)
-}
-
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .and_then(|error| error.code())
-        .is_some_and(|code| code == "23505")
 }
 
 #[cfg(test)]

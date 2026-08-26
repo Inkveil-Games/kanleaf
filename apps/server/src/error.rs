@@ -49,6 +49,19 @@ impl From<axum::extract::rejection::JsonRejection> for AppError {
     }
 }
 
+impl From<axum::extract::rejection::PathRejection> for AppError {
+    fn from(_: axum::extract::rejection::PathRejection) -> Self {
+        Self::Validation("Resource ID is invalid".to_owned())
+    }
+}
+
+pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|error| error.code())
+        .is_some_and(|code| code == "23505")
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let (status, code, message) = match self {
