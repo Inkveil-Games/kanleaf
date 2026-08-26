@@ -1,13 +1,22 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
+import { Providers } from './providers';
 
 describe('App', () => {
-  it('renders the Kanleaf identity', () => {
-    render(<App />);
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('starts with server configuration on a fresh device', () => {
+    render(
+      <Providers>
+        <App />
+      </Providers>,
+    );
 
     expect(
-      screen.getByRole('heading', { name: 'Structured work, durable notes.' }),
+      screen.getByRole('heading', { name: 'Connect to your server' }),
     ).toBeInTheDocument();
   });
 });
