@@ -9,6 +9,7 @@ import {
   writeServerUrl,
   writeSessionToken,
 } from '../features/connection/storage';
+import { WorkspaceShell } from '../features/workspace/WorkspaceShell';
 import { ApiError, apiRequest } from '../lib/api/client';
 import type { AuthResponse, SessionResponse } from '../lib/api/types';
 
@@ -95,21 +96,13 @@ export function App() {
   }
 
   return (
-    <main className="session-landing">
-      <Wordmark />
-      <div>
-        <p className="eyebrow">Signed in</p>
-        <h1>{session.data.user.email}</h1>
-        <p>Your workspace is ready to open.</p>
-      </div>
-      <button
-        className="secondary-button"
-        type="button"
-        onClick={() => void logout()}
-      >
-        Sign out
-      </button>
-    </main>
+    <WorkspaceShell
+      serverUrl={serverUrl}
+      token={token}
+      user={session.data.user}
+      onChangeServer={changeServer}
+      onSignOut={() => void logout()}
+    />
   );
 }
 
