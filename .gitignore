@@ -1,0 +1,35 @@
+# Rust
+/target/
+**/target/
+
+# JavaScript
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+pnpm-debug.log*
+
+# Tauri generated files
+apps/desktop/src-tauri/gen/
+
+# Runtime and local configuration
+.env
+.env.*
+!.env.example
+/data/
+*.log
+
+# Browser tests
+playwright-report/
+test-results/
+
+# Editors and operating systems
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
