@@ -10,7 +10,12 @@ import {
   Plus,
   Server,
 } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useState,
+  type FormEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { Collection, Project, Workspace } from './types';
 
@@ -81,12 +86,21 @@ export function WorkspaceNavigation({
               {activeWorkspace?.role === 'owner' && (
                 <button
                   type="button"
-                  onClick={() => setComposer('rename-workspace')}
+                  onClick={(event) => {
+                    closeContextMenu(event);
+                    setComposer('rename-workspace');
+                  }}
                 >
                   <Pencil aria-hidden="true" size={14} /> Rename workspace
                 </button>
               )}
-              <button type="button" onClick={() => setComposer('workspace')}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  closeContextMenu(event);
+                  setComposer('workspace');
+                }}
+              >
                 <Plus aria-hidden="true" size={14} /> New workspace
               </button>
             </div>
@@ -202,14 +216,18 @@ export function WorkspaceNavigation({
                       <div className="context-menu-popover">
                         <button
                           type="button"
-                          onClick={() => setRenamingProject(project.id)}
+                          onClick={(event) => {
+                            closeContextMenu(event);
+                            setRenamingProject(project.id);
+                          }}
                         >
                           <Pencil aria-hidden="true" size={14} /> Rename
                         </button>
                         <button
                           className="danger-menu-item"
                           type="button"
-                          onClick={() => {
+                          onClick={(event) => {
+                            closeContextMenu(event);
                             if (
                               window.confirm(
                                 `Archive ${project.name}? Its tasks will move to Inbox.`,
@@ -241,10 +259,22 @@ export function WorkspaceNavigation({
             <MoreHorizontal aria-hidden="true" size={16} />
           </summary>
           <div className="context-menu-popover">
-            <button type="button" onClick={onChangeServer}>
+            <button
+              type="button"
+              onClick={(event) => {
+                closeContextMenu(event);
+                onChangeServer();
+              }}
+            >
               <Server aria-hidden="true" size={14} /> Change server
             </button>
-            <button type="button" onClick={onSignOut}>
+            <button
+              type="button"
+              onClick={(event) => {
+                closeContextMenu(event);
+                onSignOut();
+              }}
+            >
               <LogOut aria-hidden="true" size={14} /> Sign out
             </button>
           </div>
@@ -252,6 +282,10 @@ export function WorkspaceNavigation({
       </div>
     </aside>
   );
+}
+
+function closeContextMenu(event: MouseEvent<HTMLButtonElement>) {
+  event.currentTarget.closest('details')?.removeAttribute('open');
 }
 
 interface NavButtonProps {

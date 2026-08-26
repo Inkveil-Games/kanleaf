@@ -1,0 +1,118 @@
+import { expect, test, type APIRequestContext } from '@playwright/test';
+import { serverUrl } from './environment';
+
+test('manages structured work and durable Markdown across reloads', async ({
+  page,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  await page.goto('/');
+
+  await page.getByLabel('Server URL').fill(serverUrl);
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'New account' }).click();
+  await page.getByLabel('Email').fill(`e2e-${suffix}@example.com`);
+  await page.locator('input[type="password"]').fill('playwright-password');
+  await page.getByRole('button', { name: 'Register' }).click();
+
+  const workspaceSelect = page.getByLabel('Active workspace');
+  await expect(workspaceSelect).toHaveValue(/.+/);
+  await expect(workspaceSelect.locator('option')).toContainText(['Personal']);
+
+  await page.getByLabel('Workspace actions').click();
+  await page.getByRole('button', { name: 'New workspace' }).click();
+  await page.getByLabel('Workspace name').fill('Studio');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(workspaceSelect).toHaveValue(/.+/);
+  await expect(workspaceSelect.locator('option:checked')).toHaveText('Studio');
+
+  await page.getByRole('button', { name: 'New project' }).click();
+  await page.getByLabel('Project name').fill('Kanleaf');
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await expect(page.getByRole('heading', { name: 'Kanleaf' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'New task' }).click();
+  await page.getByLabel('Task title').fill('Complete the v0.1 workflow');
+  await page.getByRole('button', { name: 'Add' }).click();
+  await expect(page.getByLabel('Task title')).toHaveValue(
+    'Complete the v0.1 workflow',
+  );
+
+  await page.getByLabel('Status').selectOption('in_progress');
+  await page.getByLabel('Priority').selectOption('high');
+  await page.getByLabel('Project', { exact: true }).selectOption('');
+
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  const taskRow = page
+    .locator('.task-row-main')
+    .filter({ hasText: 'Complete the v0.1 workflow' });
+  await taskRow.click();
+  const markdown = `# Architecture
+
+Kanleaf keeps **structured work** beside durable notes.
+
+- [x] PostgreSQL metadata
+- [x] Filesystem Markdown
+
+| Layer | Storage |
+| --- | --- |
+| Task | PostgreSQL |
+| Notes | Vault |`;
+  const source = page.locator('.cm-content[contenteditable="true"]');
+  await source.fill(markdown);
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Architecture' }),
+  ).toBeVisible();
+  await expect(page.getByRole('table')).toContainText('Notes');
+  await page.getByRole('button', { name: 'Save Markdown' }).click();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(taskRow).toBeVisible();
+  await taskRow.click();
+  await expect(
+    page.getByRole('heading', { name: 'Architecture' }),
+  ).toBeVisible();
+  await expect(page.getByText('Filesystem Markdown')).toBeVisible();
+});
+
+test('prevents a session from reading another workspace', async ({
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const first = await register(request, `owner-${suffix}@example.com`);
+  const second = await register(request, `outsider-${suffix}@example.com`);
+
+  const create = await request.post(
+    `${serverUrl}/api/workspaces/${first.workspaceId}/tasks`,
+    {
+      headers: { authorization: `Bearer ${first.token}` },
+      data: { title: 'Private workspace task' },
+    },
+  );
+  expect(create.status()).toBe(201);
+
+  const forbidden = await request.get(
+    `${serverUrl}/api/workspaces/${first.workspaceId}/tasks`,
+    { headers: { authorization: `Bearer ${second.token}` } },
+  );
+  expect(forbidden.status()).toBe(403);
+  expect(await forbidden.json()).toMatchObject({
+    error: { code: 'forbidden' },
+  });
+});
+
+async function register(request: APIRequestContext, email: string) {
+  const response = await request.post(`${serverUrl}/api/auth/register`, {
+    data: { email, password: 'playwright-password' },
+  });
+  expect(response.status()).toBe(201);
+  const payload = (await response.json()) as {
+    token: string;
+    user: { active_workspace_id: string };
+  };
+  return {
+    token: payload.token,
+    workspaceId: payload.user.active_workspace_id,
+  };
+}

@@ -14,6 +14,7 @@
     "lint": "pnpm --filter @kanleaf/desktop lint",
     "format": "pnpm --filter @kanleaf/desktop format",
     "format:check": "pnpm --filter @kanleaf/desktop format:check",
-    "test": "pnpm --filter @kanleaf/desktop test"
+    "test": "pnpm --filter @kanleaf/desktop test",
+    "test:e2e": "pnpm --filter @kanleaf/desktop e2e"
   }
 }
