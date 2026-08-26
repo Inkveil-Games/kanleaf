@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Project, Task } from '../workspace/types';
 import { TaskDetailPane } from './TaskDetailPane';
 
+vi.mock('../markdown/MarkdownDocument', () => ({
+  MarkdownDocument: () => <div>Markdown editor</div>,
+}));
+
 const task: Task = {
   id: 'task-1',
   workspace_id: 'workspace-1',
@@ -31,6 +35,9 @@ describe('TaskDetailPane', () => {
     const patch = vi.fn().mockResolvedValue(undefined);
     render(
       <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
         task={task}
         projects={projects}
         loading={false}

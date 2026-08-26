@@ -272,6 +272,9 @@ export function WorkspaceShell({
         onClearSelection={() => setSelectedTaskId(null)}
       />
       <TaskDetailPane
+        serverUrl={serverUrl}
+        token={token}
+        workspaceId={workspaceId}
         task={selectedTask}
         projects={projects.data ?? []}
         loading={Boolean(selectedTaskId) && task.isPending}

@@ -1061,29 +1061,308 @@ kbd {
   font-size: var(--font-size-sm);
 }
 
-.document-placeholder {
+.task-document {
+  display: grid;
+  min-height: 440px;
+  grid-template-rows: auto 1fr;
   margin-top: var(--space-8);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.document-toolbar {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 6px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.document-modes,
+.save-controls {
+  display: flex;
+  align-items: center;
+}
+
+.document-modes {
+  gap: 2px;
+}
+
+.document-modes button,
+.save-controls button {
+  display: flex;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 0.7rem;
+}
+
+.document-modes button:hover,
+.document-modes button[aria-pressed='true'],
+.save-controls button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.save-controls {
+  gap: var(--space-1);
+}
+
+.save-indicator {
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 0.67rem;
+}
+
+.save-unsaved,
+.save-saving {
+  color: var(--color-accent);
+}
+
+.save-error {
+  color: var(--color-danger);
+}
+
+.document-workspace {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 500px;
+  overflow: hidden;
+}
+
+.document-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.document-split > :first-child {
+  border-right: 1px solid var(--color-border);
+}
+
+.markdown-editor,
+.markdown-preview {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.markdown-editor .cm-editor {
+  height: 100%;
+  color: var(--color-text);
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.markdown-editor .cm-editor.cm-focused {
+  outline: 0;
+}
+
+.markdown-editor .cm-scroller {
+  padding: var(--space-4);
+  line-height: 1.65;
+  scrollbar-width: thin;
+}
+
+.markdown-editor .cm-content {
+  caret-color: var(--color-text);
+}
+
+.markdown-editor .cm-cursor {
+  border-left-color: var(--color-text);
+}
+
+.markdown-editor .cm-selectionBackground,
+.markdown-editor .cm-content ::selection {
+  background: var(--color-selection) !important;
+}
+
+.markdown-editor .cm-activeLine {
+  background: transparent;
+}
+
+.markdown-preview {
+  padding: var(--space-4) clamp(18px, 3vw, 32px) var(--space-8);
+  color: var(--color-text);
+  font-size: 0.89rem;
+  line-height: 1.68;
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview > :first-child {
+  margin-top: 0;
+}
+
+.markdown-preview > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4 {
+  margin: 1.5em 0 0.55em;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.018em;
+}
+
+.markdown-preview h1 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 1.65rem;
+}
+
+.markdown-preview h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 1.3rem;
+}
+
+.markdown-preview h3 {
+  font-size: 1.08rem;
+}
+
+.markdown-preview h4 {
+  font-size: 0.95rem;
+}
+
+.markdown-preview p,
+.markdown-preview ul,
+.markdown-preview ol,
+.markdown-preview blockquote,
+.markdown-preview pre,
+.markdown-preview table {
+  margin: 0.85em 0;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  padding-left: 1.55em;
+}
+
+.markdown-preview li + li {
+  margin-top: 0.25em;
+}
+
+.markdown-preview li > ul,
+.markdown-preview li > ol {
+  margin: 0.25em 0;
+}
+
+.markdown-preview .contains-task-list {
+  padding-left: 0.25em;
+  list-style: none;
+}
+
+.markdown-preview .task-list-item input {
+  margin: 0 0.5em 0 0;
+  accent-color: var(--color-accent);
+}
+
+.markdown-preview blockquote {
+  padding: 0.1em 1em;
+  border-left: 3px solid var(--color-border);
   color: var(--color-text-muted);
 }
 
-.document-heading-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.markdown-preview blockquote > :first-child {
+  margin-top: 0;
 }
 
-.document-heading-row h2 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--font-size-md);
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview code {
+  padding: 0.12em 0.35em;
+  border-radius: 3px;
+  background: var(--color-surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.markdown-preview pre {
+  padding: var(--space-3) var(--space-4);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  line-height: 1.55;
+}
+
+.markdown-preview pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.78rem;
+}
+
+.markdown-preview a {
+  color: var(--color-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.markdown-preview hr {
+  margin: 1.8em 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.markdown-preview table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.markdown-preview th {
+  background: var(--color-surface-muted);
   font-weight: 650;
 }
 
-.document-placeholder p {
-  margin: var(--space-3) 0 0;
+.markdown-empty,
+.document-state {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.markdown-empty p,
+.document-state p {
+  margin: 0;
+}
+
+.document-state button {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
 }
 
 .detail-empty {

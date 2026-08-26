@@ -1,5 +1,11 @@
 import { Archive, FileText, MoreHorizontal, X } from 'lucide-react';
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import type {
   Project,
   Task,
@@ -8,7 +14,16 @@ import type {
   TaskStatus,
 } from '../workspace/types';
 
+const MarkdownDocument = lazy(() =>
+  import('../markdown/MarkdownDocument').then((module) => ({
+    default: module.MarkdownDocument,
+  })),
+);
+
 interface TaskDetailPaneProps {
+  serverUrl: string;
+  token: string;
+  workspaceId: string;
   task: Task | null;
   projects: Project[];
   loading: boolean;
@@ -53,6 +68,9 @@ function SelectedTaskDetail({
   onPatch,
   onArchive,
   onClose,
+  serverUrl,
+  token,
+  workspaceId,
 }: Omit<TaskDetailPaneProps, 'task'> & { task: Task }) {
   const [title, setTitle] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -195,16 +213,20 @@ function SelectedTaskDetail({
           </p>
         )}
 
-        <section
-          className="document-placeholder"
-          aria-labelledby="document-heading"
+        <Suspense
+          fallback={
+            <section className="task-document">
+              <div className="document-state">Loading editor…</div>
+            </section>
+          }
         >
-          <div className="document-heading-row">
-            <FileText aria-hidden="true" size={16} />
-            <h2 id="document-heading">Markdown document</h2>
-          </div>
-          <p>The task document is loading into the editor.</p>
-        </section>
+          <MarkdownDocument
+            serverUrl={serverUrl}
+            token={token}
+            workspaceId={workspaceId}
+            taskId={task.id}
+          />
+        </Suspense>
       </div>
     </section>
   );
