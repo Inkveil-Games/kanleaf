@@ -29,7 +29,6 @@ describe('AuthScreen', () => {
       <AuthScreen
         serverUrl="https://kanleaf.example.com"
         onAuthenticated={authenticated}
-        onChangeServer={vi.fn()}
       />,
     );
 
@@ -70,7 +69,6 @@ describe('AuthScreen', () => {
       <AuthScreen
         serverUrl="https://kanleaf.example.com"
         onAuthenticated={vi.fn()}
-        onChangeServer={vi.fn()}
       />,
     );
 

@@ -8,14 +8,9 @@ type AuthMode = 'login' | 'register';
 interface AuthScreenProps {
   serverUrl: string;
   onAuthenticated: (response: AuthResponse) => void;
-  onChangeServer: () => void;
 }
 
-export function AuthScreen({
-  serverUrl,
-  onAuthenticated,
-  onChangeServer,
-}: AuthScreenProps) {
+export function AuthScreen({ serverUrl, onAuthenticated }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -140,14 +135,6 @@ export function AuthScreen({
               : mode === 'login'
                 ? 'Sign in'
                 : 'Register'}
-          </button>
-
-          <button
-            className="text-button"
-            type="button"
-            onClick={onChangeServer}
-          >
-            Change server
           </button>
         </form>
       </section>

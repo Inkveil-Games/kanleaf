@@ -7,8 +7,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   const suffix = `${Date.now()}-${test.info().workerIndex}`;
   await page.goto('/');
 
-  await page.getByLabel('Server URL').fill(serverUrl);
-  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Sign in to Kanleaf' }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'New account' }).click();
   await page.getByLabel('Email').fill(`e2e-${suffix}@example.com`);
   await page.locator('input[type="password"]').fill('playwright-password');

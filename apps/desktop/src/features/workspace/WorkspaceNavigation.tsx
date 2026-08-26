@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Server,
 } from 'lucide-react';
 import {
   useState,
@@ -32,7 +31,6 @@ interface WorkspaceNavigationProps {
   onRenameProject: (projectId: string, name: string) => Promise<void>;
   onArchiveProject: (projectId: string) => Promise<void>;
   onSelectCollection: (collection: Collection) => void;
-  onChangeServer: () => void;
   onSignOut: () => void;
 }
 
@@ -51,7 +49,6 @@ export function WorkspaceNavigation({
   onRenameProject,
   onArchiveProject,
   onSelectCollection,
-  onChangeServer,
   onSignOut,
 }: WorkspaceNavigationProps) {
   const [composer, setComposer] = useState<Composer>(null);
@@ -259,15 +256,6 @@ export function WorkspaceNavigation({
             <MoreHorizontal aria-hidden="true" size={16} />
           </summary>
           <div className="context-menu-popover">
-            <button
-              type="button"
-              onClick={(event) => {
-                closeContextMenu(event);
-                onChangeServer();
-              }}
-            >
-              <Server aria-hidden="true" size={14} /> Change server
-            </button>
             <button
               type="button"
               onClick={(event) => {

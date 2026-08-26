@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeServerUrl } from './storage';
+import { normalizeServerUrl } from './server';
 
 describe('normalizeServerUrl', () => {
   it('accepts HTTP and HTTPS servers and removes a trailing slash', () => {

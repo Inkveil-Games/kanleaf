@@ -18,7 +18,7 @@ Markdown document.
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
 - PostgreSQL-backed structured data and UUID-addressed filesystem vaults
-- Configurable connections to local, LAN, or HTTPS Kanleaf servers
+- Build-time server configuration for local, LAN, or HTTPS deployments
 - Docker Compose self-hosting and a Tauri v2 desktop shell
 
 ## Architecture at a glance
@@ -59,9 +59,10 @@ In a second terminal, also from the repository root:
 pnpm tauri dev
 ```
 
-The development client connects to `http://127.0.0.1:3000` by default and can
-store a different Kanleaf server URL. PostgreSQL setup, browser-only development,
-and platform notes are in [docs/development.md](docs/development.md).
+The development client reads `VITE_KANLEAF_SERVER_URL` from the root `.env`
+file, verifies `/api/health`, and connects automatically. PostgreSQL setup,
+browser-only development, and platform notes are in
+[docs/development.md](docs/development.md).
 
 ## Tests and quality checks
 

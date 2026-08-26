@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
+  envDir: '../..',
   clearScreen: false,
   build: {
     // CodeMirror is a lazy, isolated editor chunk; its gzip size stays near 210 kB.

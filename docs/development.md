@@ -32,8 +32,9 @@ docker run --rm --name kanleaf-postgres-dev \
   postgres:17-alpine
 ```
 
-Copy `.env.example` to `.env` in the repository root. The server reads this
-file in development; `.env` is ignored by Git.
+Copy `.env.example` to `.env` in the repository root. The server reads its
+variables from this file in development, and Vite embeds variables prefixed
+with `VITE_` into the desktop client. `.env` is ignored by Git.
 
 ```bash
 cp .env.example .env
@@ -56,7 +57,8 @@ pnpm tauri dev
 
 For browser-only UI work, use `pnpm dev` instead. It serves the existing desktop
 frontend at `http://127.0.0.1:1420` without creating another project directory.
-The browser and Tauri clients both use the same configurable HTTP API.
+The browser and Tauri clients automatically verify and use the server configured
+by `VITE_KANLEAF_SERVER_URL`. Restart the client after changing it.
 
 ## Configuration
 
@@ -68,6 +70,7 @@ The browser and Tauri clients both use the same configurable HTTP API.
 | `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins           |
 | `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days       |
 | `RUST_LOG`                 | server and HTTP info         | `tracing` filter                        |
+| `VITE_KANLEAF_SERVER_URL`  | required                     | Server URL embedded into the client     |
 
 Deployment/server configuration belongs in environment variables. Application
 entities belong in PostgreSQL, client-local preferences in local storage, and
@@ -132,7 +135,7 @@ configuration, or percent-encode URL-reserved characters.
 
 ## Troubleshooting
 
-- A connection screen health failure usually means the server URL is wrong or
+- A server health failure usually means `VITE_KANLEAF_SERVER_URL` is wrong or
   `/api/health` is unreachable from the desktop machine.
 - Browser CORS failures require the exact Vite origin in
   `KANLEAF_CORS_ORIGINS`; do not use a wildcard with bearer sessions.

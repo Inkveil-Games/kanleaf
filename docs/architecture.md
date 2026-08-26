@@ -92,16 +92,19 @@ reconciliation and conflict-aware sync remain outside v0.1.
 
 The desktop app is feature-oriented:
 
-- `features/connection` and `features/auth` own local server/session setup;
+- `lib/config` validates build-time client configuration, while `features/auth`
+  owns the local session;
 - `features/workspace` owns tenant navigation and API coordination;
 - `features/task` owns collection rows and structured detail editing;
 - `features/markdown` owns source editing, preview, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
-TanStack Query owns remote cache state. Local storage contains only the selected
-server URL, current bearer token, and document-view preference. CodeMirror is
-lazy-loaded when a document opens. Preview uses `react-markdown` with GFM and
-raw HTML disabled; external links receive safe new-window attributes.
+TanStack Query owns remote cache state. Vite embeds the server URL from
+`VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
+authentication. Local storage contains only the current bearer token and
+document-view preference. CodeMirror is lazy-loaded when a document opens.
+Preview uses `react-markdown` with GFM and raw HTML disabled; external links
+receive safe new-window attributes.
 
 The layout is desktop-first with a 900×600 minimum Tauri window: navigation,
 collection, and detail panes use subtle separators and strong row selection.

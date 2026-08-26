@@ -20,7 +20,7 @@ export default async function globalSetup() {
       DATABASE_URL: databaseUrl,
       KANLEAF_DATA_DIR: dataDir,
       KANLEAF_BIND_ADDRESS: serverAddress,
-      KANLEAF_CORS_ORIGINS: 'http://127.0.0.1:1420',
+      KANLEAF_CORS_ORIGINS: 'http://127.0.0.1:1421',
       RUST_LOG: 'kanleaf_server=warn',
     },
     stdio: ['ignore', 'ignore', 'pipe'],

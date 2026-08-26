@@ -28,7 +28,6 @@ interface WorkspaceShellProps {
     email: string;
     active_workspace_id: string | null;
   };
-  onChangeServer: () => void;
   onSignOut: () => void;
 }
 
@@ -36,7 +35,6 @@ export function WorkspaceShell({
   serverUrl,
   token,
   user,
-  onChangeServer,
   onSignOut,
 }: WorkspaceShellProps) {
   const queryClient = useQueryClient();
@@ -246,7 +244,6 @@ export function WorkspaceShell({
         onRenameProject={updateProjectName}
         onArchiveProject={removeProject}
         onSelectCollection={selectCollection}
-        onChangeServer={onChangeServer}
         onSignOut={onSignOut}
       />
       <TaskListPane
