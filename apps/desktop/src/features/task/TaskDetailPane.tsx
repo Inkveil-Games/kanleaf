@@ -1,4 +1,4 @@
-import { Archive, FileText, X } from 'lucide-react';
+import { Archive, Check, FileText, Link2, Plus, Trash2, X } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -9,8 +9,11 @@ import {
 import type {
   Project,
   Task,
+  TaskAssignee,
+  TaskLabel,
   TaskPatch,
   TaskPriority,
+  TaskRelationType,
   TaskState,
   TaskType,
 } from '../workspace/types';
@@ -30,11 +33,21 @@ interface TaskDetailPaneProps {
   projects: Project[];
   states: TaskState[];
   taskTypes: TaskType[];
+  labels: TaskLabel[];
+  assigneeCandidates: TaskAssignee[];
+  taskCandidates: Task[];
   loading: boolean;
   error: string | null;
   canEdit: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
   onArchive: () => Promise<void>;
+  onDelete: (reference: string) => Promise<void>;
+  onAddRelation: (
+    relatedTaskId: string,
+    relationType: TaskRelationType,
+  ) => Promise<void>;
+  onRemoveRelation: (relatedTaskId: string) => Promise<void>;
+  onOpenTask: (taskId: string) => void;
   onClose: () => void;
   onRetry: () => void;
 }
@@ -72,8 +85,15 @@ function SelectedTaskDetail({
   projects,
   states,
   taskTypes,
+  labels,
+  assigneeCandidates,
+  taskCandidates,
   onPatch,
   onArchive,
+  onDelete,
+  onAddRelation,
+  onRemoveRelation,
+  onOpenTask,
   onClose,
   serverUrl,
   token,
@@ -83,6 +103,10 @@ function SelectedTaskDetail({
   const [title, setTitle] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [relatedTaskId, setRelatedTaskId] = useState('');
+  const [relationType, setRelationType] =
+    useState<TaskRelationType>('relates_to');
+  const [relationSaving, setRelationSaving] = useState(false);
 
   async function saveTitle() {
     const nextTitle = title.trim();
@@ -126,7 +150,7 @@ function SelectedTaskDetail({
   return (
     <section className="detail-pane" aria-label="Task detail">
       <header className="detail-toolbar">
-        <span className="task-reference">Task</span>
+        <span className="task-reference">{task.reference}</span>
         <div>
           {canEdit && (
             <ContextMenu label="Task actions" className="detail-menu">
@@ -141,6 +165,23 @@ function SelectedTaskDetail({
                 }}
               >
                 <Archive aria-hidden="true" size={14} /> Archive task
+              </button>
+              <button
+                className="danger-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  const confirmation = window.prompt(
+                    `Enter ${task.reference} to permanently delete this Task`,
+                  );
+                  if (confirmation === task.reference) {
+                    void onDelete(task.reference).catch((caught: unknown) =>
+                      setError(errorMessage(caught)),
+                    );
+                  }
+                }}
+              >
+                <Trash2 aria-hidden="true" size={14} /> Delete permanently
               </button>
             </ContextMenu>
           )}
@@ -221,9 +262,17 @@ function SelectedTaskDetail({
               aria-label="Project"
               value={task.project_id ?? ''}
               disabled={!canEdit}
-              onChange={(event) =>
-                void patch({ project_id: event.target.value || null })
-              }
+              onChange={(event) => {
+                const projectId = event.target.value || null;
+                const cleanup = window.confirm(
+                  'Move this Task and remove incompatible assignees, type, or hierarchy if needed?',
+                );
+                if (!cleanup) return;
+                void patch({
+                  project_id: projectId,
+                  cleanup_invalid: true,
+                });
+              }}
             >
               <option value="">Inbox</option>
               {projects.map((project) => (
@@ -231,6 +280,97 @@ function SelectedTaskDetail({
                   {project.name}
                 </option>
               ))}
+            </select>
+          </Property>
+          <Property label="Assignees">
+            <MultiValuePicker
+              label="Edit assignees"
+              emptyLabel="Unassigned"
+              disabled={!canEdit}
+              values={task.assignees.map(({ user_id }) => user_id)}
+              options={assigneeCandidates.map((member) => ({
+                id: member.user_id,
+                label: member.display_name,
+              }))}
+              onChange={(assigneeIds) => patch({ assignee_ids: assigneeIds })}
+            />
+          </Property>
+          <Property label="Labels">
+            <MultiValuePicker
+              label="Edit labels"
+              emptyLabel="No labels"
+              disabled={!canEdit}
+              values={task.labels.map(({ id }) => id)}
+              options={labels
+                .filter(
+                  ({ id, archived_at }) =>
+                    !archived_at ||
+                    task.labels.some((label) => label.id === id),
+                )
+                .map((label) => ({ id: label.id, label: label.name }))}
+              onChange={(labelIds) => patch({ label_ids: labelIds })}
+            />
+          </Property>
+          <Property label="Start date">
+            <input
+              aria-label="Start date"
+              type="date"
+              disabled={!canEdit}
+              value={task.start_date ?? ''}
+              onChange={(event) =>
+                void patch({ start_date: event.target.value || null })
+              }
+            />
+          </Property>
+          <Property label="Due date">
+            <input
+              aria-label="Due date"
+              type="date"
+              disabled={!canEdit}
+              value={task.due_date ?? ''}
+              onChange={(event) =>
+                void patch({ due_date: event.target.value || null })
+              }
+            />
+          </Property>
+          <Property label="Estimate">
+            <input
+              aria-label="Estimate"
+              type="number"
+              min={0}
+              disabled={!canEdit}
+              value={task.estimate ?? ''}
+              placeholder="No estimate"
+              onChange={(event) =>
+                void patch({
+                  estimate: event.target.value
+                    ? Number(event.target.value)
+                    : null,
+                })
+              }
+            />
+          </Property>
+          <Property label="Parent">
+            <select
+              aria-label="Parent task"
+              disabled={!canEdit}
+              value={task.parent?.id ?? ''}
+              onChange={(event) =>
+                void patch({ parent_id: event.target.value || null })
+              }
+            >
+              <option value="">No parent</option>
+              {taskCandidates
+                .filter(
+                  (candidate) =>
+                    candidate.id !== task.id &&
+                    candidate.project_id === task.project_id,
+                )
+                .map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.reference} · {candidate.title}
+                  </option>
+                ))}
             </select>
           </Property>
         </dl>
@@ -255,6 +395,119 @@ function SelectedTaskDetail({
             readOnly={!canEdit}
           />
         </Suspense>
+
+        <section
+          className="task-secondary-details"
+          aria-labelledby="task-links-title"
+        >
+          <header>
+            <div>
+              <p className="pane-eyebrow">Structure</p>
+              <h2 id="task-links-title">Subtasks and relations</h2>
+            </div>
+          </header>
+          <div className="task-link-section">
+            <h3>Subtasks</h3>
+            {task.subtasks.length === 0 ? (
+              <p>No subtasks.</p>
+            ) : (
+              task.subtasks.map((subtask) => (
+                <button
+                  key={subtask.id}
+                  type="button"
+                  onClick={() => onOpenTask(subtask.id)}
+                >
+                  <span>{subtask.reference}</span>
+                  {subtask.title}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="task-link-section">
+            <h3>Relations</h3>
+            {task.relations.map((relation) => (
+              <div className="task-relation-row" key={relation.task.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenTask(relation.task.id)}
+                >
+                  <span>{relationLabel(relation.relation_type)}</span>
+                  {relation.task.reference} · {relation.task.title}
+                </button>
+                {canEdit && (
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label={`Remove relation to ${relation.task.title}`}
+                    onClick={() =>
+                      void onRemoveRelation(relation.task.id).catch(
+                        (caught: unknown) => setError(errorMessage(caught)),
+                      )
+                    }
+                  >
+                    <X aria-hidden="true" size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {task.relations.length === 0 && <p>No relations.</p>}
+            {canEdit && (
+              <form
+                className="relation-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!relatedTaskId) return;
+                  setRelationSaving(true);
+                  void onAddRelation(relatedTaskId, relationType)
+                    .then(() => setRelatedTaskId(''))
+                    .catch((caught: unknown) => setError(errorMessage(caught)))
+                    .finally(() => setRelationSaving(false));
+                }}
+              >
+                <Link2 aria-hidden="true" size={14} />
+                <select
+                  aria-label="Relation type"
+                  value={relationType}
+                  onChange={(event) =>
+                    setRelationType(event.target.value as TaskRelationType)
+                  }
+                >
+                  <option value="relates_to">Relates to</option>
+                  <option value="blocking">Blocking</option>
+                  <option value="blocked_by">Blocked by</option>
+                  <option value="duplicate">Duplicate</option>
+                </select>
+                <select
+                  required
+                  aria-label="Related task"
+                  value={relatedTaskId}
+                  onChange={(event) => setRelatedTaskId(event.target.value)}
+                >
+                  <option value="">Choose a Task…</option>
+                  {taskCandidates
+                    .filter(
+                      (candidate) =>
+                        candidate.id !== task.id &&
+                        !task.relations.some(
+                          (relation) => relation.task.id === candidate.id,
+                        ),
+                    )
+                    .map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.reference} · {candidate.title}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={relationSaving || !relatedTaskId}
+                >
+                  <Plus aria-hidden="true" size={14} /> Add
+                </button>
+              </form>
+            )}
+          </div>
+        </section>
       </div>
     </section>
   );
@@ -306,6 +559,82 @@ function Property({ label, children }: PropertyProps) {
       <dd>{children}</dd>
     </div>
   );
+}
+
+interface MultiValuePickerProps {
+  label: string;
+  emptyLabel: string;
+  disabled: boolean;
+  values: string[];
+  options: { id: string; label: string }[];
+  onChange: (values: string[]) => Promise<void>;
+}
+
+function MultiValuePicker({
+  label,
+  emptyLabel,
+  disabled,
+  values,
+  options,
+  onChange,
+}: MultiValuePickerProps) {
+  const [saving, setSaving] = useState(false);
+  const selectedLabels = options
+    .filter(({ id }) => values.includes(id))
+    .map((option) => option.label);
+  const summary =
+    selectedLabels.length > 0 ? selectedLabels.join(', ') : emptyLabel;
+  if (disabled)
+    return <span className="property-readonly-value">{summary}</span>;
+  return (
+    <ContextMenu
+      label={label}
+      className="property-picker"
+      trigger={<span>{summary}</span>}
+    >
+      {options.length === 0 ? (
+        <span className="menu-empty-state">No options available</span>
+      ) : (
+        options.map((option) => {
+          const selected = values.includes(option.id);
+          return (
+            <button
+              key={option.id}
+              data-menu-keep-open
+              role="menuitemcheckbox"
+              aria-checked={selected}
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setSaving(true);
+                void onChange(
+                  selected
+                    ? values.filter((value) => value !== option.id)
+                    : [...values, option.id],
+                ).finally(() => setSaving(false));
+              }}
+            >
+              <Check aria-hidden="true" size={14} opacity={selected ? 1 : 0} />
+              {option.label}
+            </button>
+          );
+        })
+      )}
+    </ContextMenu>
+  );
+}
+
+function relationLabel(relationType: TaskRelationType) {
+  return {
+    blocking: 'Blocking',
+    blocked_by: 'Blocked by',
+    relates_to: 'Relates to',
+    duplicate: 'Duplicate',
+  }[relationType];
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Task update failed';
 }
 
 function EmptyDetail() {

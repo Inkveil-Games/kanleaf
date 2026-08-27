@@ -1,4 +1,4 @@
-import { Plus, Search, X } from 'lucide-react';
+import { CalendarDays, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -8,6 +8,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import type { Collection, Project, Task, TaskState } from '../workspace/types';
+import type { TaskBulkPatch } from '../workspace/types';
+import { ContextMenu } from '../../components/ui/ContextMenu';
 
 interface TaskListPaneProps {
   collection: Collection;
@@ -24,6 +26,7 @@ interface TaskListPaneProps {
   onSelectTask: (taskId: string) => void;
   onCreateTask: (title: string) => Promise<void>;
   onUpdateState: (task: Task, stateId: string) => Promise<void>;
+  onBulkUpdate: (patch: TaskBulkPatch) => Promise<void>;
   onRetry: () => void;
   onClearSelection: () => void;
 }
@@ -43,12 +46,25 @@ export function TaskListPane({
   onSelectTask,
   onCreateTask,
   onUpdateState,
+  onBulkUpdate,
   onRetry,
   onClearSelection,
 }: TaskListPaneProps) {
   const [composing, setComposing] = useState(false);
+  const [checkedTaskIds, setCheckedTaskIds] = useState<Set<string>>(new Set());
+  const [visibleFields, setVisibleFields] = useState({
+    priority: true,
+    assignees: true,
+    labels: true,
+    dueDate: true,
+  });
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const title = collectionTitle(collection, projects);
+  const checkedVisibleIds = tasks
+    .filter(({ id }) => checkedTaskIds.has(id))
+    .map(({ id }) => id);
 
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -78,6 +94,11 @@ export function TaskListPane({
   }, [canCreate, onClearSelection]);
 
   function moveSelection(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === ' ' && selectedTaskId) {
+      event.preventDefault();
+      toggleChecked(selectedTaskId);
+      return;
+    }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
     const currentIndex = tasks.findIndex(({ id }) => id === selectedTaskId);
@@ -90,6 +111,30 @@ export function TaskListPane({
     if (nextTask) onSelectTask(nextTask.id);
   }
 
+  function toggleChecked(taskId: string) {
+    setCheckedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  async function applyBulk(patch: Omit<TaskBulkPatch, 'task_ids'>) {
+    if (checkedVisibleIds.length === 0) return;
+    setBulkUpdating(true);
+    setBulkError(null);
+    try {
+      await onBulkUpdate({ task_ids: checkedVisibleIds, ...patch });
+    } catch (caught) {
+      setBulkError(
+        caught instanceof Error ? caught.message : 'Bulk update failed',
+      );
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
   return (
     <section className="collection-pane" aria-labelledby="collection-title">
       <header className="collection-header">
@@ -97,46 +142,128 @@ export function TaskListPane({
           <p className="pane-eyebrow">Collection</p>
           <h1 id="collection-title">{title}</h1>
         </div>
-        {canCreate && (
-          <button
-            className="icon-button strong-icon-button"
-            type="button"
-            aria-label="New task"
-            onClick={() => setComposing(true)}
-          >
-            <Plus aria-hidden="true" size={17} />
-          </button>
-        )}
+        <div className="collection-actions">
+          <ContextMenu label="Visible task fields" className="field-menu">
+            {Object.entries(visibleFields).map(([field, visible]) => (
+              <button
+                key={field}
+                data-menu-keep-open
+                role="menuitemcheckbox"
+                aria-checked={visible}
+                type="button"
+                onClick={() =>
+                  setVisibleFields((current) => ({
+                    ...current,
+                    [field]: !current[field as keyof typeof current],
+                  }))
+                }
+              >
+                <SlidersHorizontal aria-hidden="true" size={14} />
+                {fieldLabel(field)}
+              </button>
+            ))}
+          </ContextMenu>
+          {canCreate && (
+            <button
+              className="icon-button strong-icon-button"
+              type="button"
+              aria-label="New task"
+              onClick={() => setComposing(true)}
+            >
+              <Plus aria-hidden="true" size={17} />
+            </button>
+          )}
+        </div>
       </header>
 
-      <div className="task-search">
-        <Search aria-hidden="true" size={15} />
-        <label className="sr-only" htmlFor="task-search-input">
-          Search tasks
-        </label>
-        <input
-          id="task-search-input"
-          ref={searchRef}
-          type="search"
-          value={query}
-          placeholder="Search tasks"
-          onChange={(event) => onQueryChange(event.target.value)}
-        />
-        {query && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => onQueryChange('')}
-          >
-            <X aria-hidden="true" size={14} />
-          </button>
+      <div className="collection-controls">
+        <div className="task-search">
+          <Search aria-hidden="true" size={15} />
+          <label className="sr-only" htmlFor="task-search-input">
+            Search tasks
+          </label>
+          <input
+            id="task-search-input"
+            ref={searchRef}
+            type="search"
+            value={query}
+            placeholder="Search tasks"
+            onChange={(event) => onQueryChange(event.target.value)}
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => onQueryChange('')}
+            >
+              <X aria-hidden="true" size={14} />
+            </button>
+          )}
+          <kbd>⌘K</kbd>
+        </div>
+        {checkedVisibleIds.length > 0 && (
+          <div className="bulk-toolbar" aria-label="Bulk task actions">
+            <strong>{checkedVisibleIds.length} selected</strong>
+            <label>
+              <span className="sr-only">Set state</span>
+              <select
+                defaultValue=""
+                disabled={bulkUpdating}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    void applyBulk({ state_id: event.target.value });
+                    event.target.value = '';
+                  }
+                }}
+              >
+                <option value="">State…</option>
+                {states
+                  .filter(({ archived_at }) => !archived_at)
+                  .map((state) => (
+                    <option key={state.id} value={state.id}>
+                      {state.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">Set priority</span>
+              <select
+                defaultValue=""
+                disabled={bulkUpdating}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    void applyBulk({
+                      priority: event.target.value as Task['priority'],
+                    });
+                    event.target.value = '';
+                  }
+                }}
+              >
+                <option value="">Priority…</option>
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={bulkUpdating}
+              onClick={() => setCheckedTaskIds(new Set())}
+            >
+              Clear
+            </button>
+            {bulkError && <span role="alert">{bulkError}</span>}
+          </div>
         )}
-        <kbd>⌘K</kbd>
       </div>
 
       <div
         className="task-list"
         role="listbox"
+        aria-multiselectable="true"
         aria-label={`${title} tasks`}
         tabIndex={0}
         onKeyDown={moveSelection}
@@ -176,7 +303,10 @@ export function TaskListPane({
             states={states}
             canEdit={canEditTask(task)}
             selected={task.id === selectedTaskId}
+            checked={checkedTaskIds.has(task.id)}
+            visibleFields={visibleFields}
             onSelect={() => onSelectTask(task.id)}
+            onToggleChecked={() => toggleChecked(task.id)}
             onUpdateState={(stateId) => onUpdateState(task, stateId)}
           />
         ))}
@@ -193,8 +323,16 @@ interface TaskRowProps {
   task: Task;
   states: TaskState[];
   selected: boolean;
+  checked: boolean;
+  visibleFields: {
+    priority: boolean;
+    assignees: boolean;
+    labels: boolean;
+    dueDate: boolean;
+  };
   canEdit: boolean;
   onSelect: () => void;
+  onToggleChecked: () => void;
   onUpdateState: (stateId: string) => Promise<void>;
 }
 
@@ -202,8 +340,11 @@ function TaskRow({
   task,
   states,
   selected,
+  checked,
+  visibleFields,
   canEdit,
   onSelect,
+  onToggleChecked,
   onUpdateState,
 }: TaskRowProps) {
   const next = nextState(task, states);
@@ -214,6 +355,10 @@ function TaskRow({
       aria-selected={selected}
       data-state-group={task.state.state_group}
     >
+      <label className="task-select-control">
+        <span className="sr-only">Select {task.title}</span>
+        <input type="checkbox" checked={checked} onChange={onToggleChecked} />
+      </label>
       {canEdit ? (
         <button
           className="task-status-button"
@@ -240,9 +385,29 @@ function TaskRow({
       <button className="task-row-main" type="button" onClick={onSelect}>
         <span className="task-row-title">{task.title}</span>
         <span className="task-row-metadata">
-          {task.priority !== 'none' && (
+          <span className="task-row-reference">{task.reference}</span>
+          {visibleFields.priority && task.priority !== 'none' && (
             <span className={`priority-mark priority-${task.priority}`}>
               {task.priority}
+            </span>
+          )}
+          {visibleFields.assignees && task.assignees.length > 0 && (
+            <span>
+              {task.assignees
+                .map(({ display_name }) => display_name)
+                .join(', ')}
+            </span>
+          )}
+          {visibleFields.labels &&
+            task.labels.slice(0, 2).map((label) => (
+              <span className="task-row-label" key={label.id}>
+                {label.name}
+              </span>
+            ))}
+          {visibleFields.dueDate && task.due_date && (
+            <span className="task-row-date">
+              <CalendarDays aria-hidden="true" size={11} />
+              {formatTaskDate(task.due_date)}
             </span>
           )}
           <span>{formatUpdatedAt(task.updated_at)}</span>
@@ -314,10 +479,29 @@ function TaskListSkeleton() {
 
 function collectionTitle(collection: Collection, projects: Project[]) {
   if (collection.kind === 'inbox') return 'Inbox';
-  if (collection.kind === 'all') return 'My tasks';
+  if (collection.kind === 'my-work') return 'My Work';
+  if (collection.kind === 'all') return 'All tasks';
   return (
     projects.find(({ id }) => id === collection.projectId)?.name ?? 'Project'
   );
+}
+
+function fieldLabel(field: string) {
+  return (
+    {
+      priority: 'Priority',
+      assignees: 'Assignees',
+      labels: 'Labels',
+      dueDate: 'Due date',
+    }[field] ?? field
+  );
+}
+
+function formatTaskDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${value}T00:00:00`));
 }
 
 function nextState(task: Task, states: TaskState[]) {

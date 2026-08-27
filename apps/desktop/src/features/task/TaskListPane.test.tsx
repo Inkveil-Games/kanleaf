@@ -40,6 +40,7 @@ function renderList(
     onSelectTask: vi.fn(),
     onCreateTask: vi.fn().mockResolvedValue(undefined),
     onUpdateState: vi.fn().mockResolvedValue(undefined),
+    onBulkUpdate: vi.fn().mockResolvedValue(undefined),
     onRetry: vi.fn(),
     onClearSelection: vi.fn(),
     ...overrides,
@@ -98,6 +99,40 @@ describe('TaskListPane', () => {
       screen.getByRole('button', { name: /Design the navigation/ }),
     ).toBeInTheDocument();
   });
+
+  it('applies one bulk mutation to the checked task rows', async () => {
+    const props = renderList();
+
+    fireEvent.click(screen.getByLabelText('Select Design the navigation'));
+    fireEvent.click(screen.getByLabelText('Select Write contributor notes'));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Set priority'), {
+      target: { value: 'urgent' },
+    });
+
+    await waitFor(() =>
+      expect(props.onBulkUpdate).toHaveBeenCalledWith({
+        task_ids: ['task-1', 'task-2'],
+        priority: 'urgent',
+      }),
+    );
+  });
+
+  it('recovers after a bulk mutation fails', async () => {
+    renderList({
+      onBulkUpdate: vi.fn().mockRejectedValue(new Error('Server unavailable')),
+    });
+
+    fireEvent.click(screen.getByLabelText('Select Design the navigation'));
+    fireEvent.change(screen.getByLabelText('Set priority'), {
+      target: { value: 'urgent' },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Server unavailable',
+    );
+    expect(screen.getByLabelText('Set priority')).toBeEnabled();
+  });
 });
 
 function state(
@@ -132,6 +167,8 @@ function task(
     id,
     workspace_id: 'workspace-1',
     project_id: null,
+    task_number: Number(id.slice(-1)),
+    reference: `#${id.slice(-1)}`,
     title,
     state: {
       id: stateId,
@@ -146,6 +183,15 @@ function task(
       color: '#64748B',
     },
     priority,
+    start_date: null,
+    due_date: null,
+    estimate: null,
+    position: Number(id.slice(-1)) * 1024,
+    parent: null,
+    assignees: [],
+    labels: [],
+    subtasks: [],
+    relations: [],
     archived_at: null,
     created_at: '2026-08-26T10:00:00Z',
     updated_at: '2026-08-26T10:00:00Z',

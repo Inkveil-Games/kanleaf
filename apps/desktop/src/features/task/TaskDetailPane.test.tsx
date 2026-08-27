@@ -11,6 +11,8 @@ const task: Task = {
   id: 'task-1',
   workspace_id: 'workspace-1',
   project_id: null,
+  task_number: 1,
+  reference: '#1',
   title: 'Draft the architecture',
   state: {
     id: 'state-todo',
@@ -25,6 +27,15 @@ const task: Task = {
     color: '#64748B',
   },
   priority: 'none',
+  start_date: null,
+  due_date: null,
+  estimate: null,
+  position: 1024,
+  parent: null,
+  assignees: [],
+  labels: [],
+  subtasks: [],
+  relations: [],
   archived_at: null,
   created_at: '2026-08-26T10:00:00Z',
   updated_at: '2026-08-26T10:00:00Z',
@@ -68,6 +79,7 @@ const projects: Project[] = [
 describe('TaskDetailPane', () => {
   it('edits structured task fields directly in the detail pane', async () => {
     const patch = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(
       <TaskDetailPane
         serverUrl="https://kanleaf.example.com"
@@ -77,11 +89,24 @@ describe('TaskDetailPane', () => {
         projects={projects}
         states={states}
         taskTypes={taskTypes}
+        labels={[]}
+        assigneeCandidates={[
+          {
+            user_id: 'user-1',
+            email: 'alex@example.com',
+            display_name: 'Alex Morgan',
+          },
+        ]}
+        taskCandidates={[task]}
         loading={false}
         error={null}
         canEdit
         onPatch={patch}
         onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
         onClose={vi.fn()}
         onRetry={vi.fn()}
       />,
@@ -96,6 +121,13 @@ describe('TaskDetailPane', () => {
     fireEvent.change(screen.getByLabelText('Priority'), {
       target: { value: 'high' },
     });
+    fireEvent.change(screen.getByLabelText('Due date'), {
+      target: { value: '2026-09-04' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit assignees' }));
+    fireEvent.click(
+      screen.getByRole('menuitemcheckbox', { name: 'Alex Morgan' }),
+    );
     fireEvent.change(screen.getByLabelText('Project'), {
       target: { value: 'project-1' },
     });
@@ -107,7 +139,12 @@ describe('TaskDetailPane', () => {
       expect(patch).toHaveBeenCalledWith({ state_id: 'state-progress' });
       expect(patch).toHaveBeenCalledWith({ task_type_id: 'type-bug' });
       expect(patch).toHaveBeenCalledWith({ priority: 'high' });
-      expect(patch).toHaveBeenCalledWith({ project_id: 'project-1' });
+      expect(patch).toHaveBeenCalledWith({ due_date: '2026-09-04' });
+      expect(patch).toHaveBeenCalledWith({ assignee_ids: ['user-1'] });
+      expect(patch).toHaveBeenCalledWith({
+        project_id: 'project-1',
+        cleanup_invalid: true,
+      });
       expect(patch).toHaveBeenCalledWith({
         title: 'Document the architecture',
       });
@@ -124,11 +161,18 @@ describe('TaskDetailPane', () => {
         projects={projects}
         states={states}
         taskTypes={taskTypes}
+        labels={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
         loading={false}
         error={null}
         canEdit={false}
         onPatch={vi.fn()}
         onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
         onClose={vi.fn()}
         onRetry={vi.fn()}
       />,

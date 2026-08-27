@@ -40,7 +40,9 @@ User ──< Session
                                       ├────< TaskType
                                       ├────< Project ────< ProjectMembership
                                       │          └───────< ProjectTaskType
-                                      └────< Task
+                                      └────< Task ──< TaskAssignee
+                                                ├──< TaskLabelAssignment
+                                                └──< TaskRelation >── Task
 ```
 
 - A membership is the workspace tenant and authorization boundary. Fixed
@@ -56,9 +58,17 @@ User ──< Session
   defaults and enabled types from the same tenant.
 - A task belongs to one workspace and optionally one project, with required
   state and type references guarded by composite workspace foreign keys.
+- Each task receives a monotonic workspace number under a workspace row lock.
+  Human references use the current project identifier plus that number, while
+  the UUID remains the permanent database and vault identity.
+- Assignees must be eligible for the current Inbox or Project, labels remain
+  workspace-scoped, and parent Tasks must share the same collection. Canonical
+  relation rows prevent duplicate edges and preserve directional blocking.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
-  active tasks to Inbox in the same transaction.
+  active tasks to Inbox in the same transaction. A Project move either rejects
+  incompatible type, assignment, and hierarchy data or removes it only when
+  the client explicitly requests cleanup.
 - Composite foreign keys prevent projects and tasks from referencing another
   workspace's configuration. Configuration edits and assignments coordinate on
   the workspace row so archiving cannot race a new task assignment. Check
@@ -121,6 +131,12 @@ the transaction is rolled back if the document cannot be created. Fully atomic
 transactions across PostgreSQL and a filesystem are not possible, so startup
 reconciliation and conflict-aware sync remain outside v0.1.
 
+Permanent Task deletion uses the same trash-first boundary: the document is
+renamed before the database commit, restored if the transaction fails, and
+purged only after the Task becomes unreachable. A purge failure is logged and
+leaves internal trash for operator cleanup instead of encouraging an unsafe
+client retry.
+
 Confirmed Workspace deletion first renames its typed vault to an internal trash
 namespace. A database failure restores that directory; a successful commit
 makes the Workspace unreachable before the server purges trash. Cleanup failure
@@ -134,7 +150,8 @@ The desktop app is feature-oriented:
   owns the local session;
 - `features/workspace` owns tenant navigation and API coordination;
 - `features/task-config` owns workspace states, labels, types, and defaults;
-- `features/task` owns collection rows and structured detail editing;
+- `features/task` owns keyboard-selectable collection rows, bulk actions, My
+  Work, and structured detail editing;
 - `features/markdown` owns source editing, preview, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
@@ -145,9 +162,11 @@ document-view preference. CodeMirror is lazy-loaded when a document opens.
 Preview uses `react-markdown` with GFM and raw HTML disabled; external links
 receive safe new-window attributes.
 
-The layout is desktop-first with a 900×600 minimum Tauri window: navigation,
-collection, and detail panes use subtle separators and strong row selection.
-Task detail remains a pane rather than a modal.
+The layout is desktop-first with a 900×600 minimum Tauri window. A compact top
+bar owns Workspace switching and global notifications; navigation, collection,
+and detail panes use subtle separators and strong row selection beneath it.
+Account and Workspace settings are separate floating windows, and task detail
+remains a pane rather than a modal.
 
 ## Deployment
 
@@ -160,6 +179,5 @@ PostgreSQL data and vault files under the selected host data root.
 ## Deferred intentionally
 
 Offline caching and sync, concurrent document conflict resolution, attachments,
-project membership, full-text document indexing, plugins, real-time
-collaboration, mobile clients, release signing, and bundled TLS are not current
-implementation concerns.
+full-text document indexing, plugins, real-time collaboration, mobile clients,
+release signing, and bundled TLS are not current implementation concerns.

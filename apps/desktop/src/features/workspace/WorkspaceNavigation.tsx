@@ -1,140 +1,55 @@
 import {
   CheckSquare2,
-  ChevronDown,
   Folder,
   Inbox,
   LayoutPanelTop,
   ListTodo,
   LogOut,
-  Pencil,
   Plus,
-  Settings,
   UserRound,
 } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
-import { Wordmark } from '../../components/ui/Wordmark';
-import type { SettingsSection } from '../settings/SettingsShell';
+import type { AccountSettingsSection } from '../account/AccountSettings';
+import { InlineNameForm } from './InlineNameForm';
 import type { Collection, Project, Workspace } from './types';
 
 interface WorkspaceNavigationProps {
   email: string;
   displayName: string;
-  workspaces: Workspace[];
-  workspaceId: string;
+  workspace: Workspace;
   projects: Project[];
   collection: Collection;
   surface: WorkspaceSurface;
   activeProjectId: string | null;
-  onSwitchWorkspace: (workspaceId: string) => Promise<void>;
-  onCreateWorkspace: (name: string) => Promise<void>;
-  onRenameWorkspace: (name: string) => Promise<void>;
   onCreateProject: (name: string) => Promise<void>;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
-  onOpenSettings: (section: SettingsSection) => void;
+  onOpenAccountSettings: (section: AccountSettingsSection) => void;
   onSignOut: () => void;
 }
 
 export type WorkspaceSurface = 'tasks' | 'project-overview';
 
-type Composer = 'workspace' | 'rename-workspace' | 'project' | null;
-
 export function WorkspaceNavigation({
   email,
   displayName,
-  workspaces,
-  workspaceId,
+  workspace,
   projects,
   collection,
   surface,
   activeProjectId,
-  onSwitchWorkspace,
-  onCreateWorkspace,
-  onRenameWorkspace,
   onCreateProject,
   onSelectCollection,
   onOpenProjectOverview,
-  onOpenSettings,
+  onOpenAccountSettings,
   onSignOut,
 }: WorkspaceNavigationProps) {
-  const [composer, setComposer] = useState<Composer>(null);
-  const activeWorkspace = workspaces.find(({ id }) => id === workspaceId);
-  const canManageWorkspace =
-    activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
-  const canUseContent = activeWorkspace?.role !== 'guest';
+  const [composingProject, setComposingProject] = useState(false);
+  const canUseContent = workspace.role !== 'guest';
 
   return (
     <aside className="navigation-pane">
-      <div className="navigation-header">
-        <Wordmark quiet />
-        <div className="workspace-switcher">
-          <label className="sr-only" htmlFor="workspace-select">
-            Active workspace
-          </label>
-          <select
-            id="workspace-select"
-            value={workspaceId}
-            onChange={(event) => void onSwitchWorkspace(event.target.value)}
-          >
-            {workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden="true" size={14} />
-          <ContextMenu label="Workspace actions">
-            {canManageWorkspace && (
-              <button
-                role="menuitem"
-                type="button"
-                onClick={() => setComposer('rename-workspace')}
-              >
-                <Pencil aria-hidden="true" size={14} /> Rename workspace
-              </button>
-            )}
-            <button
-              role="menuitem"
-              type="button"
-              onClick={() => onOpenSettings('workspace:general')}
-            >
-              <Settings aria-hidden="true" size={14} /> Workspace settings
-            </button>
-            <button
-              role="menuitem"
-              type="button"
-              onClick={() => setComposer('workspace')}
-            >
-              <Plus aria-hidden="true" size={14} /> New workspace
-            </button>
-          </ContextMenu>
-        </div>
-        {composer === 'workspace' && (
-          <InlineNameForm
-            label="Workspace name"
-            submitLabel="Create workspace"
-            onCancel={() => setComposer(null)}
-            onSubmit={async (name) => {
-              await onCreateWorkspace(name);
-              setComposer(null);
-            }}
-          />
-        )}
-        {composer === 'rename-workspace' && activeWorkspace && (
-          <InlineNameForm
-            label="Workspace name"
-            initialValue={activeWorkspace.name}
-            submitLabel="Rename workspace"
-            onCancel={() => setComposer(null)}
-            onSubmit={async (name) => {
-              await onRenameWorkspace(name);
-              setComposer(null);
-            }}
-          />
-        )}
-      </div>
-
       <nav className="navigation-scroll" aria-label="Workspace">
         <div className="nav-section nav-primary">
           {canUseContent && (
@@ -146,10 +61,10 @@ export function WorkspaceNavigation({
                 onClick={() => onSelectCollection({ kind: 'inbox' })}
               />
               <NavButton
-                active={surface === 'tasks' && collection.kind === 'all'}
+                active={surface === 'tasks' && collection.kind === 'my-work'}
                 icon={<CheckSquare2 aria-hidden="true" size={16} />}
-                label="My tasks"
-                onClick={() => onSelectCollection({ kind: 'all' })}
+                label="My Work"
+                onClick={() => onSelectCollection({ kind: 'my-work' })}
               />
             </>
           )}
@@ -163,29 +78,29 @@ export function WorkspaceNavigation({
                 className="icon-button"
                 type="button"
                 aria-label="New project"
-                onClick={() => setComposer('project')}
+                onClick={() => setComposingProject(true)}
               >
                 <Plus aria-hidden="true" size={15} />
               </button>
             )}
           </div>
-          {canUseContent && composer === 'project' && (
+          {canUseContent && composingProject && (
             <InlineNameForm
               label="Project name"
               submitLabel="Create project"
-              onCancel={() => setComposer(null)}
+              onCancel={() => setComposingProject(false)}
               onSubmit={async (name) => {
                 await onCreateProject(name);
-                setComposer(null);
+                setComposingProject(false);
               }}
             />
           )}
-          {projects.length === 0 && composer !== 'project' ? (
+          {projects.length === 0 && !composingProject ? (
             <button
               className="nav-empty-action"
               type="button"
               disabled={!canUseContent}
-              onClick={() => canUseContent && setComposer('project')}
+              onClick={() => canUseContent && setComposingProject(true)}
             >
               {canUseContent ? (
                 <>
@@ -247,7 +162,7 @@ export function WorkspaceNavigation({
         <button
           className="account-button"
           type="button"
-          onClick={() => onOpenSettings('account:profile')}
+          onClick={() => onOpenAccountSettings('profile')}
         >
           <span className="member-monogram" aria-hidden="true">
             {displayName.slice(0, 1).toUpperCase()}
@@ -261,7 +176,7 @@ export function WorkspaceNavigation({
           <button
             role="menuitem"
             type="button"
-            onClick={() => onOpenSettings('account:profile')}
+            onClick={() => onOpenAccountSettings('profile')}
           >
             <UserRound aria-hidden="true" size={14} /> Account settings
           </button>
@@ -294,62 +209,5 @@ function NavButton({ active, icon, label, suffix, onClick }: NavButtonProps) {
       <span>{label}</span>
       {suffix && <small className="nav-suffix">{suffix}</small>}
     </button>
-  );
-}
-
-interface InlineNameFormProps {
-  label: string;
-  initialValue?: string;
-  submitLabel: string;
-  onSubmit: (name: string) => Promise<void>;
-  onCancel: () => void;
-}
-
-function InlineNameForm({
-  label,
-  initialValue = '',
-  submitLabel,
-  onSubmit,
-  onCancel,
-}: InlineNameFormProps) {
-  const [name, setName] = useState(initialValue);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onSubmit(name);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Request failed');
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form className="inline-name-form" onSubmit={(event) => void submit(event)}>
-      <label>
-        <span className="sr-only">{label}</span>
-        <input
-          autoFocus
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') onCancel();
-          }}
-        />
-      </label>
-      <button type="submit" disabled={submitting} aria-label={submitLabel}>
-        <Plus aria-hidden="true" size={14} />
-      </button>
-      <button type="button" onClick={onCancel} aria-label="Cancel">
-        ×
-      </button>
-      {error && <p role="alert">{error}</p>}
-    </form>
   );
 }

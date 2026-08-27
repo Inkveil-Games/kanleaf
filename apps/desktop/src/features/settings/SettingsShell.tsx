@@ -25,23 +25,88 @@ import {
 } from '../workspace/WorkspaceSettings';
 import type { Workspace } from '../workspace/types';
 
-export type SettingsSection =
-  `account:${AccountSettingsSection}` | `workspace:${WorkspaceSettingsSection}`;
+interface AccountSettingsShellProps {
+  context: ApiContext;
+  user: User;
+  section: AccountSettingsSection;
+  onSectionChange: (section: AccountSettingsSection) => void;
+  onClose: () => void;
+}
 
-interface SettingsShellProps {
+export function AccountSettingsShell({
+  context,
+  user,
+  section,
+  onSectionChange,
+  onClose,
+}: AccountSettingsShellProps) {
+  return (
+    <SettingsFrame
+      label="Account settings"
+      onClose={onClose}
+      navigation={
+        <SettingsGroup label="Account">
+          <SettingsLink
+            active={section === 'profile'}
+            icon={<UserRound aria-hidden="true" size={15} />}
+            label="Profile"
+            onClick={() => onSectionChange('profile')}
+          />
+          <SettingsLink
+            active={section === 'preferences'}
+            icon={<Palette aria-hidden="true" size={15} />}
+            label="Preferences"
+            onClick={() => onSectionChange('preferences')}
+          />
+          <SettingsLink
+            active={section === 'security'}
+            icon={<KeyRound aria-hidden="true" size={15} />}
+            label="Security"
+            onClick={() => onSectionChange('security')}
+          />
+          <SettingsLink
+            active={section === 'invitations'}
+            icon={<Mail aria-hidden="true" size={15} />}
+            label="Invitations"
+            onClick={() => onSectionChange('invitations')}
+          />
+          <button
+            className="settings-link"
+            type="button"
+            disabled
+            title="In-app notifications arrive in a later Kanleaf Core stage"
+          >
+            <Bell aria-hidden="true" size={15} />
+            <span>Notifications</span>
+            <small>Later</small>
+          </button>
+        </SettingsGroup>
+      }
+    >
+      <AccountSettings
+        key={section}
+        context={context}
+        initialUser={user}
+        section={section}
+      />
+    </SettingsFrame>
+  );
+}
+
+interface WorkspaceSettingsShellProps {
   context: ApiContext;
   user: User;
   workspace: Workspace;
   workspaceCount: number;
-  section: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
+  section: WorkspaceSettingsSection;
+  onSectionChange: (section: WorkspaceSettingsSection) => void;
   onClose: () => void;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
   onWorkspaceRemoved: () => Promise<void>;
 }
 
-export function SettingsShell({
+export function WorkspaceSettingsShell({
   context,
   user,
   workspace,
@@ -52,131 +117,102 @@ export function SettingsShell({
   onWorkspaceUpdated,
   onConfigurationUpdated,
   onWorkspaceRemoved,
-}: SettingsShellProps) {
-  const [scope, page] = section.split(':') as [
-    'account' | 'workspace',
-    AccountSettingsSection | WorkspaceSettingsSection,
-  ];
+}: WorkspaceSettingsShellProps) {
   const canManageWorkspace =
     workspace.role === 'owner' || workspace.role === 'admin';
 
   return (
-    <section className="settings-pane" aria-label="Settings">
+    <SettingsFrame
+      label="Workspace settings"
+      onClose={onClose}
+      navigation={
+        <SettingsGroup label={workspace.name}>
+          <SettingsLink
+            active={section === 'general'}
+            icon={<Settings2 aria-hidden="true" size={15} />}
+            label="General"
+            onClick={() => onSectionChange('general')}
+          />
+          <SettingsLink
+            active={section === 'members'}
+            icon={<UsersRound aria-hidden="true" size={15} />}
+            label="Members"
+            onClick={() => onSectionChange('members')}
+          />
+          <SettingsLink
+            active={section === 'states'}
+            icon={<Workflow aria-hidden="true" size={15} />}
+            label="States"
+            onClick={() => onSectionChange('states')}
+          />
+          <SettingsLink
+            active={section === 'labels'}
+            icon={<Tags aria-hidden="true" size={15} />}
+            label="Labels"
+            onClick={() => onSectionChange('labels')}
+          />
+          <SettingsLink
+            active={section === 'task-types'}
+            icon={<Shapes aria-hidden="true" size={15} />}
+            label="Task types"
+            onClick={() => onSectionChange('task-types')}
+          />
+          {canManageWorkspace && (
+            <SettingsLink
+              active={section === 'invitations'}
+              icon={<Mail aria-hidden="true" size={15} />}
+              label="Invitations"
+              onClick={() => onSectionChange('invitations')}
+            />
+          )}
+          <SettingsLink
+            active={section === 'danger'}
+            icon={<ShieldAlert aria-hidden="true" size={15} />}
+            label="Danger zone"
+            onClick={() => onSectionChange('danger')}
+            danger
+          />
+        </SettingsGroup>
+      }
+    >
+      <WorkspaceSettings
+        key={`${workspace.id}:${section}`}
+        context={context}
+        workspace={workspace}
+        userId={user.id}
+        workspaceCount={workspaceCount}
+        section={section}
+        onWorkspaceUpdated={onWorkspaceUpdated}
+        onConfigurationUpdated={onConfigurationUpdated}
+        onWorkspaceRemoved={onWorkspaceRemoved}
+      />
+    </SettingsFrame>
+  );
+}
+
+function SettingsFrame({
+  label,
+  navigation,
+  children,
+  onClose,
+}: {
+  label: string;
+  navigation: ReactNode;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <section className="settings-pane" aria-label={label}>
       <aside className="settings-navigation">
         <div className="settings-navigation-header">
           <button className="settings-back" type="button" onClick={onClose}>
             <ArrowLeft aria-hidden="true" size={15} /> Back to Workspace
           </button>
-          <strong>Settings</strong>
+          <strong>{label}</strong>
         </div>
-        <nav aria-label="Settings sections">
-          <SettingsGroup label="Account">
-            <SettingsLink
-              active={section === 'account:profile'}
-              icon={<UserRound aria-hidden="true" size={15} />}
-              label="Profile"
-              onClick={() => onSectionChange('account:profile')}
-            />
-            <SettingsLink
-              active={section === 'account:preferences'}
-              icon={<Palette aria-hidden="true" size={15} />}
-              label="Preferences"
-              onClick={() => onSectionChange('account:preferences')}
-            />
-            <SettingsLink
-              active={section === 'account:security'}
-              icon={<KeyRound aria-hidden="true" size={15} />}
-              label="Security"
-              onClick={() => onSectionChange('account:security')}
-            />
-            <SettingsLink
-              active={section === 'account:invitations'}
-              icon={<Mail aria-hidden="true" size={15} />}
-              label="Invitations"
-              onClick={() => onSectionChange('account:invitations')}
-            />
-            <button
-              className="settings-link"
-              type="button"
-              disabled
-              title="In-app notifications arrive in a later Kanleaf Core stage"
-            >
-              <Bell aria-hidden="true" size={15} />
-              <span>Notifications</span>
-              <small>Later</small>
-            </button>
-          </SettingsGroup>
-          <SettingsGroup label={workspace.name}>
-            <SettingsLink
-              active={section === 'workspace:general'}
-              icon={<Settings2 aria-hidden="true" size={15} />}
-              label="General"
-              onClick={() => onSectionChange('workspace:general')}
-            />
-            <SettingsLink
-              active={section === 'workspace:members'}
-              icon={<UsersRound aria-hidden="true" size={15} />}
-              label="Members"
-              onClick={() => onSectionChange('workspace:members')}
-            />
-            <SettingsLink
-              active={section === 'workspace:states'}
-              icon={<Workflow aria-hidden="true" size={15} />}
-              label="States"
-              onClick={() => onSectionChange('workspace:states')}
-            />
-            <SettingsLink
-              active={section === 'workspace:labels'}
-              icon={<Tags aria-hidden="true" size={15} />}
-              label="Labels"
-              onClick={() => onSectionChange('workspace:labels')}
-            />
-            <SettingsLink
-              active={section === 'workspace:task-types'}
-              icon={<Shapes aria-hidden="true" size={15} />}
-              label="Task types"
-              onClick={() => onSectionChange('workspace:task-types')}
-            />
-            {canManageWorkspace && (
-              <SettingsLink
-                active={section === 'workspace:invitations'}
-                icon={<Mail aria-hidden="true" size={15} />}
-                label="Invitations"
-                onClick={() => onSectionChange('workspace:invitations')}
-              />
-            )}
-            <SettingsLink
-              active={section === 'workspace:danger'}
-              icon={<ShieldAlert aria-hidden="true" size={15} />}
-              label="Danger zone"
-              onClick={() => onSectionChange('workspace:danger')}
-              danger
-            />
-          </SettingsGroup>
-        </nav>
+        <nav aria-label={`${label} sections`}>{navigation}</nav>
       </aside>
-      <div className="settings-content">
-        {scope === 'account' ? (
-          <AccountSettings
-            key={`account:${page}`}
-            context={context}
-            initialUser={user}
-            section={page as AccountSettingsSection}
-          />
-        ) : (
-          <WorkspaceSettings
-            key={`${workspace.id}:${page}`}
-            context={context}
-            workspace={workspace}
-            userId={user.id}
-            workspaceCount={workspaceCount}
-            section={page as WorkspaceSettingsSection}
-            onWorkspaceUpdated={onWorkspaceUpdated}
-            onConfigurationUpdated={onConfigurationUpdated}
-            onWorkspaceRemoved={onWorkspaceRemoved}
-          />
-        )}
-      </div>
+      <div className="settings-content">{children}</div>
     </section>
   );
 }

@@ -8,7 +8,9 @@ import type {
   ProjectPatch,
   ProjectRole,
   Task,
+  TaskBulkPatch,
   TaskPatch,
+  TaskRelationType,
   Workspace,
   WorkspaceAccent,
   WorkspaceInvitation,
@@ -374,6 +376,7 @@ export function listTasks(
 ) {
   const parameters = new URLSearchParams();
   if (collection.kind === 'inbox') parameters.set('inbox', 'true');
+  if (collection.kind === 'my-work') parameters.set('my_work', 'true');
   if (collection.kind === 'project') {
     parameters.set('project_id', collection.projectId);
   }
@@ -403,6 +406,7 @@ export function createTask(
   workspaceId: string,
   title: string,
   collection: Collection,
+  assigneeIds?: string[],
 ) {
   return apiRequest<Task>(
     context.serverUrl,
@@ -413,6 +417,7 @@ export function createTask(
       body: JSON.stringify({
         title,
         project_id: collection.kind === 'project' ? collection.projectId : null,
+        assignee_ids: assigneeIds,
       }),
     },
   );
@@ -443,6 +448,89 @@ export function archiveTask(
   return apiRequest<void>(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/tasks/${taskId}`,
+    { method: 'DELETE', token: context.token },
+  );
+}
+
+export function deleteTask(
+  context: ApiContext,
+  workspaceId: string,
+  taskId: string,
+  reference: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/${taskId}/delete`,
+    {
+      method: 'POST',
+      token: context.token,
+      body: JSON.stringify({ reference }),
+    },
+  );
+}
+
+export function bulkUpdateTasks(
+  context: ApiContext,
+  workspaceId: string,
+  patch: TaskBulkPatch,
+) {
+  return apiRequest<Task[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/bulk`,
+    {
+      method: 'PATCH',
+      token: context.token,
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+export function reorderTasks(
+  context: ApiContext,
+  workspaceId: string,
+  taskIds: string[],
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/reorder`,
+    {
+      method: 'PUT',
+      token: context.token,
+      body: JSON.stringify({ task_ids: taskIds }),
+    },
+  );
+}
+
+export function addTaskRelation(
+  context: ApiContext,
+  workspaceId: string,
+  taskId: string,
+  relatedTaskId: string,
+  relationType: TaskRelationType,
+) {
+  return apiRequest<Task>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/${taskId}/relations`,
+    {
+      method: 'POST',
+      token: context.token,
+      body: JSON.stringify({
+        task_id: relatedTaskId,
+        relation_type: relationType,
+      }),
+    },
+  );
+}
+
+export function removeTaskRelation(
+  context: ApiContext,
+  workspaceId: string,
+  taskId: string,
+  relatedTaskId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/${taskId}/relations/${relatedTaskId}`,
     { method: 'DELETE', token: context.token },
   );
 }

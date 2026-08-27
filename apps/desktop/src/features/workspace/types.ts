@@ -146,17 +146,51 @@ export interface Task {
   id: string;
   workspace_id: string;
   project_id: string | null;
+  task_number: number;
+  reference: string;
   title: string;
   state: Pick<TaskState, 'id' | 'name' | 'color' | 'state_group'>;
   task_type: Pick<TaskType, 'id' | 'name' | 'icon' | 'color'>;
   priority: TaskPriority;
+  start_date: string | null;
+  due_date: string | null;
+  estimate: number | null;
+  position: number;
+  parent: TaskLink | null;
+  assignees: TaskAssignee[];
+  labels: Pick<TaskLabel, 'id' | 'name' | 'color'>[];
+  subtasks: TaskLink[];
+  relations: TaskRelation[];
   archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export interface TaskAssignee {
+  user_id: string;
+  email: string;
+  display_name: string;
+}
+
+export interface TaskLink {
+  id: string;
+  reference: string;
+  title: string;
+}
+
+export type TaskRelationType =
+  'blocking' | 'blocked_by' | 'relates_to' | 'duplicate';
+
+export interface TaskRelation {
+  task: TaskLink;
+  relation_type: TaskRelationType;
+}
+
 export type Collection =
-  { kind: 'all' } | { kind: 'inbox' } | { kind: 'project'; projectId: string };
+  | { kind: 'all' }
+  | { kind: 'my-work' }
+  | { kind: 'inbox' }
+  | { kind: 'project'; projectId: string };
 
 export interface TaskPatch {
   title?: string;
@@ -164,4 +198,19 @@ export interface TaskPatch {
   task_type_id?: string;
   priority?: TaskPriority;
   project_id?: string | null;
+  start_date?: string | null;
+  due_date?: string | null;
+  estimate?: number | null;
+  parent_id?: string | null;
+  assignee_ids?: string[];
+  label_ids?: string[];
+  cleanup_invalid?: boolean;
+}
+
+export interface TaskBulkPatch {
+  task_ids: string[];
+  state_id?: string;
+  priority?: TaskPriority;
+  project_id?: string | null;
+  cleanup_invalid?: boolean;
 }

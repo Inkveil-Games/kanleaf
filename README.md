@@ -16,7 +16,9 @@ Markdown document.
 - Workspace profile, member roles, invitations, ownership, and lifecycle tools
 - Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
-- Inbox, projects, task search, Urgent priority, moves, and archiving
+- Inbox, My Work, projects, task search, readable references, and bulk updates
+- Task assignees, labels, scheduling, estimates, hierarchy, and relations
+- Safe project moves, stable row ordering, archiving, and confirmed deletion
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
@@ -24,8 +26,9 @@ Markdown document.
 - Build-time server configuration for local, LAN, or HTTPS deployments
 - Docker Compose self-hosting and a Tauri v2 desktop shell
 
-Account, Workspace, and Project settings open in focused floating windows so
-the three-pane work context remains visible underneath.
+Account and Workspace settings have separate focused windows, while Project
+settings use their own project-scoped window. The top bar keeps Workspace
+switching and notifications available without crowding the navigation pane.
 
 ## Architecture at a glance
 

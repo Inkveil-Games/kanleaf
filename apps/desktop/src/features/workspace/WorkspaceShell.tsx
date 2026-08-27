@@ -1,34 +1,53 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState, type FormEvent } from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
+import type { AccountSettingsSection } from '../account/AccountSettings';
 import { applyTheme } from '../account/theme';
 import { ProjectOverview } from '../project/ProjectOverview';
 import { ProjectSettings } from '../project/ProjectSettings';
 import { SettingsDialog } from '../settings/SettingsDialog';
-import { SettingsShell, type SettingsSection } from '../settings/SettingsShell';
+import {
+  AccountSettingsShell,
+  WorkspaceSettingsShell,
+} from '../settings/SettingsShell';
 import { TaskDetailPane } from '../task/TaskDetailPane';
 import { TaskListPane } from '../task/TaskListPane';
 import { getTaskConfiguration } from '../task-config/api';
 import type { User } from '../../lib/api/types';
 import {
   activateWorkspace,
+  addTaskRelation,
   archiveTask,
+  bulkUpdateTasks,
   createProject,
   createTask,
   createWorkspace,
+  deleteTask,
   getTask,
   joinProject,
+  listProjectMembers,
   listProjects,
   listTasks,
+  listWorkspaceMembers,
   listWorkspaces,
+  removeTaskRelation,
   renameWorkspace,
   updateTask,
 } from './api';
-import type { Collection, Project, Task, TaskPatch } from './types';
+import type {
+  Collection,
+  Project,
+  Task,
+  TaskBulkPatch,
+  TaskPatch,
+  TaskRelationType,
+} from './types';
 import {
   WorkspaceNavigation,
   type WorkspaceSurface,
 } from './WorkspaceNavigation';
+import type { WorkspaceSettingsSection } from './WorkspaceSettings';
+import { WorkspaceTopBar } from './WorkspaceTopBar';
 
 interface WorkspaceShellProps {
   serverUrl: string;
@@ -48,18 +67,20 @@ export function WorkspaceShell({
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(
     user.active_workspace_id,
   );
-  const [collection, setCollection] = useState<Collection>({ kind: 'all' });
+  const [collection, setCollection] = useState<Collection>({ kind: 'my-work' });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [surface, setSurface] = useState<WorkspaceSurface>('tasks');
   const [settingsModal, setSettingsModal] = useState<
-    'application' | 'project' | null
+    'account' | 'workspace' | 'project' | null
   >(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [joiningProject, setJoiningProject] = useState(false);
-  const [settingsSection, setSettingsSection] =
-    useState<SettingsSection>('workspace:general');
+  const [accountSettingsSection, setAccountSettingsSection] =
+    useState<AccountSettingsSection>('profile');
+  const [workspaceSettingsSection, setWorkspaceSettingsSection] =
+    useState<WorkspaceSettingsSection>('general');
   const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
@@ -113,6 +134,21 @@ export function WorkspaceShell({
       surface === 'tasks',
     ),
   });
+  const selectedProjectId =
+    task.data?.project_id ??
+    tasks.data?.find(({ id }) => id === selectedTaskId)?.project_id ??
+    null;
+  const workspaceMembers = useQuery({
+    queryKey: ['workspace-members', workspaceId],
+    queryFn: () => listWorkspaceMembers(context, workspaceId!),
+    enabled: Boolean(workspaceId && hasContentAccess),
+  });
+  const selectedProjectMembers = useQuery({
+    queryKey: ['project-members', workspaceId, selectedProjectId],
+    queryFn: () =>
+      listProjectMembers(context, workspaceId!, selectedProjectId!),
+    enabled: Boolean(workspaceId && selectedProjectId),
+  });
 
   async function switchWorkspace(nextWorkspaceId: string) {
     if (nextWorkspaceId === workspaceId) return;
@@ -120,14 +156,12 @@ export function WorkspaceShell({
     try {
       await activateWorkspace(context, nextWorkspaceId);
       setActiveWorkspaceId(nextWorkspaceId);
-      setCollection({ kind: 'all' });
+      setCollection({ kind: 'my-work' });
       setSelectedTaskId(null);
       setActiveProjectId(null);
       setSearch('');
       setSettingsModal(null);
-      if (settingsSection.startsWith('workspace:')) {
-        setSettingsSection('workspace:general');
-      }
+      setWorkspaceSettingsSection('general');
     } catch (caught) {
       setActionError(errorMessage(caught));
     }
@@ -139,7 +173,7 @@ export function WorkspaceShell({
       const workspace = await createWorkspace(context, name);
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       setActiveWorkspaceId(workspace.id);
-      setCollection({ kind: 'all' });
+      setCollection({ kind: 'my-work' });
       setSelectedTaskId(null);
       setActiveProjectId(null);
       setSurface('tasks');
@@ -183,7 +217,13 @@ export function WorkspaceShell({
 
   async function addTask(title: string) {
     if (!workspaceId) return;
-    const created = await createTask(context, workspaceId, title, collection);
+    const created = await createTask(
+      context,
+      workspaceId,
+      title,
+      collection,
+      collection.kind === 'my-work' ? [user.id] : undefined,
+    );
     setSelectedTaskId(created.id);
     queryClient.setQueryData(['task', workspaceId, created.id], created);
     await queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] });
@@ -193,7 +233,7 @@ export function WorkspaceShell({
     if (!workspaceId) return;
     const updated = await updateTask(context, workspaceId, taskId, patch);
     queryClient.setQueryData(['task', workspaceId, taskId], updated);
-    await queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] });
+    await refreshTaskCaches();
   }
 
   async function removeTask() {
@@ -205,12 +245,78 @@ export function WorkspaceShell({
         queryKey: ['task', workspaceId, selectedTaskId],
       });
       setSelectedTaskId(null);
-      await queryClient.invalidateQueries({
-        queryKey: ['tasks', workspaceId],
-      });
+      await refreshTaskCaches();
     } catch (caught) {
       setActionError(errorMessage(caught));
     }
+  }
+
+  async function permanentlyDeleteTask(reference: string) {
+    if (!workspaceId || !selectedTaskId) return;
+    await deleteTask(context, workspaceId, selectedTaskId, reference);
+    queryClient.removeQueries({
+      queryKey: ['task', workspaceId, selectedTaskId],
+    });
+    setSelectedTaskId(null);
+    await refreshTaskCaches();
+  }
+
+  async function patchTasks(patch: TaskBulkPatch) {
+    if (!workspaceId) return;
+    const updated = await bulkUpdateTasks(context, workspaceId, patch);
+    for (const task of updated) {
+      queryClient.setQueryData(['task', workspaceId, task.id], task);
+    }
+    await refreshTaskCaches();
+  }
+
+  async function addRelation(
+    relatedTaskId: string,
+    relationType: TaskRelationType,
+  ) {
+    if (!workspaceId || !selectedTaskId) return;
+    const updated = await addTaskRelation(
+      context,
+      workspaceId,
+      selectedTaskId,
+      relatedTaskId,
+      relationType,
+    );
+    queryClient.setQueryData(['task', workspaceId, selectedTaskId], updated);
+    await queryClient.invalidateQueries({
+      queryKey: ['task', workspaceId, relatedTaskId],
+      refetchType: 'none',
+    });
+  }
+
+  async function removeRelation(relatedTaskId: string) {
+    if (!workspaceId || !selectedTaskId) return;
+    await removeTaskRelation(
+      context,
+      workspaceId,
+      selectedTaskId,
+      relatedTaskId,
+    );
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['task', workspaceId, selectedTaskId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ['task', workspaceId, relatedTaskId],
+        refetchType: 'none',
+      }),
+    ]);
+  }
+
+  async function refreshTaskCaches() {
+    if (!workspaceId) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
+      queryClient.invalidateQueries({
+        queryKey: ['task', workspaceId],
+        refetchType: 'none',
+      }),
+    ]);
   }
 
   function selectCollection(nextCollection: Collection) {
@@ -223,9 +329,15 @@ export function WorkspaceShell({
     setSearch('');
   }
 
-  function openSettings(section: SettingsSection) {
-    setSettingsSection(section);
-    setSettingsModal('application');
+  function openAccountSettings(section: AccountSettingsSection) {
+    setAccountSettingsSection(section);
+    setSettingsModal('account');
+    setActionError(null);
+  }
+
+  function openWorkspaceSettings(section: WorkspaceSettingsSection) {
+    setWorkspaceSettingsSection(section);
+    setSettingsModal('workspace');
     setActionError(null);
   }
 
@@ -274,7 +386,7 @@ export function WorkspaceShell({
   }
 
   async function refreshAfterProjectRemoval() {
-    setCollection(hasContentAccess ? { kind: 'inbox' } : { kind: 'all' });
+    setCollection(hasContentAccess ? { kind: 'inbox' } : { kind: 'my-work' });
     setActiveProjectId(null);
     setSelectedTaskId(null);
     setSurface('tasks');
@@ -303,7 +415,7 @@ export function WorkspaceShell({
     const result = await workspaces.refetch();
     const nextWorkspace = result.data?.find(({ id }) => id !== workspaceId);
     setActiveWorkspaceId(nextWorkspace?.id ?? null);
-    setCollection({ kind: 'all' });
+    setCollection({ kind: 'my-work' });
     setSelectedTaskId(null);
     setActiveProjectId(null);
     setSearch('');
@@ -375,22 +487,26 @@ export function WorkspaceShell({
 
   return (
     <main className="workspace-shell">
+      <WorkspaceTopBar
+        workspaces={workspaces.data ?? []}
+        workspaceId={workspaceId}
+        onSwitchWorkspace={switchWorkspace}
+        onCreateWorkspace={addWorkspace}
+        onRenameWorkspace={updateWorkspaceName}
+        onOpenWorkspaceSettings={openWorkspaceSettings}
+      />
       <WorkspaceNavigation
         email={user.email}
         displayName={user.display_name}
-        workspaces={workspaces.data ?? []}
-        workspaceId={workspaceId}
+        workspace={activeWorkspace}
         projects={projects.data ?? []}
         collection={collection}
         surface={surface}
         activeProjectId={activeProjectId}
-        onSwitchWorkspace={switchWorkspace}
-        onCreateWorkspace={addWorkspace}
-        onRenameWorkspace={updateWorkspaceName}
         onCreateProject={addProject}
         onSelectCollection={selectCollection}
         onOpenProjectOverview={openProjectOverview}
-        onOpenSettings={openSettings}
+        onOpenAccountSettings={openAccountSettings}
         onSignOut={onSignOut}
       />
       {surface === 'project-overview' && activeProject ? (
@@ -415,7 +531,7 @@ export function WorkspaceShell({
             <button
               className="secondary-button"
               type="button"
-              onClick={() => openSettings('workspace:members')}
+              onClick={() => openWorkspaceSettings('members')}
             >
               View Workspace members
             </button>
@@ -424,6 +540,7 @@ export function WorkspaceShell({
       ) : (
         <>
           <TaskListPane
+            key={collectionKey}
             collection={collection}
             projects={projects.data ?? []}
             states={taskConfiguration.data?.states ?? []}
@@ -445,6 +562,7 @@ export function WorkspaceShell({
                 setActionError(errorMessage(caught));
               }
             }}
+            onBulkUpdate={patchTasks}
             onRetry={() => void tasks.refetch()}
             onClearSelection={() => setSelectedTaskId(null)}
           />
@@ -456,28 +574,55 @@ export function WorkspaceShell({
             projects={editableProjects}
             states={taskConfiguration.data?.states ?? []}
             taskTypes={taskConfiguration.data?.task_types ?? []}
+            labels={taskConfiguration.data?.labels ?? []}
+            assigneeCandidates={
+              selectedProjectId
+                ? (selectedProjectMembers.data ?? [])
+                : (workspaceMembers.data ?? []).filter(
+                    ({ role }) => role !== 'guest',
+                  )
+            }
+            taskCandidates={visibleTasks}
             loading={Boolean(selectedTaskId) && task.isPending}
             error={task.error ? errorMessage(task.error) : null}
             canEdit={selectedTask ? canEditTask(selectedTask) : false}
             onPatch={(patch) => patchTask(selectedTaskId!, patch)}
             onArchive={removeTask}
+            onDelete={permanentlyDeleteTask}
+            onAddRelation={addRelation}
+            onRemoveRelation={removeRelation}
+            onOpenTask={setSelectedTaskId}
             onClose={() => setSelectedTaskId(null)}
             onRetry={() => void task.refetch()}
           />
         </>
       )}
-      {settingsModal === 'application' && (
+      {settingsModal === 'account' && (
         <SettingsDialog
-          label="Kanleaf settings"
+          label="Account settings"
           onClose={() => setSettingsModal(null)}
         >
-          <SettingsShell
+          <AccountSettingsShell
+            context={context}
+            user={user}
+            section={accountSettingsSection}
+            onSectionChange={setAccountSettingsSection}
+            onClose={() => setSettingsModal(null)}
+          />
+        </SettingsDialog>
+      )}
+      {settingsModal === 'workspace' && (
+        <SettingsDialog
+          label={`${activeWorkspace.name} Workspace settings`}
+          onClose={() => setSettingsModal(null)}
+        >
+          <WorkspaceSettingsShell
             context={context}
             user={user}
             workspace={activeWorkspace}
             workspaceCount={workspaces.data?.length ?? 0}
-            section={settingsSection}
-            onSectionChange={setSettingsSection}
+            section={workspaceSettingsSection}
+            onSectionChange={setWorkspaceSettingsSection}
             onClose={() => setSettingsModal(null)}
             onWorkspaceUpdated={refreshWorkspace}
             onConfigurationUpdated={refreshTaskConfiguration}

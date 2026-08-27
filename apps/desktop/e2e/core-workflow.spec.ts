@@ -35,13 +35,24 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(workspaceSelect.locator('option:checked')).toHaveText(
     'Studio Workspace',
   );
-  await page.getByRole('button', { name: 'Profile' }).click();
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await page.locator('.account-button').click();
+  await expect(
+    page.getByRole('region', { name: 'Account settings' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Members' })).not.toBeVisible();
   await page.getByLabel('Display name').fill('Kanleaf Tester');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile updated')).toBeVisible();
   await expect(page.locator('.account-copy')).toContainText('Kanleaf Tester');
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await page.getByLabel('Workspace actions').click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await expect(
+    page.getByRole('region', { name: 'Workspace settings' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Profile' })).not.toBeVisible();
   await page.setViewportSize({ width: 960, height: 640 });
-  await page.getByRole('button', { name: 'General' }).click();
   await page.getByRole('button', { name: 'States' }).click();
   await page.getByPlaceholder('State name').fill('Review');
   await page.getByLabel('State group').selectOption('in_progress');
@@ -92,9 +103,13 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('State').selectOption({ label: 'Review' });
   await page.getByLabel('Task type').selectOption({ label: 'Bug' });
   await page.getByLabel('Priority').selectOption('urgent');
+  await page.getByLabel('Edit assignees').click();
+  await page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click();
+  await page.getByLabel('Due date').fill('2026-09-30');
+  page.once('dialog', (dialog) => void dialog.accept());
   await page.getByLabel('Project', { exact: true }).selectOption('');
 
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'My Work' }).click();
   const taskRow = page
     .locator('.task-row-main')
     .filter({ hasText: 'Complete the v0.1 workflow' });
@@ -132,6 +147,7 @@ Kanleaf keeps **structured work** beside durable notes.
     page.getByLabel('Task type').locator('option:checked'),
   ).toHaveText('Bug');
   await expect(page.getByLabel('Priority')).toHaveValue('urgent');
+  await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();

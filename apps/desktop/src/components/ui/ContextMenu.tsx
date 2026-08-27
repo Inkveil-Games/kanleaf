@@ -13,6 +13,8 @@ interface ContextMenuProps {
   children: ReactNode;
   placement?: 'down' | 'up';
   className?: string;
+  trigger?: ReactNode;
+  popoverRole?: 'menu' | 'dialog';
 }
 
 export function ContextMenu({
@@ -20,6 +22,8 @@ export function ContextMenu({
   children,
   placement = 'down',
   className,
+  trigger,
+  popoverRole = 'menu',
 }: ContextMenuProps) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
@@ -75,22 +79,26 @@ export function ContextMenu({
         className="context-menu-trigger"
         type="button"
         aria-label={label}
-        aria-haspopup="menu"
+        aria-haspopup={popoverRole}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={openFromKeyboard}
       >
-        <MoreHorizontal aria-hidden="true" size={16} />
+        {trigger ?? <MoreHorizontal aria-hidden="true" size={16} />}
       </button>
       {open && (
         <div
           ref={menuRef}
           id={menuId}
           className="context-menu-popover"
-          role="menu"
+          role={popoverRole}
+          aria-label={popoverRole === 'dialog' ? label : undefined}
           onClick={(event) => {
-            if ((event.target as HTMLElement).closest('button')) setOpen(false);
+            const button = (event.target as HTMLElement).closest('button');
+            if (button && !button.hasAttribute('data-menu-keep-open')) {
+              setOpen(false);
+            }
           }}
           onKeyDown={menuKeyDown}
         >

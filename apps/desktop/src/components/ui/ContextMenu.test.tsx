@@ -42,4 +42,23 @@ describe('ContextMenu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
+
+  it('keeps multi-select actions open until focus moves outside', () => {
+    render(
+      <div>
+        <ContextMenu label="Visible fields">
+          <button data-menu-keep-open role="menuitemcheckbox" type="button">
+            Due date
+          </button>
+        </ContextMenu>
+        <button type="button">Outside</button>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Visible fields' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Due date' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
 });
