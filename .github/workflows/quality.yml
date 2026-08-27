@@ -2,7 +2,7 @@ name: Quality
 
 on:
   push:
-    branches: [main, rewrite/react-tauri]
+    branches: [main, dev, rewrite/react-tauri]
   pull_request:
 
 permissions:
@@ -33,6 +33,13 @@ jobs:
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --all-features --locked
@@ -86,4 +93,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @kanleaf/desktop exec playwright install --with-deps chromium
+      - run: cargo build --locked -p kanleaf-server
       - run: pnpm test:e2e
