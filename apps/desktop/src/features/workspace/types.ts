@@ -45,9 +45,52 @@ export interface Project {
   id: string;
   workspace_id: string;
   name: string;
+  identifier: string;
+  description: string;
+  lead_user_id: string | null;
+  visibility: ProjectVisibility;
+  default_assignee_id: string | null;
+  default_state_id: string;
+  default_task_type_id: string;
+  cycles_enabled: boolean;
+  modules_enabled: boolean;
+  pages_enabled: boolean;
+  views_enabled: boolean;
+  enabled_task_type_ids: string[];
+  effective_role: ProjectRole | null;
+  can_join: boolean;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ProjectVisibility = 'private' | 'open';
+export type ProjectRole = 'admin' | 'contributor' | 'commenter' | 'viewer';
+
+export interface ProjectMember {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: ProjectRole;
+  implicit: boolean;
+  joined_at: string;
+  updated_at: string;
+}
+
+export interface ProjectPatch {
+  name?: string;
+  identifier?: string;
+  description?: string;
+  lead_user_id?: string | null;
+  visibility?: ProjectVisibility;
+  default_assignee_id?: string | null;
+  default_state_id?: string;
+  default_task_type_id?: string;
+  enabled_task_type_ids?: string[];
+  cycles_enabled?: boolean;
+  modules_enabled?: boolean;
+  pages_enabled?: boolean;
+  views_enabled?: boolean;
 }
 
 export type TaskStateGroup =

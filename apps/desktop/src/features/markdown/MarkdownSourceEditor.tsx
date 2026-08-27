@@ -6,17 +6,20 @@ import CodeMirror from '@uiw/react-codemirror';
 interface MarkdownSourceEditorProps {
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }
 
 export function MarkdownSourceEditor({
   value,
   onChange,
+  readOnly = false,
 }: MarkdownSourceEditorProps) {
   return (
     <CodeMirror
       aria-label="Markdown source"
       value={value}
       height="100%"
+      editable={!readOnly}
       extensions={[
         markdown(),
         keymap.of([indentWithTab]),

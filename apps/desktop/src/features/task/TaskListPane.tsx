@@ -18,6 +18,8 @@ interface TaskListPaneProps {
   query: string;
   loading: boolean;
   error: string | null;
+  canCreate: boolean;
+  canEditTask: (task: Task) => boolean;
   onQueryChange: (query: string) => void;
   onSelectTask: (taskId: string) => void;
   onCreateTask: (title: string) => Promise<void>;
@@ -35,6 +37,8 @@ export function TaskListPane({
   query,
   loading,
   error,
+  canCreate,
+  canEditTask,
   onQueryChange,
   onSelectTask,
   onCreateTask,
@@ -57,7 +61,13 @@ export function TaskListPane({
         searchRef.current?.focus();
         return;
       }
-      if (!isEditing && !event.metaKey && !event.ctrlKey && event.key === 'n') {
+      if (
+        canCreate &&
+        !isEditing &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        event.key === 'n'
+      ) {
         event.preventDefault();
         setComposing(true);
       }
@@ -65,7 +75,7 @@ export function TaskListPane({
     }
     window.addEventListener('keydown', onShortcut);
     return () => window.removeEventListener('keydown', onShortcut);
-  }, [onClearSelection]);
+  }, [canCreate, onClearSelection]);
 
   function moveSelection(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -87,14 +97,16 @@ export function TaskListPane({
           <p className="pane-eyebrow">Collection</p>
           <h1 id="collection-title">{title}</h1>
         </div>
-        <button
-          className="icon-button strong-icon-button"
-          type="button"
-          aria-label="New task"
-          onClick={() => setComposing(true)}
-        >
-          <Plus aria-hidden="true" size={17} />
-        </button>
+        {canCreate && (
+          <button
+            className="icon-button strong-icon-button"
+            type="button"
+            aria-label="New task"
+            onClick={() => setComposing(true)}
+          >
+            <Plus aria-hidden="true" size={17} />
+          </button>
+        )}
       </header>
 
       <div className="task-search">
@@ -129,7 +141,7 @@ export function TaskListPane({
         tabIndex={0}
         onKeyDown={moveSelection}
       >
-        {composing && (
+        {canCreate && composing && (
           <QuickTaskForm
             onCancel={() => setComposing(false)}
             onCreate={async (taskTitle) => {
@@ -150,7 +162,7 @@ export function TaskListPane({
         {!loading && !error && tasks.length === 0 && (
           <div className="pane-state empty-state">
             <p>{query ? 'No matching tasks.' : 'Nothing here yet.'}</p>
-            {!query && (
+            {!query && canCreate && (
               <button type="button" onClick={() => setComposing(true)}>
                 Create a task <kbd>N</kbd>
               </button>
@@ -162,6 +174,7 @@ export function TaskListPane({
             key={task.id}
             task={task}
             states={states}
+            canEdit={canEditTask(task)}
             selected={task.id === selectedTaskId}
             onSelect={() => onSelectTask(task.id)}
             onUpdateState={(stateId) => onUpdateState(task, stateId)}
@@ -180,6 +193,7 @@ interface TaskRowProps {
   task: Task;
   states: TaskState[];
   selected: boolean;
+  canEdit: boolean;
   onSelect: () => void;
   onUpdateState: (stateId: string) => Promise<void>;
 }
@@ -188,6 +202,7 @@ function TaskRow({
   task,
   states,
   selected,
+  canEdit,
   onSelect,
   onUpdateState,
 }: TaskRowProps) {
@@ -199,18 +214,29 @@ function TaskRow({
       aria-selected={selected}
       data-state-group={task.state.state_group}
     >
-      <button
-        className="task-status-button"
-        type="button"
-        aria-label={`Move ${task.title} to ${next.name}`}
-        title={`Move to ${next.name}`}
-        onClick={() => void onUpdateState(next.id)}
-      >
+      {canEdit ? (
+        <button
+          className="task-status-button"
+          type="button"
+          aria-label={`Move ${task.title} to ${next.name}`}
+          title={`Move to ${next.name}`}
+          onClick={() => void onUpdateState(next.id)}
+        >
+          <span
+            aria-hidden="true"
+            style={{ '--task-state-color': task.state.color } as CSSProperties}
+          />
+        </button>
+      ) : (
         <span
+          className="task-status-button task-status-readonly"
           aria-hidden="true"
-          style={{ '--task-state-color': task.state.color } as CSSProperties}
-        />
-      </button>
+        >
+          <span
+            style={{ '--task-state-color': task.state.color } as CSSProperties}
+          />
+        </span>
+      )}
       <button className="task-row-main" type="button" onClick={onSelect}>
         <span className="task-row-title">{task.title}</span>
         <span className="task-row-metadata">

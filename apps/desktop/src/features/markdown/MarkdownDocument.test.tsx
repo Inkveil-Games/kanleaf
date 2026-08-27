@@ -7,17 +7,21 @@ vi.mock('@uiw/react-codemirror', () => ({
   default: (props: {
     value: string;
     onChange: (value: string) => void;
+    editable?: boolean;
     'aria-label'?: string;
   }) => (
     <textarea
       aria-label={props['aria-label']}
       value={props.value}
-      onChange={(event) => props.onChange(event.target.value)}
+      readOnly={props.editable === false}
+      onChange={(event) => {
+        if (props.editable !== false) props.onChange(event.target.value);
+      }}
     />
   ),
 }));
 
-function renderDocument(fetchMock: ReturnType<typeof vi.fn>) {
+function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -29,6 +33,7 @@ function renderDocument(fetchMock: ReturnType<typeof vi.fn>) {
         token="session-token"
         workspaceId="workspace-1"
         taskId="task-1"
+        readOnly={readOnly}
       />
     </QueryClientProvider>,
   );
@@ -110,5 +115,25 @@ describe('MarkdownDocument', () => {
       { timeout: 2_000 },
     );
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('keeps Viewer documents readable without exposing save behavior', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ content: '# Readable note' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    renderDocument(fetchMock, true);
+
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.getByLabelText('Markdown source')).toHaveAttribute(
+      'readonly',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Save Markdown' }),
+    ).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

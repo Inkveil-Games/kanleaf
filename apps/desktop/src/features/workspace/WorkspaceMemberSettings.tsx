@@ -193,7 +193,7 @@ function RoleGuide() {
       <div className="settings-section-heading">
         <div>
           <h2 id="role-guide-heading">Role guide</h2>
-          <p>Project-level access is added in the next Kanleaf Core stage.</p>
+          <p>Project roles refine access for each shared Project.</p>
         </div>
       </div>
       <dl>

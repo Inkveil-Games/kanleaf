@@ -1,0 +1,73 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { Project } from '../workspace/types';
+import { ProjectOverview } from './ProjectOverview';
+
+const project: Project = {
+  id: 'project-1',
+  workspace_id: 'workspace-1',
+  name: 'Kanleaf Core',
+  identifier: 'KAN',
+  description: 'Build the focused project workflow.',
+  lead_user_id: null,
+  visibility: 'open',
+  default_assignee_id: null,
+  default_state_id: 'state-todo',
+  default_task_type_id: 'type-task',
+  cycles_enabled: true,
+  modules_enabled: false,
+  pages_enabled: true,
+  views_enabled: false,
+  enabled_task_type_ids: ['type-task'],
+  effective_role: 'admin',
+  can_join: false,
+  archived_at: null,
+  created_at: '2026-08-28T00:00:00Z',
+  updated_at: '2026-08-28T00:00:00Z',
+};
+
+describe('ProjectOverview', () => {
+  it('opens Project work and settings for an Admin', () => {
+    const openWorkItems = vi.fn();
+    const openSettings = vi.fn();
+    render(
+      <ProjectOverview
+        project={project}
+        joining={false}
+        onJoin={vi.fn()}
+        onOpenWorkItems={openWorkItems}
+        onOpenSettings={openSettings}
+      />,
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Kanleaf Core' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText('Enabled · interface arrives later'),
+    ).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole('button', { name: /Work items/ })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    expect(openWorkItems).toHaveBeenCalledOnce();
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
+
+  it('offers discovery without exposing Project controls before joining', () => {
+    const join = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProjectOverview
+        project={{ ...project, effective_role: null, can_join: true }}
+        joining={false}
+        onJoin={join}
+        onOpenWorkItems={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Join Project/ }));
+    expect(join).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole('button', { name: /Settings/ }),
+    ).not.toBeInTheDocument();
+  });
+});

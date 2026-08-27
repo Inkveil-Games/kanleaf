@@ -1,22 +1,18 @@
 import {
-  Archive,
   CheckSquare2,
   ChevronDown,
   Folder,
   Inbox,
+  LayoutPanelTop,
+  ListTodo,
   LogOut,
-  MoreHorizontal,
   Pencil,
   Plus,
   Settings,
   UserRound,
 } from 'lucide-react';
-import {
-  useState,
-  type FormEvent,
-  type MouseEvent,
-  type ReactNode,
-} from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { SettingsSection } from '../settings/SettingsShell';
 import type { Collection, Project, Workspace } from './types';
@@ -28,17 +24,19 @@ interface WorkspaceNavigationProps {
   workspaceId: string;
   projects: Project[];
   collection: Collection;
-  surface: 'tasks' | 'settings';
+  surface: WorkspaceSurface;
+  activeProjectId: string | null;
   onSwitchWorkspace: (workspaceId: string) => Promise<void>;
   onCreateWorkspace: (name: string) => Promise<void>;
   onRenameWorkspace: (name: string) => Promise<void>;
   onCreateProject: (name: string) => Promise<void>;
-  onRenameProject: (projectId: string, name: string) => Promise<void>;
-  onArchiveProject: (projectId: string) => Promise<void>;
   onSelectCollection: (collection: Collection) => void;
+  onOpenProjectOverview: (projectId: string) => void;
   onOpenSettings: (section: SettingsSection) => void;
   onSignOut: () => void;
 }
+
+export type WorkspaceSurface = 'tasks' | 'project-overview';
 
 type Composer = 'workspace' | 'rename-workspace' | 'project' | null;
 
@@ -50,18 +48,17 @@ export function WorkspaceNavigation({
   projects,
   collection,
   surface,
+  activeProjectId,
   onSwitchWorkspace,
   onCreateWorkspace,
   onRenameWorkspace,
   onCreateProject,
-  onRenameProject,
-  onArchiveProject,
   onSelectCollection,
+  onOpenProjectOverview,
   onOpenSettings,
   onSignOut,
 }: WorkspaceNavigationProps) {
   const [composer, setComposer] = useState<Composer>(null);
-  const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const activeWorkspace = workspaces.find(({ id }) => id === workspaceId);
   const canManageWorkspace =
     activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
@@ -87,33 +84,31 @@ export function WorkspaceNavigation({
             ))}
           </select>
           <ChevronDown aria-hidden="true" size={14} />
-          <details className="context-menu">
-            <summary aria-label="Workspace actions">
-              <MoreHorizontal aria-hidden="true" size={16} />
-            </summary>
-            <div className="context-menu-popover">
-              {canManageWorkspace && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    closeContextMenu(event);
-                    setComposer('rename-workspace');
-                  }}
-                >
-                  <Pencil aria-hidden="true" size={14} /> Rename workspace
-                </button>
-              )}
+          <ContextMenu label="Workspace actions">
+            {canManageWorkspace && (
               <button
+                role="menuitem"
                 type="button"
-                onClick={(event) => {
-                  closeContextMenu(event);
-                  setComposer('workspace');
-                }}
+                onClick={() => setComposer('rename-workspace')}
               >
-                <Plus aria-hidden="true" size={14} /> New workspace
+                <Pencil aria-hidden="true" size={14} /> Rename workspace
               </button>
-            </div>
-          </details>
+            )}
+            <button
+              role="menuitem"
+              type="button"
+              onClick={() => onOpenSettings('workspace:general')}
+            >
+              <Settings aria-hidden="true" size={14} /> Workspace settings
+            </button>
+            <button
+              role="menuitem"
+              type="button"
+              onClick={() => setComposer('workspace')}
+            >
+              <Plus aria-hidden="true" size={14} /> New workspace
+            </button>
+          </ContextMenu>
         </div>
         {composer === 'workspace' && (
           <InlineNameForm
@@ -142,24 +137,22 @@ export function WorkspaceNavigation({
 
       <nav className="navigation-scroll" aria-label="Workspace">
         <div className="nav-section nav-primary">
-          <NavButton
-            active={surface === 'tasks' && collection.kind === 'inbox'}
-            icon={<Inbox aria-hidden="true" size={16} />}
-            label="Inbox"
-            onClick={() => onSelectCollection({ kind: 'inbox' })}
-          />
-          <NavButton
-            active={surface === 'tasks' && collection.kind === 'all'}
-            icon={<CheckSquare2 aria-hidden="true" size={16} />}
-            label="My tasks"
-            onClick={() => onSelectCollection({ kind: 'all' })}
-          />
-          <NavButton
-            active={surface === 'settings'}
-            icon={<Settings aria-hidden="true" size={16} />}
-            label="Settings"
-            onClick={() => onOpenSettings('workspace:general')}
-          />
+          {canUseContent && (
+            <>
+              <NavButton
+                active={surface === 'tasks' && collection.kind === 'inbox'}
+                icon={<Inbox aria-hidden="true" size={16} />}
+                label="Inbox"
+                onClick={() => onSelectCollection({ kind: 'inbox' })}
+              />
+              <NavButton
+                active={surface === 'tasks' && collection.kind === 'all'}
+                icon={<CheckSquare2 aria-hidden="true" size={16} />}
+                label="My tasks"
+                onClick={() => onSelectCollection({ kind: 'all' })}
+              />
+            </>
+          )}
         </div>
 
         <section className="nav-section" aria-labelledby="projects-heading">
@@ -187,85 +180,64 @@ export function WorkspaceNavigation({
               }}
             />
           )}
-          {!canUseContent ? (
-            <p className="nav-access-note">
-              Projects require explicit Guest access.
-            </p>
-          ) : projects.length === 0 && composer !== 'project' ? (
+          {projects.length === 0 && composer !== 'project' ? (
             <button
               className="nav-empty-action"
               type="button"
-              onClick={() => setComposer('project')}
+              disabled={!canUseContent}
+              onClick={() => canUseContent && setComposer('project')}
             >
-              <Plus aria-hidden="true" size={14} /> Create a project
+              {canUseContent ? (
+                <>
+                  <Plus aria-hidden="true" size={14} /> Create a project
+                </>
+              ) : (
+                'No shared Projects'
+              )}
             </button>
           ) : (
             <div className="project-nav-list">
-              {projects.map((project) =>
-                renamingProject === project.id ? (
-                  <InlineNameForm
-                    key={project.id}
-                    label="Project name"
-                    initialValue={project.name}
-                    submitLabel="Rename project"
-                    onCancel={() => setRenamingProject(null)}
-                    onSubmit={async (name) => {
-                      await onRenameProject(project.id, name);
-                      setRenamingProject(null);
-                    }}
-                  />
-                ) : (
-                  <div className="project-nav-row" key={project.id}>
-                    <NavButton
-                      active={
-                        surface === 'tasks' &&
-                        collection.kind === 'project' &&
-                        collection.projectId === project.id
-                      }
-                      icon={<Folder aria-hidden="true" size={15} />}
-                      label={project.name}
-                      onClick={() =>
-                        onSelectCollection({
-                          kind: 'project',
-                          projectId: project.id,
-                        })
-                      }
-                    />
-                    <details className="context-menu project-menu">
-                      <summary aria-label={`${project.name} actions`}>
-                        <MoreHorizontal aria-hidden="true" size={15} />
-                      </summary>
-                      <div className="context-menu-popover">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            closeContextMenu(event);
-                            setRenamingProject(project.id);
-                          }}
-                        >
-                          <Pencil aria-hidden="true" size={14} /> Rename
-                        </button>
-                        <button
-                          className="danger-menu-item"
-                          type="button"
-                          onClick={(event) => {
-                            closeContextMenu(event);
-                            if (
-                              window.confirm(
-                                `Archive ${project.name}? Its tasks will move to Inbox.`,
-                              )
-                            ) {
-                              void onArchiveProject(project.id);
-                            }
-                          }}
-                        >
-                          <Archive aria-hidden="true" size={14} /> Archive
-                        </button>
+              {projects.map((project) => {
+                const active = activeProjectId === project.id;
+                return (
+                  <div className="project-nav-group" key={project.id}>
+                    <div className="project-nav-row">
+                      <NavButton
+                        active={active && surface === 'project-overview'}
+                        icon={<Folder aria-hidden="true" size={15} />}
+                        label={project.name}
+                        suffix={project.can_join ? 'Open' : undefined}
+                        onClick={() => onOpenProjectOverview(project.id)}
+                      />
+                    </div>
+                    {active && project.effective_role && (
+                      <div className="project-subnav">
+                        <NavButton
+                          active={surface === 'project-overview'}
+                          icon={<LayoutPanelTop aria-hidden="true" size={14} />}
+                          label="Overview"
+                          onClick={() => onOpenProjectOverview(project.id)}
+                        />
+                        <NavButton
+                          active={
+                            surface === 'tasks' &&
+                            collection.kind === 'project' &&
+                            collection.projectId === project.id
+                          }
+                          icon={<ListTodo aria-hidden="true" size={14} />}
+                          label="Work items"
+                          onClick={() =>
+                            onSelectCollection({
+                              kind: 'project',
+                              projectId: project.id,
+                            })
+                          }
+                        />
                       </div>
-                    </details>
+                    )}
                   </div>
-                ),
-              )}
+                );
+              })}
             </div>
           )}
         </section>
@@ -285,48 +257,32 @@ export function WorkspaceNavigation({
             <small>{email}</small>
           </span>
         </button>
-        <details className="context-menu context-menu-up">
-          <summary aria-label="Account actions">
-            <MoreHorizontal aria-hidden="true" size={16} />
-          </summary>
-          <div className="context-menu-popover">
-            <button
-              type="button"
-              onClick={(event) => {
-                closeContextMenu(event);
-                onOpenSettings('account:profile');
-              }}
-            >
-              <UserRound aria-hidden="true" size={14} /> Account settings
-            </button>
-            <button
-              type="button"
-              onClick={(event) => {
-                closeContextMenu(event);
-                onSignOut();
-              }}
-            >
-              <LogOut aria-hidden="true" size={14} /> Sign out
-            </button>
-          </div>
-        </details>
+        <ContextMenu label="Account actions" placement="up">
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => onOpenSettings('account:profile')}
+          >
+            <UserRound aria-hidden="true" size={14} /> Account settings
+          </button>
+          <button role="menuitem" type="button" onClick={onSignOut}>
+            <LogOut aria-hidden="true" size={14} /> Sign out
+          </button>
+        </ContextMenu>
       </div>
     </aside>
   );
-}
-
-function closeContextMenu(event: MouseEvent<HTMLButtonElement>) {
-  event.currentTarget.closest('details')?.removeAttribute('open');
 }
 
 interface NavButtonProps {
   active: boolean;
   icon: ReactNode;
   label: string;
+  suffix?: string;
   onClick: () => void;
 }
 
-function NavButton({ active, icon, label, onClick }: NavButtonProps) {
+function NavButton({ active, icon, label, suffix, onClick }: NavButtonProps) {
   return (
     <button
       className="nav-button"
@@ -336,6 +292,7 @@ function NavButton({ active, icon, label, onClick }: NavButtonProps) {
     >
       {icon}
       <span>{label}</span>
+      {suffix && <small className="nav-suffix">{suffix}</small>}
     </button>
   );
 }

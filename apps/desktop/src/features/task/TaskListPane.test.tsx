@@ -34,6 +34,8 @@ function renderList(
     query: '',
     loading: false,
     error: null,
+    canCreate: true,
+    canEditTask: () => true,
     onQueryChange: vi.fn(),
     onSelectTask: vi.fn(),
     onCreateTask: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +81,22 @@ describe('TaskListPane', () => {
       ),
     );
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('keeps read-only collections navigable without mutation controls', () => {
+    renderList({ canCreate: false, canEditTask: () => false });
+
+    expect(
+      screen.queryByRole('button', { name: 'New task' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: 'Move Design the navigation to In Progress',
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Design the navigation/ }),
+    ).toBeInTheDocument();
   });
 });
 

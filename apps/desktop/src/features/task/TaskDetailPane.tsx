@@ -1,4 +1,4 @@
-import { Archive, FileText, MoreHorizontal, X } from 'lucide-react';
+import { Archive, FileText, X } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -14,6 +14,7 @@ import type {
   TaskState,
   TaskType,
 } from '../workspace/types';
+import { ContextMenu } from '../../components/ui/ContextMenu';
 
 const MarkdownDocument = lazy(() =>
   import('../markdown/MarkdownDocument').then((module) => ({
@@ -31,6 +32,7 @@ interface TaskDetailPaneProps {
   taskTypes: TaskType[];
   loading: boolean;
   error: string | null;
+  canEdit: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
   onArchive: () => Promise<void>;
   onClose: () => void;
@@ -76,6 +78,7 @@ function SelectedTaskDetail({
   serverUrl,
   token,
   workspaceId,
+  canEdit,
 }: Omit<TaskDetailPaneProps, 'task'> & { task: Task }) {
   const [title, setTitle] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -125,13 +128,11 @@ function SelectedTaskDetail({
       <header className="detail-toolbar">
         <span className="task-reference">Task</span>
         <div>
-          <details className="context-menu detail-menu">
-            <summary aria-label="Task actions">
-              <MoreHorizontal aria-hidden="true" size={17} />
-            </summary>
-            <div className="context-menu-popover">
+          {canEdit && (
+            <ContextMenu label="Task actions" className="detail-menu">
               <button
                 className="danger-menu-item"
+                role="menuitem"
                 type="button"
                 onClick={() => {
                   if (window.confirm(`Archive ${task.title}?`)) {
@@ -141,8 +142,8 @@ function SelectedTaskDetail({
               >
                 <Archive aria-hidden="true" size={14} /> Archive task
               </button>
-            </div>
-          </details>
+            </ContextMenu>
+          )}
           <button
             className="icon-button"
             type="button"
@@ -161,6 +162,7 @@ function SelectedTaskDetail({
           rows={2}
           maxLength={300}
           value={title}
+          readOnly={!canEdit}
           disabled={savingTitle}
           onChange={(event) => setTitle(event.target.value)}
           onBlur={() => void saveTitle()}
@@ -172,6 +174,7 @@ function SelectedTaskDetail({
             <select
               aria-label="State"
               value={task.state.id}
+              disabled={!canEdit}
               onChange={(event) => void patch({ state_id: event.target.value })}
             >
               {selectableStates(states, task).map((state) => (
@@ -185,6 +188,7 @@ function SelectedTaskDetail({
             <select
               aria-label="Task type"
               value={task.task_type.id}
+              disabled={!canEdit}
               onChange={(event) =>
                 void patch({ task_type_id: event.target.value })
               }
@@ -200,6 +204,7 @@ function SelectedTaskDetail({
             <select
               aria-label="Priority"
               value={task.priority}
+              disabled={!canEdit}
               onChange={(event) =>
                 void patch({ priority: event.target.value as TaskPriority })
               }
@@ -215,6 +220,7 @@ function SelectedTaskDetail({
             <select
               aria-label="Project"
               value={task.project_id ?? ''}
+              disabled={!canEdit}
               onChange={(event) =>
                 void patch({ project_id: event.target.value || null })
               }
@@ -246,6 +252,7 @@ function SelectedTaskDetail({
             token={token}
             workspaceId={workspaceId}
             taskId={task.id}
+            readOnly={!canEdit}
           />
         </Suspense>
       </div>

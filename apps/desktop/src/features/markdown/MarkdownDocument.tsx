@@ -26,6 +26,7 @@ interface MarkdownDocumentProps {
   token: string;
   workspaceId: string;
   taskId: string;
+  readOnly?: boolean;
 }
 
 const MODE_STORAGE_KEY = 'kanleaf.markdown-mode';
@@ -78,6 +79,7 @@ function LoadedMarkdownDocument({
   token,
   workspaceId,
   taskId,
+  readOnly = false,
 }: LoadedMarkdownDocumentProps) {
   const [content, setContent] = useState(initialContent);
   const [mode, setMode] = useState(readMode);
@@ -89,6 +91,7 @@ function LoadedMarkdownDocument({
 
   const queueSave = useCallback(
     async (nextContent: string) => {
+      if (readOnly) return;
       if (nextContent === lastSavedRef.current) {
         if (contentRef.current === nextContent) setSaveState('saved');
         return;
@@ -118,36 +121,40 @@ function LoadedMarkdownDocument({
         setSaveState('error');
       }
     },
-    [serverUrl, taskId, token, workspaceId],
+    [readOnly, serverUrl, taskId, token, workspaceId],
   );
 
   useEffect(() => {
-    if (content === lastSavedRef.current) return;
+    if (readOnly || content === lastSavedRef.current) return;
     const timeout = window.setTimeout(
       () => void queueSave(content),
       AUTOSAVE_DELAY_MS,
     );
     return () => window.clearTimeout(timeout);
-  }, [content, queueSave]);
+  }, [content, queueSave, readOnly]);
 
   useEffect(() => {
     function saveShortcut(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      if (
+        !readOnly &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 's'
+      ) {
         event.preventDefault();
         void queueSave(contentRef.current);
       }
     }
     window.addEventListener('keydown', saveShortcut);
     return () => window.removeEventListener('keydown', saveShortcut);
-  }, [queueSave]);
+  }, [queueSave, readOnly]);
 
   useEffect(
     () => () => {
-      if (contentRef.current !== lastSavedRef.current) {
+      if (!readOnly && contentRef.current !== lastSavedRef.current) {
         void queueSave(contentRef.current);
       }
     },
-    [queueSave],
+    [queueSave, readOnly],
   );
 
   function changeContent(value: string) {
@@ -189,23 +196,29 @@ function LoadedMarkdownDocument({
             onClick={() => changeMode('split')}
           />
         </div>
-        <div className="save-controls">
-          <span
-            className={`save-indicator save-${saveState}`}
-            role={saveState === 'error' ? 'alert' : 'status'}
-            title={saveError ?? undefined}
-          >
-            {saveLabel(saveState)}
+        {readOnly ? (
+          <span className="save-indicator" role="status">
+            Read only
           </span>
-          <button
-            type="button"
-            aria-label="Save Markdown"
-            title="Save Markdown (Ctrl/Command+S)"
-            onClick={() => void queueSave(contentRef.current)}
-          >
-            <Save aria-hidden="true" size={15} />
-          </button>
-        </div>
+        ) : (
+          <div className="save-controls">
+            <span
+              className={`save-indicator save-${saveState}`}
+              role={saveState === 'error' ? 'alert' : 'status'}
+              title={saveError ?? undefined}
+            >
+              {saveLabel(saveState)}
+            </span>
+            <button
+              type="button"
+              aria-label="Save Markdown"
+              title="Save Markdown (Ctrl/Command+S)"
+              onClick={() => void queueSave(contentRef.current)}
+            >
+              <Save aria-hidden="true" size={15} />
+            </button>
+          </div>
+        )}
       </header>
 
       <div className={`document-workspace document-${mode}`}>
@@ -214,7 +227,11 @@ function LoadedMarkdownDocument({
             <Suspense
               fallback={<div className="document-state">Loading source…</div>}
             >
-              <MarkdownSourceEditor value={content} onChange={changeContent} />
+              <MarkdownSourceEditor
+                value={content}
+                onChange={changeContent}
+                readOnly={readOnly}
+              />
             </Suspense>
           </div>
         )}

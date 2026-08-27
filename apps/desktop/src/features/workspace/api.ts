@@ -4,6 +4,9 @@ import type {
   Collection,
   IssuedWorkspaceInvitation,
   Project,
+  ProjectMember,
+  ProjectPatch,
+  ProjectRole,
   Task,
   TaskPatch,
   Workspace,
@@ -244,11 +247,11 @@ export function createProject(
   );
 }
 
-export function renameProject(
+export function updateProject(
   context: ApiContext,
   workspaceId: string,
   projectId: string,
-  name: string,
+  patch: ProjectPatch,
 ) {
   return apiRequest<Project>(
     context.serverUrl,
@@ -256,7 +259,7 @@ export function renameProject(
     {
       method: 'PATCH',
       token: context.token,
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(patch),
     },
   );
 }
@@ -269,6 +272,96 @@ export function archiveProject(
   return apiRequest<void>(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/projects/${projectId}`,
+    { method: 'DELETE', token: context.token },
+  );
+}
+
+export function deleteProject(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  identifier: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/delete`,
+    {
+      method: 'POST',
+      token: context.token,
+      body: JSON.stringify({ identifier }),
+    },
+  );
+}
+
+export function joinProject(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/join`,
+    { method: 'POST', token: context.token },
+  );
+}
+
+export function listProjectMembers(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+) {
+  return apiRequest<ProjectMember[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/members`,
+    { token: context.token },
+  );
+}
+
+export function addProjectMember(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  userId: string,
+  role: ProjectRole,
+) {
+  return apiRequest<ProjectMember>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/members`,
+    {
+      method: 'POST',
+      token: context.token,
+      body: JSON.stringify({ user_id: userId, role }),
+    },
+  );
+}
+
+export function updateProjectMember(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  userId: string,
+  role: ProjectRole,
+) {
+  return apiRequest<ProjectMember>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/members/${userId}`,
+    {
+      method: 'PATCH',
+      token: context.token,
+      body: JSON.stringify({ role }),
+    },
+  );
+}
+
+export function removeProjectMember(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  userId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/members/${userId}`,
     { method: 'DELETE', token: context.token },
   );
 }

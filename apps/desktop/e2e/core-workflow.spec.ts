@@ -20,13 +20,14 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(workspaceSelect.locator('option')).toContainText(['Personal']);
 
   await page.getByLabel('Workspace actions').click();
-  await page.getByRole('button', { name: 'New workspace' }).click();
+  await page.getByRole('menuitem', { name: 'New workspace' }).click();
   await page.getByLabel('Workspace name').fill('Studio');
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(workspaceSelect).toHaveValue(/.+/);
   await expect(workspaceSelect.locator('option:checked')).toHaveText('Studio');
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByLabel('Workspace actions').click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
   await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
@@ -57,6 +58,29 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Project name').fill('Kanleaf');
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Kanleaf' })).toBeVisible();
+
+  await page
+    .locator('.project-header-actions')
+    .getByRole('button', { name: 'Settings' })
+    .click();
+  await page.getByLabel('Description').fill('Kanleaf Core delivery project.');
+  await page.getByLabel('Visibility').selectOption('open');
+  await page.getByRole('button', { name: 'Save general settings' }).click();
+  await expect(page.getByText('Project details saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Features' }).click();
+  await page
+    .locator('.feature-toggle-row')
+    .filter({ hasText: 'Cycles' })
+    .locator('input')
+    .check();
+  await page.getByRole('button', { name: 'Save features' }).click();
+  await expect(page.getByText('Project features saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Project' }).click();
+  await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
+  await page
+    .locator('.project-header-actions')
+    .getByRole('button', { name: 'Work items' })
+    .click();
 
   await page.getByRole('button', { name: 'New task' }).click();
   await page.getByLabel('Task title').fill('Complete the v0.1 workflow');

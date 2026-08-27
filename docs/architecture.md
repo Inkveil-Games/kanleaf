@@ -94,7 +94,9 @@ only SHA-256 token digests. Owner/Admin can issue, renew, or revoke invitations;
 acceptance verifies the authenticated account email in the same transaction as
 membership creation. Owner/Admin manage Workspace settings and members, while
 only Owner can transfer ownership or delete the Workspace. Guest access to
-project content remains denied until explicit project membership is introduced.
+project content requires an explicit Project role. Workspace Members may
+discover and join Open projects as Contributors; Private projects are not
+disclosed without effective access.
 
 ## Markdown vault
 

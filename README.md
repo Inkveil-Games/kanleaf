@@ -14,6 +14,7 @@ Markdown document.
 - Email/password authentication with Argon2id hashes and hashed server sessions
 - Multiple workspaces with personal workspace creation and switching
 - Workspace profile, member roles, invitations, ownership, and lifecycle tools
+- Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, projects, task search, Urgent priority, moves, and archiving
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
@@ -22,6 +23,9 @@ Markdown document.
 - PostgreSQL-backed structured data and UUID-addressed filesystem vaults
 - Build-time server configuration for local, LAN, or HTTPS deployments
 - Docker Compose self-hosting and a Tauri v2 desktop shell
+
+Account, Workspace, and Project settings open in focused floating windows so
+the three-pane work context remains visible underneath.
 
 ## Architecture at a glance
 

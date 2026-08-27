@@ -45,6 +45,20 @@ const projects: Project[] = [
     id: 'project-1',
     workspace_id: 'workspace-1',
     name: 'Kanleaf',
+    identifier: 'KAN',
+    description: '',
+    lead_user_id: null,
+    visibility: 'private',
+    default_assignee_id: null,
+    default_state_id: 'state-todo',
+    default_task_type_id: 'type-task',
+    cycles_enabled: false,
+    modules_enabled: false,
+    pages_enabled: false,
+    views_enabled: false,
+    enabled_task_type_ids: ['type-task', 'type-bug'],
+    effective_role: 'admin',
+    can_join: false,
     archived_at: null,
     created_at: '2026-08-26T10:00:00Z',
     updated_at: '2026-08-26T10:00:00Z',
@@ -65,6 +79,7 @@ describe('TaskDetailPane', () => {
         taskTypes={taskTypes}
         loading={false}
         error={null}
+        canEdit
         onPatch={patch}
         onArchive={vi.fn()}
         onClose={vi.fn()}
@@ -97,6 +112,33 @@ describe('TaskDetailPane', () => {
         title: 'Document the architecture',
       });
     });
+  });
+
+  it('renders Project Viewer task metadata without edit actions', () => {
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={{ ...task, project_id: 'project-1' }}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        loading={false}
+        error={null}
+        canEdit={false}
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Task title')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('State')).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Task actions' }),
+    ).not.toBeInTheDocument();
   });
 });
 
