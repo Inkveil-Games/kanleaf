@@ -17,6 +17,11 @@ pub struct WorkspaceTrash {
     trashed: PathBuf,
 }
 
+pub struct TaskTrash {
+    original: PathBuf,
+    trashed: PathBuf,
+}
+
 #[derive(Debug, Error)]
 pub enum VaultError {
     #[error("vault I/O operation failed")]
@@ -136,6 +141,41 @@ impl Vault {
         }
     }
 
+    pub async fn trash_task(
+        &self,
+        workspace_id: Uuid,
+        task_id: Uuid,
+    ) -> Result<Option<TaskTrash>, VaultError> {
+        let original = self.task_path(workspace_id, task_id);
+        match fs::metadata(&original).await {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+
+        let directory = self.data_dir.join("trash").join("tasks");
+        fs::create_dir_all(&directory).await?;
+        let trashed = directory.join(format!("{workspace_id}.{task_id}.{}", Uuid::new_v4()));
+        fs::rename(&original, &trashed).await?;
+        Ok(Some(TaskTrash { original, trashed }))
+    }
+
+    pub async fn restore_task(&self, trash: &TaskTrash) -> Result<(), VaultError> {
+        if let Some(parent) = trash.original.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::rename(&trash.trashed, &trash.original).await?;
+        Ok(())
+    }
+
+    pub async fn purge_task_trash(&self, trash: &TaskTrash) -> Result<(), VaultError> {
+        match fs::remove_file(&trash.trashed).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     fn task_path(&self, workspace_id: Uuid, task_id: Uuid) -> PathBuf {
         self.task_directory(workspace_id)
             .join(format!("{task_id}.md"))
@@ -231,5 +271,38 @@ mod tests {
         let trashed = vault.trash_workspace(workspace_id).await.unwrap().unwrap();
         vault.purge_workspace_trash(&trashed).await.unwrap();
         assert!(vault.restore_workspace(&trashed).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn task_trash_can_be_restored_or_purged() {
+        let data_dir = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let vault = Vault::new(data_dir.path().to_owned());
+        vault.create_document(workspace_id, task_id).await.unwrap();
+        vault
+            .write_document(workspace_id, task_id, "recoverable")
+            .await
+            .unwrap();
+
+        let trashed = vault
+            .trash_task(workspace_id, task_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(vault.read_document(workspace_id, task_id).await.is_err());
+        vault.restore_task(&trashed).await.unwrap();
+        assert_eq!(
+            vault.read_document(workspace_id, task_id).await.unwrap(),
+            "recoverable"
+        );
+
+        let trashed = vault
+            .trash_task(workspace_id, task_id)
+            .await
+            .unwrap()
+            .unwrap();
+        vault.purge_task_trash(&trashed).await.unwrap();
+        assert!(vault.restore_task(&trashed).await.is_err());
     }
 }

@@ -1,3 +1,7 @@
+mod model;
+
+use std::collections::HashSet;
+
 use axum::{
     Json,
     extract::{
@@ -6,16 +10,17 @@ use axum::{
     },
     http::StatusCode,
 };
-use chrono::{DateTime, Utc};
+use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
     domain::{TaskPriority, TaskTitle},
-    error::AppError,
+    error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
     task_config::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
@@ -24,85 +29,10 @@ use crate::{
     workspace::{require_workspace_member, workspace_role},
 };
 
+use self::model::{TaskResponse, TaskRow, hydrate_tasks};
+
 const MAX_SEARCH_LENGTH: usize = 200;
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
-
-#[derive(Debug, Serialize)]
-pub struct TaskStateSummary {
-    pub id: Uuid,
-    pub name: String,
-    pub color: String,
-    pub state_group: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TaskTypeSummary {
-    pub id: Uuid,
-    pub name: String,
-    pub icon: String,
-    pub color: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TaskResponse {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
-    pub project_id: Option<Uuid>,
-    pub title: String,
-    pub state: TaskStateSummary,
-    pub task_type: TaskTypeSummary,
-    pub priority: String,
-    pub archived_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(FromRow)]
-struct TaskRow {
-    id: Uuid,
-    workspace_id: Uuid,
-    project_id: Option<Uuid>,
-    title: String,
-    state_id: Uuid,
-    state_name: String,
-    state_color: String,
-    state_group: String,
-    task_type_id: Uuid,
-    task_type_name: String,
-    task_type_icon: String,
-    task_type_color: String,
-    priority: String,
-    archived_at: Option<DateTime<Utc>>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl From<TaskRow> for TaskResponse {
-    fn from(row: TaskRow) -> Self {
-        Self {
-            id: row.id,
-            workspace_id: row.workspace_id,
-            project_id: row.project_id,
-            title: row.title,
-            state: TaskStateSummary {
-                id: row.state_id,
-                name: row.state_name,
-                color: row.state_color,
-                state_group: row.state_group,
-            },
-            task_type: TaskTypeSummary {
-                id: row.task_type_id,
-                name: row.task_type_name,
-                icon: row.task_type_icon,
-                color: row.task_type_color,
-            },
-            priority: row.priority,
-            archived_at: row.archived_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-}
 
 #[derive(Deserialize)]
 pub(crate) struct CreateTaskRequest {
@@ -115,6 +45,18 @@ pub(crate) struct CreateTaskRequest {
     task_type_id: Option<Uuid>,
     #[serde(default)]
     priority: TaskPriority,
+    #[serde(default)]
+    assignee_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    label_ids: Vec<Uuid>,
+    #[serde(default)]
+    start_date: Option<NaiveDate>,
+    #[serde(default)]
+    due_date: Option<NaiveDate>,
+    #[serde(default)]
+    estimate: Option<i32>,
+    #[serde(default)]
+    parent_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -127,8 +69,22 @@ pub(crate) struct UpdateTaskRequest {
     task_type_id: Option<Uuid>,
     #[serde(default)]
     priority: Option<TaskPriority>,
-    #[serde(default, deserialize_with = "deserialize_project_patch")]
+    #[serde(default, deserialize_with = "deserialize_nullable")]
     project_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    start_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    due_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    estimate: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    parent_id: Option<Option<Uuid>>,
+    #[serde(default)]
+    assignee_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    label_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    cleanup_invalid: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -136,7 +92,64 @@ pub(crate) struct TaskFilters {
     project_id: Option<Uuid>,
     #[serde(default)]
     inbox: bool,
+    #[serde(default)]
+    my_work: bool,
     query: Option<String>,
+    state_id: Option<Uuid>,
+    task_type_id: Option<Uuid>,
+    priority: Option<TaskPriority>,
+    assignee_id: Option<Uuid>,
+    label_id: Option<Uuid>,
+    due_before: Option<NaiveDate>,
+    due_after: Option<NaiveDate>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReorderTasksRequest {
+    task_ids: Vec<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BulkUpdateTaskRequest {
+    task_ids: Vec<Uuid>,
+    #[serde(default)]
+    state_id: Option<Uuid>,
+    #[serde(default)]
+    priority: Option<TaskPriority>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    project_id: Option<Option<Uuid>>,
+    #[serde(default)]
+    cleanup_invalid: bool,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TaskRelationType {
+    Blocking,
+    BlockedBy,
+    RelatesTo,
+    Duplicate,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CreateRelationRequest {
+    task_id: Uuid,
+    relation_type: TaskRelationType,
+}
+
+#[derive(FromRow)]
+struct CurrentTask {
+    project_id: Option<Uuid>,
+    task_type_id: Uuid,
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
+    estimate: Option<i32>,
+    parent_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DeleteTaskRequest {
+    reference: String,
 }
 
 #[derive(Deserialize)]
@@ -174,12 +187,15 @@ pub(crate) async fn list(
     let rows = sqlx::query_as::<_, TaskRow>(
         r#"
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+               projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
                states.color AS state_color, states.state_group,
                task_types.id AS task_type_id, task_types.name AS task_type_name,
                task_types.icon AS task_type_icon, task_types.color AS task_type_color,
-               tasks.priority, tasks.archived_at, tasks.created_at, tasks.updated_at
+               tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
+               tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
+        LEFT JOIN projects ON projects.id = tasks.project_id
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
         JOIN task_types
@@ -190,29 +206,62 @@ pub(crate) async fn list(
           AND ($2::uuid IS NULL OR tasks.project_id = $2)
           AND (NOT $3 OR tasks.project_id IS NULL)
           AND ($4::text IS NULL OR tasks.title ILIKE $4 ESCAPE '\')
+          AND (NOT $5 OR EXISTS(
+              SELECT 1 FROM task_assignees
+              WHERE task_assignees.workspace_id = tasks.workspace_id
+                AND task_assignees.task_id = tasks.id
+                AND task_assignees.user_id = $6
+          ))
+          AND ($7::uuid IS NULL OR tasks.state_id = $7)
+          AND ($8::uuid IS NULL OR tasks.task_type_id = $8)
+          AND ($9::text IS NULL OR tasks.priority = $9)
+          AND ($10::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM task_assignees
+              WHERE task_assignees.workspace_id = tasks.workspace_id
+                AND task_assignees.task_id = tasks.id
+                AND task_assignees.user_id = $10
+          ))
+          AND ($11::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM task_label_assignments
+              WHERE task_label_assignments.workspace_id = tasks.workspace_id
+                AND task_label_assignments.task_id = tasks.id
+                AND task_label_assignments.label_id = $11
+          ))
+          AND ($12::date IS NULL OR tasks.due_date <= $12)
+          AND ($13::date IS NULL OR tasks.due_date >= $13)
           AND (
-              ($5 AND tasks.project_id IS NULL)
-              OR $6
+              ($14 AND tasks.project_id IS NULL)
+              OR $15
               OR EXISTS(
                   SELECT 1 FROM project_memberships
                   WHERE project_memberships.workspace_id = tasks.workspace_id
                     AND project_memberships.project_id = tasks.project_id
-                    AND project_memberships.user_id = $7
+                    AND project_memberships.user_id = $6
               )
           )
-        ORDER BY tasks.updated_at DESC, tasks.id
+        ORDER BY tasks.position, tasks.task_number
         "#,
     )
     .bind(workspace_id)
     .bind(filters.project_id)
     .bind(filters.inbox)
     .bind(search)
+    .bind(filters.my_work)
+    .bind(auth.user.id)
+    .bind(filters.state_id)
+    .bind(filters.task_type_id)
+    .bind(filters.priority.map(TaskPriority::as_str))
+    .bind(filters.assignee_id)
+    .bind(filters.label_id)
+    .bind(filters.due_before)
+    .bind(filters.due_after)
     .bind(role.can_access_content())
     .bind(role.can_manage())
-    .bind(auth.user.id)
     .fetch_all(&state.pool)
     .await?;
-    Ok(Json(rows.into_iter().map(TaskResponse::from).collect()))
+    let mut tasks = rows.into_iter().map(TaskResponse::from).collect::<Vec<_>>();
+    hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
+    Ok(Json(tasks))
 }
 
 pub(crate) async fn create(
@@ -225,6 +274,8 @@ pub(crate) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let title =
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
+    validate_schedule(request.start_date, request.due_date, request.estimate)?;
+    let label_ids = unique_ids(&request.label_ids, "Task labels cannot contain duplicates")?;
     authorize_task_location(
         &state.pool,
         auth.user.id,
@@ -247,25 +298,65 @@ pub(crate) async fn create(
         task_type_id,
     )
     .await?;
+    let assignee_ids = match request.assignee_ids {
+        Some(ids) => unique_ids(&ids, "Task assignees cannot contain duplicates")?,
+        None => default_assignees(&mut transaction, workspace_id, request.project_id).await?,
+    };
+    validate_assignees(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        &assignee_ids,
+    )
+    .await?;
+    validate_labels(&mut transaction, workspace_id, &label_ids).await?;
+    validate_parent(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        None,
+        request.parent_id,
+    )
+    .await?;
+
+    let task_number: i64 = sqlx::query_scalar(
+        r#"
+        UPDATE workspaces
+        SET next_task_number = next_task_number + 1
+        WHERE id = $1
+        RETURNING next_task_number - 1
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&mut *transaction)
+    .await?;
 
     let task_id = Uuid::new_v4();
     sqlx::query(
         r#"
         INSERT INTO tasks
-            (id, workspace_id, project_id, title, state_id, task_type_id, priority)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (id, workspace_id, project_id, task_number, title, state_id,
+             task_type_id, priority, start_date, due_date, estimate, parent_id, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(task_id)
     .bind(workspace_id)
     .bind(request.project_id)
+    .bind(task_number)
     .bind(title.as_str())
     .bind(state_id)
     .bind(task_type_id)
     .bind(request.priority.as_str())
+    .bind(request.start_date)
+    .bind(request.due_date)
+    .bind(request.estimate)
+    .bind(request.parent_id)
+    .bind(task_number * 1024)
     .execute(&mut *transaction)
     .await?;
-    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
+    replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
+    replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
 
     state
         .vault
@@ -273,6 +364,7 @@ pub(crate) async fn create(
         .await
         .map_err(AppError::internal)?;
     transaction.commit().await?;
+    let task = find_task(&state.pool, workspace_id, task_id).await?;
     Ok((StatusCode::CREATED, Json(task)))
 }
 
@@ -285,9 +377,8 @@ pub(crate) async fn get(
     let mut transaction = state.pool.begin().await?;
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
-    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
     transaction.commit().await?;
-    Ok(Json(task))
+    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
 pub(crate) async fn update(
@@ -303,6 +394,12 @@ pub(crate) async fn update(
         && request.task_type_id.is_none()
         && request.priority.is_none()
         && request.project_id.is_none()
+        && request.start_date.is_none()
+        && request.due_date.is_none()
+        && request.estimate.is_none()
+        && request.parent_id.is_none()
+        && request.assignee_ids.is_none()
+        && request.label_ids.is_none()
     {
         return Err(AppError::Validation(
             "Provide at least one task field to update".to_owned(),
@@ -316,9 +413,10 @@ pub(crate) async fn update(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
-    let current: (Option<Uuid>, Uuid, Uuid) = sqlx::query_as(
+    let current: CurrentTask = sqlx::query_as(
         r#"
-        SELECT project_id, state_id, task_type_id
+        SELECT project_id, task_type_id, start_date, due_date,
+               estimate, parent_id
         FROM tasks
         WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
         FOR UPDATE
@@ -329,9 +427,17 @@ pub(crate) async fn update(
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
-    authorize_task_location(&state.pool, auth.user.id, workspace_id, current.0, true).await?;
-    let target_project = request.project_id.unwrap_or(current.0);
-    if request.project_id.is_some() {
+    authorize_task_location(
+        &state.pool,
+        auth.user.id,
+        workspace_id,
+        current.project_id,
+        true,
+    )
+    .await?;
+    let target_project = request.project_id.unwrap_or(current.project_id);
+    let project_changed = target_project != current.project_id;
+    if project_changed {
         authorize_task_location(
             &state.pool,
             auth.user.id,
@@ -340,42 +446,152 @@ pub(crate) async fn update(
             true,
         )
         .await?;
-        resolve_task_defaults(&mut transaction, workspace_id, target_project).await?;
     }
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
     }
-    let target_task_type = request.task_type_id.unwrap_or(current.2);
-    if request.task_type_id.is_some() || request.project_id.is_some() {
-        validate_task_type_assignment(
+    let mut target_task_type = request.task_type_id.unwrap_or(current.task_type_id);
+    if request.task_type_id.is_some() || project_changed {
+        let task_type_result = validate_task_type_assignment(
             &mut transaction,
             workspace_id,
             target_project,
             target_task_type,
         )
-        .await?;
+        .await;
+        match task_type_result {
+            Ok(()) => {}
+            Err(AppError::Validation(_)) if project_changed && request.cleanup_invalid => {
+                target_task_type =
+                    resolve_task_defaults(&mut transaction, workspace_id, target_project)
+                        .await?
+                        .1;
+            }
+            Err(error) => return Err(error),
+        }
     }
 
-    let project_changed = request.project_id.is_some();
-    let project_id = request.project_id.flatten();
+    let target_start_date = request.start_date.unwrap_or(current.start_date);
+    let target_due_date = request.due_date.unwrap_or(current.due_date);
+    let target_estimate = request.estimate.unwrap_or(current.estimate);
+    validate_schedule(target_start_date, target_due_date, target_estimate)?;
+
+    let current_assignees = task_assignee_ids(&mut transaction, workspace_id, task_id).await?;
+    let mut target_assignees = request
+        .assignee_ids
+        .as_ref()
+        .map(|ids| unique_ids(ids, "Task assignees cannot contain duplicates"))
+        .transpose()?
+        .unwrap_or(current_assignees);
+    let valid_assignees = valid_assignees(
+        &mut transaction,
+        workspace_id,
+        target_project,
+        &target_assignees,
+    )
+    .await?;
+    if valid_assignees.len() != target_assignees.len() {
+        if !project_changed || !request.cleanup_invalid {
+            return Err(AppError::Validation(
+                "One or more assignees cannot be assigned in the target location".to_owned(),
+            ));
+        }
+        target_assignees = valid_assignees;
+    }
+
+    let target_labels = request
+        .label_ids
+        .as_ref()
+        .map(|ids| unique_ids(ids, "Task labels cannot contain duplicates"))
+        .transpose()?;
+    if let Some(label_ids) = &target_labels {
+        validate_labels(&mut transaction, workspace_id, label_ids).await?;
+    }
+
+    let mut target_parent = request.parent_id.unwrap_or(current.parent_id);
+    let parent_invalid = match validate_parent(
+        &mut transaction,
+        workspace_id,
+        target_project,
+        Some(task_id),
+        target_parent,
+    )
+    .await
+    {
+        Ok(()) => false,
+        Err(AppError::Validation(_)) => true,
+        Err(error) => return Err(error),
+    };
+    if parent_invalid {
+        if !project_changed || !request.cleanup_invalid {
+            return Err(AppError::Validation(
+                "Parent Task must be in the same location and cannot create a cycle".to_owned(),
+            ));
+        }
+        target_parent = None;
+    }
+    if project_changed {
+        let incompatible_children: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM tasks
+                WHERE workspace_id = $1 AND parent_id = $2
+                  AND project_id IS DISTINCT FROM $3
+                  AND archived_at IS NULL
+            )
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(task_id)
+        .bind(target_project)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if incompatible_children && !request.cleanup_invalid {
+            return Err(AppError::Validation(
+                "Move the subtasks too or allow cleanup before moving this Task".to_owned(),
+            ));
+        }
+        if incompatible_children {
+            sqlx::query(
+                "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
+            )
+            .bind(workspace_id)
+            .bind(task_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+
     let result = sqlx::query(
         r#"
         UPDATE tasks
         SET title = COALESCE($1, title),
             state_id = COALESCE($2, state_id),
-            task_type_id = COALESCE($3, task_type_id),
+            task_type_id = $3,
             priority = COALESCE($4, priority),
             project_id = CASE WHEN $5 THEN $6 ELSE project_id END,
+            start_date = CASE WHEN $7 THEN $8 ELSE start_date END,
+            due_date = CASE WHEN $9 THEN $10 ELSE due_date END,
+            estimate = CASE WHEN $11 THEN $12 ELSE estimate END,
+            parent_id = CASE WHEN $13 THEN $14 ELSE parent_id END,
             updated_at = now()
-        WHERE id = $7 AND workspace_id = $8 AND archived_at IS NULL
+        WHERE id = $15 AND workspace_id = $16 AND archived_at IS NULL
         "#,
     )
     .bind(title.as_ref().map(TaskTitle::as_str))
     .bind(request.state_id)
-    .bind(request.task_type_id)
+    .bind(target_task_type)
     .bind(request.priority.map(TaskPriority::as_str))
     .bind(project_changed)
-    .bind(project_id)
+    .bind(target_project)
+    .bind(request.start_date.is_some())
+    .bind(target_start_date)
+    .bind(request.due_date.is_some())
+    .bind(target_due_date)
+    .bind(request.estimate.is_some())
+    .bind(target_estimate)
+    .bind(request.parent_id.is_some() || (project_changed && target_parent != current.parent_id))
+    .bind(target_parent)
     .bind(task_id)
     .bind(workspace_id)
     .execute(&mut *transaction)
@@ -383,9 +599,16 @@ pub(crate) async fn update(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task not found".to_owned()));
     }
-    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
+    if request.assignee_ids.is_some()
+        || target_assignees != task_assignee_ids(&mut transaction, workspace_id, task_id).await?
+    {
+        replace_assignees(&mut transaction, workspace_id, task_id, &target_assignees).await?;
+    }
+    if let Some(label_ids) = target_labels {
+        replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
+    }
     transaction.commit().await?;
-    Ok(Json(task))
+    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
 pub(crate) async fn archive(
@@ -406,6 +629,373 @@ pub(crate) async fn archive(
     .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task not found".to_owned()));
+    }
+    sqlx::query(
+        "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM task_relations WHERE workspace_id = $1 AND (task_a_id = $2 OR task_b_id = $2)",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn delete_permanently(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, Uuid)>, PathRejection>,
+    payload: Result<Json<DeleteTaskRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
+    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
+    if request.reference.trim() != task.reference {
+        return Err(AppError::Validation(
+            "Enter the Task reference exactly to delete it".to_owned(),
+        ));
+    }
+
+    let trash = state
+        .vault
+        .trash_task(workspace_id, task_id)
+        .await
+        .map_err(AppError::internal)?;
+    let deletion = async {
+        sqlx::query(
+            "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
+        )
+        .bind(workspace_id)
+        .bind(task_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("DELETE FROM tasks WHERE workspace_id = $1 AND id = $2")
+            .bind(workspace_id)
+            .bind(task_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await
+    }
+    .await;
+    if let Err(error) = deletion {
+        if let Some(trash) = &trash {
+            state
+                .vault
+                .restore_task(trash)
+                .await
+                .map_err(AppError::internal)?;
+        }
+        return Err(error.into());
+    }
+    if let Some(trash) = &trash
+        && let Err(error) = state.vault.purge_task_trash(trash).await
+    {
+        // The database deletion is already durable. Leaving unreachable trash is
+        // safer than reporting a failure that could make clients retry the delete.
+        warn!(task_id = %task_id, %error, "failed to purge deleted Task document");
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn reorder(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    payload: Result<Json<ReorderTasksRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    let task_ids = unique_ids(&request.task_ids, "Task order cannot contain duplicates")?;
+    if task_ids.is_empty() || task_ids.len() > 500 {
+        return Err(AppError::Validation(
+            "Task order must contain between 1 and 500 Tasks".to_owned(),
+        ));
+    }
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
+    let locations: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT id, project_id FROM tasks
+        WHERE workspace_id = $1 AND id = ANY($2) AND archived_at IS NULL
+        FOR UPDATE
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&task_ids)
+    .fetch_all(&mut *transaction)
+    .await?;
+    if locations.len() != task_ids.len() {
+        return Err(AppError::NotFound("Task not found".to_owned()));
+    }
+    let location = locations[0].1;
+    if locations
+        .iter()
+        .any(|(_, candidate)| *candidate != location)
+    {
+        return Err(AppError::Validation(
+            "Only Tasks in the same collection can be reordered".to_owned(),
+        ));
+    }
+    let collection_size: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*) FROM tasks
+        WHERE workspace_id = $1
+          AND project_id IS NOT DISTINCT FROM $2
+          AND archived_at IS NULL
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(location)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if collection_size != task_ids.len() as i64 {
+        return Err(AppError::Validation(
+            "Task order must include the complete collection".to_owned(),
+        ));
+    }
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, location, true).await?;
+    for (index, task_id) in task_ids.iter().enumerate() {
+        sqlx::query(
+            "UPDATE tasks SET position = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3",
+        )
+        .bind((index as i64 + 1) * 1024)
+        .bind(workspace_id)
+        .bind(task_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn bulk_update(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    payload: Result<Json<BulkUpdateTaskRequest>, JsonRejection>,
+) -> Result<Json<Vec<TaskResponse>>, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    let task_ids = unique_ids(
+        &request.task_ids,
+        "Bulk selection cannot contain duplicates",
+    )?;
+    if task_ids.is_empty() || task_ids.len() > 100 {
+        return Err(AppError::Validation(
+            "Bulk updates must contain between 1 and 100 Tasks".to_owned(),
+        ));
+    }
+    if request.state_id.is_none() && request.priority.is_none() && request.project_id.is_none() {
+        return Err(AppError::Validation(
+            "Provide at least one Task field to update".to_owned(),
+        ));
+    }
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
+    if let Some(state_id) = request.state_id {
+        validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
+    }
+
+    for task_id in &task_ids {
+        let (current_project, task_type_id): (Option<Uuid>, Uuid) = sqlx::query_as(
+            r#"
+            SELECT project_id, task_type_id FROM tasks
+            WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL
+            FOR UPDATE
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(task_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+        authorize_task_location(
+            &state.pool,
+            auth.user.id,
+            workspace_id,
+            current_project,
+            true,
+        )
+        .await?;
+        let target_project = request.project_id.unwrap_or(current_project);
+        let project_changed = target_project != current_project;
+        if project_changed {
+            authorize_task_location(
+                &state.pool,
+                auth.user.id,
+                workspace_id,
+                target_project,
+                true,
+            )
+            .await?;
+        }
+        let mut target_type = task_type_id;
+        if project_changed {
+            let type_result = validate_task_type_assignment(
+                &mut transaction,
+                workspace_id,
+                target_project,
+                target_type,
+            )
+            .await;
+            match type_result {
+                Ok(()) => {}
+                Err(AppError::Validation(_)) if request.cleanup_invalid => {
+                    target_type =
+                        resolve_task_defaults(&mut transaction, workspace_id, target_project)
+                            .await?
+                            .1;
+                }
+                Err(error) => return Err(error),
+            }
+            cleanup_or_reject_move(
+                &mut transaction,
+                workspace_id,
+                *task_id,
+                target_project,
+                &task_ids,
+                request.cleanup_invalid,
+            )
+            .await?;
+        }
+        sqlx::query(
+            r#"
+            UPDATE tasks
+            SET state_id = COALESCE($1, state_id),
+                priority = COALESCE($2, priority),
+                project_id = CASE WHEN $3 THEN $4 ELSE project_id END,
+                task_type_id = $5,
+                updated_at = now()
+            WHERE workspace_id = $6 AND id = $7
+            "#,
+        )
+        .bind(request.state_id)
+        .bind(request.priority.map(TaskPriority::as_str))
+        .bind(project_changed)
+        .bind(target_project)
+        .bind(target_type)
+        .bind(workspace_id)
+        .bind(task_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
+    hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
+    Ok(Json(tasks))
+}
+
+pub(crate) async fn add_relation(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, Uuid)>, PathRejection>,
+    payload: Result<Json<CreateRelationRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<TaskResponse>), AppError> {
+    let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    if task_id == request.task_id {
+        return Err(AppError::Validation(
+            "A Task cannot relate to itself".to_owned(),
+        ));
+    }
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
+    let related_project =
+        lock_task_location(&mut transaction, workspace_id, request.task_id, true).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
+    authorize_task_location(
+        &state.pool,
+        auth.user.id,
+        workspace_id,
+        related_project,
+        true,
+    )
+    .await?;
+    let (task_a_id, task_b_id, current_is_a) = if task_id < request.task_id {
+        (task_id, request.task_id, true)
+    } else {
+        (request.task_id, task_id, false)
+    };
+    let (relation_type, task_a_blocks) = match request.relation_type {
+        TaskRelationType::Blocking => ("blocks", Some(current_is_a)),
+        TaskRelationType::BlockedBy => ("blocks", Some(!current_is_a)),
+        TaskRelationType::RelatesTo => ("relates_to", None),
+        TaskRelationType::Duplicate => ("duplicate", None),
+    };
+    let inserted = sqlx::query(
+        r#"
+        INSERT INTO task_relations
+            (workspace_id, task_a_id, task_b_id, relation_type, task_a_blocks)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_a_id)
+    .bind(task_b_id)
+    .bind(relation_type)
+    .bind(task_a_blocks)
+    .execute(&mut *transaction)
+    .await;
+    match inserted {
+        Ok(_) => {}
+        Err(error) if is_unique_violation(&error) => {
+            return Err(AppError::Conflict(
+                "These Tasks already have a relation".to_owned(),
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    }
+    transaction.commit().await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(find_task(&state.pool, workspace_id, task_id).await?),
+    ))
+}
+
+pub(crate) async fn remove_relation(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, Uuid, Uuid)>, PathRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path((workspace_id, task_id, related_task_id)) = path.map_err(AppError::from)?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
+    let related_project =
+        lock_task_location(&mut transaction, workspace_id, related_task_id, true).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
+    authorize_task_location(
+        &state.pool,
+        auth.user.id,
+        workspace_id,
+        related_project,
+        true,
+    )
+    .await?;
+    let (task_a_id, task_b_id) = if task_id < related_task_id {
+        (task_id, related_task_id)
+    } else {
+        (related_task_id, task_id)
+    };
+    let result = sqlx::query(
+        "DELETE FROM task_relations WHERE workspace_id = $1 AND task_a_id = $2 AND task_b_id = $3",
+    )
+    .bind(workspace_id)
+    .bind(task_a_id)
+    .bind(task_b_id)
+    .execute(&mut *transaction)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Task relation not found".to_owned()));
     }
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -512,17 +1102,67 @@ async fn find_task_in_transaction(
     Ok(TaskResponse::from(row))
 }
 
+async fn find_task(
+    pool: &PgPool,
+    workspace_id: Uuid,
+    task_id: Uuid,
+) -> Result<TaskResponse, AppError> {
+    let mut tasks = find_tasks(pool, workspace_id, &[task_id]).await?;
+    hydrate_tasks(pool, workspace_id, &mut tasks).await?;
+    tasks
+        .pop()
+        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))
+}
+
+async fn find_tasks(
+    pool: &PgPool,
+    workspace_id: Uuid,
+    task_ids: &[Uuid],
+) -> Result<Vec<TaskResponse>, AppError> {
+    let rows = sqlx::query_as::<_, TaskRow>(
+        r#"
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+               projects.identifier AS project_identifier, tasks.task_number,
+               states.id AS state_id, states.name AS state_name,
+               states.color AS state_color, states.state_group,
+               task_types.id AS task_type_id, task_types.name AS task_type_name,
+               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
+               tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
+        FROM tasks
+        LEFT JOIN projects ON projects.id = tasks.project_id
+        JOIN task_states AS states
+          ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
+        JOIN task_types
+          ON task_types.workspace_id = tasks.workspace_id
+         AND task_types.id = tasks.task_type_id
+        WHERE tasks.workspace_id = $1
+          AND tasks.id = ANY($2)
+          AND tasks.archived_at IS NULL
+        ORDER BY array_position($2, tasks.id)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(TaskResponse::from).collect())
+}
+
 fn select_task_query()
 -> sqlx::query::QueryAs<'static, Postgres, TaskRow, sqlx::postgres::PgArguments> {
     sqlx::query_as(
         r#"
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+               projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
                states.color AS state_color, states.state_group,
                task_types.id AS task_type_id, task_types.name AS task_type_name,
                task_types.icon AS task_type_icon, task_types.color AS task_type_color,
-               tasks.priority, tasks.archived_at, tasks.created_at, tasks.updated_at
+               tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
+               tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
+        LEFT JOIN projects ON projects.id = tasks.project_id
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
         JOIN task_types
@@ -531,6 +1171,347 @@ fn select_task_query()
         WHERE tasks.id = $1 AND tasks.workspace_id = $2 AND tasks.archived_at IS NULL
         "#,
     )
+}
+
+fn validate_schedule(
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
+    estimate: Option<i32>,
+) -> Result<(), AppError> {
+    if start_date
+        .zip(due_date)
+        .is_some_and(|(start, due)| start > due)
+    {
+        return Err(AppError::Validation(
+            "Task due date cannot be before its start date".to_owned(),
+        ));
+    }
+    if estimate.is_some_and(|value| value < 0) {
+        return Err(AppError::Validation(
+            "Task estimate cannot be negative".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn unique_ids(ids: &[Uuid], message: &str) -> Result<Vec<Uuid>, AppError> {
+    let mut seen = HashSet::with_capacity(ids.len());
+    if ids.iter().any(|id| !seen.insert(*id)) {
+        return Err(AppError::Validation(message.to_owned()));
+    }
+    Ok(ids.to_vec())
+}
+
+async fn default_assignees(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+) -> Result<Vec<Uuid>, AppError> {
+    let Some(project_id) = project_id else {
+        return Ok(Vec::new());
+    };
+    let default_assignee: Option<Uuid> = sqlx::query_scalar(
+        "SELECT default_assignee_id FROM projects WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL",
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .flatten();
+    Ok(default_assignee.into_iter().collect())
+}
+
+async fn valid_assignees(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    assignee_ids: &[Uuid],
+) -> Result<Vec<Uuid>, AppError> {
+    if assignee_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_scalar(
+        r#"
+        SELECT memberships.user_id
+        FROM workspace_memberships AS memberships
+        WHERE memberships.workspace_id = $1
+          AND memberships.user_id = ANY($2)
+          AND (
+              ($3::uuid IS NULL AND memberships.role <> 'guest')
+              OR memberships.role IN ('owner', 'admin')
+              OR EXISTS(
+                  SELECT 1 FROM project_memberships
+                  WHERE project_memberships.workspace_id = memberships.workspace_id
+                    AND project_memberships.project_id = $3
+                    AND project_memberships.user_id = memberships.user_id
+              )
+          )
+        ORDER BY memberships.user_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(assignee_ids)
+    .bind(project_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(AppError::from)
+}
+
+async fn validate_assignees(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    assignee_ids: &[Uuid],
+) -> Result<(), AppError> {
+    if valid_assignees(transaction, workspace_id, project_id, assignee_ids)
+        .await?
+        .len()
+        != assignee_ids.len()
+    {
+        return Err(AppError::Validation(
+            "One or more assignees cannot be assigned in this Task location".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn task_assignee_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT user_id FROM task_assignees WHERE workspace_id = $1 AND task_id = $2 ORDER BY user_id",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+async fn replace_assignees(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    assignee_ids: &[Uuid],
+) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM task_assignees WHERE workspace_id = $1 AND task_id = $2")
+        .bind(workspace_id)
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await?;
+    if !assignee_ids.is_empty() {
+        sqlx::query(
+            r#"
+            INSERT INTO task_assignees (workspace_id, task_id, user_id)
+            SELECT $1, $2, user_id FROM unnest($3::uuid[]) AS user_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(task_id)
+        .bind(assignee_ids)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn validate_labels(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    label_ids: &[Uuid],
+) -> Result<(), AppError> {
+    if label_ids.is_empty() {
+        return Ok(());
+    }
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*) FROM task_labels
+        WHERE workspace_id = $1 AND id = ANY($2) AND archived_at IS NULL
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(label_ids)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if count as usize != label_ids.len() {
+        return Err(AppError::Validation(
+            "One or more Task labels are unavailable".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn replace_labels(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    label_ids: &[Uuid],
+) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM task_label_assignments WHERE workspace_id = $1 AND task_id = $2")
+        .bind(workspace_id)
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await?;
+    if !label_ids.is_empty() {
+        sqlx::query(
+            r#"
+            INSERT INTO task_label_assignments (workspace_id, task_id, label_id)
+            SELECT $1, $2, label_id FROM unnest($3::uuid[]) AS label_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(task_id)
+        .bind(label_ids)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn validate_parent(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    task_id: Option<Uuid>,
+    parent_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let Some(parent_id) = parent_id else {
+        return Ok(());
+    };
+    if task_id == Some(parent_id) {
+        return Err(AppError::Validation(
+            "A Task cannot be its own parent".to_owned(),
+        ));
+    }
+    let valid_location: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM tasks
+            WHERE workspace_id = $1 AND id = $2
+              AND project_id IS NOT DISTINCT FROM $3
+              AND archived_at IS NULL
+        )
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(parent_id)
+    .bind(project_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !valid_location {
+        return Err(AppError::Validation(
+            "Parent Task must be in the same Task location".to_owned(),
+        ));
+    }
+    if let Some(task_id) = task_id {
+        let creates_cycle: bool = sqlx::query_scalar(
+            r#"
+            WITH RECURSIVE ancestors AS (
+                SELECT id, parent_id FROM tasks
+                WHERE workspace_id = $1 AND id = $2
+                UNION ALL
+                SELECT tasks.id, tasks.parent_id
+                FROM tasks
+                JOIN ancestors ON tasks.id = ancestors.parent_id
+                WHERE tasks.workspace_id = $1
+            )
+            SELECT EXISTS(SELECT 1 FROM ancestors WHERE id = $3)
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(parent_id)
+        .bind(task_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if creates_cycle {
+            return Err(AppError::Validation(
+                "Task hierarchy cannot contain a cycle".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn cleanup_or_reject_move(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    target_project: Option<Uuid>,
+    moving_task_ids: &[Uuid],
+    cleanup: bool,
+) -> Result<(), AppError> {
+    let current_assignees = task_assignee_ids(transaction, workspace_id, task_id).await?;
+    let valid = valid_assignees(
+        transaction,
+        workspace_id,
+        target_project,
+        &current_assignees,
+    )
+    .await?;
+    let parent: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT parent.id, parent.project_id
+        FROM tasks AS child
+        JOIN tasks AS parent
+          ON parent.workspace_id = child.workspace_id AND parent.id = child.parent_id
+        WHERE child.workspace_id = $1 AND child.id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let parent_invalid = parent.is_some_and(|(parent_id, parent_project)| {
+        parent_project != target_project && !moving_task_ids.contains(&parent_id)
+    });
+    let child_invalid: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM tasks
+            WHERE workspace_id = $1 AND parent_id = $2
+              AND project_id IS DISTINCT FROM $3
+              AND NOT (id = ANY($4))
+              AND archived_at IS NULL
+        )
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .bind(target_project)
+    .bind(moving_task_ids)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if valid.len() != current_assignees.len() || parent_invalid || child_invalid {
+        if !cleanup {
+            return Err(AppError::Validation(
+                "Task move would invalidate assignees or hierarchy; retry with cleanup enabled"
+                    .to_owned(),
+            ));
+        }
+        if valid.len() != current_assignees.len() {
+            replace_assignees(transaction, workspace_id, task_id, &valid).await?;
+        }
+        if parent_invalid {
+            sqlx::query(
+                "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND id = $2",
+            )
+            .bind(workspace_id)
+            .bind(task_id)
+            .execute(&mut **transaction)
+            .await?;
+        }
+        if child_invalid {
+            sqlx::query(
+                "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
+            )
+            .bind(workspace_id)
+            .bind(task_id)
+            .execute(&mut **transaction)
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 fn search_pattern(value: &str) -> Result<String, AppError> {
@@ -547,11 +1528,12 @@ fn search_pattern(value: &str) -> Result<String, AppError> {
     Ok(format!("%{escaped}%"))
 }
 
-fn deserialize_project_patch<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de>,
 {
-    Option::<Uuid>::deserialize(deserializer).map(Some)
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]

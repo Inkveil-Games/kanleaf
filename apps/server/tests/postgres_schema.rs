@@ -60,7 +60,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
         .unwrap();
 
     let cross_workspace_task = sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, project_id, title, state_id, task_type_id) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO tasks (id, workspace_id, project_id, title, state_id, task_type_id, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, 1, 1024)",
     )
     .bind(Uuid::new_v4())
     .bind(second_workspace)
@@ -73,7 +73,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     assert!(cross_workspace_task.is_err());
 
     let invalid_priority = sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, title, state_id, task_type_id, priority) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO tasks (id, workspace_id, title, state_id, task_type_id, priority, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, 1, 1024)",
     )
     .bind(Uuid::new_v4())
     .bind(first_workspace)
@@ -146,4 +146,26 @@ async fn task_configuration_migration_preserves_and_maps_existing_tasks(pool: Pg
             ("todo", "Task", "high"),
         ]
     );
+
+    for migration in [
+        include_str!("../migrations/0005_project_access.sql"),
+        include_str!("../migrations/0006_task_workflow.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
+    let task_numbers: Vec<i64> = sqlx::query_scalar(
+        "SELECT task_number FROM tasks WHERE workspace_id = $1 ORDER BY task_number",
+    )
+    .bind(workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(task_numbers, [1, 2, 3]);
+    let next_task_number: i64 =
+        sqlx::query_scalar("SELECT next_task_number FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(next_task_number, 4);
 }

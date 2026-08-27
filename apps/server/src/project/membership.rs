@@ -203,6 +203,22 @@ async fn remove(
     .bind(user_id)
     .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        r#"
+        DELETE FROM task_assignees
+        USING tasks
+        WHERE task_assignees.workspace_id = $1
+          AND task_assignees.user_id = $3
+          AND task_assignees.task_id = tasks.id
+          AND tasks.workspace_id = $1
+          AND tasks.project_id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await?;
     let result = sqlx::query(
         "DELETE FROM project_memberships WHERE workspace_id = $1 AND project_id = $2 AND user_id = $3",
     )

@@ -359,7 +359,7 @@ pub(crate) async fn lock_workspace_for_assignment(
     workspace_id: Uuid,
 ) -> Result<(), AppError> {
     let found: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
+        sqlx::query_scalar("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
             .bind(workspace_id)
             .fetch_optional(&mut **transaction)
             .await?;

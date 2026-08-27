@@ -146,8 +146,28 @@ pub(crate) fn routes() -> Router<AppState> {
             get(task::list).post(task::create),
         )
         .route(
+            "/api/workspaces/{workspace_id}/tasks/bulk",
+            patch(task::bulk_update),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/reorder",
+            axum::routing::put(task::reorder),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/tasks/{task_id}",
             get(task::get).patch(task::update).delete(task::archive),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/delete",
+            post(task::delete_permanently),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/relations",
+            post(task::add_relation),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/relations/{related_task_id}",
+            axum::routing::delete(task::remove_relation),
         )
         .route(
             "/api/workspaces/{workspace_id}/tasks/{task_id}/document",

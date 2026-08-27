@@ -99,6 +99,38 @@ async fn update(
     }
     if current == WorkspaceRole::Admin && !request.role.is_admin() {
         clear_project_references(&mut transaction, workspace_id, user_id).await?;
+        sqlx::query(
+            r#"
+            DELETE FROM task_assignees
+            USING tasks
+            WHERE task_assignees.workspace_id = $1
+              AND task_assignees.user_id = $2
+              AND task_assignees.task_id = tasks.id
+              AND tasks.workspace_id = $1
+              AND tasks.project_id IS NOT NULL
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    if request.role == AssignableWorkspaceRole::Guest {
+        sqlx::query(
+            r#"
+            DELETE FROM task_assignees
+            USING tasks
+            WHERE task_assignees.workspace_id = $1
+              AND task_assignees.user_id = $2
+              AND task_assignees.task_id = tasks.id
+              AND tasks.workspace_id = $1
+              AND tasks.project_id IS NULL
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await?;
     }
     if request.role.is_admin() {
         sqlx::query("DELETE FROM project_memberships WHERE workspace_id = $1 AND user_id = $2")

@@ -709,6 +709,23 @@ async fn move_tasks_to_inbox(
 ) -> Result<(), AppError> {
     // Preserve work when a Project leaves navigation; Inbox is the neutral scope.
     sqlx::query(
+        r#"
+        DELETE FROM task_assignees
+        USING tasks, workspace_memberships
+        WHERE task_assignees.workspace_id = $1
+          AND task_assignees.task_id = tasks.id
+          AND tasks.workspace_id = $1
+          AND tasks.project_id = $2
+          AND workspace_memberships.workspace_id = $1
+          AND workspace_memberships.user_id = task_assignees.user_id
+          AND workspace_memberships.role = 'guest'
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
         "UPDATE tasks SET project_id = NULL, updated_at = now() WHERE workspace_id = $1 AND project_id = $2",
     )
     .bind(workspace_id)
