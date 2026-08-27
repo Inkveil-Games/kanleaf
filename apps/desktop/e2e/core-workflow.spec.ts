@@ -26,6 +26,23 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(workspaceSelect).toHaveValue(/.+/);
   await expect(workspaceSelect.locator('option:checked')).toHaveText('Studio');
 
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+  await page.getByLabel('Workspace name').fill('Studio Workspace');
+  await page.getByRole('button', { name: 'Save workspace' }).click();
+  await expect(page.getByText('Workspace updated')).toBeVisible();
+  await expect(workspaceSelect.locator('option:checked')).toHaveText(
+    'Studio Workspace',
+  );
+  await page.getByRole('button', { name: 'Profile' }).click();
+  await page.getByLabel('Display name').fill('Kanleaf Tester');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile updated')).toBeVisible();
+  await expect(page.locator('.account-copy')).toContainText('Kanleaf Tester');
+  await page.setViewportSize({ width: 960, height: 640 });
+  await page.getByRole('button', { name: 'General' }).click();
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await page.getByRole('button', { name: 'Create project' }).click();

@@ -14,6 +14,11 @@ describe('AuthScreen', () => {
       user: {
         id: 'user-id',
         email: 'person@example.com',
+        display_name: 'Person',
+        theme: 'system',
+        timezone: 'UTC',
+        week_start: 'monday',
+        date_format: 'locale',
         active_workspace_id: 'workspace-id',
       },
     };
