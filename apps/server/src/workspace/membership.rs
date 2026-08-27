@@ -97,6 +97,16 @@ async fn update(
             "Transfer ownership before changing the Owner role".to_owned(),
         ));
     }
+    if current == WorkspaceRole::Admin && !request.role.is_admin() {
+        clear_project_references(&mut transaction, workspace_id, user_id).await?;
+    }
+    if request.role.is_admin() {
+        sqlx::query("DELETE FROM project_memberships WHERE workspace_id = $1 AND user_id = $2")
+            .bind(workspace_id)
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
     sqlx::query(
         r#"
         UPDATE workspace_memberships
@@ -136,6 +146,7 @@ async fn remove(
             "The Workspace Owner cannot be removed".to_owned(),
         ));
     }
+    clear_project_references(&mut transaction, workspace_id, user_id).await?;
     sqlx::query("DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2")
         .bind(workspace_id)
         .bind(user_id)
@@ -170,6 +181,7 @@ async fn leave(
         ));
     }
 
+    clear_project_references(&mut transaction, workspace_id, auth.user.id).await?;
     sqlx::query("DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2")
         .bind(workspace_id)
         .bind(auth.user.id)
@@ -290,6 +302,34 @@ async fn select_active_workspace_after_departure(
     )
     .bind(user_id)
     .bind(departed_workspace_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn clear_project_references(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE projects
+        SET lead_user_id = CASE WHEN lead_user_id = $2 THEN NULL ELSE lead_user_id END,
+            default_assignee_id = CASE
+                WHEN default_assignee_id = $2 THEN NULL
+                ELSE default_assignee_id
+            END,
+            updated_at = CASE
+                WHEN lead_user_id = $2 OR default_assignee_id = $2 THEN now()
+                ELSE updated_at
+            END
+        WHERE workspace_id = $1
+          AND (lead_user_id = $2 OR default_assignee_id = $2)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(user_id)
     .execute(&mut **transaction)
     .await?;
     Ok(())

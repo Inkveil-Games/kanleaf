@@ -172,8 +172,8 @@ async fn workspace_and_project_lifecycle_persists(pool: PgPool) {
     let archived = app
         .clone()
         .oneshot(empty_request(
-            "DELETE",
-            &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/archive"),
             &token,
         ))
         .await
@@ -224,12 +224,6 @@ async fn users_cannot_cross_workspace_boundaries(pool: PgPool) {
             &format!("/api/workspaces/{second_workspace}/activate"),
             &first_token,
         ),
-        json_request(
-            "PATCH",
-            &format!("/api/workspaces/{second_workspace}/projects/{project_id}"),
-            json!({"name": "Stolen"}),
-            Some(&first_token),
-        ),
     ];
 
     for request in attempts {
@@ -237,6 +231,20 @@ async fn users_cannot_cross_workspace_boundaries(pool: PgPool) {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(response_json(response).await["error"]["code"], "forbidden");
     }
+    let private_project = app
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/workspaces/{second_workspace}/projects/{project_id}"),
+            json!({"name": "Stolen"}),
+            Some(&first_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(private_project.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response_json(private_project).await["error"]["code"],
+        "not_found"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

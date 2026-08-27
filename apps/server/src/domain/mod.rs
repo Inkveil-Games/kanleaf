@@ -7,6 +7,7 @@ const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_RESOURCE_NAME_LENGTH: usize = 120;
 const MAX_TASK_TITLE_LENGTH: usize = 300;
 const MAX_CONFIGURATION_DESCRIPTION_LENGTH: usize = 500;
+const MAX_PROJECT_DESCRIPTION_LENGTH: usize = 2000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NormalizedEmail(String);
@@ -210,6 +211,103 @@ impl TaskTypeIcon {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectIdentifier(String);
+
+impl ProjectIdentifier {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        let normalized = value.trim().to_ascii_uppercase();
+        let mut characters = normalized.chars();
+        let valid_start = characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphanumeric());
+        let valid_rest =
+            characters.all(|character| character.is_ascii_alphanumeric() || character == '-');
+        if !valid_start || !valid_rest || !(2..=12).contains(&normalized.len()) {
+            return Err(ValidationError::new(
+                "Project identifier must be 2-12 letters, numbers, or hyphens",
+            ));
+        }
+        Ok(Self(normalized))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectDescription(String);
+
+impl ProjectDescription {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        if value.chars().count() > MAX_PROJECT_DESCRIPTION_LENGTH {
+            return Err(ValidationError::new(
+                "Project description cannot exceed 2000 characters",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectVisibility {
+    Private,
+    Open,
+}
+
+impl ProjectVisibility {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Private => "private",
+            Self::Open => "open",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectRole {
+    Admin,
+    Contributor,
+    Commenter,
+    Viewer,
+}
+
+impl ProjectRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Contributor => "contributor",
+            Self::Commenter => "commenter",
+            Self::Viewer => "viewer",
+        }
+    }
+
+    pub const fn can_edit(self) -> bool {
+        matches!(self, Self::Admin | Self::Contributor)
+    }
+
+    pub const fn can_manage(self) -> bool {
+        matches!(self, Self::Admin)
+    }
+
+    pub fn from_database(value: &str) -> Option<Self> {
+        match value {
+            "admin" => Some(Self::Admin),
+            "contributor" => Some(Self::Contributor),
+            "commenter" => Some(Self::Commenter),
+            "viewer" => Some(Self::Viewer),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct ValidationError {
@@ -225,8 +323,9 @@ impl ValidationError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigurationDescription, HexColor, NormalizedEmail, ResourceName, TaskPriority,
-        TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
+        ConfigurationDescription, HexColor, NormalizedEmail, ProjectDescription, ProjectIdentifier,
+        ProjectRole, ProjectVisibility, ResourceName, TaskPriority, TaskStateGroup, TaskTitle,
+        TaskTypeIcon, ValidatedPassword,
     };
 
     #[test]
@@ -282,5 +381,15 @@ mod tests {
         );
         assert!(TaskTypeIcon::new("Check Square").is_err());
         assert!(ConfigurationDescription::new(&"x".repeat(501)).is_err());
+    }
+
+    #[test]
+    fn validates_project_vocabulary() {
+        assert_eq!(ProjectIdentifier::new(" kan-1 ").unwrap().as_str(), "KAN-1");
+        assert!(ProjectIdentifier::new("bad identifier").is_err());
+        assert!(ProjectDescription::new(&"x".repeat(2001)).is_err());
+        assert_eq!(ProjectVisibility::Open.as_str(), "open");
+        assert!(ProjectRole::Contributor.can_edit());
+        assert!(!ProjectRole::Viewer.can_edit());
     }
 }

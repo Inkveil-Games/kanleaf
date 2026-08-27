@@ -48,7 +48,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     }
 
     sqlx::query(
-        "INSERT INTO projects (id, workspace_id, name, default_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO projects (id, workspace_id, name, identifier, default_state_id, default_task_type_id) VALUES ($1, $2, $3, 'KAN', $4, $5)",
     )
         .bind(project)
         .bind(first_workspace)

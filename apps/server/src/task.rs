@@ -16,11 +16,12 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{TaskPriority, TaskTitle},
     error::AppError,
+    project::{require_project_access, require_project_editor},
     task_config::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
         validate_task_type_assignment,
     },
-    workspace::require_workspace_content_access,
+    workspace::{require_workspace_member, workspace_role},
 };
 
 const MAX_SEARCH_LENGTH: usize = 200;
@@ -162,7 +163,13 @@ pub(crate) async fn list(
         ));
     }
     let search = filters.query.as_deref().map(search_pattern).transpose()?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
+    let role = require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    if filters.inbox && !role.can_access_content() {
+        return Err(AppError::Forbidden);
+    }
+    if let Some(project_id) = filters.project_id {
+        require_project_access(&state.pool, auth.user.id, workspace_id, project_id).await?;
+    }
 
     let rows = sqlx::query_as::<_, TaskRow>(
         r#"
@@ -183,6 +190,16 @@ pub(crate) async fn list(
           AND ($2::uuid IS NULL OR tasks.project_id = $2)
           AND (NOT $3 OR tasks.project_id IS NULL)
           AND ($4::text IS NULL OR tasks.title ILIKE $4 ESCAPE '\')
+          AND (
+              ($5 AND tasks.project_id IS NULL)
+              OR $6
+              OR EXISTS(
+                  SELECT 1 FROM project_memberships
+                  WHERE project_memberships.workspace_id = tasks.workspace_id
+                    AND project_memberships.project_id = tasks.project_id
+                    AND project_memberships.user_id = $7
+              )
+          )
         ORDER BY tasks.updated_at DESC, tasks.id
         "#,
     )
@@ -190,6 +207,9 @@ pub(crate) async fn list(
     .bind(filters.project_id)
     .bind(filters.inbox)
     .bind(search)
+    .bind(role.can_access_content())
+    .bind(role.can_manage())
+    .bind(auth.user.id)
     .fetch_all(&state.pool)
     .await?;
     Ok(Json(rows.into_iter().map(TaskResponse::from).collect()))
@@ -205,7 +225,14 @@ pub(crate) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let title =
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
+    authorize_task_location(
+        &state.pool,
+        auth.user.id,
+        workspace_id,
+        request.project_id,
+        true,
+    )
+    .await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let defaults =
@@ -255,8 +282,12 @@ pub(crate) async fn get(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<TaskResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
-    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
+    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
+    transaction.commit().await?;
+    Ok(Json(task))
 }
 
 pub(crate) async fn update(
@@ -283,7 +314,6 @@ pub(crate) async fn update(
         .map(TaskTitle::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let current: (Option<Uuid>, Uuid, Uuid) = sqlx::query_as(
@@ -291,6 +321,7 @@ pub(crate) async fn update(
         SELECT project_id, state_id, task_type_id
         FROM tasks
         WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
+        FOR UPDATE
         "#,
     )
     .bind(task_id)
@@ -298,8 +329,17 @@ pub(crate) async fn update(
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, current.0, true).await?;
     let target_project = request.project_id.unwrap_or(current.0);
     if request.project_id.is_some() {
+        authorize_task_location(
+            &state.pool,
+            auth.user.id,
+            workspace_id,
+            target_project,
+            true,
+        )
+        .await?;
         resolve_task_defaults(&mut transaction, workspace_id, target_project).await?;
     }
     if let Some(state_id) = request.state_id {
@@ -354,17 +394,20 @@ pub(crate) async fn archive(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
     let result = sqlx::query(
         "UPDATE tasks SET archived_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL",
     )
     .bind(task_id)
     .bind(workspace_id)
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task not found".to_owned()));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -374,14 +417,16 @@ pub(crate) async fn read_document(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<DocumentResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
-    find_task(&state.pool, workspace_id, task_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
 
     let content = state
         .vault
         .read_document(workspace_id, task_id)
         .await
         .map_err(AppError::internal)?;
+    transaction.commit().await?;
     Ok(Json(DocumentResponse { content }))
 }
 
@@ -399,29 +444,58 @@ pub(crate) async fn write_document(
         ));
     }
 
-    // Membership and task ownership are resolved before constructing a vault path.
-    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
-    find_task(&state.pool, workspace_id, task_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
+    // Authorization is held by a shared task lock before constructing a vault path.
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
     state
         .vault
         .write_document(workspace_id, task_id, &request.content)
         .await
         .map_err(AppError::internal)?;
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn find_task(
+async fn authorize_task_location(
     pool: &PgPool,
+    user_id: Uuid,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    edit: bool,
+) -> Result<(), AppError> {
+    if let Some(project_id) = project_id {
+        if edit {
+            require_project_editor(pool, user_id, workspace_id, project_id).await?;
+        } else {
+            require_project_access(pool, user_id, workspace_id, project_id).await?;
+        }
+        return Ok(());
+    }
+    let role = workspace_role(pool, user_id, workspace_id).await?;
+    if !role.can_access_content() {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
+}
+
+async fn lock_task_location(
+    transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     task_id: Uuid,
-) -> Result<TaskResponse, AppError> {
-    let row = select_task_query()
+    update: bool,
+) -> Result<Option<Uuid>, AppError> {
+    let query = if update {
+        "SELECT project_id FROM tasks WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL FOR UPDATE"
+    } else {
+        "SELECT project_id FROM tasks WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL FOR SHARE"
+    };
+    sqlx::query_scalar(query)
         .bind(task_id)
         .bind(workspace_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut **transaction)
         .await?
-        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
-    Ok(TaskResponse::from(row))
+        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))
 }
 
 async fn find_task_in_transaction(

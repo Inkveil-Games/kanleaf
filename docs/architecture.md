@@ -38,7 +38,8 @@ User ──< Session
                                       ├────< TaskState
                                       ├────< TaskLabel
                                       ├────< TaskType
-                                      ├────< Project >────< ProjectTaskType
+                                      ├────< Project ────< ProjectMembership
+                                      │          └───────< ProjectTaskType
                                       └────< Task
 ```
 
@@ -46,7 +47,10 @@ User ──< Session
   Workspace roles are Owner, Admin, Member, and Guest; a partial unique index
   plus transfer transactions keep one Owner.
 - A user has an optional active workspace and may belong to many workspaces.
-- A project belongs to exactly one workspace.
+- A project belongs to exactly one workspace. Owner/Admin access is implicit;
+  other access uses explicit fixed-role Project memberships. Private projects
+  are non-disclosing, while Open projects are discoverable and joinable only by
+  Workspace Members.
 - States and task types are workspace vocabulary. Each workspace starts with
   one state per semantic group and a protected `Task` type; projects select
   defaults and enabled types from the same tenant.
@@ -79,8 +83,10 @@ users can also inspect session creation/expiry times and revoke sessions without
 exposing token hashes.
 
 Every workspace, project, task, and document operation resolves the session and
-checks membership on the server. Vault access occurs only after membership and
-task ownership checks. API errors use a stable JSON envelope and do not expose
+checks effective access on the server. Project roles distinguish management,
+editing, commenting, and read-only access; task and vault operations inherit
+that boundary. Vault access occurs only while the authorized task identity is
+held by a database lock. API errors use a stable JSON envelope and do not expose
 database or filesystem details.
 
 Workspace invitations contain normalized target emails, seven-day expiry, and

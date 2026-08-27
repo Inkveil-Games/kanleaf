@@ -331,7 +331,7 @@ async fn task_and_document_access_isolated_by_workspace(pool: PgPool) {
     ];
     for request in attempts {
         let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     let cross_project = app
@@ -372,8 +372,8 @@ async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
     let archived = app
         .clone()
         .oneshot(empty_request(
-            "DELETE",
-            &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/archive"),
             &token,
         ))
         .await

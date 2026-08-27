@@ -254,7 +254,14 @@ async fn invitation_membership_roles_and_ownership_are_enforced(pool: PgPool) {
         ))
         .await
         .unwrap();
-    assert_eq!(guest_projects.status(), StatusCode::FORBIDDEN);
+    assert_eq!(guest_projects.status(), StatusCode::OK);
+    assert!(
+        response_json(guest_projects)
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

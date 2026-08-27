@@ -31,15 +31,15 @@ pub(crate) enum WorkspaceRole {
 }
 
 impl WorkspaceRole {
-    const fn can_manage(self) -> bool {
+    pub(crate) const fn can_manage(self) -> bool {
         matches!(self, Self::Owner | Self::Admin)
     }
 
-    const fn can_access_content(self) -> bool {
+    pub(crate) const fn can_access_content(self) -> bool {
         !matches!(self, Self::Guest)
     }
 
-    fn from_database(value: &str) -> Result<Self, AppError> {
+    pub(crate) fn from_database(value: &str) -> Result<Self, AppError> {
         match value {
             "owner" => Ok(Self::Owner),
             "admin" => Ok(Self::Admin),
@@ -52,7 +52,7 @@ impl WorkspaceRole {
     }
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum AssignableWorkspaceRole {
     Admin,
@@ -67,6 +67,10 @@ impl AssignableWorkspaceRole {
             Self::Member => "member",
             Self::Guest => "guest",
         }
+    }
+
+    const fn is_admin(self) -> bool {
+        matches!(self, Self::Admin)
     }
 }
 
@@ -136,14 +140,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(membership::routes())
         .merge(invitation::routes())
         .merge(task_config::routes())
-        .route(
-            "/api/workspaces/{workspace_id}/projects",
-            get(project::list).post(project::create),
-        )
-        .route(
-            "/api/workspaces/{workspace_id}/projects/{project_id}",
-            patch(project::rename).delete(project::archive),
-        )
+        .merge(project::routes())
         .route(
             "/api/workspaces/{workspace_id}/tasks",
             get(task::list).post(task::create),
@@ -416,18 +413,6 @@ pub(crate) async fn require_workspace_member(
     workspace_id: Uuid,
 ) -> Result<WorkspaceRole, AppError> {
     workspace_role(pool, user_id, workspace_id).await
-}
-
-pub(crate) async fn require_workspace_content_access(
-    pool: &PgPool,
-    user_id: Uuid,
-    workspace_id: Uuid,
-) -> Result<WorkspaceRole, AppError> {
-    let role = workspace_role(pool, user_id, workspace_id).await?;
-    if !role.can_access_content() {
-        return Err(AppError::Forbidden);
-    }
-    Ok(role)
 }
 
 pub(crate) async fn require_workspace_admin(
