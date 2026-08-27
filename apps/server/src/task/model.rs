@@ -38,6 +38,12 @@ pub(crate) struct TaskLabelSummary {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub(crate) struct TaskPlanningSummary {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct TaskLink {
     pub id: Uuid,
     pub reference: String,
@@ -68,6 +74,8 @@ pub struct TaskResponse {
     pub parent: Option<TaskLink>,
     pub assignees: Vec<TaskAssigneeSummary>,
     pub labels: Vec<TaskLabelSummary>,
+    pub cycle: Option<TaskPlanningSummary>,
+    pub modules: Vec<TaskPlanningSummary>,
     pub subtasks: Vec<TaskLink>,
     pub relations: Vec<TaskRelationSummary>,
     pub archived_at: Option<DateTime<Utc>>,
@@ -130,6 +138,8 @@ impl From<TaskRow> for TaskResponse {
             parent: None,
             assignees: Vec::new(),
             labels: Vec::new(),
+            cycle: None,
+            modules: Vec::new(),
             subtasks: Vec::new(),
             relations: Vec::new(),
             archived_at: row.archived_at,
@@ -201,6 +211,49 @@ pub(super) async fn hydrate_tasks(
             name: row.name,
             color: row.color,
         });
+    }
+
+    let cycles = sqlx::query_as::<_, TaskPlanningRow>(
+        r#"
+        SELECT assignments.task_id, cycles.id, cycles.name
+        FROM task_cycle_assignments AS assignments
+        JOIN project_cycles AS cycles
+          ON cycles.workspace_id = assignments.workspace_id
+         AND cycles.project_id = assignments.project_id
+         AND cycles.id = assignments.cycle_id
+        WHERE assignments.workspace_id = $1
+          AND assignments.task_id = ANY($2)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    for row in cycles {
+        let task_id = row.task_id;
+        tasks[indexes[&task_id]].cycle = Some(row.into_summary());
+    }
+
+    let modules = sqlx::query_as::<_, TaskPlanningRow>(
+        r#"
+        SELECT assignments.task_id, modules.id, modules.name
+        FROM task_module_assignments AS assignments
+        JOIN project_modules AS modules
+          ON modules.workspace_id = assignments.workspace_id
+         AND modules.project_id = assignments.project_id
+         AND modules.id = assignments.module_id
+        WHERE assignments.workspace_id = $1
+          AND assignments.task_id = ANY($2)
+        ORDER BY lower(modules.name), modules.id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    for row in modules {
+        let task_id = row.task_id;
+        tasks[indexes[&task_id]].modules.push(row.into_summary());
     }
 
     let parents = sqlx::query_as::<_, RelatedTaskRow>(
@@ -320,6 +373,22 @@ struct TaskLabelRow {
     id: Uuid,
     name: String,
     color: String,
+}
+
+#[derive(FromRow)]
+struct TaskPlanningRow {
+    task_id: Uuid,
+    id: Uuid,
+    name: String,
+}
+
+impl TaskPlanningRow {
+    fn into_summary(self) -> TaskPlanningSummary {
+        TaskPlanningSummary {
+            id: self.id,
+            name: self.name,
+        }
+    }
 }
 
 #[derive(FromRow)]

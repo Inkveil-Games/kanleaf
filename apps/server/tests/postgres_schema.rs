@@ -150,6 +150,7 @@ async fn task_configuration_migration_preserves_and_maps_existing_tasks(pool: Pg
     for migration in [
         include_str!("../migrations/0005_project_access.sql"),
         include_str!("../migrations/0006_task_workflow.sql"),
+        include_str!("../migrations/0007_project_planning.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }

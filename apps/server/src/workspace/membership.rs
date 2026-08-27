@@ -364,5 +364,16 @@ async fn clear_project_references(
     .bind(user_id)
     .execute(&mut **transaction)
     .await?;
+    sqlx::query(
+        r#"
+        UPDATE project_modules
+        SET lead_user_id = NULL, updated_at = now()
+        WHERE workspace_id = $1 AND lead_user_id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }

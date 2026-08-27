@@ -158,7 +158,7 @@ async fn update(
     let mut transaction = state.pool.begin().await?;
     lock_project(&mut transaction, workspace_id, project_id).await?;
     if request.role != ProjectRole::Admin {
-        reject_lead_change(&mut transaction, workspace_id, project_id, user_id).await?;
+        reject_lead_change(&mut transaction, workspace_id, project_id, user_id, false).await?;
     }
     let result = sqlx::query(
         r#"
@@ -191,7 +191,7 @@ async fn remove(
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_project(&mut transaction, workspace_id, project_id).await?;
-    reject_lead_change(&mut transaction, workspace_id, project_id, user_id).await?;
+    reject_lead_change(&mut transaction, workspace_id, project_id, user_id, true).await?;
     sqlx::query(
         r#"
         UPDATE projects SET default_assignee_id = NULL, updated_at = now()
@@ -313,19 +313,34 @@ async fn reject_lead_change(
     workspace_id: Uuid,
     project_id: Uuid,
     user_id: Uuid,
+    include_modules: bool,
 ) -> Result<(), AppError> {
     let is_lead: bool = sqlx::query_scalar(
-        "SELECT COALESCE(lead_user_id = $3, false) FROM projects WHERE workspace_id = $1 AND id = $2",
+        r#"
+        SELECT COALESCE(projects.lead_user_id = $3, false) OR ($4 AND EXISTS(
+            SELECT 1 FROM project_modules
+            WHERE project_modules.workspace_id = projects.workspace_id
+              AND project_modules.project_id = projects.id
+              AND project_modules.lead_user_id = $3
+              AND project_modules.archived_at IS NULL
+        ))
+        FROM projects
+        WHERE projects.workspace_id = $1 AND projects.id = $2
+        "#,
     )
     .bind(workspace_id)
     .bind(project_id)
     .bind(user_id)
+    .bind(include_modules)
     .fetch_one(&mut **transaction)
     .await?;
     if is_lead {
-        return Err(AppError::Validation(
-            "Choose another Project lead before changing this Admin".to_owned(),
-        ));
+        let message = if include_modules {
+            "Choose another Project or Module lead before removing this member"
+        } else {
+            "Choose another Project lead before changing this Admin"
+        };
+        return Err(AppError::Validation(message.to_owned()));
     }
     Ok(())
 }

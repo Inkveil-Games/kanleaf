@@ -1,4 +1,5 @@
 mod model;
+mod planning;
 
 use std::collections::HashSet;
 
@@ -30,6 +31,12 @@ use crate::{
 };
 
 use self::model::{TaskResponse, TaskRow, hydrate_tasks};
+use self::planning::{
+    cycle_id as task_cycle_id, delete_cycle as delete_cycle_assignment,
+    delete_modules as delete_module_assignments, module_ids as task_module_ids, replace_cycle,
+    replace_modules, validate_assignments as validate_planning_assignments,
+    validate_cycle as validate_cycle_assignment, validate_modules as validate_module_assignments,
+};
 
 const MAX_SEARCH_LENGTH: usize = 200;
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
@@ -57,6 +64,10 @@ pub(crate) struct CreateTaskRequest {
     estimate: Option<i32>,
     #[serde(default)]
     parent_id: Option<Uuid>,
+    #[serde(default)]
+    cycle_id: Option<Uuid>,
+    #[serde(default)]
+    module_ids: Vec<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +94,10 @@ pub(crate) struct UpdateTaskRequest {
     assignee_ids: Option<Vec<Uuid>>,
     #[serde(default)]
     label_ids: Option<Vec<Uuid>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    cycle_id: Option<Option<Uuid>>,
+    #[serde(default)]
+    module_ids: Option<Vec<Uuid>>,
     #[serde(default)]
     cleanup_invalid: bool,
 }
@@ -100,6 +115,8 @@ pub(crate) struct TaskFilters {
     priority: Option<TaskPriority>,
     assignee_id: Option<Uuid>,
     label_id: Option<Uuid>,
+    cycle_id: Option<Uuid>,
+    module_id: Option<Uuid>,
     due_before: Option<NaiveDate>,
     due_after: Option<NaiveDate>,
 }
@@ -227,11 +244,23 @@ pub(crate) async fn list(
                 AND task_label_assignments.task_id = tasks.id
                 AND task_label_assignments.label_id = $11
           ))
-          AND ($12::date IS NULL OR tasks.due_date <= $12)
-          AND ($13::date IS NULL OR tasks.due_date >= $13)
+          AND ($12::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM task_cycle_assignments
+              WHERE task_cycle_assignments.workspace_id = tasks.workspace_id
+                AND task_cycle_assignments.task_id = tasks.id
+                AND task_cycle_assignments.cycle_id = $12
+          ))
+          AND ($13::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM task_module_assignments
+              WHERE task_module_assignments.workspace_id = tasks.workspace_id
+                AND task_module_assignments.task_id = tasks.id
+                AND task_module_assignments.module_id = $13
+          ))
+          AND ($14::date IS NULL OR tasks.due_date <= $14)
+          AND ($15::date IS NULL OR tasks.due_date >= $15)
           AND (
-              ($14 AND tasks.project_id IS NULL)
-              OR $15
+              ($16 AND tasks.project_id IS NULL)
+              OR $17
               OR EXISTS(
                   SELECT 1 FROM project_memberships
                   WHERE project_memberships.workspace_id = tasks.workspace_id
@@ -253,6 +282,8 @@ pub(crate) async fn list(
     .bind(filters.priority.map(TaskPriority::as_str))
     .bind(filters.assignee_id)
     .bind(filters.label_id)
+    .bind(filters.cycle_id)
+    .bind(filters.module_id)
     .bind(filters.due_before)
     .bind(filters.due_after)
     .bind(role.can_access_content())
@@ -276,6 +307,10 @@ pub(crate) async fn create(
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
     validate_schedule(request.start_date, request.due_date, request.estimate)?;
     let label_ids = unique_ids(&request.label_ids, "Task labels cannot contain duplicates")?;
+    let module_ids = unique_ids(
+        &request.module_ids,
+        "Task Modules cannot contain duplicates",
+    )?;
     authorize_task_location(
         &state.pool,
         auth.user.id,
@@ -318,6 +353,14 @@ pub(crate) async fn create(
         request.parent_id,
     )
     .await?;
+    validate_planning_assignments(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        request.cycle_id,
+        &module_ids,
+    )
+    .await?;
 
     let task_number: i64 = sqlx::query_scalar(
         r#"
@@ -357,6 +400,22 @@ pub(crate) async fn create(
     .await?;
     replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
     replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
+    replace_cycle(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        task_id,
+        request.cycle_id,
+    )
+    .await?;
+    replace_modules(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        task_id,
+        &module_ids,
+    )
+    .await?;
 
     state
         .vault
@@ -400,6 +459,8 @@ pub(crate) async fn update(
         && request.parent_id.is_none()
         && request.assignee_ids.is_none()
         && request.label_ids.is_none()
+        && request.cycle_id.is_none()
+        && request.module_ids.is_none()
     {
         return Err(AppError::Validation(
             "Provide at least one task field to update".to_owned(),
@@ -508,6 +569,55 @@ pub(crate) async fn update(
         validate_labels(&mut transaction, workspace_id, label_ids).await?;
     }
 
+    let current_cycle = task_cycle_id(&mut transaction, workspace_id, task_id).await?;
+    let current_modules = task_module_ids(&mut transaction, workspace_id, task_id).await?;
+    if project_changed && !request.cleanup_invalid {
+        if current_cycle.is_some() && request.cycle_id.is_none() {
+            return Err(AppError::Validation(
+                "Task move would invalidate its Cycle; clear it or retry with cleanup enabled"
+                    .to_owned(),
+            ));
+        }
+        if !current_modules.is_empty() && request.module_ids.is_none() {
+            return Err(AppError::Validation(
+                "Task move would invalidate its Modules; clear them or retry with cleanup enabled"
+                    .to_owned(),
+            ));
+        }
+    }
+    let replace_cycle_requested =
+        request.cycle_id.is_some() || (project_changed && current_cycle.is_some());
+    let target_cycle = if project_changed && request.cycle_id.is_none() {
+        None
+    } else {
+        request.cycle_id.unwrap_or(current_cycle)
+    };
+    if replace_cycle_requested {
+        validate_cycle_assignment(&mut transaction, workspace_id, target_project, target_cycle)
+            .await?;
+    }
+    let replace_modules_requested =
+        request.module_ids.is_some() || (project_changed && !current_modules.is_empty());
+    let target_modules = if project_changed && request.module_ids.is_none() {
+        Vec::new()
+    } else {
+        request
+            .module_ids
+            .as_ref()
+            .map(|ids| unique_ids(ids, "Task Modules cannot contain duplicates"))
+            .transpose()?
+            .unwrap_or(current_modules)
+    };
+    if replace_modules_requested {
+        validate_module_assignments(
+            &mut transaction,
+            workspace_id,
+            target_project,
+            &target_modules,
+        )
+        .await?;
+    }
+
     let mut target_parent = request.parent_id.unwrap_or(current.parent_id);
     let parent_invalid = match validate_parent(
         &mut transaction,
@@ -562,6 +672,13 @@ pub(crate) async fn update(
         }
     }
 
+    if replace_cycle_requested {
+        delete_cycle_assignment(&mut transaction, workspace_id, task_id).await?;
+    }
+    if replace_modules_requested {
+        delete_module_assignments(&mut transaction, workspace_id, task_id).await?;
+    }
+
     let result = sqlx::query(
         r#"
         UPDATE tasks
@@ -607,6 +724,26 @@ pub(crate) async fn update(
     if let Some(label_ids) = target_labels {
         replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
     }
+    if replace_cycle_requested {
+        replace_cycle(
+            &mut transaction,
+            workspace_id,
+            target_project,
+            task_id,
+            target_cycle,
+        )
+        .await?;
+    }
+    if replace_modules_requested {
+        replace_modules(
+            &mut transaction,
+            workspace_id,
+            target_project,
+            task_id,
+            &target_modules,
+        )
+        .await?;
+    }
     transaction.commit().await?;
     Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
@@ -644,6 +781,8 @@ pub(crate) async fn archive(
     .bind(task_id)
     .execute(&mut *transaction)
     .await?;
+    delete_cycle_assignment(&mut transaction, workspace_id, task_id).await?;
+    delete_module_assignments(&mut transaction, workspace_id, task_id).await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1482,11 +1621,29 @@ async fn cleanup_or_reject_move(
     .bind(moving_task_ids)
     .fetch_one(&mut **transaction)
     .await?;
-    if valid.len() != current_assignees.len() || parent_invalid || child_invalid {
+    let has_planning_links: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM task_cycle_assignments
+            WHERE workspace_id = $1 AND task_id = $2
+            UNION ALL
+            SELECT 1 FROM task_module_assignments
+            WHERE workspace_id = $1 AND task_id = $2
+        )
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if valid.len() != current_assignees.len()
+        || parent_invalid
+        || child_invalid
+        || has_planning_links
+    {
         if !cleanup {
             return Err(AppError::Validation(
-                "Task move would invalidate assignees or hierarchy; retry with cleanup enabled"
-                    .to_owned(),
+                "Task move would invalidate assignees, hierarchy, or planning links; retry with cleanup enabled".to_owned(),
             ));
         }
         if valid.len() != current_assignees.len() {
@@ -1510,6 +1667,10 @@ async fn cleanup_or_reject_move(
             .execute(&mut **transaction)
             .await?;
         }
+        if has_planning_links {
+            delete_cycle_assignment(transaction, workspace_id, task_id).await?;
+            delete_module_assignments(transaction, workspace_id, task_id).await?;
+        }
     }
     Ok(())
 }
@@ -1528,7 +1689,9 @@ fn search_pattern(value: &str) -> Result<String, AppError> {
     Ok(format!("%{escaped}%"))
 }
 
-fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+pub(crate) fn deserialize_nullable<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,

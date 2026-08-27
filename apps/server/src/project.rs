@@ -1,5 +1,8 @@
 mod access;
+mod cycle;
 mod membership;
+mod module;
+mod planning;
 
 use std::collections::HashSet;
 
@@ -110,6 +113,8 @@ pub(crate) fn routes() -> Router<AppState> {
             post(delete_project),
         )
         .merge(membership::routes())
+        .merge(cycle::routes())
+        .merge(module::routes())
 }
 
 async fn list(
@@ -708,6 +713,16 @@ async fn move_tasks_to_inbox(
     project_id: Uuid,
 ) -> Result<(), AppError> {
     // Preserve work when a Project leaves navigation; Inbox is the neutral scope.
+    sqlx::query("DELETE FROM task_cycle_assignments WHERE workspace_id = $1 AND project_id = $2")
+        .bind(workspace_id)
+        .bind(project_id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query("DELETE FROM task_module_assignments WHERE workspace_id = $1 AND project_id = $2")
+        .bind(workspace_id)
+        .bind(project_id)
+        .execute(&mut **transaction)
+        .await?;
     sqlx::query(
         r#"
         DELETE FROM task_assignees

@@ -39,9 +39,13 @@ User ──< Session
                                       ├────< TaskLabel
                                       ├────< TaskType
                                       ├────< Project ────< ProjectMembership
-                                      │          └───────< ProjectTaskType
+                                      │          ├───────< ProjectTaskType
+                                      │          ├───────< ProjectCycle
+                                      │          └───────< ProjectModule
                                       └────< Task ──< TaskAssignee
                                                 ├──< TaskLabelAssignment
+                                                ├─── TaskCycleAssignment
+                                                ├──< TaskModuleAssignment
                                                 └──< TaskRelation >── Task
 ```
 
@@ -64,6 +68,9 @@ User ──< Session
 - Assignees must be eligible for the current Inbox or Project, labels remain
   workspace-scoped, and parent Tasks must share the same collection. Canonical
   relation rows prevent duplicate edges and preserve directional blocking.
+- Cycles are non-overlapping Project timeboxes and a Task can belong to at most
+  one. Modules are Project-scoped thematic groups and Tasks can belong to many.
+  Composite keys prevent either planning link from crossing a Project boundary.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
   active tasks to Inbox in the same transaction. A Project move either rejects
