@@ -1,32 +1,25 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Task } from '../workspace/types';
+import type { Task, TaskState } from '../workspace/types';
 import { TaskListPane } from './TaskListPane';
 
 const tasks: Task[] = [
-  {
-    id: 'task-1',
-    workspace_id: 'workspace-1',
-    project_id: null,
-    title: 'Design the navigation',
-    status: 'todo',
-    priority: 'high',
-    archived_at: null,
-    created_at: '2026-08-26T10:00:00Z',
-    updated_at: '2026-08-26T10:00:00Z',
-  },
-  {
-    id: 'task-2',
-    workspace_id: 'workspace-1',
-    project_id: null,
-    title: 'Write contributor notes',
-    status: 'in_progress',
-    priority: 'none',
-    archived_at: null,
-    created_at: '2026-08-26T09:00:00Z',
-    updated_at: '2026-08-26T09:00:00Z',
-  },
+  task('task-1', 'Design the navigation', 'state-todo', 'Todo', 'todo', 'high'),
+  task(
+    'task-2',
+    'Write contributor notes',
+    'state-progress',
+    'In Progress',
+    'in_progress',
+    'none',
+  ),
+];
+
+const states: TaskState[] = [
+  state('state-todo', 'Todo', 'todo', 0, '#64748B'),
+  state('state-progress', 'In Progress', 'in_progress', 1, '#3B82F6'),
+  state('state-done', 'Done', 'done', 2, '#22A06B'),
 ];
 
 function renderList(
@@ -35,6 +28,7 @@ function renderList(
   const props: ComponentProps<typeof TaskListPane> = {
     collection: { kind: 'inbox' },
     projects: [],
+    states,
     tasks,
     selectedTaskId: null,
     query: '',
@@ -43,7 +37,7 @@ function renderList(
     onQueryChange: vi.fn(),
     onSelectTask: vi.fn(),
     onCreateTask: vi.fn().mockResolvedValue(undefined),
-    onUpdateStatus: vi.fn().mockResolvedValue(undefined),
+    onUpdateState: vi.fn().mockResolvedValue(undefined),
     onRetry: vi.fn(),
     onClearSelection: vi.fn(),
     ...overrides,
@@ -68,22 +62,74 @@ describe('TaskListPane', () => {
     expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
   });
 
-  it('cycles status and supports keyboard row navigation', async () => {
+  it('moves to the next semantic state and supports keyboard row navigation', async () => {
     const props = renderList();
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Mark Design the navigation in progress',
+        name: 'Move Design the navigation to In Progress',
       }),
     );
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
 
     await waitFor(() =>
-      expect(props.onUpdateStatus).toHaveBeenCalledWith(
+      expect(props.onUpdateState).toHaveBeenCalledWith(
         tasks[0],
-        'in_progress',
+        'state-progress',
       ),
     );
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 });
+
+function state(
+  id: string,
+  name: string,
+  state_group: TaskState['state_group'],
+  position: number,
+  color: string,
+): TaskState {
+  return {
+    id,
+    workspace_id: 'workspace-1',
+    name,
+    color,
+    state_group,
+    position,
+    archived_at: null,
+    created_at: '2026-08-26T08:00:00Z',
+    updated_at: '2026-08-26T08:00:00Z',
+  };
+}
+
+function task(
+  id: string,
+  title: string,
+  stateId: string,
+  stateName: string,
+  stateGroup: Task['state']['state_group'],
+  priority: Task['priority'],
+): Task {
+  return {
+    id,
+    workspace_id: 'workspace-1',
+    project_id: null,
+    title,
+    state: {
+      id: stateId,
+      name: stateName,
+      color: stateId === 'state-todo' ? '#64748B' : '#3B82F6',
+      state_group: stateGroup,
+    },
+    task_type: {
+      id: 'type-task',
+      name: 'Task',
+      icon: 'check-square',
+      color: '#64748B',
+    },
+    priority,
+    archived_at: null,
+    created_at: '2026-08-26T10:00:00Z',
+    updated_at: '2026-08-26T10:00:00Z',
+  };
+}

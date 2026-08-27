@@ -23,6 +23,7 @@ use crate::{
     AppState,
     domain::{NormalizedEmail, ValidatedPassword},
     error::{AppError, is_unique_violation},
+    task_config::NewWorkspaceTaskConfiguration,
 };
 
 const PERSONAL_WORKSPACE_NAME: &str = "Personal";
@@ -152,6 +153,7 @@ async fn register_user(
     let display_name = default_display_name(&email);
     let user_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
+    let task_configuration = NewWorkspaceTaskConfiguration::new();
     let session_id = Uuid::new_v4();
     let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
@@ -176,10 +178,22 @@ async fn register_user(
         };
     }
 
-    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
-        .bind(workspace_id)
-        .bind(PERSONAL_WORKSPACE_NAME)
-        .execute(&mut *transaction)
+    sqlx::query(
+        r#"
+        INSERT INTO workspaces (
+            id, name, default_inbox_state_id, default_task_type_id
+        )
+        VALUES ($1, $2, $3, $4)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(PERSONAL_WORKSPACE_NAME)
+    .bind(task_configuration.default_state_id())
+    .bind(task_configuration.default_task_type_id())
+    .execute(&mut *transaction)
+    .await?;
+    task_configuration
+        .install(&mut transaction, workspace_id)
         .await?;
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",

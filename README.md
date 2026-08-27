@@ -13,7 +13,9 @@ Markdown document.
 
 - Email/password authentication with Argon2id hashes and hashed server sessions
 - Multiple workspaces with personal workspace creation and switching
-- Inbox, projects, task search, status, priority, moves, and archiving
+- Workspace profile, member roles, invitations, ownership, and lifecycle tools
+- Configurable task states, labels, task types, and Inbox defaults
+- Inbox, projects, task search, Urgent priority, moves, and archiving
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state

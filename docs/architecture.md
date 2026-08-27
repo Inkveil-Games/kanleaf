@@ -35,7 +35,10 @@ The ordered migration in `apps/server/migrations` creates:
 User ──< Session
   │
   └──< WorkspaceMembership >── Workspace ──< WorkspaceInvitation
-                                      ├────< Project
+                                      ├────< TaskState
+                                      ├────< TaskLabel
+                                      ├────< TaskType
+                                      ├────< Project >────< ProjectTaskType
                                       └────< Task
 ```
 
@@ -44,13 +47,19 @@ User ──< Session
   plus transfer transactions keep one Owner.
 - A user has an optional active workspace and may belong to many workspaces.
 - A project belongs to exactly one workspace.
-- A task belongs to one workspace and optionally one project.
+- States and task types are workspace vocabulary. Each workspace starts with
+  one state per semantic group and a protected `Task` type; projects select
+  defaults and enabled types from the same tenant.
+- A task belongs to one workspace and optionally one project, with required
+  state and type references guarded by composite workspace foreign keys.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
   active tasks to Inbox in the same transaction.
-- Composite foreign keys prevent a task from referencing a project in another
-  workspace. Check constraints enforce normalized email, lengths, roles,
-  statuses, priorities, and session hash size.
+- Composite foreign keys prevent projects and tasks from referencing another
+  workspace's configuration. Configuration edits and assignments coordinate on
+  the workspace row so archiving cannot race a new task assignment. Check
+  constraints enforce normalized email, lengths, roles, semantic state groups,
+  priorities, colors, and session hash size.
 
 PostgreSQL is canonical for structured server data. This decision does not
 define a future offline cache or sync model.
@@ -116,6 +125,7 @@ The desktop app is feature-oriented:
 - `lib/config` validates build-time client configuration, while `features/auth`
   owns the local session;
 - `features/workspace` owns tenant navigation and API coordination;
+- `features/task-config` owns workspace states, labels, types, and defaults;
 - `features/task` owns collection rows and structured detail editing;
 - `features/markdown` owns source editing, preview, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.

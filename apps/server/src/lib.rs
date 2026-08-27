@@ -7,6 +7,7 @@ pub mod http;
 pub mod project;
 pub mod state;
 pub mod task;
+pub mod task_config;
 pub mod vault;
 pub mod workspace;
 

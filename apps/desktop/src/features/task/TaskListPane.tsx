@@ -3,14 +3,16 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import type { Collection, Project, Task, TaskStatus } from '../workspace/types';
+import type { Collection, Project, Task, TaskState } from '../workspace/types';
 
 interface TaskListPaneProps {
   collection: Collection;
   projects: Project[];
+  states: TaskState[];
   tasks: Task[];
   selectedTaskId: string | null;
   query: string;
@@ -19,7 +21,7 @@ interface TaskListPaneProps {
   onQueryChange: (query: string) => void;
   onSelectTask: (taskId: string) => void;
   onCreateTask: (title: string) => Promise<void>;
-  onUpdateStatus: (task: Task, status: TaskStatus) => Promise<void>;
+  onUpdateState: (task: Task, stateId: string) => Promise<void>;
   onRetry: () => void;
   onClearSelection: () => void;
 }
@@ -27,6 +29,7 @@ interface TaskListPaneProps {
 export function TaskListPane({
   collection,
   projects,
+  states,
   tasks,
   selectedTaskId,
   query,
@@ -35,7 +38,7 @@ export function TaskListPane({
   onQueryChange,
   onSelectTask,
   onCreateTask,
-  onUpdateStatus,
+  onUpdateState,
   onRetry,
   onClearSelection,
 }: TaskListPaneProps) {
@@ -158,9 +161,10 @@ export function TaskListPane({
           <TaskRow
             key={task.id}
             task={task}
+            states={states}
             selected={task.id === selectedTaskId}
             onSelect={() => onSelectTask(task.id)}
-            onUpdateStatus={(status) => onUpdateStatus(task, status)}
+            onUpdateState={(stateId) => onUpdateState(task, stateId)}
           />
         ))}
       </div>
@@ -174,26 +178,38 @@ export function TaskListPane({
 
 interface TaskRowProps {
   task: Task;
+  states: TaskState[];
   selected: boolean;
   onSelect: () => void;
-  onUpdateStatus: (status: TaskStatus) => Promise<void>;
+  onUpdateState: (stateId: string) => Promise<void>;
 }
 
-function TaskRow({ task, selected, onSelect, onUpdateStatus }: TaskRowProps) {
+function TaskRow({
+  task,
+  states,
+  selected,
+  onSelect,
+  onUpdateState,
+}: TaskRowProps) {
+  const next = nextState(task, states);
   return (
     <div
       className="task-row"
       role="option"
       aria-selected={selected}
-      data-status={task.status}
+      data-state-group={task.state.state_group}
     >
       <button
         className="task-status-button"
         type="button"
-        aria-label={`Mark ${task.title} ${nextStatusLabel(task.status)}`}
-        onClick={() => void onUpdateStatus(nextStatus(task.status))}
+        aria-label={`Move ${task.title} to ${next.name}`}
+        title={`Move to ${next.name}`}
+        onClick={() => void onUpdateState(next.id)}
       >
-        <span aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          style={{ '--task-state-color': task.state.color } as CSSProperties}
+        />
       </button>
       <button className="task-row-main" type="button" onClick={onSelect}>
         <span className="task-row-title">{task.title}</span>
@@ -278,16 +294,25 @@ function collectionTitle(collection: Collection, projects: Project[]) {
   );
 }
 
-function nextStatus(status: TaskStatus): TaskStatus {
-  if (status === 'todo') return 'in_progress';
-  if (status === 'in_progress') return 'done';
-  return 'todo';
-}
-
-function nextStatusLabel(status: TaskStatus) {
-  if (status === 'todo') return 'in progress';
-  if (status === 'in_progress') return 'done';
-  return 'todo';
+function nextState(task: Task, states: TaskState[]) {
+  const active = states.filter(({ archived_at }) => !archived_at);
+  const targetGroup =
+    task.state.state_group === 'todo'
+      ? 'in_progress'
+      : task.state.state_group === 'in_progress'
+        ? 'done'
+        : 'todo';
+  const semanticNext = active.find(
+    ({ state_group }) => state_group === targetGroup,
+  );
+  if (semanticNext) return semanticNext;
+  const currentIndex = active.findIndex(({ id }) => id === task.state.id);
+  return (
+    active[(currentIndex + 1) % active.length] ?? {
+      id: task.state.id,
+      name: task.state.name,
+    }
+  );
 }
 
 function formatUpdatedAt(value: string) {

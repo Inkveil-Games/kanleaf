@@ -50,15 +50,62 @@ export interface Project {
   updated_at: string;
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'done';
-export type TaskPriority = 'none' | 'low' | 'medium' | 'high';
+export type TaskStateGroup =
+  'backlog' | 'todo' | 'in_progress' | 'done' | 'canceled';
+export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
+
+export interface TaskState {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+  state_group: TaskStateGroup;
+  position: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskLabel {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+  description: string;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskType {
+  id: string;
+  workspace_id: string;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+  position: number;
+  is_protected: boolean;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskConfiguration {
+  states: TaskState[];
+  labels: TaskLabel[];
+  task_types: TaskType[];
+  default_state_id: string;
+  default_task_type_id: string;
+}
 
 export interface Task {
   id: string;
   workspace_id: string;
   project_id: string | null;
   title: string;
-  status: TaskStatus;
+  state: Pick<TaskState, 'id' | 'name' | 'color' | 'state_group'>;
+  task_type: Pick<TaskType, 'id' | 'name' | 'icon' | 'color'>;
   priority: TaskPriority;
   archived_at: string | null;
   created_at: string;
@@ -70,7 +117,8 @@ export type Collection =
 
 export interface TaskPatch {
   title?: string;
-  status?: TaskStatus;
+  state_id?: string;
+  task_type_id?: string;
   priority?: TaskPriority;
   project_id?: string | null;
 }

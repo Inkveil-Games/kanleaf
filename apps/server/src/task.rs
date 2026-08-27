@@ -8,31 +8,99 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{TaskPriority, TaskStatus, TaskTitle},
+    domain::{TaskPriority, TaskTitle},
     error::AppError,
+    task_config::{
+        lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
+        validate_task_type_assignment,
+    },
     workspace::require_workspace_content_access,
 };
 
 const MAX_SEARCH_LENGTH: usize = 200;
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize)]
+pub struct TaskStateSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub state_group: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TaskTypeSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct TaskResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub project_id: Option<Uuid>,
     pub title: String,
-    pub status: String,
+    pub state: TaskStateSummary,
+    pub task_type: TaskTypeSummary,
     pub priority: String,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(FromRow)]
+struct TaskRow {
+    id: Uuid,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    title: String,
+    state_id: Uuid,
+    state_name: String,
+    state_color: String,
+    state_group: String,
+    task_type_id: Uuid,
+    task_type_name: String,
+    task_type_icon: String,
+    task_type_color: String,
+    priority: String,
+    archived_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<TaskRow> for TaskResponse {
+    fn from(row: TaskRow) -> Self {
+        Self {
+            id: row.id,
+            workspace_id: row.workspace_id,
+            project_id: row.project_id,
+            title: row.title,
+            state: TaskStateSummary {
+                id: row.state_id,
+                name: row.state_name,
+                color: row.state_color,
+                state_group: row.state_group,
+            },
+            task_type: TaskTypeSummary {
+                id: row.task_type_id,
+                name: row.task_type_name,
+                icon: row.task_type_icon,
+                color: row.task_type_color,
+            },
+            priority: row.priority,
+            archived_at: row.archived_at,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -41,7 +109,9 @@ pub(crate) struct CreateTaskRequest {
     #[serde(default)]
     project_id: Option<Uuid>,
     #[serde(default)]
-    status: TaskStatus,
+    state_id: Option<Uuid>,
+    #[serde(default)]
+    task_type_id: Option<Uuid>,
     #[serde(default)]
     priority: TaskPriority,
 }
@@ -51,7 +121,9 @@ pub(crate) struct UpdateTaskRequest {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
-    status: Option<TaskStatus>,
+    state_id: Option<Uuid>,
+    #[serde(default)]
+    task_type_id: Option<Uuid>,
     #[serde(default)]
     priority: Option<TaskPriority>,
     #[serde(default, deserialize_with = "deserialize_project_patch")]
@@ -92,17 +164,26 @@ pub(crate) async fn list(
     let search = filters.query.as_deref().map(search_pattern).transpose()?;
     require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
 
-    let tasks = sqlx::query_as::<_, TaskResponse>(
+    let rows = sqlx::query_as::<_, TaskRow>(
         r#"
-        SELECT id, workspace_id, project_id, title, status, priority,
-               archived_at, created_at, updated_at
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+               states.id AS state_id, states.name AS state_name,
+               states.color AS state_color, states.state_group,
+               task_types.id AS task_type_id, task_types.name AS task_type_name,
+               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               tasks.priority, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
-        WHERE workspace_id = $1
-          AND archived_at IS NULL
-          AND ($2::uuid IS NULL OR project_id = $2)
-          AND (NOT $3 OR project_id IS NULL)
-          AND ($4::text IS NULL OR title ILIKE $4 ESCAPE '\')
-        ORDER BY updated_at DESC, id
+        JOIN task_states AS states
+          ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
+        JOIN task_types
+          ON task_types.workspace_id = tasks.workspace_id
+         AND task_types.id = tasks.task_type_id
+        WHERE tasks.workspace_id = $1
+          AND tasks.archived_at IS NULL
+          AND ($2::uuid IS NULL OR tasks.project_id = $2)
+          AND (NOT $3 OR tasks.project_id IS NULL)
+          AND ($4::text IS NULL OR tasks.title ILIKE $4 ESCAPE '\')
+        ORDER BY tasks.updated_at DESC, tasks.id
         "#,
     )
     .bind(workspace_id)
@@ -111,7 +192,7 @@ pub(crate) async fn list(
     .bind(search)
     .fetch_all(&state.pool)
     .await?;
-    Ok(Json(tasks))
+    Ok(Json(rows.into_iter().map(TaskResponse::from).collect()))
 }
 
 pub(crate) async fn create(
@@ -125,26 +206,39 @@ pub(crate) async fn create(
     let title =
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
-    validate_project(&state.pool, workspace_id, request.project_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
+    let defaults =
+        resolve_task_defaults(&mut transaction, workspace_id, request.project_id).await?;
+    let state_id = request.state_id.unwrap_or(defaults.0);
+    let task_type_id = request.task_type_id.unwrap_or(defaults.1);
+    validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
+    validate_task_type_assignment(
+        &mut transaction,
+        workspace_id,
+        request.project_id,
+        task_type_id,
+    )
+    .await?;
 
     let task_id = Uuid::new_v4();
-    let mut transaction = state.pool.begin().await?;
-    let task = sqlx::query_as::<_, TaskResponse>(
+    sqlx::query(
         r#"
-        INSERT INTO tasks (id, workspace_id, project_id, title, status, priority)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, workspace_id, project_id, title, status, priority,
-                  archived_at, created_at, updated_at
+        INSERT INTO tasks
+            (id, workspace_id, project_id, title, state_id, task_type_id, priority)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(task_id)
     .bind(workspace_id)
     .bind(request.project_id)
     .bind(title.as_str())
-    .bind(request.status.as_str())
+    .bind(state_id)
+    .bind(task_type_id)
     .bind(request.priority.as_str())
-    .fetch_one(&mut *transaction)
+    .execute(&mut *transaction)
     .await?;
+    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
 
     state
         .vault
@@ -174,7 +268,8 @@ pub(crate) async fn update(
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.title.is_none()
-        && request.status.is_none()
+        && request.state_id.is_none()
+        && request.task_type_id.is_none()
         && request.priority.is_none()
         && request.project_id.is_none()
     {
@@ -189,35 +284,67 @@ pub(crate) async fn update(
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
-    if let Some(project_id) = request.project_id {
-        validate_project(&state.pool, workspace_id, project_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
+    let current: (Option<Uuid>, Uuid, Uuid) = sqlx::query_as(
+        r#"
+        SELECT project_id, state_id, task_type_id
+        FROM tasks
+        WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
+        "#,
+    )
+    .bind(task_id)
+    .bind(workspace_id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    let target_project = request.project_id.unwrap_or(current.0);
+    if request.project_id.is_some() {
+        resolve_task_defaults(&mut transaction, workspace_id, target_project).await?;
+    }
+    if let Some(state_id) = request.state_id {
+        validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
+    }
+    let target_task_type = request.task_type_id.unwrap_or(current.2);
+    if request.task_type_id.is_some() || request.project_id.is_some() {
+        validate_task_type_assignment(
+            &mut transaction,
+            workspace_id,
+            target_project,
+            target_task_type,
+        )
+        .await?;
     }
 
     let project_changed = request.project_id.is_some();
     let project_id = request.project_id.flatten();
-    let task = sqlx::query_as::<_, TaskResponse>(
+    let result = sqlx::query(
         r#"
         UPDATE tasks
         SET title = COALESCE($1, title),
-            status = COALESCE($2, status),
-            priority = COALESCE($3, priority),
-            project_id = CASE WHEN $4 THEN $5 ELSE project_id END,
+            state_id = COALESCE($2, state_id),
+            task_type_id = COALESCE($3, task_type_id),
+            priority = COALESCE($4, priority),
+            project_id = CASE WHEN $5 THEN $6 ELSE project_id END,
             updated_at = now()
-        WHERE id = $6 AND workspace_id = $7 AND archived_at IS NULL
-        RETURNING id, workspace_id, project_id, title, status, priority,
-                  archived_at, created_at, updated_at
+        WHERE id = $7 AND workspace_id = $8 AND archived_at IS NULL
         "#,
     )
     .bind(title.as_ref().map(TaskTitle::as_str))
-    .bind(request.status.map(TaskStatus::as_str))
+    .bind(request.state_id)
+    .bind(request.task_type_id)
     .bind(request.priority.map(TaskPriority::as_str))
     .bind(project_changed)
     .bind(project_id)
     .bind(task_id)
     .bind(workspace_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    .execute(&mut *transaction)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Task not found".to_owned()));
+    }
+    let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
+    transaction.commit().await?;
     Ok(Json(task))
 }
 
@@ -288,40 +415,48 @@ async fn find_task(
     workspace_id: Uuid,
     task_id: Uuid,
 ) -> Result<TaskResponse, AppError> {
-    sqlx::query_as::<_, TaskResponse>(
-        r#"
-        SELECT id, workspace_id, project_id, title, status, priority,
-               archived_at, created_at, updated_at
-        FROM tasks
-        WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
-        "#,
-    )
-    .bind(task_id)
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))
+    let row = select_task_query()
+        .bind(task_id)
+        .bind(workspace_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    Ok(TaskResponse::from(row))
 }
 
-async fn validate_project(
-    pool: &PgPool,
+async fn find_task_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
-    project_id: Option<Uuid>,
-) -> Result<(), AppError> {
-    let Some(project_id) = project_id else {
-        return Ok(());
-    };
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL)",
+    task_id: Uuid,
+) -> Result<TaskResponse, AppError> {
+    let row = select_task_query()
+        .bind(task_id)
+        .bind(workspace_id)
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    Ok(TaskResponse::from(row))
+}
+
+fn select_task_query()
+-> sqlx::query::QueryAs<'static, Postgres, TaskRow, sqlx::postgres::PgArguments> {
+    sqlx::query_as(
+        r#"
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+               states.id AS state_id, states.name AS state_name,
+               states.color AS state_color, states.state_group,
+               task_types.id AS task_type_id, task_types.name AS task_type_name,
+               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               tasks.priority, tasks.archived_at, tasks.created_at, tasks.updated_at
+        FROM tasks
+        JOIN task_states AS states
+          ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
+        JOIN task_types
+          ON task_types.workspace_id = tasks.workspace_id
+         AND task_types.id = tasks.task_type_id
+        WHERE tasks.id = $1 AND tasks.workspace_id = $2 AND tasks.archived_at IS NULL
+        "#,
     )
-    .bind(project_id)
-    .bind(workspace_id)
-    .fetch_one(pool)
-    .await?;
-    if !exists {
-        return Err(AppError::NotFound("Project not found".to_owned()));
-    }
-    Ok(())
 }
 
 fn search_pattern(value: &str) -> Result<String, AppError> {

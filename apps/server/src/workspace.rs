@@ -19,7 +19,7 @@ use crate::{
     auth::{AuthenticatedUser, verify_password},
     domain::{ResourceName, ValidatedPassword},
     error::AppError,
-    project, task,
+    project, task, task_config,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +135,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/workspaces/{workspace_id}/activate", post(activate))
         .merge(membership::routes())
         .merge(invitation::routes())
+        .merge(task_config::routes())
         .route(
             "/api/workspaces/{workspace_id}/projects",
             get(project::list).post(project::create),
@@ -187,20 +188,28 @@ async fn create(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let accent = request.accent.unwrap_or(WorkspaceAccent::Sage);
     let workspace_id = Uuid::new_v4();
+    let task_configuration = task_config::NewWorkspaceTaskConfiguration::new();
     let mut transaction = state.pool.begin().await?;
 
     let workspace = sqlx::query_as::<_, WorkspaceResponse>(
         r#"
-        INSERT INTO workspaces (id, name, accent)
-        VALUES ($1, $2, $3)
+        INSERT INTO workspaces (
+            id, name, accent, default_inbox_state_id, default_task_type_id
+        )
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id, name, accent, 'owner'::text AS role, created_at, updated_at
         "#,
     )
     .bind(workspace_id)
     .bind(name.as_str())
     .bind(accent.as_str())
+    .bind(task_configuration.default_state_id())
+    .bind(task_configuration.default_task_type_id())
     .fetch_one(&mut *transaction)
     .await?;
+    task_configuration
+        .install(&mut transaction, workspace_id)
+        .await?;
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
     )

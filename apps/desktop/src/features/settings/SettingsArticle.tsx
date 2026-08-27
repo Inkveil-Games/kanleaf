@@ -5,6 +5,7 @@ interface SettingsArticleProps {
   title: string;
   description: string;
   children: ReactNode;
+  className?: string;
 }
 
 export function SettingsArticle({
@@ -12,9 +13,10 @@ export function SettingsArticle({
   title,
   description,
   children,
+  className,
 }: SettingsArticleProps) {
   return (
-    <article className="settings-article">
+    <article className={`settings-article${className ? ` ${className}` : ''}`}>
       <header className="settings-header">
         <p className="pane-eyebrow">{eyebrow}</p>
         <h1>{title}</h1>

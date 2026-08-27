@@ -4,10 +4,13 @@ import {
   KeyRound,
   Mail,
   Palette,
+  Shapes,
   Settings2,
   ShieldAlert,
+  Tags,
   UserRound,
   UsersRound,
+  Workflow,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { User } from '../../lib/api/types';
@@ -34,6 +37,7 @@ interface SettingsShellProps {
   onSectionChange: (section: SettingsSection) => void;
   onClose: () => void;
   onWorkspaceUpdated: () => Promise<void>;
+  onConfigurationUpdated: () => Promise<void>;
   onWorkspaceRemoved: () => Promise<void>;
 }
 
@@ -46,6 +50,7 @@ export function SettingsShell({
   onSectionChange,
   onClose,
   onWorkspaceUpdated,
+  onConfigurationUpdated,
   onWorkspaceRemoved,
 }: SettingsShellProps) {
   const [scope, page] = section.split(':') as [
@@ -114,6 +119,24 @@ export function SettingsShell({
               label="Members"
               onClick={() => onSectionChange('workspace:members')}
             />
+            <SettingsLink
+              active={section === 'workspace:states'}
+              icon={<Workflow aria-hidden="true" size={15} />}
+              label="States"
+              onClick={() => onSectionChange('workspace:states')}
+            />
+            <SettingsLink
+              active={section === 'workspace:labels'}
+              icon={<Tags aria-hidden="true" size={15} />}
+              label="Labels"
+              onClick={() => onSectionChange('workspace:labels')}
+            />
+            <SettingsLink
+              active={section === 'workspace:task-types'}
+              icon={<Shapes aria-hidden="true" size={15} />}
+              label="Task types"
+              onClick={() => onSectionChange('workspace:task-types')}
+            />
             {canManageWorkspace && (
               <SettingsLink
                 active={section === 'workspace:invitations'}
@@ -149,6 +172,7 @@ export function SettingsShell({
             workspaceCount={workspaceCount}
             section={page as WorkspaceSettingsSection}
             onWorkspaceUpdated={onWorkspaceUpdated}
+            onConfigurationUpdated={onConfigurationUpdated}
             onWorkspaceRemoved={onWorkspaceRemoved}
           />
         )}

@@ -5,6 +5,7 @@ import { applyTheme } from '../account/theme';
 import { SettingsShell, type SettingsSection } from '../settings/SettingsShell';
 import { TaskDetailPane } from '../task/TaskDetailPane';
 import { TaskListPane } from '../task/TaskListPane';
+import { getTaskConfiguration } from '../task-config/api';
 import type { User } from '../../lib/api/types';
 import {
   activateWorkspace,
@@ -78,6 +79,11 @@ export function WorkspaceShell({
     queryKey: ['tasks', workspaceId, collectionKey, deferredSearch],
     queryFn: () => listTasks(context, workspaceId!, collection, deferredSearch),
     enabled: Boolean(workspaceId && hasContentAccess && surface === 'tasks'),
+  });
+  const taskConfiguration = useQuery({
+    queryKey: ['task-configuration', workspaceId],
+    queryFn: () => getTaskConfiguration(context, workspaceId!),
+    enabled: Boolean(workspaceId),
   });
   const task = useQuery({
     queryKey: ['task', workspaceId, selectedTaskId],
@@ -227,6 +233,16 @@ export function WorkspaceShell({
     await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
   }
 
+  async function refreshTaskConfiguration() {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['task-configuration', workspaceId],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ['task', workspaceId] }),
+    ]);
+  }
+
   async function refreshAfterWorkspaceRemoval() {
     const result = await workspaces.refetch();
     const nextWorkspace = result.data?.find(({ id }) => id !== workspaceId);
@@ -308,6 +324,7 @@ export function WorkspaceShell({
           onSectionChange={setSettingsSection}
           onClose={() => setSurface('tasks')}
           onWorkspaceUpdated={refreshWorkspace}
+          onConfigurationUpdated={refreshTaskConfiguration}
           onWorkspaceRemoved={refreshAfterWorkspaceRemoval}
         />
       ) : !hasContentAccess ? (
@@ -333,6 +350,7 @@ export function WorkspaceShell({
           <TaskListPane
             collection={collection}
             projects={projects.data ?? []}
+            states={taskConfiguration.data?.states ?? []}
             tasks={visibleTasks}
             selectedTaskId={selectedTaskId}
             query={search}
@@ -341,10 +359,10 @@ export function WorkspaceShell({
             onQueryChange={setSearch}
             onSelectTask={setSelectedTaskId}
             onCreateTask={addTask}
-            onUpdateStatus={async (currentTask: Task, status) => {
+            onUpdateState={async (currentTask: Task, stateId) => {
               setActionError(null);
               try {
-                await patchTask(currentTask.id, { status });
+                await patchTask(currentTask.id, { state_id: stateId });
               } catch (caught) {
                 setActionError(errorMessage(caught));
               }
@@ -358,6 +376,8 @@ export function WorkspaceShell({
             workspaceId={workspaceId}
             task={selectedTask}
             projects={projects.data ?? []}
+            states={taskConfiguration.data?.states ?? []}
+            taskTypes={taskConfiguration.data?.task_types ?? []}
             loading={Boolean(selectedTaskId) && task.isPending}
             error={task.error ? errorMessage(task.error) : null}
             onPatch={(patch) => patchTask(selectedTaskId!, patch)}

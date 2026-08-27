@@ -2,6 +2,10 @@ import { Trash2, UserMinus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
+  TaskConfigurationSettings,
+  type TaskConfigurationSection,
+} from '../task-config/TaskConfigurationSettings';
+import {
   ActionMessage,
   FormActions,
   type ActionState,
@@ -19,7 +23,7 @@ import { WorkspaceInvitationSettings } from './WorkspaceInvitationSettings';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 
 export type WorkspaceSettingsSection =
-  'general' | 'members' | 'invitations' | 'danger';
+  'general' | 'members' | 'invitations' | TaskConfigurationSection | 'danger';
 
 interface WorkspaceSettingsProps {
   context: ApiContext;
@@ -28,6 +32,7 @@ interface WorkspaceSettingsProps {
   workspaceCount: number;
   section: WorkspaceSettingsSection;
   onWorkspaceUpdated: () => Promise<void>;
+  onConfigurationUpdated: () => Promise<void>;
   onWorkspaceRemoved: () => Promise<void>;
 }
 
@@ -38,6 +43,7 @@ export function WorkspaceSettings({
   workspaceCount,
   section,
   onWorkspaceUpdated,
+  onConfigurationUpdated,
   onWorkspaceRemoved,
 }: WorkspaceSettingsProps) {
   if (section === 'general') {
@@ -62,6 +68,20 @@ export function WorkspaceSettings({
   if (section === 'invitations') {
     return (
       <WorkspaceInvitationSettings context={context} workspace={workspace} />
+    );
+  }
+  if (
+    section === 'states' ||
+    section === 'labels' ||
+    section === 'task-types'
+  ) {
+    return (
+      <TaskConfigurationSettings
+        context={context}
+        workspace={workspace}
+        section={section}
+        onConfigurationUpdated={onConfigurationUpdated}
+      />
     );
   }
   return (

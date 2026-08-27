@@ -13,6 +13,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::ResourceName,
     error::{AppError, is_unique_violation},
+    task_config::lock_workspace_for_assignment,
     workspace::require_workspace_content_access,
 };
 
@@ -64,21 +65,43 @@ pub(crate) async fn create(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
 
+    let project_id = Uuid::new_v4();
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let project = sqlx::query_as::<_, ProjectResponse>(
         r#"
-        INSERT INTO projects (id, workspace_id, name)
-        VALUES ($1, $2, $3)
+        INSERT INTO projects (
+            id, workspace_id, name, default_state_id, default_task_type_id
+        )
+        SELECT $1, id, $3, default_inbox_state_id, default_task_type_id
+        FROM workspaces
+        WHERE id = $2
         RETURNING id, workspace_id, name, archived_at, created_at, updated_at
         "#,
     )
-    .bind(Uuid::new_v4())
+    .bind(project_id)
     .bind(workspace_id)
     .bind(name.as_str())
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *transaction)
     .await;
 
     match project {
-        Ok(project) => Ok((StatusCode::CREATED, Json(project))),
+        Ok(project) => {
+            sqlx::query(
+                r#"
+                INSERT INTO project_task_types (workspace_id, project_id, task_type_id)
+                SELECT workspace_id, $1, id
+                FROM task_types
+                WHERE workspace_id = $2 AND archived_at IS NULL
+                "#,
+            )
+            .bind(project_id)
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await?;
+            transaction.commit().await?;
+            Ok((StatusCode::CREATED, Json(project)))
+        }
         Err(error) if is_unique_violation(&error) => Err(AppError::Conflict(
             "An active project already uses this name".to_owned(),
         )),

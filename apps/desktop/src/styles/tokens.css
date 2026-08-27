@@ -23,6 +23,7 @@
   --color-danger: #a33d36;
   --color-danger-muted: #f3dfdc;
   --color-focus: #537c5e;
+  --shadow-popover: 0 10px 30px rgb(34 35 31 / 14%);
   --radius-sm: 4px;
   --radius-md: 7px;
   --space-1: 4px;
@@ -53,6 +54,7 @@
     --color-danger: #df8279;
     --color-danger-muted: #432b29;
     --color-focus: #99ba9f;
+    --shadow-popover: 0 12px 34px rgb(0 0 0 / 35%);
   }
 }
 
@@ -71,4 +73,5 @@
   --color-danger: #df8279;
   --color-danger-muted: #432b29;
   --color-focus: #99ba9f;
+  --shadow-popover: 0 12px 34px rgb(0 0 0 / 35%);
 }

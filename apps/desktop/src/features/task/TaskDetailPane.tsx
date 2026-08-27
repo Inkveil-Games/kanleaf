@@ -11,7 +11,8 @@ import type {
   Task,
   TaskPatch,
   TaskPriority,
-  TaskStatus,
+  TaskState,
+  TaskType,
 } from '../workspace/types';
 
 const MarkdownDocument = lazy(() =>
@@ -26,6 +27,8 @@ interface TaskDetailPaneProps {
   workspaceId: string;
   task: Task | null;
   projects: Project[];
+  states: TaskState[];
+  taskTypes: TaskType[];
   loading: boolean;
   error: string | null;
   onPatch: (patch: TaskPatch) => Promise<void>;
@@ -65,6 +68,8 @@ export function TaskDetailPane(props: TaskDetailPaneProps) {
 function SelectedTaskDetail({
   task,
   projects,
+  states,
+  taskTypes,
   onPatch,
   onArchive,
   onClose,
@@ -163,17 +168,32 @@ function SelectedTaskDetail({
         />
 
         <dl className="task-properties">
-          <Property label="Status">
+          <Property label="State">
             <select
-              aria-label="Status"
-              value={task.status}
+              aria-label="State"
+              value={task.state.id}
+              onChange={(event) => void patch({ state_id: event.target.value })}
+            >
+              {selectableStates(states, task).map((state) => (
+                <option key={state.id} value={state.id}>
+                  {state.name}
+                </option>
+              ))}
+            </select>
+          </Property>
+          <Property label="Type">
+            <select
+              aria-label="Task type"
+              value={task.task_type.id}
               onChange={(event) =>
-                void patch({ status: event.target.value as TaskStatus })
+                void patch({ task_type_id: event.target.value })
               }
             >
-              <option value="todo">Todo</option>
-              <option value="in_progress">In progress</option>
-              <option value="done">Done</option>
+              {selectableTypes(taskTypes, task).map((taskType) => (
+                <option key={taskType.id} value={taskType.id}>
+                  {taskType.name}
+                </option>
+              ))}
             </select>
           </Property>
           <Property label="Priority">
@@ -188,6 +208,7 @@ function SelectedTaskDetail({
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
+              <option value="urgent">Urgent</option>
             </select>
           </Property>
           <Property label="Project">
@@ -230,6 +251,40 @@ function SelectedTaskDetail({
       </div>
     </section>
   );
+}
+
+function selectableStates(states: TaskState[], task: Task) {
+  const active = states.filter(({ archived_at }) => !archived_at);
+  if (active.some(({ id }) => id === task.state.id)) return active;
+  return [
+    {
+      ...task.state,
+      workspace_id: task.workspace_id,
+      position: -1,
+      archived_at: task.updated_at,
+      created_at: task.created_at,
+      updated_at: task.updated_at,
+    },
+    ...active,
+  ];
+}
+
+function selectableTypes(taskTypes: TaskType[], task: Task) {
+  const active = taskTypes.filter(({ archived_at }) => !archived_at);
+  if (active.some(({ id }) => id === task.task_type.id)) return active;
+  return [
+    {
+      ...task.task_type,
+      workspace_id: task.workspace_id,
+      description: '',
+      position: -1,
+      is_protected: false,
+      archived_at: task.updated_at,
+      created_at: task.created_at,
+      updated_at: task.updated_at,
+    },
+    ...active,
+  ];
 }
 
 interface PropertyProps {

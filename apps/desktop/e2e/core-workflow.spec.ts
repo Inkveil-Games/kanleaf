@@ -41,6 +41,16 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.locator('.account-copy')).toContainText('Kanleaf Tester');
   await page.setViewportSize({ width: 960, height: 640 });
   await page.getByRole('button', { name: 'General' }).click();
+  await page.getByRole('button', { name: 'States' }).click();
+  await page.getByPlaceholder('State name').fill('Review');
+  await page.getByLabel('State group').selectOption('in_progress');
+  await page.getByRole('button', { name: 'Add state' }).click();
+  await expect(page.getByLabel('Review name')).toBeVisible();
+  await page.getByRole('button', { name: 'Task types' }).click();
+  await page.getByPlaceholder('Type name').fill('Bug');
+  await page.getByLabel('Task type icon key').fill('bug');
+  await page.getByRole('button', { name: 'Add type' }).click();
+  await expect(page.getByLabel('Bug name')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
 
   await page.getByRole('button', { name: 'New project' }).click();
@@ -55,8 +65,9 @@ test('manages structured work and durable Markdown across reloads', async ({
     'Complete the v0.1 workflow',
   );
 
-  await page.getByLabel('Status').selectOption('in_progress');
-  await page.getByLabel('Priority').selectOption('high');
+  await page.getByLabel('State').selectOption({ label: 'Review' });
+  await page.getByLabel('Task type').selectOption({ label: 'Bug' });
+  await page.getByLabel('Priority').selectOption('urgent');
   await page.getByLabel('Project', { exact: true }).selectOption('');
 
   await page.getByRole('button', { name: 'Inbox' }).click();
@@ -88,6 +99,15 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.reload();
   await expect(taskRow).toBeVisible();
   await taskRow.click();
+  await expect(page.getByLabel('State')).toHaveValue(/.+/);
+  await expect(page.getByLabel('State').locator('option:checked')).toHaveText(
+    'Review',
+  );
+  await expect(page.getByLabel('Task type')).toHaveValue(/.+/);
+  await expect(
+    page.getByLabel('Task type').locator('option:checked'),
+  ).toHaveText('Bug');
+  await expect(page.getByLabel('Priority')).toHaveValue('urgent');
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();

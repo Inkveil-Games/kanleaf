@@ -106,12 +106,41 @@ async fn create_task(app: &axum::Router, token: &str, workspace_id: Uuid, body: 
     response_json(response).await
 }
 
+async fn task_configuration(app: &axum::Router, token: &str, workspace_id: Uuid) -> Value {
+    let response = app
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/task-configuration"),
+            token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response_json(response).await
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
     let project_id = create_project(&app, &token, workspace_id, "Kanleaf").await;
+    let configuration = task_configuration(&app, &token, workspace_id).await;
+    let in_progress_id = configuration["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|state| state["state_group"] == "in_progress")
+        .unwrap()["id"]
+        .clone();
+    let done_id = configuration["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|state| state["state_group"] == "done")
+        .unwrap()["id"]
+        .clone();
     let task = create_task(
         &app,
         &token,
@@ -119,14 +148,15 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         json!({
             "title": "  Finish Markdown workflow  ",
             "project_id": project_id,
-            "status": "in_progress",
+            "state_id": in_progress_id,
             "priority": "high"
         }),
     )
     .await;
     let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
     assert_eq!(task["title"], "Finish Markdown workflow");
-    assert_eq!(task["status"], "in_progress");
+    assert_eq!(task["state"]["state_group"], "in_progress");
+    assert_eq!(task["task_type"]["name"], "Task");
     assert_eq!(task["priority"], "high");
 
     let document_path = data_dir
@@ -158,7 +188,7 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
             &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
             json!({
                 "title": "Finish Markdown persistence",
-                "status": "done",
+                "state_id": done_id,
                 "priority": "medium",
                 "project_id": null
             }),
@@ -168,7 +198,7 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .unwrap();
     let updated = response_json(updated).await;
     assert_eq!(updated["project_id"], Value::Null);
-    assert_eq!(updated["status"], "done");
+    assert_eq!(updated["state"]["state_group"], "done");
 
     let inbox_search = app
         .clone()
