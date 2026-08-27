@@ -34,11 +34,14 @@ The ordered migration in `apps/server/migrations` creates:
 ```text
 User ──< Session
   │
-  └──< WorkspaceMembership >── Workspace ──< Project
+  └──< WorkspaceMembership >── Workspace ──< WorkspaceInvitation
+                                      ├────< Project
                                       └────< Task
 ```
 
-- A membership is the workspace tenant and authorization boundary.
+- A membership is the workspace tenant and authorization boundary. Fixed
+  Workspace roles are Owner, Admin, Member, and Guest; a partial unique index
+  plus transfer transactions keep one Owner.
 - A user has an optional active workspace and may belong to many workspaces.
 - A project belongs to exactly one workspace.
 - A task belongs to one workspace and optionally one project.
@@ -71,6 +74,13 @@ checks membership on the server. Vault access occurs only after membership and
 task ownership checks. API errors use a stable JSON envelope and do not expose
 database or filesystem details.
 
+Workspace invitations contain normalized target emails, seven-day expiry, and
+only SHA-256 token digests. Owner/Admin can issue, renew, or revoke invitations;
+acceptance verifies the authenticated account email in the same transaction as
+membership creation. Owner/Admin manage Workspace settings and members, while
+only Owner can transfer ownership or delete the Workspace. Guest access to
+project content remains denied until explicit project membership is introduced.
+
 ## Markdown vault
 
 Each task has one stable file identity:
@@ -93,6 +103,11 @@ Task creation coordinates the database transaction with initial file creation;
 the transaction is rolled back if the document cannot be created. Fully atomic
 transactions across PostgreSQL and a filesystem are not possible, so startup
 reconciliation and conflict-aware sync remain outside v0.1.
+
+Confirmed Workspace deletion first renames its typed vault to an internal trash
+namespace. A database failure restores that directory; a successful commit
+makes the Workspace unreachable before the server purges trash. Cleanup failure
+is logged for an operator and never exposes the internal path through the API.
 
 ## Desktop client
 
@@ -127,6 +142,6 @@ PostgreSQL data and vault files under the selected host data root.
 ## Deferred intentionally
 
 Offline caching and sync, concurrent document conflict resolution, attachments,
-member invitation UI, richer RBAC, full-text document indexing, plugins,
-real-time collaboration, mobile clients, release signing, and bundled TLS are
-not v0.1 concerns.
+project membership, full-text document indexing, plugins, real-time
+collaboration, mobile clients, release signing, and bundled TLS are not current
+implementation concerns.

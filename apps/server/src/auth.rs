@@ -153,7 +153,7 @@ async fn register_user(
     let user_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
-    let (token, token_hash) = generate_session_token()?;
+    let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
 
     let mut transaction = state.pool.begin().await?;
@@ -244,7 +244,7 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
     }
 
     let session_id = Uuid::new_v4();
-    let (token, token_hash) = generate_session_token()?;
+    let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
     let mut transaction = state.pool.begin().await?;
     insert_session(
@@ -309,7 +309,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             .filter(|token| (20..=200).contains(&token.len()))
             .filter(|token| !token.chars().any(char::is_whitespace))
             .ok_or(AppError::Unauthorized)?;
-        let token_hash = hash_session_token(token);
+        let token_hash = hash_bearer_token(token);
 
         let session = sqlx::query_as::<_, SessionUser>(
             r#"
@@ -405,17 +405,17 @@ fn random_salt() -> Result<SaltString, AppError> {
         .map_err(|error| AppError::internal(anyhow!("failed to encode password salt: {error}")))
 }
 
-fn generate_session_token() -> Result<(String, [u8; 32]), AppError> {
+pub(crate) fn generate_bearer_token() -> Result<(String, [u8; 32]), AppError> {
     let mut bytes = [0_u8; 32];
     OsRng
         .try_fill_bytes(&mut bytes)
         .map_err(|error| AppError::internal(anyhow!("OS randomness unavailable: {error}")))?;
     let token = URL_SAFE_NO_PAD.encode(bytes);
-    let token_hash = hash_session_token(&token);
+    let token_hash = hash_bearer_token(&token);
     Ok((token, token_hash))
 }
 
-fn hash_session_token(token: &str) -> [u8; 32] {
+pub(crate) fn hash_bearer_token(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()
 }
 
@@ -437,16 +437,16 @@ fn default_display_name(email: &NormalizedEmail) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_session_token, hash_session_token};
+    use super::{generate_bearer_token, hash_bearer_token};
 
     #[test]
     fn session_tokens_are_random_and_only_their_hashes_are_stable() {
-        let (first, first_hash) = generate_session_token().unwrap();
-        let (second, second_hash) = generate_session_token().unwrap();
+        let (first, first_hash) = generate_bearer_token().unwrap();
+        let (second, second_hash) = generate_bearer_token().unwrap();
 
         assert_ne!(first, second);
         assert_ne!(first_hash, second_hash);
-        assert_eq!(first_hash, hash_session_token(&first));
+        assert_eq!(first_hash, hash_bearer_token(&first));
         assert_eq!(first.len(), 43);
         assert_eq!(first_hash.len(), 32);
     }

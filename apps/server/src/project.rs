@@ -13,7 +13,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::ResourceName,
     error::{AppError, is_unique_violation},
-    workspace::require_workspace_member,
+    workspace::require_workspace_content_access,
 };
 
 #[derive(Debug, Serialize, FromRow)]
@@ -37,7 +37,7 @@ pub(crate) async fn list(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Vec<ProjectResponse>>, AppError> {
     let Path(workspace_id) = path.map_err(AppError::from)?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     let projects = sqlx::query_as::<_, ProjectResponse>(
         r#"
         SELECT id, workspace_id, name, archived_at, created_at, updated_at
@@ -62,7 +62,7 @@ pub(crate) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
 
     let project = sqlx::query_as::<_, ProjectResponse>(
         r#"
@@ -96,7 +96,7 @@ pub(crate) async fn rename(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
 
     let project = sqlx::query_as::<_, ProjectResponse>(
         r#"
@@ -128,7 +128,7 @@ pub(crate) async fn archive(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, project_id)) = path.map_err(AppError::from)?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
     let result = sqlx::query(
         "UPDATE projects SET archived_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL",

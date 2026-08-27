@@ -16,7 +16,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{TaskPriority, TaskStatus, TaskTitle},
     error::AppError,
-    workspace::require_workspace_member,
+    workspace::require_workspace_content_access,
 };
 
 const MAX_SEARCH_LENGTH: usize = 200;
@@ -90,7 +90,7 @@ pub(crate) async fn list(
         ));
     }
     let search = filters.query.as_deref().map(search_pattern).transpose()?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
 
     let tasks = sqlx::query_as::<_, TaskResponse>(
         r#"
@@ -124,7 +124,7 @@ pub(crate) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let title =
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     validate_project(&state.pool, workspace_id, request.project_id).await?;
 
     let task_id = Uuid::new_v4();
@@ -161,7 +161,7 @@ pub(crate) async fn get(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<TaskResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
@@ -188,7 +188,7 @@ pub(crate) async fn update(
         .map(TaskTitle::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     if let Some(project_id) = request.project_id {
         validate_project(&state.pool, workspace_id, project_id).await?;
     }
@@ -227,7 +227,7 @@ pub(crate) async fn archive(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     let result = sqlx::query(
         "UPDATE tasks SET archived_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL",
     )
@@ -247,7 +247,7 @@ pub(crate) async fn read_document(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<DocumentResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     find_task(&state.pool, workspace_id, task_id).await?;
 
     let content = state
@@ -273,7 +273,7 @@ pub(crate) async fn write_document(
     }
 
     // Membership and task ownership are resolved before constructing a vault path.
-    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    require_workspace_content_access(&state.pool, auth.user.id, workspace_id).await?;
     find_task(&state.pool, workspace_id, task_id).await?;
     state
         .vault
