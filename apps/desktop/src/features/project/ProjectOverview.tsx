@@ -17,6 +17,8 @@ interface ProjectOverviewProps {
   joining: boolean;
   onJoin: () => Promise<void>;
   onOpenWorkItems: () => void;
+  onOpenCycles: () => void;
+  onOpenModules: () => void;
   onOpenSettings: () => void;
 }
 
@@ -25,6 +27,8 @@ export function ProjectOverview({
   joining,
   onJoin,
   onOpenWorkItems,
+  onOpenCycles,
+  onOpenModules,
   onOpenSettings,
 }: ProjectOverviewProps) {
   const accessible = project.effective_role !== null;
@@ -127,11 +131,23 @@ export function ProjectOverview({
                 icon={<Layers3 aria-hidden="true" size={16} />}
                 label="Cycles"
                 enabled={project.cycles_enabled}
+                onOpen={project.cycles_enabled ? onOpenCycles : undefined}
+                onConfigure={
+                  project.effective_role === 'admin'
+                    ? onOpenSettings
+                    : undefined
+                }
               />
               <FeatureRow
                 icon={<Gauge aria-hidden="true" size={16} />}
                 label="Modules"
                 enabled={project.modules_enabled}
+                onOpen={project.modules_enabled ? onOpenModules : undefined}
+                onConfigure={
+                  project.effective_role === 'admin'
+                    ? onOpenSettings
+                    : undefined
+                }
               />
               <FeatureRow
                 icon={<BookOpenText aria-hidden="true" size={16} />}
@@ -155,21 +171,46 @@ function FeatureRow({
   icon,
   label,
   enabled,
+  onOpen,
+  onConfigure,
 }: {
   icon: ReactNode;
   label: string;
   enabled: boolean;
+  onOpen?: () => void;
+  onConfigure?: () => void;
 }) {
-  return (
-    <div className="project-feature-row" aria-disabled="true">
+  const content = (
+    <>
       {icon}
       <span>
         <strong>{label}</strong>
         <small>
-          {enabled ? 'Enabled · interface arrives later' : 'Disabled'}
+          {enabled
+            ? onOpen
+              ? 'Open planning workspace'
+              : 'Enabled · interface arrives later'
+            : onConfigure
+              ? 'Disabled · enable in Project settings'
+              : 'Disabled'}
         </small>
       </span>
-      {enabled && <span className="project-feature-state">On</span>}
+      {enabled && (
+        <span className="project-feature-state">{onOpen ? 'Open' : 'On'}</span>
+      )}
+    </>
+  );
+  if (onOpen || onConfigure) {
+    return (
+      <button type="button" onClick={onOpen ?? onConfigure}>
+        {content}
+        <ArrowRight aria-hidden="true" size={15} />
+      </button>
+    );
+  }
+  return (
+    <div className="project-feature-row" aria-disabled="true">
+      {content}
     </div>
   );
 }

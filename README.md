@@ -18,6 +18,7 @@ Markdown document.
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, My Work, projects, task search, readable references, and bulk updates
 - Task assignees, labels, scheduling, estimates, hierarchy, and relations
+- Project Cycles and Modules with progress, leads, completion, and work transfer
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering

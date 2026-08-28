@@ -4,6 +4,7 @@ import { Wordmark } from '../../components/ui/Wordmark';
 import type { AccountSettingsSection } from '../account/AccountSettings';
 import { applyTheme } from '../account/theme';
 import { ProjectOverview } from '../project/ProjectOverview';
+import { ProjectPlanningPane } from '../project/ProjectPlanningPane';
 import { ProjectSettings } from '../project/ProjectSettings';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import {
@@ -26,6 +27,8 @@ import {
   getTask,
   joinProject,
   listProjectMembers,
+  listProjectCycles,
+  listProjectModules,
   listProjects,
   listTasks,
   listWorkspaceMembers,
@@ -103,6 +106,12 @@ export function WorkspaceShell({
     enabled: Boolean(workspaceId),
   });
   const activeProject = projects.data?.find(({ id }) => id === activeProjectId);
+  const visibleSurface: WorkspaceSurface =
+    activeProject &&
+    ((surface === 'cycles' && !activeProject.cycles_enabled) ||
+      (surface === 'modules' && !activeProject.modules_enabled))
+      ? 'project-overview'
+      : surface;
   const hasCollectionAccess =
     collection.kind === 'project'
       ? Boolean(
@@ -117,7 +126,9 @@ export function WorkspaceShell({
   const tasks = useQuery({
     queryKey: ['tasks', workspaceId, collectionKey, deferredSearch],
     queryFn: () => listTasks(context, workspaceId!, collection, deferredSearch),
-    enabled: Boolean(workspaceId && hasCollectionAccess && surface === 'tasks'),
+    enabled: Boolean(
+      workspaceId && hasCollectionAccess && visibleSurface === 'tasks',
+    ),
   });
   const taskConfiguration = useQuery({
     queryKey: ['task-configuration', workspaceId],
@@ -131,7 +142,7 @@ export function WorkspaceShell({
       workspaceId &&
       selectedTaskId &&
       hasCollectionAccess &&
-      surface === 'tasks',
+      visibleSurface === 'tasks',
     ),
   });
   const selectedProjectId =
@@ -148,6 +159,33 @@ export function WorkspaceShell({
     queryFn: () =>
       listProjectMembers(context, workspaceId!, selectedProjectId!),
     enabled: Boolean(workspaceId && selectedProjectId),
+  });
+  const selectedProject = projects.data?.find(
+    ({ id }) => id === selectedProjectId,
+  );
+  const selectedProjectCycles = useQuery({
+    queryKey: ['cycles', workspaceId, selectedProjectId],
+    queryFn: () => listProjectCycles(context, workspaceId!, selectedProjectId!),
+    enabled: Boolean(
+      workspaceId && selectedProjectId && selectedProject?.cycles_enabled,
+    ),
+  });
+  const selectedProjectModules = useQuery({
+    queryKey: ['modules', workspaceId, selectedProjectId],
+    queryFn: () =>
+      listProjectModules(context, workspaceId!, selectedProjectId!),
+    enabled: Boolean(
+      workspaceId && selectedProjectId && selectedProject?.modules_enabled,
+    ),
+  });
+  const activeProjectMembers = useQuery({
+    queryKey: ['project-members', workspaceId, activeProjectId],
+    queryFn: () => listProjectMembers(context, workspaceId!, activeProjectId!),
+    enabled: Boolean(
+      workspaceId &&
+      activeProjectId &&
+      (visibleSurface === 'cycles' || visibleSurface === 'modules'),
+    ),
   });
 
   async function switchWorkspace(nextWorkspaceId: string) {
@@ -356,6 +394,20 @@ export function WorkspaceShell({
     setActionError(null);
   }
 
+  function openPlanning(projectId: string, kind: 'cycles' | 'modules') {
+    setActiveProjectId(projectId);
+    setSelectedTaskId(null);
+    setSurface(kind);
+    setActionError(null);
+  }
+
+  function openPlanningTask(taskId: string) {
+    if (!activeProject) return;
+    setCollection({ kind: 'project', projectId: activeProject.id });
+    setSelectedTaskId(taskId);
+    setSurface('tasks');
+  }
+
   async function joinActiveProject() {
     if (!workspaceId || !activeProject) return;
     setJoiningProject(true);
@@ -501,15 +553,16 @@ export function WorkspaceShell({
         workspace={activeWorkspace}
         projects={projects.data ?? []}
         collection={collection}
-        surface={surface}
+        surface={visibleSurface}
         activeProjectId={activeProjectId}
         onCreateProject={addProject}
         onSelectCollection={selectCollection}
         onOpenProjectOverview={openProjectOverview}
+        onOpenPlanning={openPlanning}
         onOpenAccountSettings={openAccountSettings}
         onSignOut={onSignOut}
       />
-      {surface === 'project-overview' && activeProject ? (
+      {visibleSurface === 'project-overview' && activeProject ? (
         <ProjectOverview
           project={activeProject}
           joining={joiningProject}
@@ -517,7 +570,23 @@ export function WorkspaceShell({
           onOpenWorkItems={() =>
             selectCollection({ kind: 'project', projectId: activeProject.id })
           }
+          onOpenCycles={() => openPlanning(activeProject.id, 'cycles')}
+          onOpenModules={() => openPlanning(activeProject.id, 'modules')}
           onOpenSettings={() => openProjectSettings(activeProject.id)}
+        />
+      ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
+        activeProject &&
+        (visibleSurface === 'cycles'
+          ? activeProject.cycles_enabled
+          : activeProject.modules_enabled) ? (
+        <ProjectPlanningPane
+          key={`${activeProject.id}:${visibleSurface}`}
+          context={context}
+          workspaceId={workspaceId}
+          project={activeProject}
+          members={activeProjectMembers.data ?? []}
+          kind={visibleSurface}
+          onOpenTask={openPlanningTask}
         />
       ) : !hasCollectionAccess ? (
         <section className="restricted-workspace">
@@ -575,6 +644,8 @@ export function WorkspaceShell({
             states={taskConfiguration.data?.states ?? []}
             taskTypes={taskConfiguration.data?.task_types ?? []}
             labels={taskConfiguration.data?.labels ?? []}
+            cycles={selectedProjectCycles.data ?? []}
+            modules={selectedProjectModules.data ?? []}
             assigneeCandidates={
               selectedProjectId
                 ? (selectedProjectMembers.data ?? [])

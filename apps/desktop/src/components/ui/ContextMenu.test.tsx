@@ -27,6 +27,8 @@ describe('ContextMenu', () => {
   });
 
   it('closes with Escape and restores focus to the trigger', () => {
+    const parentShortcut = vi.fn();
+    window.addEventListener('keydown', parentShortcut);
     render(
       <ContextMenu label="Item actions">
         <button role="menuitem" type="button">
@@ -38,6 +40,25 @@ describe('ContextMenu', () => {
     const trigger = screen.getByRole('button', { name: 'Item actions' });
     fireEvent.click(trigger);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    window.removeEventListener('keydown', parentShortcut);
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(parentShortcut).not.toHaveBeenCalled();
+  });
+
+  it('closes with Escape even when focus has left a pending menu action', () => {
+    render(
+      <ContextMenu label="Item actions">
+        <button disabled role="menuitem" type="button">
+          Saving
+        </button>
+      </ContextMenu>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Item actions' });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

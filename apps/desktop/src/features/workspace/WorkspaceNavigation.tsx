@@ -1,9 +1,11 @@
 import {
   CheckSquare2,
+  CalendarRange,
   Folder,
   Inbox,
   LayoutPanelTop,
   ListTodo,
+  Layers3,
   LogOut,
   Plus,
   UserRound,
@@ -25,11 +27,13 @@ interface WorkspaceNavigationProps {
   onCreateProject: (name: string) => Promise<void>;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
+  onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
   onOpenAccountSettings: (section: AccountSettingsSection) => void;
   onSignOut: () => void;
 }
 
-export type WorkspaceSurface = 'tasks' | 'project-overview';
+export type WorkspaceSurface =
+  'tasks' | 'project-overview' | 'cycles' | 'modules';
 
 export function WorkspaceNavigation({
   email,
@@ -42,6 +46,7 @@ export function WorkspaceNavigation({
   onCreateProject,
   onSelectCollection,
   onOpenProjectOverview,
+  onOpenPlanning,
   onOpenAccountSettings,
   onSignOut,
 }: WorkspaceNavigationProps) {
@@ -148,6 +153,26 @@ export function WorkspaceNavigation({
                             })
                           }
                         />
+                        {project.cycles_enabled && (
+                          <NavButton
+                            active={surface === 'cycles'}
+                            icon={
+                              <CalendarRange aria-hidden="true" size={14} />
+                            }
+                            label="Cycles"
+                            onClick={() => onOpenPlanning(project.id, 'cycles')}
+                          />
+                        )}
+                        {project.modules_enabled && (
+                          <NavButton
+                            active={surface === 'modules'}
+                            icon={<Layers3 aria-hidden="true" size={14} />}
+                            label="Modules"
+                            onClick={() =>
+                              onOpenPlanning(project.id, 'modules')
+                            }
+                          />
+                        )}
                       </div>
                     )}
                   </div>

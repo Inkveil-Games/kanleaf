@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Project, Task, TaskState, TaskType } from '../workspace/types';
+import type {
+  Project,
+  ProjectCycle,
+  ProjectModule,
+  Task,
+  TaskState,
+  TaskType,
+} from '../workspace/types';
 import { TaskDetailPane } from './TaskDetailPane';
 
 vi.mock('../markdown/MarkdownDocument', () => ({
@@ -34,6 +41,8 @@ const task: Task = {
   parent: null,
   assignees: [],
   labels: [],
+  cycle: null,
+  modules: [],
   subtasks: [],
   relations: [],
   archived_at: null,
@@ -76,6 +85,48 @@ const projects: Project[] = [
   },
 ];
 
+const cycles: ProjectCycle[] = [
+  {
+    id: 'cycle-1',
+    workspace_id: 'workspace-1',
+    project_id: 'project-1',
+    name: 'Cycle 1',
+    description: '',
+    start_date: '2026-09-01',
+    due_date: '2026-09-14',
+    status: 'active',
+    total_tasks: 0,
+    completed_tasks: 0,
+    total_estimate: 0,
+    completed_estimate: 0,
+    completed_at: null,
+    archived_at: null,
+    created_at: '2026-08-26T10:00:00Z',
+    updated_at: '2026-08-26T10:00:00Z',
+  },
+];
+
+const modules: ProjectModule[] = [
+  {
+    id: 'module-1',
+    workspace_id: 'workspace-1',
+    project_id: 'project-1',
+    name: 'Backend',
+    description: '',
+    lead_user_id: null,
+    status: 'in_progress',
+    start_date: null,
+    due_date: null,
+    total_tasks: 0,
+    completed_tasks: 0,
+    total_estimate: 0,
+    completed_estimate: 0,
+    archived_at: null,
+    created_at: '2026-08-26T10:00:00Z',
+    updated_at: '2026-08-26T10:00:00Z',
+  },
+];
+
 describe('TaskDetailPane', () => {
   it('edits structured task fields directly in the detail pane', async () => {
     const patch = vi.fn().mockResolvedValue(undefined);
@@ -90,6 +141,8 @@ describe('TaskDetailPane', () => {
         states={states}
         taskTypes={taskTypes}
         labels={[]}
+        cycles={[]}
+        modules={[]}
         assigneeCandidates={[
           {
             user_id: 'user-1',
@@ -162,6 +215,8 @@ describe('TaskDetailPane', () => {
         states={states}
         taskTypes={taskTypes}
         labels={[]}
+        cycles={[]}
+        modules={[]}
         assigneeCandidates={[]}
         taskCandidates={[task]}
         loading={false}
@@ -183,6 +238,48 @@ describe('TaskDetailPane', () => {
     expect(
       screen.queryByRole('button', { name: 'Task actions' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('assigns a Project Task to a Cycle and multiple Modules', async () => {
+    const patch = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={{ ...task, project_id: 'project-1' }}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={cycles}
+        modules={modules}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={patch}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Cycle'), {
+      target: { value: 'cycle-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Modules' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Backend' }));
+
+    await waitFor(() => {
+      expect(patch).toHaveBeenCalledWith({ cycle_id: 'cycle-1' });
+      expect(patch).toHaveBeenCalledWith({ module_ids: ['module-1'] });
+    });
   });
 });
 

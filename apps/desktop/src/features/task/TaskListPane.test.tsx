@@ -84,6 +84,19 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
+  it('lets an open menu consume Escape before clearing the task detail', () => {
+    const onClearSelection = vi.fn();
+    renderList({ selectedTaskId: 'task-1', onClearSelection });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Visible task fields' }),
+    );
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(onClearSelection).not.toHaveBeenCalled();
+  });
+
   it('keeps read-only collections navigable without mutation controls', () => {
     renderList({ canCreate: false, canEditTask: () => false });
 
@@ -190,6 +203,8 @@ function task(
     parent: null,
     assignees: [],
     labels: [],
+    cycle: null,
+    modules: [],
     subtasks: [],
     relations: [],
     archived_at: null,

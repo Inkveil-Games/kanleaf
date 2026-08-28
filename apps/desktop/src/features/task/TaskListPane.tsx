@@ -68,10 +68,14 @@ export function TaskListPane({
 
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       const isEditing =
         target?.matches('input, textarea, select, [contenteditable="true"]') ??
         false;
+      const isTransientSurface = Boolean(
+        target?.closest('[role="menu"], [role="dialog"]'),
+      );
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         searchRef.current?.focus();
@@ -87,7 +91,9 @@ export function TaskListPane({
         event.preventDefault();
         setComposing(true);
       }
-      if (!isEditing && event.key === 'Escape') onClearSelection();
+      if (!isEditing && !isTransientSurface && event.key === 'Escape') {
+        onClearSelection();
+      }
     }
     window.addEventListener('keydown', onShortcut);
     return () => window.removeEventListener('keydown', onShortcut);

@@ -93,6 +93,63 @@ export interface ProjectPatch {
   views_enabled?: boolean;
 }
 
+export interface ProjectCycle {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  start_date: string;
+  due_date: string;
+  status: 'upcoming' | 'active' | 'completed';
+  total_tasks: number;
+  completed_tasks: number;
+  total_estimate: number;
+  completed_estimate: number;
+  completed_at: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectCyclePatch {
+  name?: string;
+  description?: string;
+  start_date?: string;
+  due_date?: string;
+}
+
+export type ProjectModuleStatus =
+  'backlog' | 'planned' | 'in_progress' | 'paused' | 'completed' | 'canceled';
+
+export interface ProjectModule {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  lead_user_id: string | null;
+  status: ProjectModuleStatus;
+  start_date: string | null;
+  due_date: string | null;
+  total_tasks: number;
+  completed_tasks: number;
+  total_estimate: number;
+  completed_estimate: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectModulePatch {
+  name?: string;
+  description?: string;
+  lead_user_id?: string | null;
+  status?: ProjectModuleStatus;
+  start_date?: string | null;
+  due_date?: string | null;
+}
+
 export type TaskStateGroup =
   'backlog' | 'todo' | 'in_progress' | 'done' | 'canceled';
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
@@ -159,11 +216,18 @@ export interface Task {
   parent: TaskLink | null;
   assignees: TaskAssignee[];
   labels: Pick<TaskLabel, 'id' | 'name' | 'color'>[];
+  cycle: TaskPlanningLink | null;
+  modules: TaskPlanningLink[];
   subtasks: TaskLink[];
   relations: TaskRelation[];
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskPlanningLink {
+  id: string;
+  name: string;
 }
 
 export interface TaskAssignee {
@@ -204,6 +268,8 @@ export interface TaskPatch {
   parent_id?: string | null;
   assignee_ids?: string[];
   label_ids?: string[];
+  cycle_id?: string | null;
+  module_ids?: string[];
   cleanup_invalid?: boolean;
 }
 

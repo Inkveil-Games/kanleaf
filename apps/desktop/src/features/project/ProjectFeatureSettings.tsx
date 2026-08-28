@@ -57,20 +57,22 @@ export function ProjectFeatureSettings({
                 'Modules',
                 'Group related work into larger outcomes.',
               ],
-              ['pages_enabled', 'Pages', 'Project-level Markdown documents.'],
+              [
+                'pages_enabled',
+                'Pages',
+                'Project-level Markdown documents. Planned for a later Core stage.',
+              ],
               [
                 'views_enabled',
                 'Views',
-                'Saved filters and alternative layouts.',
+                'Saved filters and alternative layouts. Planned for a later Core stage.',
               ],
             ] as const
           ).map(([key, label, description]) => (
             <label className="settings-row feature-toggle-row" key={key}>
               <span>
                 <strong>{label}</strong>
-                <small>
-                  {description} Interface arrives in a later Core stage.
-                </small>
+                <small>{description}</small>
               </span>
               <input
                 type="checkbox"

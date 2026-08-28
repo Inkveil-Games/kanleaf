@@ -8,6 +8,8 @@ import {
 } from 'react';
 import type {
   Project,
+  ProjectCycle,
+  ProjectModule,
   Task,
   TaskAssignee,
   TaskLabel,
@@ -34,6 +36,8 @@ interface TaskDetailPaneProps {
   states: TaskState[];
   taskTypes: TaskType[];
   labels: TaskLabel[];
+  cycles: ProjectCycle[];
+  modules: ProjectModule[];
   assigneeCandidates: TaskAssignee[];
   taskCandidates: Task[];
   loading: boolean;
@@ -86,6 +90,8 @@ function SelectedTaskDetail({
   states,
   taskTypes,
   labels,
+  cycles,
+  modules,
   assigneeCandidates,
   taskCandidates,
   onPatch,
@@ -265,7 +271,7 @@ function SelectedTaskDetail({
               onChange={(event) => {
                 const projectId = event.target.value || null;
                 const cleanup = window.confirm(
-                  'Move this Task and remove incompatible assignees, type, or hierarchy if needed?',
+                  'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
                 );
                 if (!cleanup) return;
                 void patch({
@@ -282,6 +288,54 @@ function SelectedTaskDetail({
               ))}
             </select>
           </Property>
+          {task.project_id && (
+            <Property label="Cycle">
+              <select
+                aria-label="Cycle"
+                value={task.cycle?.id ?? ''}
+                disabled={!canEdit}
+                onChange={(event) =>
+                  void patch({ cycle_id: event.target.value || null })
+                }
+              >
+                <option value="">No Cycle</option>
+                {task.cycle &&
+                  !cycles.some(({ id }) => id === task.cycle?.id) && (
+                    <option value={task.cycle.id}>{task.cycle.name}</option>
+                  )}
+                {cycles
+                  .filter(
+                    (cycle) =>
+                      cycle.status !== 'completed' ||
+                      cycle.id === task.cycle?.id,
+                  )
+                  .map((cycle) => (
+                    <option key={cycle.id} value={cycle.id}>
+                      {cycle.name}
+                      {cycle.status === 'completed' ? ' · Completed' : ''}
+                    </option>
+                  ))}
+              </select>
+            </Property>
+          )}
+          {task.project_id && (
+            <Property label="Modules">
+              <MultiValuePicker
+                label="Edit Modules"
+                emptyLabel="No Modules"
+                disabled={!canEdit}
+                values={task.modules.map(({ id }) => id)}
+                options={[
+                  ...task.modules.filter(
+                    (assigned) =>
+                      !modules.some((module) => module.id === assigned.id),
+                  ),
+                  ...modules,
+                ].map((module) => ({ id: module.id, label: module.name }))}
+                onChange={(moduleIds) => patch({ module_ids: moduleIds })}
+              />
+            </Property>
+          )}
           <Property label="Assignees">
             <MultiValuePicker
               label="Edit assignees"

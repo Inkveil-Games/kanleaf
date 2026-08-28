@@ -38,17 +38,23 @@ export function ContextMenu({
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     }
 
+    function closeWithEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+
     document.addEventListener('pointerdown', closeOutside);
-    return () => document.removeEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeWithEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeWithEscape, true);
+    };
   }, [open]);
 
   function menuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
-      return;
-    }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     const items = [...(menuRef.current?.querySelectorAll('button') ?? [])];
     if (items.length === 0) return;

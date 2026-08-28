@@ -88,8 +88,28 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Project features saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Project' }).click();
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
+
+  const projectNavigation = page.locator('.project-subnav');
+  await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
+  await page.getByRole('button', { name: 'New cycle' }).click();
+  await page.getByLabel('Cycle name').fill('Cycle 1');
+  await page.getByLabel('Start', { exact: true }).fill('2026-09-01');
+  await page.getByLabel('Due', { exact: true }).fill('2026-09-14');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Cycle 1', level: 2 }),
+  ).toBeVisible();
+
+  await projectNavigation.getByRole('button', { name: 'Modules' }).click();
+  await page.getByRole('button', { name: 'New module' }).click();
+  await page.getByLabel('Module name').fill('Core');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Core', level: 2 }),
+  ).toBeVisible();
+
   await page
-    .locator('.project-header-actions')
+    .locator('.project-subnav')
     .getByRole('button', { name: 'Work items' })
     .click();
 
@@ -99,6 +119,13 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
   );
+
+  await page.getByLabel('Cycle').selectOption({ label: 'Cycle 1' });
+  await expect(page.getByLabel('Cycle')).toHaveValue(/.+/);
+  await page.getByLabel('Edit Modules').click();
+  await page.getByRole('menuitemcheckbox', { name: 'Core' }).click();
+  await expect(page.getByLabel('Edit Modules')).toContainText('Core');
+  await page.keyboard.press('Escape');
 
   await page.getByLabel('State').selectOption({ label: 'Review' });
   await page.getByLabel('Task type').selectOption({ label: 'Bug' });

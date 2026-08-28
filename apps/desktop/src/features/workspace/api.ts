@@ -4,7 +4,11 @@ import type {
   Collection,
   IssuedWorkspaceInvitation,
   Project,
+  ProjectCycle,
+  ProjectCyclePatch,
   ProjectMember,
+  ProjectModule,
+  ProjectModulePatch,
   ProjectPatch,
   ProjectRole,
   Task,
@@ -365,6 +369,149 @@ export function removeProjectMember(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/projects/${projectId}/members/${userId}`,
     { method: 'DELETE', token: context.token },
+  );
+}
+
+export function listProjectCycles(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+) {
+  return apiRequest<ProjectCycle[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/cycles`,
+    { token: context.token },
+  );
+}
+
+export function createProjectCycle(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  cycle: ProjectCyclePatch & {
+    name: string;
+    start_date: string;
+    due_date: string;
+  },
+) {
+  return apiRequest<ProjectCycle>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/cycles`,
+    { method: 'POST', token: context.token, body: JSON.stringify(cycle) },
+  );
+}
+
+export function updateProjectCycle(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  cycleId: string,
+  patch: ProjectCyclePatch,
+) {
+  return apiRequest<ProjectCycle>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/cycles/${cycleId}`,
+    { method: 'PATCH', token: context.token, body: JSON.stringify(patch) },
+  );
+}
+
+export function completeProjectCycle(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  cycleId: string,
+  transferCycleId: string | null,
+) {
+  return apiRequest<ProjectCycle>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/cycles/${cycleId}/complete`,
+    {
+      method: 'POST',
+      token: context.token,
+      body: JSON.stringify({ transfer_cycle_id: transferCycleId }),
+    },
+  );
+}
+
+export function archiveProjectCycle(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  cycleId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/cycles/${cycleId}`,
+    { method: 'DELETE', token: context.token },
+  );
+}
+
+export function listProjectModules(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+) {
+  return apiRequest<ProjectModule[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/modules`,
+    { token: context.token },
+  );
+}
+
+export function createProjectModule(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  module: ProjectModulePatch & { name: string },
+) {
+  return apiRequest<ProjectModule>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/modules`,
+    { method: 'POST', token: context.token, body: JSON.stringify(module) },
+  );
+}
+
+export function updateProjectModule(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  moduleId: string,
+  patch: ProjectModulePatch,
+) {
+  return apiRequest<ProjectModule>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/modules/${moduleId}`,
+    { method: 'PATCH', token: context.token, body: JSON.stringify(patch) },
+  );
+}
+
+export function archiveProjectModule(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+  moduleId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/modules/${moduleId}`,
+    { method: 'DELETE', token: context.token },
+  );
+}
+
+export function listPlanningTasks(
+  context: ApiContext,
+  workspaceId: string,
+  filter: { cycleId: string } | { moduleId: string },
+) {
+  const parameters = new URLSearchParams(
+    'cycleId' in filter
+      ? { cycle_id: filter.cycleId }
+      : { module_id: filter.moduleId },
+  );
+  return apiRequest<Task[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks?${parameters.toString()}`,
+    { token: context.token },
   );
 }
 
