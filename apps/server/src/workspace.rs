@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::{AuthenticatedUser, verify_password},
+    document,
     domain::{ResourceName, ValidatedPassword},
     error::AppError,
     project, saved_view, task, task_config,
@@ -142,6 +143,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(task_config::routes())
         .merge(project::routes())
         .merge(saved_view::routes())
+        .merge(document::routes())
         .route(
             "/api/workspaces/{workspace_id}/tasks",
             get(task::list).post(task::create),

@@ -32,7 +32,7 @@ function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
         serverUrl="https://kanleaf.example.com"
         token="session-token"
         workspaceId="workspace-1"
-        taskId="task-1"
+        target={{ kind: 'task', id: 'task-1' }}
         readOnly={readOnly}
       />
     </QueryClientProvider>,

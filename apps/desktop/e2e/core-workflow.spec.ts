@@ -90,6 +90,31 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
 
   const projectNavigation = page.locator('.project-subnav');
+  await projectNavigation.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('button', { name: 'New document' }).click();
+  await page.getByLabel('Document title').fill('Project handbook');
+  await page.getByRole('button', { name: 'Create document' }).click();
+  const pageMarkdown = `# Project handbook
+
+This page is stored as a durable **Markdown file**.
+
+- [x] Define the vault boundary
+- [ ] Ship Live Preview`;
+  await page
+    .locator('.page-document-editor .cm-content[contenteditable="true"]')
+    .fill(pageMarkdown);
+  await page.getByRole('button', { name: 'Save Markdown' }).click();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Actions for Project handbook' })
+    .click();
+  await page.getByRole('menuitem', { name: 'Add child' }).click();
+  await page.getByLabel('Child document title').fill('Architecture decisions');
+  await page.getByRole('button', { name: 'Create child document' }).click();
+  await expect(
+    page.getByRole('treeitem', { name: /Architecture decisions/ }),
+  ).toBeVisible();
+
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
@@ -198,6 +223,23 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByRole('table')).toContainText(
     'Complete the v0.1 workflow',
   );
+
+  await page
+    .locator('.project-nav-row')
+    .getByRole('button', { name: 'Kanleaf' })
+    .click();
+  await page
+    .locator('.project-subnav')
+    .getByRole('button', { name: 'Pages' })
+    .click();
+  await page.getByRole('treeitem', { name: /Project handbook/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Project handbook' }),
+  ).toBeVisible();
+  await expect(page.getByText('durable Markdown file')).toBeVisible();
+  await expect(
+    page.getByRole('treeitem', { name: /Architecture decisions/ }),
+  ).toBeVisible();
 });
 
 test('prevents a session from reading another workspace', async ({
@@ -231,6 +273,25 @@ test('prevents a session from reading another workspace', async ({
     { headers: { authorization: `Bearer ${second.token}` } },
   );
   expect(activityForbidden.status()).toBe(403);
+
+  const pageResponse = await request.post(
+    `${serverUrl}/api/workspaces/${first.workspaceId}/documents`,
+    {
+      headers: { authorization: `Bearer ${first.token}` },
+      data: {
+        title: 'Private workspace page',
+        project_id: null,
+        parent_id: null,
+      },
+    },
+  );
+  expect(pageResponse.status()).toBe(201);
+  const document = (await pageResponse.json()) as { id: string };
+  const documentForbidden = await request.get(
+    `${serverUrl}/api/workspaces/${first.workspaceId}/documents/${document.id}`,
+    { headers: { authorization: `Bearer ${second.token}` } },
+  );
+  expect(documentForbidden.status()).toBe(404);
 });
 
 test('delivers collaboration activity through the notification inbox', async ({

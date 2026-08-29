@@ -6,6 +6,7 @@ const MIN_PASSWORD_LENGTH: usize = 10;
 const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_RESOURCE_NAME_LENGTH: usize = 120;
 const MAX_TASK_TITLE_LENGTH: usize = 300;
+const MAX_DOCUMENT_TITLE_LENGTH: usize = 300;
 const MAX_CONFIGURATION_DESCRIPTION_LENGTH: usize = 500;
 const MAX_PROJECT_DESCRIPTION_LENGTH: usize = 2000;
 
@@ -89,6 +90,28 @@ impl TaskTitle {
         if value.chars().count() > MAX_TASK_TITLE_LENGTH {
             return Err(ValidationError::new(
                 "Task title cannot exceed 300 characters",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DocumentTitle(String);
+
+impl DocumentTitle {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ValidationError::new("Document title cannot be empty"));
+        }
+        if value.chars().count() > MAX_DOCUMENT_TITLE_LENGTH {
+            return Err(ValidationError::new(
+                "Document title cannot exceed 300 characters",
             ));
         }
         Ok(Self(value.to_owned()))
@@ -323,9 +346,9 @@ impl ValidationError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigurationDescription, HexColor, NormalizedEmail, ProjectDescription, ProjectIdentifier,
-        ProjectRole, ProjectVisibility, ResourceName, TaskPriority, TaskStateGroup, TaskTitle,
-        TaskTypeIcon, ValidatedPassword,
+        ConfigurationDescription, DocumentTitle, HexColor, NormalizedEmail, ProjectDescription,
+        ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName, TaskPriority,
+        TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
     };
 
     #[test]
@@ -368,6 +391,16 @@ mod tests {
         assert!(TaskTitle::new(&"x".repeat(301)).is_err());
         assert_eq!(TaskPriority::High.as_str(), "high");
         assert_eq!(TaskPriority::Urgent.as_str(), "urgent");
+    }
+
+    #[test]
+    fn trims_and_bounds_document_titles() {
+        assert_eq!(
+            DocumentTitle::new("  Architecture  ").unwrap().as_str(),
+            "Architecture"
+        );
+        assert!(DocumentTitle::new(" ").is_err());
+        assert!(DocumentTitle::new(&"x".repeat(301)).is_err());
     }
 
     #[test]

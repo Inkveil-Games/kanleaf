@@ -19,6 +19,7 @@ interface ProjectOverviewProps {
   onOpenWorkItems: () => void;
   onOpenCycles: () => void;
   onOpenModules: () => void;
+  onOpenPages: () => void;
   onOpenSettings: () => void;
 }
 
@@ -29,6 +30,7 @@ export function ProjectOverview({
   onOpenWorkItems,
   onOpenCycles,
   onOpenModules,
+  onOpenPages,
   onOpenSettings,
 }: ProjectOverviewProps) {
   const accessible = project.effective_role !== null;
@@ -153,6 +155,8 @@ export function ProjectOverview({
                 icon={<BookOpenText aria-hidden="true" size={16} />}
                 label="Pages"
                 enabled={project.pages_enabled}
+                onOpen={project.pages_enabled ? onOpenPages : undefined}
+                openDescription="Open document workspace"
               />
               <FeatureRow
                 icon={<Eye aria-hidden="true" size={16} />}
@@ -173,12 +177,14 @@ function FeatureRow({
   enabled,
   onOpen,
   onConfigure,
+  openDescription = 'Open planning workspace',
 }: {
   icon: ReactNode;
   label: string;
   enabled: boolean;
   onOpen?: () => void;
   onConfigure?: () => void;
+  openDescription?: string;
 }) {
   const content = (
     <>
@@ -188,7 +194,7 @@ function FeatureRow({
         <small>
           {enabled
             ? onOpen
-              ? 'Open planning workspace'
+              ? openDescription
               : 'Enabled · interface arrives later'
             : onConfigure
               ? 'Disabled · enable in Project settings'

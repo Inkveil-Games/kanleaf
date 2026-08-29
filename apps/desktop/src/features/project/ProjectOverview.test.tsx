@@ -31,6 +31,7 @@ describe('ProjectOverview', () => {
     const openWorkItems = vi.fn();
     const openSettings = vi.fn();
     const openCycles = vi.fn();
+    const openPages = vi.fn();
     render(
       <ProjectOverview
         project={project}
@@ -39,6 +40,7 @@ describe('ProjectOverview', () => {
         onOpenWorkItems={openWorkItems}
         onOpenCycles={openCycles}
         onOpenModules={vi.fn()}
+        onOpenPages={openPages}
         onOpenSettings={openSettings}
       />,
     );
@@ -46,14 +48,14 @@ describe('ProjectOverview', () => {
     expect(
       screen.getByRole('heading', { name: 'Kanleaf Core' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText('Enabled · interface arrives later'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Open document workspace')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /Work items/ })[0]);
     fireEvent.click(screen.getByRole('button', { name: /Cycles/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Pages/ }));
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
     expect(openWorkItems).toHaveBeenCalledOnce();
     expect(openCycles).toHaveBeenCalledOnce();
+    expect(openPages).toHaveBeenCalledOnce();
     expect(openSettings).toHaveBeenCalledOnce();
   });
 
@@ -67,6 +69,7 @@ describe('ProjectOverview', () => {
         onOpenWorkItems={vi.fn()}
         onOpenCycles={vi.fn()}
         onOpenModules={vi.fn()}
+        onOpenPages={vi.fn()}
         onOpenSettings={vi.fn()}
       />,
     );

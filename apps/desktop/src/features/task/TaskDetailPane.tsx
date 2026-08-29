@@ -490,7 +490,7 @@ function SelectedTaskDetail({
               serverUrl={serverUrl}
               token={token}
               workspaceId={workspaceId}
-              taskId={task.id}
+              target={{ kind: 'task', id: task.id }}
               readOnly={!canEdit}
             />
           </Suspense>

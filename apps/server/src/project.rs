@@ -442,6 +442,7 @@ async fn archive(
         return Err(AppError::NotFound("Project not found".to_owned()));
     }
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
+    move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -472,6 +473,7 @@ async fn delete_project(
         ));
     }
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
+    move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
     sqlx::query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2")
         .bind(workspace_id)
         .bind(project_id)
@@ -479,6 +481,27 @@ async fn delete_project(
         .await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn move_documents_to_workspace(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Uuid,
+) -> Result<(), AppError> {
+    // A Project archive must not strand durable Pages behind an inaccessible
+    // Project scope. Moving the whole forest preserves parent relationships.
+    sqlx::query(
+        r#"
+        UPDATE documents
+        SET project_id = NULL, updated_at = now()
+        WHERE workspace_id = $1 AND project_id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 impl UpdateProjectRequest {

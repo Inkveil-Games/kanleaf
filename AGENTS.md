@@ -3,7 +3,7 @@
 ## Product and UI
 
 Kanleaf combines structured task management with durable Markdown documents.
-Keep metadata in PostgreSQL and task bodies in normal vault `.md` files. Preserve
+Keep metadata in PostgreSQL and Task/Page bodies in normal vault `.md` files. Preserve
 the restrained desktop UI: panes, rows, lists, subtle separators, compact
 metadata, visible focus, and keyboard operation. Do not turn it into a card-heavy
 SaaS dashboard or move task detail into modal-first flows.
@@ -26,8 +26,8 @@ See `docs/architecture.md` before changing a data boundary.
 
 ## Security and data
 
-Authorize every workspace-scoped server operation. Check membership and task
-ownership before vault access, construct paths only from parsed IDs, and never
+Authorize every workspace-scoped server operation. Check membership and
+Task/Document ownership before vault access, construct paths only from parsed IDs, and never
 return password/session hashes or filesystem paths. Keep Markdown preview raw
 HTML disabled unless an equally strong sanitization design replaces it.
 

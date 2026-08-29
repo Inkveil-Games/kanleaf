@@ -1,6 +1,7 @@
 import {
   CheckSquare2,
   Bookmark,
+  BookOpenText,
   CalendarRange,
   Folder,
   Inbox,
@@ -33,13 +34,14 @@ interface WorkspaceNavigationProps {
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
+  onOpenDocuments: (projectId: string | null) => void;
   onOpenSavedView: (view: SavedView) => void;
   onOpenAccountSettings: (section: AccountSettingsSection) => void;
   onSignOut: () => void;
 }
 
 export type WorkspaceSurface =
-  'tasks' | 'project-overview' | 'cycles' | 'modules';
+  'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents';
 
 export function WorkspaceNavigation({
   email,
@@ -56,6 +58,7 @@ export function WorkspaceNavigation({
   onSelectCollection,
   onOpenProjectOverview,
   onOpenPlanning,
+  onOpenDocuments,
   onOpenSavedView,
   onOpenAccountSettings,
   onSignOut,
@@ -98,6 +101,12 @@ export function WorkspaceNavigation({
                 icon={<ListTodo aria-hidden="true" size={16} />}
                 label="All tasks"
                 onClick={() => onSelectCollection({ kind: 'all' })}
+              />
+              <NavButton
+                active={surface === 'documents' && activeProjectId === null}
+                icon={<BookOpenText aria-hidden="true" size={16} />}
+                label="Documents"
+                onClick={() => onOpenDocuments(null)}
               />
             </>
           )}
@@ -218,6 +227,14 @@ export function WorkspaceNavigation({
                             onClick={() =>
                               onOpenPlanning(project.id, 'modules')
                             }
+                          />
+                        )}
+                        {project.pages_enabled && (
+                          <NavButton
+                            active={surface === 'documents'}
+                            icon={<BookOpenText aria-hidden="true" size={14} />}
+                            label="Pages"
+                            onClick={() => onOpenDocuments(project.id)}
                           />
                         )}
                         {project.views_enabled && projectViews.length > 0 && (

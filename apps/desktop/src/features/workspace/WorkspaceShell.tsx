@@ -7,6 +7,7 @@ import { ProjectOverview } from '../project/ProjectOverview';
 import { ProjectPlanningPane } from '../project/ProjectPlanningPane';
 import { ProjectSettings } from '../project/ProjectSettings';
 import { SettingsDialog } from '../settings/SettingsDialog';
+import { DocumentWorkspace } from '../document/DocumentWorkspace';
 import {
   AccountSettingsShell,
   WorkspaceSettingsShell,
@@ -127,7 +128,8 @@ export function WorkspaceShell({
   const visibleSurface: WorkspaceSurface =
     activeProject &&
     ((surface === 'cycles' && !activeProject.cycles_enabled) ||
-      (surface === 'modules' && !activeProject.modules_enabled))
+      (surface === 'modules' && !activeProject.modules_enabled) ||
+      (surface === 'documents' && !activeProject.pages_enabled))
       ? 'project-overview'
       : surface;
   const queryProjectId =
@@ -241,6 +243,7 @@ export function WorkspaceShell({
       resetTaskView({ kind: 'my-work' });
       setSelectedTaskId(null);
       setActiveProjectId(null);
+      setSurface('tasks');
       setSettingsModal(null);
       setWorkspaceSettingsSection('general');
     } catch (caught) {
@@ -546,6 +549,15 @@ export function WorkspaceShell({
     setActionError(null);
   }
 
+  function openDocuments(projectId: string | null) {
+    setActiveView(null);
+    setActiveProjectId(projectId);
+    setSelectedTaskId(null);
+    setTaskLayout('list');
+    setSurface('documents');
+    setActionError(null);
+  }
+
   function openPlanningTask(taskId: string) {
     if (!activeProject) return;
     resetTaskView({ kind: 'project', projectId: activeProject.id });
@@ -756,6 +768,7 @@ export function WorkspaceShell({
         onSelectCollection={selectCollection}
         onOpenProjectOverview={openProjectOverview}
         onOpenPlanning={openPlanning}
+        onOpenDocuments={openDocuments}
         onOpenSavedView={openSavedView}
         onOpenAccountSettings={openAccountSettings}
         onSignOut={onSignOut}
@@ -770,7 +783,17 @@ export function WorkspaceShell({
           }
           onOpenCycles={() => openPlanning(activeProject.id, 'cycles')}
           onOpenModules={() => openPlanning(activeProject.id, 'modules')}
+          onOpenPages={() => openDocuments(activeProject.id)}
           onOpenSettings={() => openProjectSettings(activeProject.id)}
+        />
+      ) : visibleSurface === 'documents' ? (
+        <DocumentWorkspace
+          key={`${workspaceId}:${activeProjectId ?? 'workspace'}`}
+          context={context}
+          workspaceId={workspaceId}
+          projects={projects.data ?? []}
+          projectId={activeProjectId}
+          canCreateWorkspaceDocuments={hasContentAccess}
         />
       ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
         activeProject &&

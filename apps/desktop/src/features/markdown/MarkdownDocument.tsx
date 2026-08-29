@@ -9,7 +9,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { readTaskDocument, writeTaskDocument } from './api';
+import {
+  readMarkdownDocument,
+  writeMarkdownDocument,
+  type MarkdownTarget,
+} from './api';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ApiError } from '../../lib/api/client';
 
@@ -26,7 +30,7 @@ interface MarkdownDocumentProps {
   serverUrl: string;
   token: string;
   workspaceId: string;
-  taskId: string;
+  target: MarkdownTarget;
   readOnly?: boolean;
 }
 
@@ -35,8 +39,13 @@ const AUTOSAVE_DELAY_MS = 800;
 
 export function MarkdownDocument(props: MarkdownDocumentProps) {
   const document = useQuery({
-    queryKey: ['document', props.workspaceId, props.taskId],
-    queryFn: () => readTaskDocument(props),
+    queryKey: [
+      'markdown-document',
+      props.workspaceId,
+      props.target.kind,
+      props.target.id,
+    ],
+    queryFn: () => readMarkdownDocument(props),
   });
 
   if (document.isPending) {
@@ -63,7 +72,7 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
 
   return (
     <LoadedMarkdownDocument
-      key={props.taskId}
+      key={`${props.target.kind}:${props.target.id}`}
       {...props}
       initialContent={document.data.content}
       initialRevision={document.data.revision}
@@ -82,9 +91,11 @@ function LoadedMarkdownDocument({
   serverUrl,
   token,
   workspaceId,
-  taskId,
+  target,
   readOnly = false,
 }: LoadedMarkdownDocumentProps) {
+  const targetKind = target.kind;
+  const targetId = target.id;
   const [content, setContent] = useState(initialContent);
   const [mode, setMode] = useState(readMode);
   const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -110,8 +121,13 @@ function LoadedMarkdownDocument({
         .catch(() => undefined)
         .then(async () => {
           if (nextContent === lastSavedRef.current) return;
-          const saved = await writeTaskDocument(
-            { serverUrl, token, workspaceId, taskId },
+          const saved = await writeMarkdownDocument(
+            {
+              serverUrl,
+              token,
+              workspaceId,
+              target: { kind: targetKind, id: targetId },
+            },
             nextContent,
             revisionRef.current,
           );
@@ -135,7 +151,7 @@ function LoadedMarkdownDocument({
         }
       }
     },
-    [readOnly, serverUrl, taskId, token, workspaceId],
+    [readOnly, serverUrl, targetId, targetKind, token, workspaceId],
   );
 
   useEffect(() => {
@@ -185,11 +201,11 @@ function LoadedMarkdownDocument({
 
   async function reloadRemote() {
     try {
-      const remote = await readTaskDocument({
+      const remote = await readMarkdownDocument({
         serverUrl,
         token,
         workspaceId,
-        taskId,
+        target: { kind: targetKind, id: targetId },
       });
       contentRef.current = remote.content;
       lastSavedRef.current = remote.content;

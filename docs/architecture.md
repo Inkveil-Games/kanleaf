@@ -40,6 +40,7 @@ User ──< Session
                                       ├────< TaskLabel
                                       ├────< TaskType
                                       ├────< SavedView
+                                      ├────< Document
                                       ├────< Project ────< ProjectMembership
                                       │          ├───────< ProjectTaskType
                                       │          ├───────< ProjectCycle
@@ -80,6 +81,9 @@ User ──< Session
   layout. Personal names are unique per owner and scope; shared names are
   unique per scope. Project foreign keys and membership ownership keep records
   inside the same tenant.
+- Documents keep stable metadata in PostgreSQL and may form ordered trees. A
+  parent must share the same Workspace/Project scope; subtree moves validate
+  cycles and move every descendant together.
 - Task comments store Markdown collaboration records in PostgreSQL, including
   one reply level, structured mentions, immutable prior revisions, and
   tombstone deletion. Activity is a separate append-only product feed, not an
@@ -90,7 +94,8 @@ User ──< Session
   and preferences are stored—there is no queue or realtime delivery service.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
-  active tasks to Inbox in the same transaction. A Project move either rejects
+  active tasks to Inbox and its Page trees to Workspace Documents in the same
+  transaction. A Project move either rejects
   incompatible type, assignment, and hierarchy data or removes it only when
   the client explicitly requests cleanup.
 - Composite foreign keys prevent projects and tasks from referencing another
@@ -147,28 +152,33 @@ disclosed without effective access.
 
 ## Markdown vault
 
-Each task has one stable file identity:
+Tasks and Pages have distinct typed file identities:
 
 ```text
 KANLEAF_DATA_DIR/
 └── vaults/
     └── <workspace UUID>/
-        └── Tasks/
-            └── <task UUID>.md
+        ├── Tasks/<task UUID>.md
+        └── Pages/<document UUID>.md
 ```
 
 Paths are constructed internally from parsed UUIDs. The API never accepts an
 arbitrary path. Writes use a temporary sibling file followed by rename, and the
 server stores the supplied UTF-8 Markdown without frontmatter, formatting, or
-whitespace normalization. Task rename and archive leave the file identity and
-content unchanged.
+whitespace normalization. Task/Page title, hierarchy, scope, and archive
+changes leave the file identity and content unchanged.
 
-Task creation coordinates the database transaction with initial file creation;
+Reads return source plus a SHA-256 content revision. A write must include the
+revision it opened; if the current file differs, the server returns a stable
+conflict response and leaves both the external file and client source
+untouched.
+
+Task and Page creation coordinate the database transaction with initial file creation;
 the transaction is rolled back if the document cannot be created. Fully atomic
 transactions across PostgreSQL and a filesystem are not possible, so startup
-reconciliation and conflict-aware sync remain outside v0.1.
+reconciliation remains outside v0.1.
 
-Permanent Task deletion uses the same trash-first boundary: the document is
+Permanent Task/Page deletion uses the same trash-first boundary: the document is
 renamed before the database commit, restored if the transaction fails, and
 purged only after the Task becomes unreachable. A purge failure is logged and
 leaves internal trash for operator cleanup instead of encouraging an unsafe
@@ -194,7 +204,10 @@ The desktop app is feature-oriented:
   layouts;
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
   notification inbox, and account notification preferences;
-- `features/markdown` owns source editing, preview, and persistence state;
+- `features/document` owns Workspace Documents and Project Pages trees,
+  hierarchy, ordering, scope moves, and archive interaction;
+- `features/markdown` owns the shared Task/Page source editor, preview,
+  revision conflict recovery, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
 TanStack Query owns remote cache state. Vite embeds the server URL from
@@ -228,6 +241,6 @@ PostgreSQL data and vault files under the selected host data root.
 
 ## Deferred intentionally
 
-Offline caching and sync, concurrent document conflict resolution, attachments,
+Offline caching and sync, automatic conflict merging or version history, attachments,
 full-text document indexing, plugins, real-time collaboration, mobile clients,
 release signing, and bundled TLS are not current implementation concerns.

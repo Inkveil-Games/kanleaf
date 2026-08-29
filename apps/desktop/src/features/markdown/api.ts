@@ -4,7 +4,12 @@ interface DocumentContext {
   serverUrl: string;
   token: string;
   workspaceId: string;
-  taskId: string;
+  target: MarkdownTarget;
+}
+
+export interface MarkdownTarget {
+  kind: 'task' | 'page';
+  id: string;
 }
 
 export interface MarkdownContent {
@@ -12,26 +17,26 @@ export interface MarkdownContent {
   revision: string;
 }
 
-export function readTaskDocument(context: DocumentContext) {
-  return apiRequest<MarkdownContent>(
-    context.serverUrl,
-    `/api/workspaces/${context.workspaceId}/tasks/${context.taskId}/document`,
-    { token: context.token },
-  );
+export function readMarkdownDocument(context: DocumentContext) {
+  return apiRequest<MarkdownContent>(context.serverUrl, documentPath(context), {
+    token: context.token,
+  });
 }
 
-export function writeTaskDocument(
+export function writeMarkdownDocument(
   context: DocumentContext,
   content: string,
   baseRevision: string,
 ) {
-  return apiRequest<MarkdownContent>(
-    context.serverUrl,
-    `/api/workspaces/${context.workspaceId}/tasks/${context.taskId}/document`,
-    {
-      method: 'PUT',
-      token: context.token,
-      body: JSON.stringify({ content, base_revision: baseRevision }),
-    },
-  );
+  return apiRequest<MarkdownContent>(context.serverUrl, documentPath(context), {
+    method: 'PUT',
+    token: context.token,
+    body: JSON.stringify({ content, base_revision: baseRevision }),
+  });
+}
+
+function documentPath(context: DocumentContext) {
+  return context.target.kind === 'task'
+    ? `/api/workspaces/${context.workspaceId}/tasks/${context.target.id}/document`
+    : `/api/workspaces/${context.workspaceId}/documents/${context.target.id}/content`;
 }

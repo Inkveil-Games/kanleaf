@@ -1,7 +1,7 @@
 # Kanleaf
 
 Kanleaf is a self-hosted desktop project and task manager built around a simple
-idea: structured work belongs in a database, while long-form task notes should
+idea: structured work belongs in a database, while Task notes and Pages should
 remain normal Markdown files.
 
 Kanleaf v0.1 provides a focused three-pane desktop workflow rather than a web
@@ -24,10 +24,14 @@ Markdown document.
 - Markdown comments, one-level replies, mentions, edit history, and moderation
 - Task activity, watch subscriptions, and a role-aware notification inbox
 - Account notification preferences with unread filtering and read state
+- Workspace Documents and Project Pages with ordered trees, nesting, moves,
+  keyboard navigation, and subtree archive
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
+- SHA-256 revision checks that preserve local Markdown when an external editor
+  changes the vault file
 - PostgreSQL-backed structured data and UUID-addressed filesystem vaults
 - Build-time server configuration for local, LAN, or HTTPS deployments
 - Docker Compose self-hosting and a Tauri v2 desktop shell
@@ -50,10 +54,12 @@ metadata         *.md files
 ```
 
 The server is the authorization boundary. PostgreSQL stores users, sessions,
-memberships, workspaces, projects, and task metadata. A task body is stored only
-at `vaults/<workspace-id>/Tasks/<task-id>.md`; renaming a task does not rename or
-rewrite its document. See [docs/architecture.md](docs/architecture.md) for the
-full boundary and data model.
+memberships, workspaces, projects, task metadata, and document-tree metadata.
+Markdown source is stored only at `vaults/<workspace-id>/Tasks/<task-id>.md` or
+`vaults/<workspace-id>/Pages/<document-id>.md`; title and hierarchy changes do
+not rename or rewrite those files. See
+[docs/architecture.md](docs/architecture.md) for the full boundary and data
+model.
 
 ## Development
 
