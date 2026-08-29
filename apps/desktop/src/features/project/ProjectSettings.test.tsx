@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type { Project, TaskConfiguration, Workspace } from '../workspace/types';
 import { ProjectSettings } from './ProjectSettings';
 
@@ -108,9 +109,10 @@ describe('ProjectSettings', () => {
     fireEvent.change(screen.getByLabelText('Description'), {
       target: { value: 'Focused Core delivery.' },
     });
-    fireEvent.change(screen.getByLabelText('Visibility'), {
-      target: { value: 'open' },
-    });
+    chooseSelectOption(
+      'Visibility',
+      'Open — Workspace Members can discover and join',
+    );
     fireEvent.click(
       screen.getByRole('button', { name: 'Save general settings' }),
     );
@@ -163,11 +165,14 @@ describe('ProjectSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Members' }));
 
     const candidate = await screen.findByLabelText('Workspace member');
-    await screen.findByRole('option', { name: /Guest User/ });
-    await waitFor(() => expect(candidate).toHaveValue('guest-1'));
+    await waitFor(() =>
+      expect(candidate).toHaveAttribute('data-value', 'guest-1'),
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'New Project role' }));
     expect(
       screen.queryByRole('option', { name: 'Admin' }),
     ).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
     await waitFor(() =>

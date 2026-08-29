@@ -29,6 +29,7 @@ import type {
   TaskType,
 } from '../workspace/types';
 import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Select } from '../../components/ui/Select';
 import { TaskActivity } from '../collaboration/TaskActivity';
 
 const MarkdownDocument = lazy(() =>
@@ -271,60 +272,60 @@ function SelectedTaskDetail({
         >
           <dl className="task-properties">
             <Property label="State">
-              <select
-                aria-label="State"
+              <Select
+                ariaLabel="State"
                 value={task.state.id}
                 disabled={!canEdit}
-                onChange={(event) =>
-                  void patch({ state_id: event.target.value })
-                }
-              >
-                {selectableStates(states, task).map((state) => (
-                  <option key={state.id} value={state.id}>
-                    {state.name}
-                  </option>
-                ))}
-              </select>
+                options={selectableStates(states, task).map((state) => ({
+                  value: state.id,
+                  label: state.name,
+                }))}
+                onValueChange={(value) => void patch({ state_id: value })}
+              />
             </Property>
             <Property label="Type">
-              <select
-                aria-label="Task type"
+              <Select
+                ariaLabel="Task type"
                 value={task.task_type.id}
                 disabled={!canEdit}
-                onChange={(event) =>
-                  void patch({ task_type_id: event.target.value })
-                }
-              >
-                {selectableTypes(taskTypes, task).map((taskType) => (
-                  <option key={taskType.id} value={taskType.id}>
-                    {taskType.name}
-                  </option>
-                ))}
-              </select>
+                options={selectableTypes(taskTypes, task).map((taskType) => ({
+                  value: taskType.id,
+                  label: taskType.name,
+                }))}
+                onValueChange={(value) => void patch({ task_type_id: value })}
+              />
             </Property>
             <Property label="Priority">
-              <select
-                aria-label="Priority"
+              <Select
+                ariaLabel="Priority"
                 value={task.priority}
                 disabled={!canEdit}
-                onChange={(event) =>
-                  void patch({ priority: event.target.value as TaskPriority })
+                options={[
+                  { value: 'none', label: 'No priority' },
+                  { value: 'low', label: 'Low' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'high', label: 'High' },
+                  { value: 'urgent', label: 'Urgent' },
+                ]}
+                onValueChange={(value) =>
+                  void patch({ priority: value as TaskPriority })
                 }
-              >
-                <option value="none">No priority</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+              />
             </Property>
             <Property label="Project">
-              <select
-                aria-label="Project"
+              <Select
+                ariaLabel="Project"
                 value={task.project_id ?? ''}
                 disabled={!canEdit}
-                onChange={(event) => {
-                  const projectId = event.target.value || null;
+                options={[
+                  { value: '', label: 'Inbox' },
+                  ...projects.map((project) => ({
+                    value: project.id,
+                    label: project.name,
+                  })),
+                ]}
+                onValueChange={(value) => {
+                  const projectId = value || null;
                   const cleanup = window.confirm(
                     'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
                   );
@@ -334,43 +335,35 @@ function SelectedTaskDetail({
                     cleanup_invalid: true,
                   });
                 }}
-              >
-                <option value="">Inbox</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+              />
             </Property>
             {task.project_id && (
               <Property label="Cycle">
-                <select
-                  aria-label="Cycle"
+                <Select
+                  ariaLabel="Cycle"
                   value={task.cycle?.id ?? ''}
                   disabled={!canEdit}
-                  onChange={(event) =>
-                    void patch({ cycle_id: event.target.value || null })
+                  options={[
+                    { value: '', label: 'No Cycle' },
+                    ...(task.cycle &&
+                    !cycles.some(({ id }) => id === task.cycle?.id)
+                      ? [{ value: task.cycle.id, label: task.cycle.name }]
+                      : []),
+                    ...cycles
+                      .filter(
+                        (cycle) =>
+                          cycle.status !== 'completed' ||
+                          cycle.id === task.cycle?.id,
+                      )
+                      .map((cycle) => ({
+                        value: cycle.id,
+                        label: `${cycle.name}${cycle.status === 'completed' ? ' · Completed' : ''}`,
+                      })),
+                  ]}
+                  onValueChange={(value) =>
+                    void patch({ cycle_id: value || null })
                   }
-                >
-                  <option value="">No Cycle</option>
-                  {task.cycle &&
-                    !cycles.some(({ id }) => id === task.cycle?.id) && (
-                      <option value={task.cycle.id}>{task.cycle.name}</option>
-                    )}
-                  {cycles
-                    .filter(
-                      (cycle) =>
-                        cycle.status !== 'completed' ||
-                        cycle.id === task.cycle?.id,
-                    )
-                    .map((cycle) => (
-                      <option key={cycle.id} value={cycle.id}>
-                        {cycle.name}
-                        {cycle.status === 'completed' ? ' · Completed' : ''}
-                      </option>
-                    ))}
-                </select>
+                />
               </Property>
             )}
             {task.project_id && (
@@ -460,27 +453,27 @@ function SelectedTaskDetail({
               />
             </Property>
             <Property label="Parent">
-              <select
-                aria-label="Parent task"
+              <Select
+                ariaLabel="Parent task"
                 disabled={!canEdit}
                 value={task.parent?.id ?? ''}
-                onChange={(event) =>
-                  void patch({ parent_id: event.target.value || null })
+                options={[
+                  { value: '', label: 'No parent' },
+                  ...taskCandidates
+                    .filter(
+                      (candidate) =>
+                        candidate.id !== task.id &&
+                        candidate.project_id === task.project_id,
+                    )
+                    .map((candidate) => ({
+                      value: candidate.id,
+                      label: `${candidate.reference} · ${candidate.title}`,
+                    })),
+                ]}
+                onValueChange={(value) =>
+                  void patch({ parent_id: value || null })
                 }
-              >
-                <option value="">No parent</option>
-                {taskCandidates
-                  .filter(
-                    (candidate) =>
-                      candidate.id !== task.id &&
-                      candidate.project_id === task.project_id,
-                  )
-                  .map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.reference} · {candidate.title}
-                    </option>
-                  ))}
-              </select>
+              />
             </Property>
           </dl>
           {error && (
@@ -576,39 +569,39 @@ function SelectedTaskDetail({
                   }}
                 >
                   <Link2 aria-hidden="true" size={14} />
-                  <select
-                    aria-label="Relation type"
+                  <Select
+                    ariaLabel="Relation type"
                     value={relationType}
-                    onChange={(event) =>
-                      setRelationType(event.target.value as TaskRelationType)
+                    options={[
+                      { value: 'relates_to', label: 'Relates to' },
+                      { value: 'blocking', label: 'Blocking' },
+                      { value: 'blocked_by', label: 'Blocked by' },
+                      { value: 'duplicate', label: 'Duplicate' },
+                    ]}
+                    onValueChange={(value) =>
+                      setRelationType(value as TaskRelationType)
                     }
-                  >
-                    <option value="relates_to">Relates to</option>
-                    <option value="blocking">Blocking</option>
-                    <option value="blocked_by">Blocked by</option>
-                    <option value="duplicate">Duplicate</option>
-                  </select>
-                  <select
-                    required
-                    aria-label="Related task"
+                  />
+                  <Select
+                    ariaLabel="Related task"
                     value={relatedTaskId}
-                    onChange={(event) => setRelatedTaskId(event.target.value)}
-                  >
-                    <option value="">Choose a Task…</option>
-                    {taskCandidates
-                      .filter(
-                        (candidate) =>
-                          candidate.id !== task.id &&
-                          !task.relations.some(
-                            (relation) => relation.task.id === candidate.id,
-                          ),
-                      )
-                      .map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.reference} · {candidate.title}
-                        </option>
-                      ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Choose a Task…' },
+                      ...taskCandidates
+                        .filter(
+                          (candidate) =>
+                            candidate.id !== task.id &&
+                            !task.relations.some(
+                              (relation) => relation.task.id === candidate.id,
+                            ),
+                        )
+                        .map((candidate) => ({
+                          value: candidate.id,
+                          label: `${candidate.reference} · ${candidate.title}`,
+                        })),
+                    ]}
+                    onValueChange={setRelatedTaskId}
+                  />
                   <button
                     type="submit"
                     disabled={relationSaving || !relatedTaskId}

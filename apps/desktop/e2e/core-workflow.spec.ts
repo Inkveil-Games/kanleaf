@@ -1,5 +1,19 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from '@playwright/test';
 import { serverUrl } from './environment';
+
+async function chooseSelectOption(
+  page: Page,
+  selectName: string,
+  optionName: string,
+) {
+  await page.getByRole('combobox', { name: selectName, exact: true }).click();
+  await page.getByRole('option', { name: optionName, exact: true }).click();
+}
 
 test('manages structured work and durable Markdown across reloads', async ({
   page,
@@ -20,15 +34,15 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Register' }).click();
 
   const workspaceSelect = page.getByLabel('Active workspace');
-  await expect(workspaceSelect).toHaveValue(/.+/);
-  await expect(workspaceSelect.locator('option')).toContainText(['Personal']);
+  await expect(workspaceSelect).toHaveAttribute('data-value', /.+/);
+  await expect(workspaceSelect).toContainText('Personal');
 
   await page.getByLabel('Workspace actions').click();
   await page.getByRole('menuitem', { name: 'New workspace' }).click();
   await page.getByLabel('Workspace name').fill('Studio');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(workspaceSelect).toHaveValue(/.+/);
-  await expect(workspaceSelect.locator('option:checked')).toHaveText('Studio');
+  await expect(workspaceSelect).toHaveAttribute('data-value', /.+/);
+  await expect(workspaceSelect).toContainText('Studio');
 
   await page.getByLabel('Workspace actions').click();
   await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
@@ -36,9 +50,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
   await expect(page.getByText('Workspace updated')).toBeVisible();
-  await expect(workspaceSelect.locator('option:checked')).toHaveText(
-    'Studio Workspace',
-  );
+  await expect(workspaceSelect).toContainText('Studio Workspace');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await page.locator('.account-button').click();
   await expect(
@@ -59,7 +71,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.setViewportSize({ width: 960, height: 640 });
   await page.getByRole('button', { name: 'States' }).click();
   await page.getByPlaceholder('State name').fill('Review');
-  await page.getByLabel('State group').selectOption('in_progress');
+  await chooseSelectOption(page, 'State group', 'In progress');
   await page.getByRole('button', { name: 'Add state' }).click();
   await expect(page.getByLabel('Review name')).toBeVisible();
   await page.getByRole('button', { name: 'Task types' }).click();
@@ -85,7 +97,11 @@ test('manages structured work and durable Markdown across reloads', async ({
     .getByRole('button', { name: 'Settings' })
     .click();
   await page.getByLabel('Description').fill('Kanleaf Core delivery project.');
-  await page.getByLabel('Visibility').selectOption('open');
+  await chooseSelectOption(
+    page,
+    'Visibility',
+    'Open — Workspace Members can discover and join',
+  );
   await page.getByRole('button', { name: 'Save general settings' }).click();
   await expect(page.getByText('Project details saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Features' }).click();
@@ -101,7 +117,7 @@ test('manages structured work and durable Markdown across reloads', async ({
 
   const projectNavigation = page.locator('.project-subnav');
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
-  await page.getByLabel('Layout').selectOption('board');
+  await chooseSelectOption(page, 'Layout', 'Board');
   await projectNavigation.getByRole('button', { name: 'Library' }).click();
   await expect(page.locator('.document-detail-pane')).toBeVisible();
   await page.getByRole('button', { name: 'New Library note' }).click();
@@ -174,7 +190,7 @@ let source_is_markdown = true;
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
-  await page.getByLabel('Layout').selectOption('list');
+  await chooseSelectOption(page, 'Layout', 'List');
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
@@ -205,21 +221,21 @@ let source_is_markdown = true;
     'Complete the v0.1 workflow',
   );
 
-  await page.getByLabel('Cycle').selectOption({ label: 'Cycle 1' });
-  await expect(page.getByLabel('Cycle')).toHaveValue(/.+/);
+  await chooseSelectOption(page, 'Cycle', 'Cycle 1');
+  await expect(page.getByLabel('Cycle')).toHaveAttribute('data-value', /.+/);
   await page.getByLabel('Edit Modules').click();
   await page.getByRole('menuitemcheckbox', { name: 'Core' }).click();
   await expect(page.getByLabel('Edit Modules')).toContainText('Core');
   await page.keyboard.press('Escape');
 
-  await page.getByLabel('State').selectOption({ label: 'Review' });
-  await page.getByLabel('Task type').selectOption({ label: 'Bug' });
-  await page.getByLabel('Priority').selectOption('urgent');
+  await chooseSelectOption(page, 'State', 'Review');
+  await chooseSelectOption(page, 'Task type', 'Bug');
+  await chooseSelectOption(page, 'Priority', 'Urgent');
   await page.getByLabel('Edit assignees').click();
   await page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click();
   await page.getByLabel('Due date').fill('2026-09-30');
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.getByLabel('Project', { exact: true }).selectOption('');
+  await chooseSelectOption(page, 'Project', 'Inbox');
 
   await page.getByRole('button', { name: 'My Work' }).click();
   const taskRow = page
@@ -258,7 +274,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByRole('button', { name: 'Filter tasks' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Urgent' }).click();
   await page.keyboard.press('Escape');
-  await page.getByLabel('Layout').selectOption('table');
+  await chooseSelectOption(page, 'Layout', 'Table');
   await page.getByRole('button', { name: 'Save View' }).click();
   await page.getByLabel('Name').fill('Urgent work');
   await page.getByRole('radio', { name: /Shared/ }).click();
@@ -271,15 +287,12 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.reload();
   await expect(taskRow).toBeVisible();
   await taskRow.click();
-  await expect(page.getByLabel('State')).toHaveValue(/.+/);
-  await expect(page.getByLabel('State').locator('option:checked')).toHaveText(
-    'Review',
+  await expect(page.getByLabel('State')).toContainText('Review');
+  await expect(page.getByLabel('Task type')).toContainText('Bug');
+  await expect(page.getByLabel('Priority')).toHaveAttribute(
+    'data-value',
+    'urgent',
   );
-  await expect(page.getByLabel('Task type')).toHaveValue(/.+/);
-  await expect(
-    page.getByLabel('Task type').locator('option:checked'),
-  ).toHaveText('Bug');
-  await expect(page.getByLabel('Priority')).toHaveValue('urgent');
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
@@ -287,7 +300,10 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
 
   await page.getByRole('button', { name: 'Urgent work' }).click();
-  await expect(page.getByLabel('Layout')).toHaveValue('table');
+  await expect(page.getByLabel('Layout')).toHaveAttribute(
+    'data-value',
+    'table',
+  );
   await expect(page.getByRole('table')).toContainText(
     'Complete the v0.1 workflow',
   );
@@ -416,7 +432,8 @@ test('delivers collaboration activity through the notification inbox', async ({
     owner.token,
   );
   await page.goto('/');
-  await expect(page.getByLabel('Active workspace')).toHaveValue(
+  await expect(page.getByLabel('Active workspace')).toHaveAttribute(
+    'data-value',
     owner.workspaceId,
   );
   await expect(page.getByLabel('1 unread')).toBeVisible();

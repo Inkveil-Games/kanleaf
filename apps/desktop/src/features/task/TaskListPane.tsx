@@ -1,4 +1,5 @@
 import { CalendarDays, Plus, Search, X } from 'lucide-react';
+import { Select } from '../../components/ui/Select';
 import {
   useEffect,
   useRef,
@@ -315,47 +316,48 @@ export function TaskListPane({
             <strong>{checkedVisibleIds.length} selected</strong>
             <label>
               <span className="sr-only">Set state</span>
-              <select
-                defaultValue=""
+              <Select
+                ariaLabel="Set state"
+                value=""
                 disabled={bulkUpdating}
-                onChange={(event) => {
-                  if (event.target.value) {
-                    void applyBulk({ state_id: event.target.value });
-                    event.target.value = '';
+                options={[
+                  { value: '', label: 'State…' },
+                  ...states
+                    .filter(({ archived_at }) => !archived_at)
+                    .map((state) => ({
+                      value: state.id,
+                      label: state.name,
+                    })),
+                ]}
+                onValueChange={(value) => {
+                  if (value) {
+                    void applyBulk({ state_id: value });
                   }
                 }}
-              >
-                <option value="">State…</option>
-                {states
-                  .filter(({ archived_at }) => !archived_at)
-                  .map((state) => (
-                    <option key={state.id} value={state.id}>
-                      {state.name}
-                    </option>
-                  ))}
-              </select>
+              />
             </label>
             <label>
               <span className="sr-only">Set priority</span>
-              <select
-                defaultValue=""
+              <Select
+                ariaLabel="Set priority"
+                value=""
                 disabled={bulkUpdating}
-                onChange={(event) => {
-                  if (event.target.value) {
+                options={[
+                  { value: '', label: 'Priority…' },
+                  { value: 'none', label: 'None' },
+                  { value: 'low', label: 'Low' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'high', label: 'High' },
+                  { value: 'urgent', label: 'Urgent' },
+                ]}
+                onValueChange={(value) => {
+                  if (value) {
                     void applyBulk({
-                      priority: event.target.value as Task['priority'],
+                      priority: value as Task['priority'],
                     });
-                    event.target.value = '';
                   }
                 }}
-              >
-                <option value="">Priority…</option>
-                <option value="none">None</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+              />
             </label>
             <button
               type="button"

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import type { User } from '../../lib/api/types';
 import { NotificationSettings } from '../collaboration/NotificationSettings';
 import { SettingsArticle } from '../settings/SettingsArticle';
@@ -173,14 +174,16 @@ function PreferenceSettings({
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
         <label className="settings-field">
           <span>Theme</span>
-          <select
+          <Select
+            ariaLabel="Theme"
             value={theme}
-            onChange={(event) => setTheme(event.target.value as User['theme'])}
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
+            options={[
+              { value: 'system', label: 'System' },
+              { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
+            ]}
+            onValueChange={(value) => setTheme(value as User['theme'])}
+          />
         </label>
         <label className="settings-field">
           <span>Timezone</span>
@@ -195,29 +198,31 @@ function PreferenceSettings({
         </label>
         <label className="settings-field">
           <span>Week starts on</span>
-          <select
+          <Select
+            ariaLabel="Week starts on"
             value={weekStart}
-            onChange={(event) =>
-              setWeekStart(event.target.value as User['week_start'])
-            }
-          >
-            <option value="monday">Monday</option>
-            <option value="sunday">Sunday</option>
-          </select>
+            options={[
+              { value: 'monday', label: 'Monday' },
+              { value: 'sunday', label: 'Sunday' },
+            ]}
+            onValueChange={(value) => setWeekStart(value as User['week_start'])}
+          />
         </label>
         <label className="settings-field">
           <span>Date format</span>
-          <select
+          <Select
+            ariaLabel="Date format"
             value={dateFormat}
-            onChange={(event) =>
-              setDateFormat(event.target.value as User['date_format'])
+            options={[
+              { value: 'locale', label: 'Locale default' },
+              { value: 'yyyy_mm_dd', label: 'YYYY-MM-DD' },
+              { value: 'dd_mm_yyyy', label: 'DD-MM-YYYY' },
+              { value: 'mm_dd_yyyy', label: 'MM-DD-YYYY' },
+            ]}
+            onValueChange={(value) =>
+              setDateFormat(value as User['date_format'])
             }
-          >
-            <option value="locale">Locale default</option>
-            <option value="yyyy_mm_dd">YYYY-MM-DD</option>
-            <option value="dd_mm_yyyy">DD-MM-YYYY</option>
-            <option value="mm_dd_yyyy">MM-DD-YYYY</option>
-          </select>
+          />
         </label>
         <FormActions state={state} label="Save preferences" />
       </form>

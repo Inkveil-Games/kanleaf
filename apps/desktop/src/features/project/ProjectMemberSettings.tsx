@@ -1,6 +1,7 @@
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { UserMinus } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
@@ -162,14 +163,21 @@ export function ProjectMemberSettings({
       >
         <label className="settings-field">
           <span>Workspace member</span>
-          <select
-            aria-label="Workspace member"
+          <Select
+            ariaLabel="Workspace member"
             value={selectedCandidateId}
             disabled={
               workspaceMembersQuery.isPending || candidates.length === 0
             }
-            onChange={(event) => {
-              const nextId = event.target.value;
+            options={
+              candidates.length === 0
+                ? [{ value: '', label: 'No members available' }]
+                : candidates.map((member) => ({
+                    value: member.user_id,
+                    label: `${member.display_name} · ${titleCase(member.role)}`,
+                  }))
+            }
+            onValueChange={(nextId) => {
               setCandidateId(nextId);
               const nextCandidate = candidates.find(
                 ({ user_id }) => user_id === nextId,
@@ -178,31 +186,23 @@ export function ProjectMemberSettings({
                 setRole('contributor');
               }
             }}
-          >
-            {candidates.length === 0 && (
-              <option value="">No members available</option>
-            )}
-            {candidates.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
-                {member.display_name} · {titleCase(member.role)}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <label className="settings-field">
           <span>Project role</span>
-          <select
-            aria-label="New Project role"
+          <Select
+            ariaLabel="New Project role"
             value={selectedRole}
-            onChange={(event) => setRole(event.target.value as ProjectRole)}
-          >
-            {selectedCandidate?.role !== 'guest' && (
-              <option value="admin">Admin</option>
-            )}
-            <option value="contributor">Contributor</option>
-            <option value="commenter">Commenter</option>
-            <option value="viewer">Viewer</option>
-          </select>
+            options={[
+              ...(selectedCandidate?.role !== 'guest'
+                ? [{ value: 'admin', label: 'Admin' }]
+                : []),
+              { value: 'contributor', label: 'Contributor' },
+              { value: 'commenter', label: 'Commenter' },
+              { value: 'viewer', label: 'Viewer' },
+            ]}
+            onValueChange={(value) => setRole(value as ProjectRole)}
+          />
         </label>
         <button
           className="primary-button compact-button"
@@ -240,19 +240,22 @@ export function ProjectMemberSettings({
                 {member.implicit ? (
                   <span className="role-label">Admin · Workspace</span>
                 ) : (
-                  <select
-                    aria-label={`${member.display_name} Project role`}
+                  <Select
+                    ariaLabel={`${member.display_name} Project role`}
                     value={member.role}
                     disabled={busyMember === member.user_id}
-                    onChange={(event) =>
-                      void changeRole(member, event.target.value as ProjectRole)
+                    options={[
+                      ...(canBeAdmin
+                        ? [{ value: 'admin', label: 'Admin' }]
+                        : []),
+                      { value: 'contributor', label: 'Contributor' },
+                      { value: 'commenter', label: 'Commenter' },
+                      { value: 'viewer', label: 'Viewer' },
+                    ]}
+                    onValueChange={(value) =>
+                      void changeRole(member, value as ProjectRole)
                     }
-                  >
-                    {canBeAdmin && <option value="admin">Admin</option>}
-                    <option value="contributor">Contributor</option>
-                    <option value="commenter">Commenter</option>
-                    <option value="viewer">Viewer</option>
-                  </select>
+                  />
                 )}
                 <div className="row-actions">
                   {!member.implicit && (

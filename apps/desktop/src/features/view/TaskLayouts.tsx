@@ -1,5 +1,6 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import type {
   Project,
   Task,
@@ -351,47 +352,43 @@ function TaskTable({
                 </th>
                 {show('state') && (
                   <td>
-                    <select
-                      aria-label={`${task.title} state`}
+                    <Select
+                      ariaLabel={`${task.title} state`}
                       value={task.state.id}
                       disabled={!editable}
-                      onChange={(event) =>
+                      options={states
+                        .filter(({ archived_at }) => !archived_at)
+                        .map((state) => ({
+                          value: state.id,
+                          label: state.name,
+                        }))}
+                      onValueChange={(value) =>
                         void onPatchTask(task.id, {
-                          state_id: event.target.value,
+                          state_id: value,
                         })
                       }
-                    >
-                      {states
-                        .filter(({ archived_at }) => !archived_at)
-                        .map((state) => (
-                          <option key={state.id} value={state.id}>
-                            {state.name}
-                          </option>
-                        ))}
-                    </select>
+                    />
                   </td>
                 )}
                 {show('task_type') && <td>{task.task_type.name}</td>}
                 {show('priority') && (
                   <td>
-                    <select
-                      aria-label={`${task.title} priority`}
+                    <Select
+                      ariaLabel={`${task.title} priority`}
                       value={task.priority}
                       disabled={!editable}
-                      onChange={(event) =>
+                      options={(
+                        ['none', 'low', 'medium', 'high', 'urgent'] as const
+                      ).map((priority) => ({
+                        value: priority,
+                        label: capitalize(priority),
+                      }))}
+                      onValueChange={(value) =>
                         void onPatchTask(task.id, {
-                          priority: event.target.value as TaskPriority,
+                          priority: value as TaskPriority,
                         })
                       }
-                    >
-                      {(
-                        ['none', 'low', 'medium', 'high', 'urgent'] as const
-                      ).map((priority) => (
-                        <option key={priority} value={priority}>
-                          {capitalize(priority)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </td>
                 )}
                 {show('project') && (

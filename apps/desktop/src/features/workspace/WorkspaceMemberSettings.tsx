@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserMinus } from 'lucide-react';
 import { useState } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import { errorMessage, monogram, titleCase } from '../settings/utils';
@@ -133,21 +134,19 @@ export function WorkspaceMemberSettings({
                   <small>{member.email}</small>
                 </div>
                 {mutable ? (
-                  <select
-                    aria-label={`${member.display_name} role`}
+                  <Select
+                    ariaLabel={`${member.display_name} role`}
                     value={member.role}
                     disabled={busyMember === member.user_id}
-                    onChange={(event) =>
-                      void changeRole(
-                        member,
-                        event.target.value as AssignableWorkspaceRole,
-                      )
+                    options={[
+                      { value: 'admin', label: 'Admin' },
+                      { value: 'member', label: 'Member' },
+                      { value: 'guest', label: 'Guest' },
+                    ]}
+                    onValueChange={(value) =>
+                      void changeRole(member, value as AssignableWorkspaceRole)
                     }
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="member">Member</option>
-                    <option value="guest">Guest</option>
-                  </select>
+                  />
                 ) : (
                   <span className="role-label">{titleCase(member.role)}</span>
                 )}

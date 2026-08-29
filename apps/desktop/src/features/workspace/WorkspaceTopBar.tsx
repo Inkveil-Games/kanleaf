@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -9,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Select } from '../../components/ui/Select';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { Notifications } from '../collaboration/Notifications';
 import { InlineNameForm } from './InlineNameForm';
@@ -71,21 +71,15 @@ export function WorkspaceTopBar({
         </button>
         <Wordmark quiet />
         <div className="workspace-switcher topbar-workspace-switcher">
-          <label className="sr-only" htmlFor="workspace-select">
-            Active workspace
-          </label>
-          <select
-            id="workspace-select"
+          <Select
+            ariaLabel="Active workspace"
             value={workspaceId}
-            onChange={(event) => void onSwitchWorkspace(event.target.value)}
-          >
-            {workspaces.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden="true" size={14} />
+            options={workspaces.map((candidate) => ({
+              value: candidate.id,
+              label: candidate.name,
+            }))}
+            onValueChange={(value) => void onSwitchWorkspace(value)}
+          />
           <ContextMenu label="Workspace actions">
             {canManage && (
               <button

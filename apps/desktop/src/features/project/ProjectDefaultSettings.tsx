@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { FormActions, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -92,44 +93,43 @@ export function ProjectDefaultSettings({
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
         <label className="settings-field">
           <span>Default state</span>
-          <select
+          <Select
+            ariaLabel="Default state"
             value={defaultStateId}
-            onChange={(event) => setDefaultStateId(event.target.value)}
-          >
-            {states.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+            options={states.map((item) => ({
+              value: item.id,
+              label: item.name,
+            }))}
+            onValueChange={setDefaultStateId}
+          />
         </label>
         <label className="settings-field">
           <span>Default task type</span>
-          <select
+          <Select
+            ariaLabel="Default task type"
             value={defaultTypeId}
-            onChange={(event) => changeDefaultType(event.target.value)}
-          >
-            {taskTypes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+            options={taskTypes.map((item) => ({
+              value: item.id,
+              label: item.name,
+            }))}
+            onValueChange={changeDefaultType}
+          />
         </label>
         <label className="settings-field">
           <span>Default assignee</span>
-          <select
+          <Select
+            ariaLabel="Default assignee"
             value={defaultAssigneeId}
             disabled={membersLoading}
-            onChange={(event) => setDefaultAssigneeId(event.target.value)}
-          >
-            <option value="">Unassigned</option>
-            {members.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
-                {member.display_name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'Unassigned' },
+              ...members.map((member) => ({
+                value: member.user_id,
+                label: member.display_name,
+              })),
+            ]}
+            onValueChange={setDefaultAssigneeId}
+          />
         </label>
         <fieldset className="project-type-options">
           <legend>Enabled task types</legend>

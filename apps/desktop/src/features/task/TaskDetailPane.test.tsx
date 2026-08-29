@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type {
   Project,
   ProjectCycle,
@@ -169,15 +170,9 @@ describe('TaskDetailPane', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('State'), {
-      target: { value: 'state-progress' },
-    });
-    fireEvent.change(screen.getByLabelText('Task type'), {
-      target: { value: 'type-bug' },
-    });
-    fireEvent.change(screen.getByLabelText('Priority'), {
-      target: { value: 'high' },
-    });
+    chooseSelectOption('State', 'In Review');
+    chooseSelectOption('Task type', 'Bug');
+    chooseSelectOption('Priority', 'High');
     fireEvent.change(screen.getByLabelText('Due date'), {
       target: { value: '2026-09-04' },
     });
@@ -185,9 +180,7 @@ describe('TaskDetailPane', () => {
     fireEvent.click(
       screen.getByRole('menuitemcheckbox', { name: 'Alex Morgan' }),
     );
-    fireEvent.change(screen.getByLabelText('Project'), {
-      target: { value: 'project-1' },
-    });
+    chooseSelectOption('Project', 'Kanleaf');
     const title = screen.getByLabelText('Task title');
     fireEvent.change(title, { target: { value: 'Document the architecture' } });
     fireEvent.blur(title);
@@ -280,9 +273,7 @@ describe('TaskDetailPane', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Cycle'), {
-      target: { value: 'cycle-1' },
-    });
+    chooseSelectOption('Cycle', 'Cycle 1');
     fireEvent.click(screen.getByRole('button', { name: 'Edit Modules' }));
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Backend' }));
 

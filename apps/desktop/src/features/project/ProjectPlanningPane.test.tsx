@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type {
   Project,
   ProjectCycle,
@@ -226,12 +227,8 @@ describe('ProjectPlanningPane', () => {
     expect(
       await screen.findByRole('heading', { name: 'Backend', level: 2 }),
     ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Status'), {
-      target: { value: 'paused' },
-    });
-    fireEvent.change(screen.getByLabelText('Lead'), {
-      target: { value: 'user-1' },
-    });
+    chooseSelectOption('Module status', 'Paused');
+    chooseSelectOption('Module lead', 'Alex Morgan');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() =>
       expect(updateProjectModule).toHaveBeenCalledWith(

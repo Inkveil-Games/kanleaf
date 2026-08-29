@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
+import { Select } from '../../components/ui/Select';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
 import { descendantIds, isProjectEditor } from './tree';
@@ -98,42 +99,44 @@ export function DocumentDetail({
       <div className="document-metadata-bar">
         <label>
           <span>Location</span>
-          <select
+          <Select
+            ariaLabel="Library location"
             disabled={!document.can_edit}
             value={document.project_id ?? ''}
-            onChange={(event) =>
+            options={[
+              { value: '', label: 'Workspace' },
+              ...editableProjects.map((project) => ({
+                value: project.id,
+                label: project.name,
+              })),
+            ]}
+            onValueChange={(value) =>
               void onPatch({
-                project_id: event.target.value || null,
+                project_id: value || null,
                 parent_id: null,
               }).catch(() => undefined)
             }
-          >
-            <option value="">Workspace</option>
-            {editableProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <label>
           <span>Parent</span>
-          <select
+          <Select
+            ariaLabel="Library parent"
             disabled={!document.can_edit}
             value={document.parent_id ?? ''}
-            onChange={(event) =>
+            options={[
+              { value: '', label: 'No parent' },
+              ...parentOptions.map((candidate) => ({
+                value: candidate.id,
+                label: candidate.title,
+              })),
+            ]}
+            onValueChange={(value) =>
               void onPatch({
-                parent_id: event.target.value || null,
+                parent_id: value || null,
               }).catch(() => undefined)
             }
-          >
-            <option value="">No parent</option>
-            {parentOptions.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.title}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <div className="library-file-path" title={document.library_path}>
           <span>File</span>

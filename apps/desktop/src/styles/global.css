@@ -54,6 +54,112 @@ select {
   outline-offset: 2px;
 }
 
+.kanleaf-select {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.select-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-canvas);
+  font: inherit;
+  text-align: left;
+}
+
+.select-trigger:hover:not(:disabled),
+.select-trigger[aria-expanded='true'] {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-hover);
+}
+
+.select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  transition: transform 120ms ease;
+}
+
+.select-trigger[aria-expanded='true'] .select-chevron {
+  transform: rotate(180deg);
+}
+
+.select-popover {
+  position: fixed;
+  z-index: 110;
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  scrollbar-width: thin;
+}
+
+.select-option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 5px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: transparent;
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.select-option > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-option > svg {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+}
+
+.select-option:hover:not(:disabled),
+.select-option:focus-visible,
+.select-option[aria-selected='true'] {
+  outline: 0;
+  background: var(--color-selection);
+}
+
+.select-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .wordmark {
   display: flex;
   align-items: center;
@@ -823,30 +929,22 @@ select {
   align-items: center;
 }
 
-.workspace-switcher select {
+.workspace-switcher .select-trigger {
   width: 100%;
   height: 34px;
-  padding: 0 48px 0 var(--space-2);
+  padding: 0 var(--space-2);
   overflow: hidden;
-  appearance: none;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--color-text);
   background: transparent;
   font-size: var(--font-size-sm);
   font-weight: 650;
-  text-overflow: ellipsis;
 }
 
-.workspace-switcher > svg {
-  position: absolute;
-  right: 35px;
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.workspace-switcher select:hover,
-.workspace-switcher select:focus-visible {
+.workspace-switcher .select-trigger:hover,
+.workspace-switcher .select-trigger:focus-visible,
+.workspace-switcher .select-trigger[aria-expanded='true'] {
   border-color: var(--color-border);
   background: var(--color-surface-hover);
 }
@@ -1248,8 +1346,8 @@ select {
   display: none;
 }
 
-.view-layout-list .view-layout-select select,
-.view-layout-list .view-compact-select select {
+.view-layout-list .view-layout-select .select-trigger,
+.view-layout-list .view-compact-select .select-trigger {
   max-width: 54px;
 }
 
@@ -1274,6 +1372,11 @@ select {
   color: var(--color-text-muted);
 }
 
+.view-layout-select .kanleaf-select,
+.view-compact-select .kanleaf-select {
+  width: auto;
+}
+
 .view-layout-select:hover,
 .view-compact-select:hover {
   border-color: var(--color-border);
@@ -1290,8 +1393,9 @@ select {
   font-size: 0.6rem;
 }
 
-.view-layout-select select,
-.view-compact-select select {
+.view-layout-select .select-trigger,
+.view-compact-select .select-trigger {
+  width: auto;
   height: 25px;
   padding: 0 14px 0 1px;
   border: 0;
@@ -1301,6 +1405,13 @@ select {
   font: inherit;
   font-size: 0.7rem;
   font-weight: 570;
+}
+
+.view-layout-select .select-trigger:hover,
+.view-compact-select .select-trigger:hover,
+.view-layout-select .select-trigger[aria-expanded='true'],
+.view-compact-select .select-trigger[aria-expanded='true'] {
+  background: transparent;
 }
 
 .view-control-menu .context-menu-trigger,
@@ -1624,7 +1735,7 @@ select {
   white-space: nowrap;
 }
 
-.bulk-toolbar select,
+.bulk-toolbar .select-trigger,
 .bulk-toolbar button {
   min-width: 0;
   height: 28px;
@@ -1634,6 +1745,10 @@ select {
   color: var(--color-text);
   background: var(--color-surface);
   font-size: 0.68rem;
+}
+
+.bulk-toolbar .kanleaf-select {
+  min-width: 0;
 }
 
 .task-search input {
@@ -2043,8 +2158,11 @@ kbd {
   font-size: 0.58rem;
 }
 
-.task-table select {
+.task-table .kanleaf-select {
   max-width: 130px;
+}
+
+.task-table .select-trigger {
   height: 25px;
   padding: 0 15px 0 4px;
   border: 1px solid transparent;
@@ -2053,8 +2171,9 @@ kbd {
   font: inherit;
 }
 
-.task-table select:hover:not(:disabled),
-.task-table select:focus-visible {
+.task-table .select-trigger:hover:not(:disabled),
+.task-table .select-trigger:focus-visible,
+.task-table .select-trigger[aria-expanded='true'] {
   border-color: var(--color-border);
   background: var(--color-surface);
 }
@@ -2594,7 +2713,7 @@ kbd {
   margin: 0;
 }
 
-.task-properties select,
+.task-properties .select-trigger,
 .task-properties input {
   width: 100%;
   height: 31px;
@@ -2606,7 +2725,8 @@ kbd {
   font-size: var(--font-size-sm);
 }
 
-.task-properties select:hover,
+.task-properties .select-trigger:hover,
+.task-properties .select-trigger[aria-expanded='true'],
 .task-properties input:hover {
   background: var(--color-surface-muted);
 }
@@ -3125,7 +3245,7 @@ kbd {
   margin-top: var(--space-3);
 }
 
-.relation-form select,
+.relation-form .select-trigger,
 .relation-form button {
   min-width: 0;
   height: 31px;
@@ -3135,6 +3255,10 @@ kbd {
   color: var(--color-text);
   background: var(--color-surface);
   font-size: 0.72rem;
+}
+
+.relation-form .kanleaf-select {
+  min-width: 0;
 }
 
 .relation-form button {
@@ -3522,8 +3646,11 @@ button.document-tree-toggle:hover {
   font-size: 0.67rem;
 }
 
-.document-metadata-bar select {
+.document-metadata-bar .kanleaf-select {
   max-width: 180px;
+}
+
+.document-metadata-bar .select-trigger {
   height: 27px;
   padding: 0 22px 0 6px;
   border: 1px solid var(--color-border);
@@ -4209,10 +4336,10 @@ button.document-tree-toggle:hover {
 }
 
 .configuration-create-form input,
-.configuration-create-form select,
+.configuration-create-form .select-trigger,
 .configuration-row input,
-.configuration-row select,
-.configuration-delete select {
+.configuration-row .select-trigger,
+.configuration-delete .select-trigger {
   width: 100%;
   min-width: 0;
   height: 32px;
@@ -4226,10 +4353,10 @@ button.document-tree-toggle:hover {
 }
 
 .configuration-create-form input:focus,
-.configuration-create-form select:focus,
+.configuration-create-form .select-trigger:focus,
 .configuration-row input:focus,
-.configuration-row select:focus,
-.configuration-delete select:focus {
+.configuration-row .select-trigger:focus,
+.configuration-delete .select-trigger:focus {
   border-color: var(--color-focus);
   box-shadow: 0 0 0 1px var(--color-focus);
 }
@@ -4280,7 +4407,7 @@ button.document-tree-toggle:hover {
 }
 
 .configuration-row input:disabled,
-.configuration-row select:disabled {
+.configuration-row .select-trigger:disabled {
   border-color: transparent;
   color: var(--color-text);
   background: transparent;
@@ -4480,9 +4607,9 @@ button.document-tree-toggle:hover {
 }
 
 .settings-field input,
-.settings-field select,
+.settings-field .select-trigger,
 .settings-field textarea,
-.member-row select,
+.member-row .select-trigger,
 .token-copy-row input {
   width: 100%;
   height: 36px;
@@ -4509,23 +4636,23 @@ button.document-tree-toggle:hover {
 }
 
 .settings-field input:hover:not(:disabled),
-.settings-field select:hover:not(:disabled),
+.settings-field .select-trigger:hover:not(:disabled),
 .settings-field textarea:hover:not(:disabled),
-.member-row select:hover:not(:disabled) {
+.member-row .select-trigger:hover:not(:disabled) {
   border-color: var(--color-text-muted);
 }
 
 .settings-field input:focus,
-.settings-field select:focus,
+.settings-field .select-trigger:focus,
 .settings-field textarea:focus,
-.member-row select:focus,
+.member-row .select-trigger:focus,
 .token-copy-row input:focus {
   border-color: var(--color-focus);
   box-shadow: 0 0 0 1px var(--color-focus);
 }
 
 .settings-field input:disabled,
-.settings-field select:disabled {
+.settings-field .select-trigger:disabled {
   cursor: not-allowed;
   opacity: 0.68;
 }
@@ -4736,7 +4863,7 @@ button.document-tree-toggle:hover {
   grid-template-columns: 34px minmax(130px, 1fr) 112px auto;
 }
 
-.member-row select {
+.member-row .select-trigger {
   height: 30px;
   padding: 0 var(--space-2);
   font-size: 0.72rem;
@@ -4977,9 +5104,9 @@ button.document-tree-toggle:hover {
 
 .planning-create-form input,
 .planning-editor input,
-.planning-editor select,
+.planning-editor .select-trigger,
 .planning-editor textarea,
-.cycle-complete-control select {
+.cycle-complete-control .select-trigger {
   width: 100%;
   min-height: var(--control-height);
   padding: 6px var(--space-2);
@@ -5129,7 +5256,7 @@ button.document-tree-toggle:hover {
   min-width: min(100%, 430px);
 }
 
-.cycle-complete-control select {
+.cycle-complete-control .kanleaf-select {
   min-width: 180px;
 }
 
@@ -5523,7 +5650,7 @@ button.document-tree-toggle:hover {
     gap: 3px 10px;
   }
 
-  .document-metadata-bar select {
+  .document-metadata-bar .kanleaf-select {
     max-width: 105px;
   }
 

@@ -7,6 +7,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -381,17 +382,18 @@ function TaskTypeRow({
             <p>Choose a replacement when this type is in use.</p>
             <label>
               <span className="sr-only">Replacement for {taskType.name}</span>
-              <select
+              <Select
+                ariaLabel={`Replacement for ${taskType.name}`}
                 value={replacementId}
-                onChange={(event) => setReplacementId(event.target.value)}
-              >
-                <option value="">No replacement</option>
-                {replacements.map((replacement) => (
-                  <option key={replacement.id} value={replacement.id}>
-                    {replacement.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'No replacement' },
+                  ...replacements.map((replacement) => ({
+                    value: replacement.id,
+                    label: replacement.name,
+                  })),
+                ]}
+                onValueChange={setReplacementId}
+              />
             </label>
             <button
               className="danger-button"

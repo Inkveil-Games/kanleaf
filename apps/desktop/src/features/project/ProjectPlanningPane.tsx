@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, CalendarRange, Layers3, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { Select } from '../../components/ui/Select';
 import {
   archiveProjectCycle,
   archiveProjectModule,
@@ -517,18 +518,21 @@ function CycleEditor({
             {saving ? 'Saving…' : 'Save changes'}
           </button>
           <div className="cycle-complete-control">
-            <select
-              aria-label="Transfer incomplete work"
+            <Select
+              ariaLabel="Transfer incomplete work"
               value={transferId}
-              onChange={(event) => setTransferId(event.target.value)}
-            >
-              <option value="">Leave incomplete work unassigned</option>
-              {futureCycles.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  Transfer to {candidate.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label: 'Leave incomplete work unassigned',
+                },
+                ...futureCycles.map((candidate) => ({
+                  value: candidate.id,
+                  label: `Transfer to ${candidate.name}`,
+                })),
+              ]}
+              onValueChange={setTransferId}
+            />
             <button
               className="primary-button compact-button"
               type="button"
@@ -591,34 +595,32 @@ function ModuleEditor({
       <div className="planning-field-row">
         <label>
           <span>Status</span>
-          <select
+          <Select
+            ariaLabel="Module status"
             disabled={!canEdit}
             value={status}
-            onChange={(event) =>
-              setStatus(event.target.value as ProjectModuleStatus)
-            }
-          >
-            {MODULE_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {statusLabel(value)}
-              </option>
-            ))}
-          </select>
+            options={MODULE_STATUSES.map((value) => ({
+              value,
+              label: statusLabel(value),
+            }))}
+            onValueChange={(value) => setStatus(value as ProjectModuleStatus)}
+          />
         </label>
         <label>
           <span>Lead</span>
-          <select
+          <Select
+            ariaLabel="Module lead"
             disabled={!canEdit}
             value={leadId}
-            onChange={(event) => setLeadId(event.target.value)}
-          >
-            <option value="">No lead</option>
-            {members.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
-                {member.display_name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'No lead' },
+              ...members.map((member) => ({
+                value: member.user_id,
+                label: member.display_name,
+              })),
+            ]}
+            onValueChange={setLeadId}
+          />
         </label>
       </div>
       {canEdit && (

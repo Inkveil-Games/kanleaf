@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type { Workspace } from './types';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 
@@ -46,9 +47,7 @@ describe('WorkspaceTopBar', () => {
     );
     expect(onToggleNavigation).toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('Active workspace'), {
-      target: { value: 'workspace-2' },
-    });
+    chooseSelectOption('Active workspace', 'Website');
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-2');
 
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions' }));

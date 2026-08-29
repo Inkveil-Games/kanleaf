@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type { Task, TaskState } from '../workspace/types';
 import { createTaskQuery } from '../view/types';
 import { TaskListPane } from './TaskListPane';
@@ -154,9 +155,7 @@ describe('TaskListPane', () => {
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
     fireEvent.click(screen.getByLabelText('Select Write contributor notes'));
     expect(screen.getByText('2 selected')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Set priority'), {
-      target: { value: 'urgent' },
-    });
+    chooseSelectOption('Set priority', 'Urgent');
 
     await waitFor(() =>
       expect(props.onBulkUpdate).toHaveBeenCalledWith({
@@ -172,9 +171,7 @@ describe('TaskListPane', () => {
     });
 
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
-    fireEvent.change(screen.getByLabelText('Set priority'), {
-      target: { value: 'urgent' },
-    });
+    chooseSelectOption('Set priority', 'Urgent');
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Server unavailable',
@@ -266,9 +263,7 @@ describe('TaskListPane', () => {
   it('supports inline edits in the table layout', async () => {
     const props = renderList({ layout: 'table' });
 
-    fireEvent.change(screen.getByLabelText('Design the navigation state'), {
-      target: { value: 'state-progress' },
-    });
+    chooseSelectOption('Design the navigation state', 'In Progress');
 
     await waitFor(() =>
       expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {

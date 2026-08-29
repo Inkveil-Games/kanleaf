@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Select } from '../../components/ui/Select';
 import type {
   Project,
   TaskLabel,
@@ -154,19 +155,18 @@ export function TaskViewToolbar({
         <label className="view-layout-select">
           <Columns3 aria-hidden="true" size={14} />
           <span className="sr-only">Layout</span>
-          <select
-            aria-label="Layout"
+          <Select
+            ariaLabel="Layout"
             value={layout}
-            onChange={(event) =>
-              onLayoutChange(event.target.value as TaskLayout)
-            }
-          >
-            <option value="list">List</option>
-            <option value="board">Board</option>
-            <option value="calendar">Calendar</option>
-            <option value="table">Table</option>
-            <option value="timeline">Timeline</option>
-          </select>
+            options={[
+              { value: 'list', label: 'List' },
+              { value: 'board', label: 'Board' },
+              { value: 'calendar', label: 'Calendar' },
+              { value: 'table', label: 'Table' },
+              { value: 'timeline', label: 'Timeline' },
+            ]}
+            onValueChange={(value) => onLayoutChange(value as TaskLayout)}
+          />
         </label>
 
         <ContextMenu
@@ -485,79 +485,69 @@ export function TaskViewToolbar({
         <label className="view-compact-select">
           <Group aria-hidden="true" size={14} />
           <span className="sr-only">Group by</span>
-          <select
-            aria-label="Group by"
+          <Select
+            ariaLabel="Group by"
             value={query.grouping.primary ?? ''}
-            onChange={(event) =>
+            options={[{ value: '', label: 'No grouping' }, ...groupFields]}
+            onValueChange={(value) =>
               onQueryChange({
                 ...query,
                 grouping: {
-                  primary: (event.target.value ||
-                    null) as TaskGroupField | null,
+                  primary: (value || null) as TaskGroupField | null,
                   secondary: null,
                 },
               })
             }
-          >
-            <option value="">No grouping</option>
-            {groupFields.map(({ value, label }) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         {query.grouping.primary && (
           <label className="view-compact-select view-secondary-select">
             <span>then</span>
-            <select
-              aria-label="Then group by"
+            <Select
+              ariaLabel="Then group by"
               value={query.grouping.secondary ?? ''}
-              onChange={(event) =>
+              options={[
+                { value: '', label: 'No second group' },
+                ...groupFields.filter(
+                  ({ value }) => value !== query.grouping.primary,
+                ),
+              ]}
+              onValueChange={(value) =>
                 onQueryChange({
                   ...query,
                   grouping: {
                     ...query.grouping,
-                    secondary: (event.target.value ||
-                      null) as TaskGroupField | null,
+                    secondary: (value || null) as TaskGroupField | null,
                   },
                 })
               }
-            >
-              <option value="">No second group</option>
-              {groupFields
-                .filter(({ value }) => value !== query.grouping.primary)
-                .map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-            </select>
+            />
           </label>
         )}
 
         <label className="view-compact-select">
           <ArrowDownAZ aria-hidden="true" size={14} />
           <span className="sr-only">Sort by</span>
-          <select
-            aria-label="Sort by"
+          <Select
+            ariaLabel="Sort by"
             value={query.sort[0]?.field ?? ''}
-            onChange={(event) => {
-              const field = event.target.value as TaskSortField;
+            options={[
+              { value: '', label: 'Manual' },
+              { value: 'title', label: 'Title' },
+              { value: 'priority', label: 'Priority' },
+              { value: 'start_date', label: 'Start date' },
+              { value: 'due_date', label: 'Due date' },
+              { value: 'estimate', label: 'Estimate' },
+              { value: 'updated_at', label: 'Updated' },
+            ]}
+            onValueChange={(value) => {
+              const field = value as TaskSortField;
               onQueryChange({
                 ...query,
                 sort: field ? [{ field, direction: 'ascending' }] : [],
               });
             }}
-          >
-            <option value="">Manual</option>
-            <option value="title">Title</option>
-            <option value="priority">Priority</option>
-            <option value="start_date">Start date</option>
-            <option value="due_date">Due date</option>
-            <option value="estimate">Estimate</option>
-            <option value="updated_at">Updated</option>
-          </select>
+          />
         </label>
         {query.sort[0] && (
           <>
@@ -585,11 +575,17 @@ export function TaskViewToolbar({
             </button>
             <label className="view-compact-select view-secondary-select">
               <span>then</span>
-              <select
-                aria-label="Then sort by"
+              <Select
+                ariaLabel="Then sort by"
                 value={query.sort[1]?.field ?? ''}
-                onChange={(event) => {
-                  const field = event.target.value as TaskSortField;
+                options={[
+                  { value: '', label: 'No second sort' },
+                  ...sortFields.filter(
+                    ({ value }) => value !== query.sort[0]?.field,
+                  ),
+                ]}
+                onValueChange={(value) => {
+                  const field = value as TaskSortField;
                   onQueryChange({
                     ...query,
                     sort: field
@@ -597,16 +593,7 @@ export function TaskViewToolbar({
                       : [query.sort[0]!],
                   });
                 }}
-              >
-                <option value="">No second sort</option>
-                {sortFields
-                  .filter(({ value }) => value !== query.sort[0]?.field)
-                  .map(({ value, label }) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
+              />
             </label>
           </>
         )}

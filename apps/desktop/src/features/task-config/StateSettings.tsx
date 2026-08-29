@@ -6,6 +6,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage, titleCase } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -115,19 +116,15 @@ export function StateSettings(props: StateSettingsProps) {
           </label>
           <label>
             <span>Group</span>
-            <select
-              aria-label="State group"
+            <Select
+              ariaLabel="State group"
               value={group}
-              onChange={(event) =>
-                setGroup(event.target.value as TaskStateGroup)
-              }
-            >
-              {STATE_GROUPS.map((value) => (
-                <option key={value} value={value}>
-                  {groupLabel(value)}
-                </option>
-              ))}
-            </select>
+              options={STATE_GROUPS.map((value) => ({
+                value,
+                label: groupLabel(value),
+              }))}
+              onValueChange={(value) => setGroup(value as TaskStateGroup)}
+            />
           </label>
           <button
             className="primary-button compact-button"
@@ -310,18 +307,16 @@ function StateRow({
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
-      <select
-        aria-label={`${state.name} group`}
+      <Select
+        ariaLabel={`${state.name} group`}
         disabled={!canManage}
         value={group}
-        onChange={(event) => setGroup(event.target.value as TaskStateGroup)}
-      >
-        {STATE_GROUPS.map((value) => (
-          <option key={value} value={value}>
-            {groupLabel(value)}
-          </option>
-        ))}
-      </select>
+        options={STATE_GROUPS.map((value) => ({
+          value,
+          label: groupLabel(value),
+        }))}
+        onValueChange={(value) => setGroup(value as TaskStateGroup)}
+      />
       <div className="configuration-row-actions">
         {isDefault ? (
           <span className="configuration-default">Inbox default</span>
@@ -366,17 +361,18 @@ function StateRow({
             <p>Choose a same-group replacement when this state is in use.</p>
             <label>
               <span className="sr-only">Replacement for {state.name}</span>
-              <select
+              <Select
+                ariaLabel={`Replacement for ${state.name}`}
                 value={replacementId}
-                onChange={(event) => setReplacementId(event.target.value)}
-              >
-                <option value="">No replacement</option>
-                {replacements.map((replacement) => (
-                  <option key={replacement.id} value={replacement.id}>
-                    {replacement.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'No replacement' },
+                  ...replacements.map((replacement) => ({
+                    value: replacement.id,
+                    label: replacement.name,
+                  })),
+                ]}
+                onValueChange={setReplacementId}
+              />
             </label>
             <button
               className="danger-button"

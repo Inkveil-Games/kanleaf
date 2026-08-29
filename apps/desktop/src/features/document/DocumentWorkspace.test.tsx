@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type { Project } from '../workspace/types';
 import { DocumentWorkspace } from './DocumentWorkspace';
 import type { WorkspaceDocument } from './types';
@@ -211,9 +212,7 @@ describe('DocumentWorkspace', () => {
     expect(screen.getByText('Editor child')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Release notes/ }));
-    fireEvent.change(screen.getByLabelText('Parent'), {
-      target: { value: 'root' },
-    });
+    chooseSelectOption('Library parent', 'Architecture');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/release',
@@ -255,9 +254,7 @@ describe('DocumentWorkspace', () => {
     );
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Architecture/ }));
-    fireEvent.change(screen.getByLabelText('Location'), {
-      target: { value: 'project-1' },
-    });
+    chooseSelectOption('Library location', 'Kanleaf');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/root',

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, RefreshCw } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   FormActions,
@@ -141,16 +142,16 @@ export function WorkspaceInvitationSettings({
         </label>
         <label className="settings-field">
           <span>Role</span>
-          <select
+          <Select
+            ariaLabel="Invitation role"
             value={role}
-            onChange={(event) =>
-              setRole(event.target.value as AssignableWorkspaceRole)
-            }
-          >
-            <option value="admin">Admin</option>
-            <option value="member">Member</option>
-            <option value="guest">Guest</option>
-          </select>
+            options={[
+              { value: 'admin', label: 'Admin' },
+              { value: 'member', label: 'Member' },
+              { value: 'guest', label: 'Guest' },
+            ]}
+            onValueChange={(value) => setRole(value as AssignableWorkspaceRole)}
+          />
         </label>
         <FormActions state={state} label="Create invitation" />
       </form>

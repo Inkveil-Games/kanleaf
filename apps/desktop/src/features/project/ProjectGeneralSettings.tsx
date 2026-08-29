@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { FormActions, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -89,34 +90,38 @@ export function ProjectGeneralSettings({
         </label>
         <label className="settings-field">
           <span>Visibility</span>
-          <select
+          <Select
+            ariaLabel="Visibility"
             value={visibility}
-            onChange={(event) =>
-              setVisibility(event.target.value as Project['visibility'])
+            options={[
+              { value: 'private', label: 'Private — members only' },
+              {
+                value: 'open',
+                label: 'Open — Workspace Members can discover and join',
+              },
+            ]}
+            onValueChange={(value) =>
+              setVisibility(value as Project['visibility'])
             }
-          >
-            <option value="private">Private — members only</option>
-            <option value="open">
-              Open — Workspace Members can discover and join
-            </option>
-          </select>
+          />
         </label>
         <label className="settings-field">
           <span>Project lead</span>
-          <select
+          <Select
+            ariaLabel="Project lead"
             value={leadUserId}
             disabled={membersLoading}
-            onChange={(event) => setLeadUserId(event.target.value)}
-          >
-            <option value="">No lead</option>
-            {members
-              .filter(({ role }) => role === 'admin')
-              .map((member) => (
-                <option key={member.user_id} value={member.user_id}>
-                  {member.display_name}
-                </option>
-              ))}
-          </select>
+            options={[
+              { value: '', label: 'No lead' },
+              ...members
+                .filter(({ role }) => role === 'admin')
+                .map((member) => ({
+                  value: member.user_id,
+                  label: member.display_name,
+                })),
+            ]}
+            onValueChange={setLeadUserId}
+          />
           <small>The lead must have Project Admin access.</small>
         </label>
         <FormActions state={state} label="Save general settings" />
