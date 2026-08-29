@@ -1,6 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DocumentSaveCoordinator } from './DocumentSaveCoordinator';
+import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
 import { MarkdownDocument } from './MarkdownDocument';
 
 vi.mock('@uiw/react-codemirror', () => ({
@@ -28,13 +31,16 @@ function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
   });
   render(
     <QueryClientProvider client={client}>
-      <MarkdownDocument
-        serverUrl="https://kanleaf.example.com"
-        token="session-token"
-        workspaceId="workspace-1"
-        target={{ kind: 'task', id: 'task-1' }}
-        readOnly={readOnly}
-      />
+      <DocumentSaveCoordinator>
+        <MarkdownDocument
+          serverUrl="https://kanleaf.example.com"
+          token="session-token"
+          workspaceId="workspace-1"
+          target={{ kind: 'task', id: 'task-1' }}
+          readOnly={readOnly}
+        />
+        <TransitionControl />
+      </DocumentSaveCoordinator>
     </QueryClientProvider>,
   );
 }
@@ -220,8 +226,124 @@ describe('MarkdownDocument', () => {
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith('# Local unsaved edit'),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Reload remote' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard local' }));
     await waitFor(() => expect(editor).toHaveValue('# Remote edit'));
     expect(screen.getByText('Saved')).toBeInTheDocument();
   });
+
+  it('flushes pending source before an identity transition', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((_url: string, options: RequestInit | undefined) =>
+        Promise.resolve(
+          options?.method === 'PUT'
+            ? new Response(
+                JSON.stringify({
+                  content: '# Before switch',
+                  revision: 'b'.repeat(64),
+                }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              )
+            : new Response(
+                JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              ),
+        ),
+      );
+    renderDocument(fetchMock);
+
+    fireEvent.change(await screen.findByLabelText('Markdown source'), {
+      target: { value: '# Before switch' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flush transition' }));
+
+    expect(await screen.findByText('Transition ready')).toBeInTheDocument();
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/document'),
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+
+  it('blocks transition after a save error and supports retry', async () => {
+    let writes = 0;
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((_url: string, options: RequestInit | undefined) => {
+        if (options?.method === 'PUT') {
+          writes += 1;
+          return Promise.resolve(
+            writes === 1
+              ? new Response(
+                  JSON.stringify({
+                    error: { code: 'internal', message: 'Vault unavailable' },
+                  }),
+                  {
+                    status: 500,
+                    headers: { 'content-type': 'application/json' },
+                  },
+                )
+              : new Response(
+                  JSON.stringify({
+                    content: '# Retry me',
+                    revision: 'b'.repeat(64),
+                  }),
+                  {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                  },
+                ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      });
+    renderDocument(fetchMock);
+
+    fireEvent.change(await screen.findByLabelText('Markdown source'), {
+      target: { value: '# Retry me' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Flush transition' }));
+
+    expect(
+      await screen.findByText(
+        'Resolve unsaved Markdown before switching accounts',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Markdown could not be saved.'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try save' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
 });
+
+function TransitionControl() {
+  const { flushDocumentSaves } = useDocumentSaveCoordinator();
+  const [message, setMessage] = useState('');
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void flushDocumentSaves()
+            .then(() => setMessage('Transition ready'))
+            .catch((error: Error) => setMessage(error.message));
+        }}
+      >
+        Flush transition
+      </button>
+      <span>{message}</span>
+    </>
+  );
+}

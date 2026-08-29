@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
+import { DocumentSaveCoordinator } from '../features/markdown/DocumentSaveCoordinator';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -19,6 +20,8 @@ export function Providers({ children }: ProvidersProps) {
   );
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <DocumentSaveCoordinator>{children}</DocumentSaveCoordinator>
+    </QueryClientProvider>
   );
 }

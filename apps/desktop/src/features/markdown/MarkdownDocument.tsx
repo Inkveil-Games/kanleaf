@@ -16,6 +16,7 @@ import {
 } from './api';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ApiError } from '../../lib/api/client';
+import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
@@ -106,13 +107,15 @@ function LoadedMarkdownDocument({
   const revisionRef = useRef(initialRevision);
   const conflictRef = useRef(false);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const { registerDocumentSave } = useDocumentSaveCoordinator();
 
   const queueSave = useCallback(
     async (nextContent: string) => {
-      if (readOnly || conflictRef.current) return;
+      if (readOnly) return true;
+      if (conflictRef.current) return false;
       if (nextContent === lastSavedRef.current) {
         if (contentRef.current === nextContent) setSaveState('saved');
-        return;
+        return true;
       }
       setSaveState('saving');
       setSaveError(null);
@@ -141,6 +144,7 @@ function LoadedMarkdownDocument({
         setSaveState(
           contentRef.current === lastSavedRef.current ? 'saved' : 'unsaved',
         );
+        return true;
       } catch (caught) {
         setSaveError(errorMessage(caught));
         if (caught instanceof ApiError && caught.code === 'conflict') {
@@ -149,10 +153,22 @@ function LoadedMarkdownDocument({
         } else {
           setSaveState('error');
         }
+        return false;
       }
     },
     [readOnly, serverUrl, targetId, targetKind, token, workspaceId],
   );
+
+  const flushForTransition = useCallback(async () => {
+    if (!(await queueSave(contentRef.current))) {
+      throw new Error('Resolve unsaved Markdown before switching accounts');
+    }
+  }, [queueSave]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    return registerDocumentSave(flushForTransition);
+  }, [flushForTransition, readOnly, registerDocumentSave]);
 
   useEffect(() => {
     if (readOnly || content === lastSavedRef.current) return;
@@ -297,20 +313,33 @@ function LoadedMarkdownDocument({
         )}
       </header>
 
-      {saveState === 'conflict' && (
+      {(saveState === 'conflict' || saveState === 'error') && (
         <div className="document-conflict" role="alert">
           <div>
-            <strong>The file changed outside Kanleaf.</strong>
+            <strong>
+              {saveState === 'conflict'
+                ? 'The file changed outside Kanleaf.'
+                : 'Markdown could not be saved.'}
+            </strong>
             <span>
-              Your local Markdown is still open and has not been overwritten.
+              Your local Markdown is still open. Resolve this before leaving the
+              account.
             </span>
           </div>
           <div className="document-conflict-actions">
+            {saveState === 'error' && (
+              <button
+                type="button"
+                onClick={() => void queueSave(contentRef.current)}
+              >
+                Try save
+              </button>
+            )}
             <button type="button" onClick={() => void copyLocal()}>
               {copyState === 'copied' ? 'Local source copied' : 'Copy local'}
             </button>
             <button type="button" onClick={() => void reloadRemote()}>
-              Reload remote
+              Discard local
             </button>
           </div>
         </div>
