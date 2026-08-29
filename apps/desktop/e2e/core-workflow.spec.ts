@@ -4,6 +4,10 @@ import { serverUrl } from './environment';
 test('manages structured work and durable Markdown across reloads', async ({
   page,
 }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
   const suffix = `${Date.now()}-${test.info().workerIndex}`;
   await page.goto('/');
 
@@ -99,10 +103,32 @@ test('manages structured work and durable Markdown across reloads', async ({
 This page is stored as a durable **Markdown file**.
 
 - [x] Define the vault boundary
-- [ ] Ship Live Preview`;
-  await page
-    .locator('.page-document-editor .cm-content[contenteditable="true"]')
-    .fill(pageMarkdown);
+- [ ] Ship Live Preview
+
+| Layer | Store |
+| --- | --- |
+| Page | Vault |
+
+\`\`\`rust
+let source_is_markdown = true;
+\`\`\``;
+  const pageSource = page.locator(
+    '.page-document-editor .cm-content[contenteditable="true"]',
+  );
+  await pageSource.fill(pageMarkdown);
+  await pageSource.press('Control+Home');
+  const liveTable = page.locator(
+    '.page-document-editor .cm-live-block-widget table',
+  );
+  await expect(liveTable).toContainText('PageVault');
+  await expect(
+    page.locator('.page-document-editor .cm-live-block-widget pre'),
+  ).toContainText('source_is_markdown');
+  await liveTable.click();
+  await expect(liveTable).not.toBeVisible();
+  await expect(pageSource).toContainText('| Layer | Store |');
+  await pageSource.press('Control+Home');
+  await expect(liveTable).toBeVisible();
   await page.getByRole('button', { name: 'Save Markdown' }).click();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   await page
@@ -179,7 +205,7 @@ Kanleaf keeps **structured work** beside durable notes.
 | Notes | Vault |`;
   const source = page.locator('.cm-content[contenteditable="true"]');
   await source.fill(markdown);
-  await page.getByRole('button', { name: 'Preview' }).click();
+  await page.getByRole('button', { name: 'Reading' }).click();
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();
@@ -240,6 +266,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('treeitem', { name: /Architecture decisions/ }),
   ).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });
 
 test('prevents a session from reading another workspace', async ({

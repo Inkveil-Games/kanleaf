@@ -103,9 +103,9 @@ pnpm tauri build --no-bundle
 
 Install the pinned browser once, then run the real-service E2E suite. Playwright
 starts Axum and Vite itself, uses a temporary vault, and cleans it up afterward.
-The suite covers durable Task and Page Markdown, document trees, collaboration
-notifications, read state, and cross-workspace Task/activity/document
-isolation.
+The suite covers durable Task and Page Markdown, Live Preview block/source
+transitions, document trees, collaboration notifications, read state, and
+cross-workspace Task/activity/document isolation.
 
 ```bash
 pnpm --filter @kanleaf/desktop exec playwright install chromium

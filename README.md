@@ -27,8 +27,9 @@ Markdown document.
 - Workspace Documents and Project Pages with ordered trees, nesting, moves,
   keyboard navigation, and subtree archive
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
-- Source Markdown editing with undo/redo, tab indentation, and keyboard save
-- Edit, Preview, and Split document modes with safe GitHub-flavored rendering
+- Source-faithful Live Preview that reveals Markdown syntax only in the active
+  block, with undo/redo, task-marker editing, and tab indentation
+- Live, Source, Reading, and Split modes with safe GitHub-flavored rendering
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
 - SHA-256 revision checks that preserve local Markdown when an external editor
   changes the vault file

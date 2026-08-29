@@ -23,6 +23,13 @@ Object.defineProperty(globalThis, 'localStorage', {
   value: testStorage,
 });
 
+if (!Range.prototype.getClientRects) {
+  Object.defineProperty(Range.prototype, 'getClientRects', {
+    configurable: true,
+    value: () => [],
+  });
+}
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();

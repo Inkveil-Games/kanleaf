@@ -206,16 +206,20 @@ The desktop app is feature-oriented:
   notification inbox, and account notification preferences;
 - `features/document` owns Workspace Documents and Project Pages trees,
   hierarchy, ordering, scope moves, and archive interaction;
-- `features/markdown` owns the shared Task/Page source editor, preview,
-  revision conflict recovery, and persistence state;
+- `features/markdown` owns the shared Task/Page source editor, Live Preview,
+  reading renderer, revision conflict recovery, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
 TanStack Query owns remote cache state. Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
 authentication. Local storage contains only the current bearer token and
 document-view preference. CodeMirror is lazy-loaded when a document opens.
-Preview uses `react-markdown` with GFM and raw HTML disabled; external links
-receive safe new-window attributes.
+Live Preview is a CodeMirror state field over the GFM syntax tree: the active
+logical block stays raw, inactive inline syntax receives decorations, and
+multiline tables, fences, rules, and HTML blocks use atomic replacement
+widgets. Decorations never rewrite the editor state. The same
+`react-markdown` renderer backs replacement blocks and Reading/Split views,
+with raw HTML disabled and safe new-window attributes on external links.
 
 Temporary filters, grouping, sorting, and layout changes stay in React state.
 Saving a View sends the same typed query used by the task endpoint to

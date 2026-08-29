@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Columns2, Eye, Pencil, Save } from 'lucide-react';
+import { Code2, Columns2, Eye, Pencil, Save } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -23,7 +23,7 @@ const MarkdownSourceEditor = lazy(() =>
   })),
 );
 
-type MarkdownMode = 'edit' | 'preview' | 'split';
+type MarkdownMode = 'live' | 'source' | 'reading' | 'split';
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'conflict' | 'error';
 
 interface MarkdownDocumentProps {
@@ -244,16 +244,22 @@ function LoadedMarkdownDocument({
       <header className="document-toolbar">
         <div className="document-modes" aria-label="Document view">
           <ModeButton
-            label="Edit"
-            active={mode === 'edit'}
+            label="Live"
+            active={mode === 'live'}
             icon={<Pencil aria-hidden="true" size={14} />}
-            onClick={() => changeMode('edit')}
+            onClick={() => changeMode('live')}
           />
           <ModeButton
-            label="Preview"
-            active={mode === 'preview'}
+            label="Source"
+            active={mode === 'source'}
+            icon={<Code2 aria-hidden="true" size={14} />}
+            onClick={() => changeMode('source')}
+          />
+          <ModeButton
+            label="Reading"
+            active={mode === 'reading'}
             icon={<Eye aria-hidden="true" size={15} />}
-            onClick={() => changeMode('preview')}
+            onClick={() => changeMode('reading')}
           />
           <ModeButton
             label="Split"
@@ -311,7 +317,7 @@ function LoadedMarkdownDocument({
       )}
 
       <div className={`document-workspace document-${mode}`}>
-        {mode !== 'preview' && (
+        {mode !== 'reading' && (
           <div className="markdown-editor" aria-label="Markdown editor">
             <Suspense
               fallback={<div className="document-state">Loading source…</div>}
@@ -320,11 +326,14 @@ function LoadedMarkdownDocument({
                 value={content}
                 onChange={changeContent}
                 readOnly={readOnly}
+                livePreview={mode === 'live'}
               />
             </Suspense>
           </div>
         )}
-        {mode !== 'edit' && <MarkdownPreview content={content} />}
+        {(mode === 'reading' || mode === 'split') && (
+          <MarkdownPreview content={content} />
+        )}
       </div>
     </DocumentFrame>
   );
@@ -365,11 +374,19 @@ function DocumentFrame({ children }: { children: ReactNode }) {
 function readMode(): MarkdownMode {
   try {
     const mode = localStorage.getItem(MODE_STORAGE_KEY);
-    if (mode === 'edit' || mode === 'preview' || mode === 'split') return mode;
+    if (
+      mode === 'live' ||
+      mode === 'source' ||
+      mode === 'reading' ||
+      mode === 'split'
+    )
+      return mode;
+    if (mode === 'edit') return 'source';
+    if (mode === 'preview') return 'reading';
   } catch {
-    return 'edit';
+    return 'live';
   }
-  return 'edit';
+  return 'live';
 }
 
 function saveLabel(state: SaveState) {

@@ -75,6 +75,10 @@ describe('MarkdownDocument', () => {
     renderDocument(fetchMock);
 
     const editor = await screen.findByLabelText('Markdown source');
+    expect(screen.getByRole('button', { name: 'Live' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     fireEvent.change(editor, {
       target: {
         value:
@@ -83,7 +87,7 @@ describe('MarkdownDocument', () => {
     });
     expect(screen.getByText('Unsaved')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
     expect(
       screen.getByRole('heading', { name: 'Architecture' }),
     ).toBeInTheDocument();
