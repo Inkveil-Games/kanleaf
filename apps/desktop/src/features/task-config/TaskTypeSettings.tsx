@@ -115,7 +115,7 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
               aria-label="Task type icon key"
               required
               maxLength={32}
-              pattern="[a-z0-9][a-z0-9_-]*"
+              pattern="[a-z0-9](?:[a-z0-9_]|-)*"
               value={icon}
               onChange={(event) => setIcon(event.target.value)}
             />
