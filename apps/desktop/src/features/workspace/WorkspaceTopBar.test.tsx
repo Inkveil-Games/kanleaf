@@ -23,6 +23,7 @@ describe('WorkspaceTopBar', () => {
     const onCreateWorkspace = vi.fn().mockResolvedValue(undefined);
     const onOpenWorkspaceSettings = vi.fn();
     const onOpenCommandPalette = vi.fn();
+    const onToggleNavigation = vi.fn();
     render(
       <WorkspaceTopBar
         context={context}
@@ -35,8 +36,15 @@ describe('WorkspaceTopBar', () => {
         onOpenNotificationTask={vi.fn()}
         onOpenInvitations={vi.fn()}
         onOpenCommandPalette={onOpenCommandPalette}
+        navigationVisible
+        onToggleNavigation={onToggleNavigation}
       />,
     );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Collapse navigation' }),
+    );
+    expect(onToggleNavigation).toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('Active workspace'), {
       target: { value: 'workspace-2' },
@@ -81,6 +89,8 @@ describe('WorkspaceTopBar', () => {
           onOpenNotificationTask={vi.fn()}
           onOpenInvitations={vi.fn()}
           onOpenCommandPalette={vi.fn()}
+          navigationVisible
+          onToggleNavigation={vi.fn()}
         />
         <button type="button">Outside</button>
       </div>,

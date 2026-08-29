@@ -69,10 +69,16 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByLabel('Bug name')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
 
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Kanleaf' })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('button', { name: 'Collapse navigation' }).click();
+  await expect(page.locator('.navigation-pane')).not.toBeVisible();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await expect(page.locator('.navigation-pane')).toBeVisible();
 
   await page
     .locator('.project-header-actions')
@@ -94,7 +100,10 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
 
   const projectNavigation = page.locator('.project-subnav');
+  await projectNavigation.getByRole('button', { name: 'Work items' }).click();
+  await page.getByLabel('Layout').selectOption('board');
   await projectNavigation.getByRole('button', { name: 'Library' }).click();
+  await expect(page.locator('.document-detail-pane')).toBeVisible();
   await page.getByRole('button', { name: 'New Library note' }).click();
   await page.getByLabel('Note title').fill('Project handbook');
   await page.getByRole('button', { name: 'Create note' }).click();
@@ -155,7 +164,17 @@ let source_is_markdown = true;
   await expect(
     page.getByRole('heading', { name: 'Architecture decisions' }),
   ).toBeVisible();
+  await page.setViewportSize({ width: 960, height: 640 });
+  await expect(
+    page.getByRole('button', { name: 'Back to Library' }),
+  ).toBeVisible();
+  await expect(page.locator('.document-collection-pane')).not.toBeVisible();
+  await page.getByRole('button', { name: 'Back to Library' }).click();
+  await expect(page.locator('.document-collection-pane')).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
 
+  await projectNavigation.getByRole('button', { name: 'Work items' }).click();
+  await page.getByLabel('Layout').selectOption('list');
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
@@ -207,6 +226,11 @@ let source_is_markdown = true;
     .locator('.task-row-main')
     .filter({ hasText: 'Complete the v0.1 workflow' });
   await taskRow.click();
+  await page.setViewportSize({ width: 960, height: 640 });
+  await expect(page.getByRole('button', { name: 'Close task' })).toContainText(
+    'Back',
+  );
+  await expect(taskRow).not.toBeVisible();
   const markdown = `# Architecture
 
 Kanleaf keeps **structured work** beside durable notes.
@@ -227,6 +251,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByRole('table')).toContainText('Notes');
   await page.getByRole('button', { name: 'Save Markdown' }).click();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close task' }).click();
+  await expect(taskRow).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
 
   await page.getByRole('button', { name: 'Filter tasks' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Urgent' }).click();

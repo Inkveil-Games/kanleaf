@@ -241,6 +241,7 @@ export function DocumentWorkspace({
             onConfirmArchive={() => {
               void confirmArchive(selected.id).catch(() => undefined);
             }}
+            onBack={() => onSelectDocument(null)}
           />
         ) : (
           <div className="document-detail-empty">

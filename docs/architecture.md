@@ -243,9 +243,10 @@ PostgreSQL; the client does not maintain a second filter representation. Board,
 Calendar, and Timeline changes use normal task update endpoints, so the same
 server authorization applies to direct edits and drag operations.
 
-The layout is desktop-first with a 900×600 minimum Tauri window. A compact top
-bar owns Workspace switching and global notifications; navigation, collection,
-and detail panes use subtle separators and strong row selection beneath it.
+The layout is desktop-first with a 960×640 minimum Tauri window. A compact top
+bar owns Workspace switching and global notifications. Navigation, collection,
+and detail panes use keyboard-accessible resize separators, keep their widths
+on the device, and switch to focused detail navigation when the window narrows.
 Account and Workspace settings are separate floating windows, and task detail
 remains a pane rather than a modal. Task detail switches between structured
 Details and chronological Activity without losing its pane context. The top-bar

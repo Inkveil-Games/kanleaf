@@ -278,21 +278,51 @@ select {
   position: relative;
   display: grid;
   width: 100vw;
-  min-width: 900px;
+  min-width: 0;
   height: 100vh;
-  min-height: 600px;
-  grid-template-columns: 226px minmax(320px, 360px) minmax(420px, 1fr);
+  min-height: 0;
+  grid-template-columns:
+    var(--navigation-pane-width, 226px)
+    minmax(300px, var(--collection-pane-width, 360px))
+    minmax(0, 1fr);
   grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
   background: var(--color-surface);
 }
 
-.workspace-shell:not(.view-layout-list) {
-  grid-template-columns: 226px minmax(0, 1fr) 0;
+.workspace-shell.surface-tasks:not(.view-layout-list) {
+  grid-template-columns:
+    var(--navigation-pane-width, 226px)
+    minmax(0, 1fr)
+    0;
 }
 
-.workspace-shell:not(.view-layout-list).has-task-detail {
-  grid-template-columns: 226px minmax(420px, 1fr) minmax(360px, 42vw);
+.workspace-shell.surface-tasks:not(.view-layout-list).has-task-detail {
+  grid-template-columns:
+    var(--navigation-pane-width, 226px)
+    minmax(0, 1fr)
+    var(--detail-pane-width, 440px);
+}
+
+.workspace-shell.navigation-hidden {
+  grid-template-columns:
+    0
+    minmax(300px, var(--collection-pane-width, 360px))
+    minmax(0, 1fr);
+}
+
+.workspace-shell.navigation-hidden.surface-tasks:not(.view-layout-list) {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.workspace-shell.navigation-hidden.surface-tasks:not(
+    .view-layout-list
+  ).has-task-detail {
+  grid-template-columns: 0 minmax(0, 1fr) var(--detail-pane-width, 440px);
+}
+
+.workspace-shell.navigation-hidden .navigation-pane {
+  display: none;
 }
 
 .navigation-pane,
@@ -315,9 +345,69 @@ select {
   grid-column: 3;
 }
 
-.workspace-shell:not(.view-layout-list):not(.has-task-detail) .detail-pane {
+.workspace-shell.surface-tasks:not(.view-layout-list):not(.has-task-detail)
+  .detail-pane {
   visibility: hidden;
   pointer-events: none;
+}
+
+.pane-resize-handle {
+  position: absolute;
+  z-index: 18;
+  top: 44px;
+  bottom: 0;
+  width: 7px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  content: '';
+}
+
+.pane-resize-handle:hover::after,
+.pane-resize-handle:focus-visible::after,
+.pane-resize-handle.is-dragging::after {
+  background: var(--color-accent);
+}
+
+.pane-resize-handle:focus-visible {
+  outline: 0;
+}
+
+.navigation-resize-handle {
+  left: var(--navigation-pane-width, 226px);
+}
+
+.collection-resize-handle {
+  left: calc(
+    var(--navigation-pane-width, 226px) + var(--collection-pane-width, 360px)
+  );
+}
+
+.navigation-hidden .collection-resize-handle {
+  left: var(--collection-pane-width, 360px);
+}
+
+.detail-resize-handle {
+  right: var(--detail-pane-width, 440px);
+  transform: translateX(50%);
+}
+
+.navigation-scrim {
+  position: absolute;
+  z-index: 20;
+  inset: 44px 0 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--color-text) 28%, transparent);
 }
 
 .workspace-topbar {
@@ -527,6 +617,10 @@ select {
   min-width: 0;
   align-items: center;
   gap: var(--space-3);
+}
+
+.topbar-navigation-toggle {
+  margin-right: calc(var(--space-2) * -1);
 }
 
 .topbar-workspace-area > .wordmark {
@@ -2431,6 +2525,10 @@ kbd {
   gap: var(--space-1);
 }
 
+.detail-back-button span {
+  display: none;
+}
+
 .task-reference {
   color: var(--color-text-muted);
   font-size: 0.7rem;
@@ -3385,6 +3483,20 @@ button.document-tree-toggle:hover {
 
 .document-detail-header > div {
   min-width: 0;
+}
+
+.document-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.document-detail-heading > div {
+  min-width: 0;
+}
+
+.narrow-detail-back {
+  display: none;
 }
 
 .document-detail-header h1 {
@@ -4777,7 +4889,9 @@ button.document-tree-toggle:hover {
   min-height: 0;
   grid-column: 2 / -1;
   grid-row: 2;
-  grid-template-columns: minmax(300px, 360px) minmax(420px, 1fr);
+  grid-template-columns:
+    minmax(300px, var(--collection-pane-width, 360px))
+    minmax(0, 1fr);
   background: var(--color-surface);
 }
 
@@ -5344,16 +5458,58 @@ button.document-tree-toggle:hover {
 }
 
 @media (max-width: 1080px) {
-  .workspace-shell {
-    grid-template-columns: 205px 320px minmax(375px, 1fr);
+  .workspace-shell.is-narrow-window {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
   }
 
-  .workspace-shell:not(.view-layout-list) {
-    grid-template-columns: 190px minmax(0, 1fr) 0;
+  .workspace-shell.is-narrow-window .navigation-pane {
+    display: none;
   }
 
-  .workspace-shell:not(.view-layout-list).has-task-detail {
-    grid-template-columns: 190px minmax(390px, 1fr) minmax(310px, 38vw);
+  .workspace-shell.is-narrow-window.navigation-drawer-open .navigation-pane {
+    position: absolute;
+    z-index: 25;
+    top: 44px;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    width: min(var(--navigation-pane-width, 226px), calc(100vw - 56px));
+    border-top: 0;
+    box-shadow: var(--shadow-popover);
+  }
+
+  .workspace-shell.is-narrow-window.surface-tasks.has-task-detail,
+  .workspace-shell.is-narrow-window.surface-documents.has-document-detail {
+    grid-template-columns: 0 0 minmax(0, 1fr);
+  }
+
+  .workspace-shell.is-narrow-window.surface-tasks:not(.has-task-detail)
+    .detail-pane,
+  .workspace-shell.is-narrow-window.surface-documents:not(.has-document-detail)
+    .detail-pane {
+    display: none;
+  }
+
+  .workspace-shell.is-narrow-window.surface-tasks.has-task-detail
+    .collection-pane,
+  .workspace-shell.is-narrow-window.surface-documents.has-document-detail
+    .collection-pane {
+    display: none;
+  }
+
+  .workspace-shell.is-narrow-window .detail-back-button {
+    display: flex;
+    width: auto;
+    padding: 0 var(--space-2);
+    gap: 6px;
+  }
+
+  .workspace-shell.is-narrow-window .detail-back-button span {
+    display: inline;
+  }
+
+  .workspace-shell.is-narrow-window .narrow-detail-back {
+    display: grid;
   }
 
   .detail-scroll {
@@ -5391,7 +5547,9 @@ button.document-tree-toggle:hover {
   }
 
   .planning-surface {
-    grid-template-columns: 320px minmax(375px, 1fr);
+    grid-template-columns:
+      minmax(300px, var(--collection-pane-width, 360px))
+      minmax(0, 1fr);
   }
 
   .planning-detail-scroll {

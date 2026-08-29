@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useDeferredValue, useEffect, useState, type FormEvent } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { AccountSettingsSection } from '../account/AccountSettings';
 import { applyTheme } from '../account/theme';
@@ -67,6 +73,8 @@ import {
   type WorkspaceSurface,
 } from './WorkspaceNavigation';
 import type { WorkspaceSettingsSection } from './WorkspaceSettings';
+import { PaneResizeHandle } from './PaneResizeHandle';
+import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 
 interface WorkspaceShellProps {
@@ -109,6 +117,8 @@ export function WorkspaceShell({
     useState<AccountSettingsSection>('profile');
   const [workspaceSettingsSection, setWorkspaceSettingsSection] =
     useState<WorkspaceSettingsSection>('general');
+  const paneLayout = useWorkspacePaneLayout();
+  const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
   const deferredTaskQuery = useDeferredValue(taskQuery);
 
   useEffect(() => {
@@ -165,6 +175,16 @@ export function WorkspaceShell({
     (collection.kind === 'project'
       ? `${collection.kind}:${collection.projectId}`
       : collection.kind);
+
+  useEffect(() => {
+    closeNavigationDrawer();
+  }, [
+    activeProjectId,
+    activeView?.id,
+    collectionKey,
+    closeNavigationDrawer,
+    visibleSurface,
+  ]);
   const tasks = useQuery({
     queryKey: ['tasks', workspaceId, deferredTaskQuery],
     queryFn: () => queryTasks(context, workspaceId!, deferredTaskQuery),
@@ -785,11 +805,39 @@ export function WorkspaceShell({
   const viewMembers = queryProjectId
     ? (activeProjectMembers.data ?? [])
     : (workspaceMembers.data ?? []).filter(({ role }) => role !== 'guest');
+  const collectionResizable =
+    visibleSurface === 'documents' ||
+    visibleSurface === 'cycles' ||
+    visibleSurface === 'modules' ||
+    (visibleSurface === 'tasks' && taskLayout === 'list');
+  const detailResizable =
+    visibleSurface === 'tasks' &&
+    taskLayout !== 'list' &&
+    Boolean(selectedTask);
+  const shellClassName = [
+    'workspace-shell',
+    `surface-${visibleSurface}`,
+    `view-layout-${taskLayout}`,
+    selectedTask ? 'has-task-detail' : '',
+    visibleSurface === 'documents' && selectedDocumentId
+      ? 'has-document-detail'
+      : '',
+    paneLayout.narrow ? 'is-narrow-window' : '',
+    paneLayout.navigationVisible ? '' : 'navigation-hidden',
+    paneLayout.narrow && paneLayout.navigationVisible
+      ? 'navigation-drawer-open'
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const shellStyle = {
+    '--navigation-pane-width': `${paneLayout.navigationWidth}px`,
+    '--collection-pane-width': `${paneLayout.collectionWidth}px`,
+    '--detail-pane-width': `${paneLayout.detailWidth}px`,
+  } as CSSProperties;
 
   return (
-    <main
-      className={`workspace-shell view-layout-${taskLayout}${selectedTask ? ' has-task-detail' : ''}`}
-    >
+    <main className={shellClassName} style={shellStyle}>
       <WorkspaceTopBar
         context={context}
         workspaces={workspaces.data ?? []}
@@ -803,7 +851,17 @@ export function WorkspaceShell({
         }
         onOpenInvitations={() => openAccountSettings('invitations')}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        navigationVisible={paneLayout.navigationVisible}
+        onToggleNavigation={paneLayout.toggleNavigation}
       />
+      {paneLayout.narrow && paneLayout.navigationVisible && (
+        <button
+          className="navigation-scrim"
+          type="button"
+          aria-label="Close navigation"
+          onClick={paneLayout.closeNavigationDrawer}
+        />
+      )}
       <WorkspaceNavigation
         email={user.email}
         displayName={user.display_name}
@@ -824,6 +882,34 @@ export function WorkspaceShell({
         onOpenAccountSettings={openAccountSettings}
         onSignOut={onSignOut}
       />
+      {!paneLayout.narrow && paneLayout.navigationVisible && (
+        <PaneResizeHandle
+          className="navigation-resize-handle"
+          label="Resize navigation"
+          value={paneLayout.navigationWidth}
+          limits={PANE_LIMITS.navigation}
+          onChange={paneLayout.setNavigationWidth}
+        />
+      )}
+      {!paneLayout.narrow && collectionResizable && (
+        <PaneResizeHandle
+          className="collection-resize-handle"
+          label="Resize collection"
+          value={paneLayout.collectionWidth}
+          limits={PANE_LIMITS.collection}
+          onChange={paneLayout.setCollectionWidth}
+        />
+      )}
+      {!paneLayout.narrow && detailResizable && (
+        <PaneResizeHandle
+          className="detail-resize-handle"
+          label="Resize detail"
+          value={paneLayout.detailWidth}
+          limits={PANE_LIMITS.detail}
+          inverted
+          onChange={paneLayout.setDetailWidth}
+        />
+      )}
       {visibleSurface === 'project-overview' && activeProject ? (
         <ProjectOverview
           project={activeProject}

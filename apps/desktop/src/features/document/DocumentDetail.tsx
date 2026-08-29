@@ -1,3 +1,4 @@
+import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
@@ -21,6 +22,7 @@ export function DocumentDetail({
   onRequestArchive,
   onCancelArchive,
   onConfirmArchive,
+  onBack,
 }: {
   context: ApiContext;
   workspaceId: string;
@@ -32,6 +34,7 @@ export function DocumentDetail({
   onRequestArchive: () => void;
   onCancelArchive: () => void;
   onConfirmArchive: () => void;
+  onBack: () => void;
 }) {
   const descendants = descendantIds(documents, document.id);
   const parentOptions = documents.filter(
@@ -45,9 +48,19 @@ export function DocumentDetail({
   return (
     <div className="document-detail-layout">
       <header className="document-detail-header">
-        <div>
-          <p className="pane-eyebrow">Library note</p>
-          <h1>{document.title}</h1>
+        <div className="document-detail-heading">
+          <button
+            className="icon-button narrow-detail-back"
+            type="button"
+            aria-label="Back to Library"
+            onClick={onBack}
+          >
+            <ArrowLeft aria-hidden="true" size={16} />
+          </button>
+          <div>
+            <p className="pane-eyebrow">Library note</p>
+            <h1>{document.title}</h1>
+          </div>
         </div>
         {document.can_edit && (
           <button

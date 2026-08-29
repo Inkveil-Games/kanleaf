@@ -19,6 +19,8 @@ Markdown document.
 - Inbox, My Work, projects, task search, readable references, and bulk updates
 - Ctrl/Cmd+K command palette for authorized Task, Project, Library, settings,
   and navigation search
+- Resizable device-local pane widths, collapsible navigation, and focused
+  Task/Library detail views at narrow desktop widths
 - Typed filters, grouping, sorting, Personal/Shared Views, and List, Board,
   Calendar, Table, and Timeline layouts
 - Task assignees, labels, scheduling, estimates, hierarchy, and relations

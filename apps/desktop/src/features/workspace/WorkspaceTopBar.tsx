@@ -1,4 +1,12 @@
-import { ChevronDown, Pencil, Plus, Search, Settings } from 'lucide-react';
+import {
+  ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Search,
+  Settings,
+} from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Wordmark } from '../../components/ui/Wordmark';
@@ -19,6 +27,8 @@ interface WorkspaceTopBarProps {
   onOpenNotificationTask: (workspaceId: string, taskId: string) => void;
   onOpenInvitations: () => void;
   onOpenCommandPalette: () => void;
+  navigationVisible: boolean;
+  onToggleNavigation: () => void;
 }
 
 type Composer = 'create' | 'rename' | null;
@@ -34,6 +44,8 @@ export function WorkspaceTopBar({
   onOpenNotificationTask,
   onOpenInvitations,
   onOpenCommandPalette,
+  navigationVisible,
+  onToggleNavigation,
 }: WorkspaceTopBarProps) {
   const [composer, setComposer] = useState<Composer>(null);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
@@ -42,6 +54,21 @@ export function WorkspaceTopBar({
   return (
     <header className="workspace-topbar">
       <div className="topbar-workspace-area">
+        <button
+          className="icon-button topbar-navigation-toggle"
+          type="button"
+          aria-label={
+            navigationVisible ? 'Collapse navigation' : 'Open navigation'
+          }
+          aria-expanded={navigationVisible}
+          onClick={onToggleNavigation}
+        >
+          {navigationVisible ? (
+            <PanelLeftClose aria-hidden="true" size={16} />
+          ) : (
+            <PanelLeftOpen aria-hidden="true" size={16} />
+          )}
+        </button>
         <Wordmark quiet />
         <div className="workspace-switcher topbar-workspace-switcher">
           <label className="sr-only" htmlFor="workspace-select">

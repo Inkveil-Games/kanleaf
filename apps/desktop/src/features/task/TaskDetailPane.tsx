@@ -1,4 +1,13 @@
-import { Archive, Check, FileText, Link2, Plus, Trash2, X } from 'lucide-react';
+import {
+  Archive,
+  ArrowLeft,
+  Check,
+  FileText,
+  Link2,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -200,12 +209,13 @@ function SelectedTaskDetail({
             </ContextMenu>
           )}
           <button
-            className="icon-button"
+            className="icon-button detail-back-button"
             type="button"
             aria-label="Close task"
             onClick={onClose}
           >
-            <X aria-hidden="true" size={17} />
+            <ArrowLeft aria-hidden="true" size={16} />
+            <span>Back</span>
           </button>
         </div>
       </header>
