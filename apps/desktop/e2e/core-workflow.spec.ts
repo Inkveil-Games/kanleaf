@@ -94,35 +94,35 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
 
   const projectNavigation = page.locator('.project-subnav');
-  await projectNavigation.getByRole('button', { name: 'Pages' }).click();
-  await page.getByRole('button', { name: 'New document' }).click();
-  await page.getByLabel('Document title').fill('Project handbook');
-  await page.getByRole('button', { name: 'Create document' }).click();
+  await projectNavigation.getByRole('button', { name: 'Library' }).click();
+  await page.getByRole('button', { name: 'New Library note' }).click();
+  await page.getByLabel('Note title').fill('Project handbook');
+  await page.getByRole('button', { name: 'Create note' }).click();
   const pageMarkdown = `# Project handbook
 
-This page is stored as a durable **Markdown file**.
+This note is stored as a durable **Markdown file**.
 
 - [x] Define the vault boundary
 - [ ] Ship Live Preview
 
 | Layer | Store |
 | --- | --- |
-| Page | Vault |
+| Note | Vault |
 
 \`\`\`rust
 let source_is_markdown = true;
 \`\`\``;
   const pageSource = page.locator(
-    '.page-document-editor .cm-content[contenteditable="true"]',
+    '.library-document-editor .cm-content[contenteditable="true"]',
   );
   await pageSource.fill(pageMarkdown);
   await pageSource.press('Control+Home');
   const liveTable = page.locator(
-    '.page-document-editor .cm-live-block-widget table',
+    '.library-document-editor .cm-live-block-widget table',
   );
-  await expect(liveTable).toContainText('PageVault');
+  await expect(liveTable).toContainText('NoteVault');
   await expect(
-    page.locator('.page-document-editor .cm-live-block-widget pre'),
+    page.locator('.library-document-editor .cm-live-block-widget pre'),
   ).toContainText('source_is_markdown');
   await liveTable.click();
   await expect(liveTable).not.toBeVisible();
@@ -134,9 +134,9 @@ let source_is_markdown = true;
   await page
     .getByRole('button', { name: 'Actions for Project handbook' })
     .click();
-  await page.getByRole('menuitem', { name: 'Add child' }).click();
-  await page.getByLabel('Child document title').fill('Architecture decisions');
-  await page.getByRole('button', { name: 'Create child document' }).click();
+  await page.getByRole('menuitem', { name: 'Add nested note' }).click();
+  await page.getByLabel('Nested note title').fill('Architecture decisions');
+  await page.getByRole('button', { name: 'Create nested note' }).click();
   await expect(
     page.getByRole('treeitem', { name: /Architecture decisions/ }),
   ).toBeVisible();
@@ -256,7 +256,7 @@ Kanleaf keeps **structured work** beside durable notes.
     .click();
   await page
     .locator('.project-subnav')
-    .getByRole('button', { name: 'Pages' })
+    .getByRole('button', { name: 'Library' })
     .click();
   await page.getByRole('treeitem', { name: /Project handbook/ }).click();
   await expect(

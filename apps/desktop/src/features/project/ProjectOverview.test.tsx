@@ -48,10 +48,10 @@ describe('ProjectOverview', () => {
     expect(
       screen.getByRole('heading', { name: 'Kanleaf Core' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Open document workspace')).toBeInTheDocument();
+    expect(screen.getByText('Open Markdown Library')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /Work items/ })[0]);
     fireEvent.click(screen.getByRole('button', { name: /Cycles/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Pages/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Library/ }));
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
     expect(openWorkItems).toHaveBeenCalledOnce();
     expect(openCycles).toHaveBeenCalledOnce();

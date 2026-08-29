@@ -4,6 +4,8 @@ export interface WorkspaceDocument {
   project_id: string | null;
   parent_id: string | null;
   title: string;
+  storage_name: string;
+  library_path: string;
   position: number;
   can_edit: boolean;
   archived_at: string | null;

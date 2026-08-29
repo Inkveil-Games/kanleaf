@@ -57,6 +57,26 @@ export function buildSections(
   return sections;
 }
 
+export function visibleSections(
+  sections: DocumentSection[],
+  collapsedIds: ReadonlySet<string>,
+): DocumentSection[] {
+  return sections.map((section) => {
+    let hiddenBelowDepth: number | null = null;
+    const entries = section.entries.filter((entry) => {
+      if (hiddenBelowDepth !== null && entry.depth > hiddenBelowDepth) {
+        return false;
+      }
+      hiddenBelowDepth = null;
+      if (entry.hasChildren && collapsedIds.has(entry.document.id)) {
+        hiddenBelowDepth = entry.depth;
+      }
+      return true;
+    });
+    return { ...section, entries };
+  });
+}
+
 export function descendantIds(
   documents: WorkspaceDocument[],
   documentId: string,

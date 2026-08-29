@@ -105,7 +105,7 @@ export function WorkspaceNavigation({
               <NavButton
                 active={surface === 'documents' && activeProjectId === null}
                 icon={<BookOpenText aria-hidden="true" size={16} />}
-                label="Documents"
+                label="Library"
                 onClick={() => onOpenDocuments(null)}
               />
             </>
@@ -233,7 +233,7 @@ export function WorkspaceNavigation({
                           <NavButton
                             active={surface === 'documents'}
                             icon={<BookOpenText aria-hidden="true" size={14} />}
-                            label="Pages"
+                            label="Library"
                             onClick={() => onOpenDocuments(project.id)}
                           />
                         )}

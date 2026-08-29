@@ -1,7 +1,7 @@
 # Kanleaf
 
 Kanleaf is a self-hosted desktop project and task manager built around a simple
-idea: structured work belongs in a database, while Task notes and Pages should
+idea: structured work belongs in a database, while Task notes and Library notes should
 remain normal Markdown files.
 
 Kanleaf v0.1 provides a focused three-pane desktop workflow rather than a web
@@ -24,8 +24,9 @@ Markdown document.
 - Markdown comments, one-level replies, mentions, edit history, and moderation
 - Task activity, watch subscriptions, and a role-aware notification inbox
 - Account notification preferences with unread filtering and read state
-- Workspace Documents and Project Pages with ordered trees, nesting, moves,
-  keyboard navigation, and subtree archive
+- A Workspace Markdown Library with Project-filtered views, portable filenames,
+  ordered trees, independent collapse controls, keyboard navigation, and
+  subtree moves
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
 - Source-faithful Live Preview that reveals Markdown syntax only in the active
   block, with undo/redo, task-marker editing, and tab indentation
@@ -33,7 +34,8 @@ Markdown document.
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
 - SHA-256 revision checks that preserve local Markdown when an external editor
   changes the vault file
-- PostgreSQL-backed structured data and UUID-addressed filesystem vaults
+- PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
+  trees
 - Build-time server configuration for local, LAN, or HTTPS deployments
 - Docker Compose self-hosting and a Tauri v2 desktop shell
 
@@ -56,9 +58,11 @@ metadata         *.md files
 
 The server is the authorization boundary. PostgreSQL stores users, sessions,
 memberships, workspaces, projects, task metadata, and document-tree metadata.
-Markdown source is stored only at `vaults/<workspace-id>/Tasks/<task-id>.md` or
-`vaults/<workspace-id>/Pages/<document-id>.md`; title and hierarchy changes do
-not rename or rewrite those files. See
+Task Markdown stays at `vaults/<workspace-id>/Tasks/<task-id>.md`. Library notes
+use companion paths such as `Library/getting_started.md` and
+`Library/getting_started/installation.md`. A title rename does not rename or
+rewrite its file; reparenting moves the note and its complete companion subtree.
+See
 [docs/architecture.md](docs/architecture.md) for the full boundary and data
 model.
 

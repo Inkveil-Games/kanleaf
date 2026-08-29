@@ -12,7 +12,13 @@ import {
 } from './api';
 import { DocumentDetail } from './DocumentDetail';
 import { DocumentTree } from './DocumentTree';
-import { buildSections, compareDocuments, isProjectEditor } from './tree';
+import {
+  buildSections,
+  compareDocuments,
+  descendantIds,
+  isProjectEditor,
+  visibleSections,
+} from './tree';
 import type { DocumentPatch, WorkspaceDocument } from './types';
 
 interface DocumentWorkspaceProps {
@@ -44,21 +50,26 @@ export function DocumentWorkspace({
   const [archiveCandidateId, setArchiveCandidateId] = useState<string | null>(
     null,
   );
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const sections = useMemo(
+  const allSections = useMemo(
     () => buildSections(documents.data ?? [], projects, projectId),
     [documents.data, projectId, projects],
+  );
+  const sections = useMemo(
+    () => visibleSections(allSections, collapsedIds),
+    [allSections, collapsedIds],
   );
   const entries = useMemo(
     () => sections.flatMap((section) => section.entries),
     [sections],
   );
-  const activeSelectedId = entries.some(
-    ({ document }) => document.id === selectedId,
-  )
-    ? selectedId
-    : (entries[0]?.document.id ?? null);
+  const activeSelectedId = nearestVisibleSelection(
+    selectedId,
+    entries.map(({ document }) => document),
+    documents.data ?? [],
+  );
   const selected =
     documents.data?.find(({ id }) => id === activeSelectedId) ?? null;
   const activeProject = projectId
@@ -96,6 +107,13 @@ export function DocumentWorkspace({
         project_id: scopeProjectId,
         parent_id: parentId,
       });
+      if (parentId) {
+        setCollapsedIds((current) => {
+          const next = new Set(current);
+          next.delete(parentId);
+          return next;
+        });
+      }
       setCreatingParentId(undefined);
       await refresh(created.id);
     });
@@ -150,6 +168,7 @@ export function DocumentWorkspace({
         documents={documents.data ?? []}
         projectId={projectId}
         selectedId={activeSelectedId}
+        collapsedIds={collapsedIds}
         creatingParentId={creatingParentId}
         renamingId={renamingId}
         canCreate={canCreate}
@@ -160,8 +179,31 @@ export function DocumentWorkspace({
           setSelectedId(documentId);
           setArchiveCandidateId(null);
         }}
+        onToggleCollapsed={(documentId) => {
+          const collapsing = !collapsedIds.has(documentId);
+          if (
+            collapsing &&
+            selectedId &&
+            descendantIds(documents.data ?? [], documentId).has(selectedId)
+          ) {
+            setSelectedId(documentId);
+          }
+          setCollapsedIds((current) => {
+            const next = new Set(current);
+            if (next.has(documentId)) next.delete(documentId);
+            else next.add(documentId);
+            return next;
+          });
+        }}
         onStartCreate={(parentId) => {
-          if (parentId) setSelectedId(parentId);
+          if (parentId) {
+            setSelectedId(parentId);
+            setCollapsedIds((current) => {
+              const next = new Set(current);
+              next.delete(parentId);
+              return next;
+            });
+          }
           setCreatingParentId(parentId);
         }}
         onCancelCreate={() => setCreatingParentId(undefined)}
@@ -198,8 +240,8 @@ export function DocumentWorkspace({
         ) : (
           <div className="document-detail-empty">
             <FileText aria-hidden="true" size={22} />
-            <h2>Select a document</h2>
-            <p>Its Markdown source and preview will open here.</p>
+            <h2>Select a Library note</h2>
+            <p>Its Markdown source and preview open here.</p>
           </div>
         )}
       </section>
@@ -208,5 +250,19 @@ export function DocumentWorkspace({
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Document request failed';
+  return error instanceof Error ? error.message : 'Library request failed';
+}
+
+function nearestVisibleSelection(
+  selectedId: string | null,
+  visible: WorkspaceDocument[],
+  documents: WorkspaceDocument[],
+) {
+  const visibleIds = new Set(visible.map(({ id }) => id));
+  let candidateId = selectedId;
+  while (candidateId && !visibleIds.has(candidateId)) {
+    candidateId =
+      documents.find(({ id }) => id === candidateId)?.parent_id ?? null;
+  }
+  return candidateId ?? visible[0]?.id ?? null;
 }

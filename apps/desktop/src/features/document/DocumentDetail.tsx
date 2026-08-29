@@ -46,7 +46,7 @@ export function DocumentDetail({
     <div className="document-detail-layout">
       <header className="document-detail-header">
         <div>
-          <p className="pane-eyebrow">Markdown document</p>
+          <p className="pane-eyebrow">Library note</p>
           <h1>{document.title}</h1>
         </div>
         {document.can_edit && (
@@ -64,9 +64,9 @@ export function DocumentDetail({
         <div
           className="document-archive-confirm"
           role="alertdialog"
-          aria-label="Archive document"
+          aria-label="Archive Library note"
         >
-          <span>This archives the document and every child below it.</span>
+          <span>This archives the note and every nested note below it.</span>
           <div>
             <button type="button" onClick={onCancelArchive}>
               Cancel
@@ -122,9 +122,13 @@ export function DocumentDetail({
             ))}
           </select>
         </label>
+        <div className="library-file-path" title={document.library_path}>
+          <span>File</span>
+          <code>{document.library_path}</code>
+        </div>
       </div>
 
-      <div className="page-document-editor">
+      <div className="library-document-editor">
         <Suspense
           fallback={<div className="document-state">Loading editor…</div>}
         >

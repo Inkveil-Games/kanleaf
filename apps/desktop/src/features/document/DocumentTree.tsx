@@ -24,6 +24,7 @@ interface DocumentTreeProps {
   documents: WorkspaceDocument[];
   projectId: string | null;
   selectedId: string | null;
+  collapsedIds: ReadonlySet<string>;
   creatingParentId: string | null | undefined;
   renamingId: string | null;
   canCreate: boolean;
@@ -31,6 +32,7 @@ interface DocumentTreeProps {
   error: string | null;
   actionError: string | null;
   onSelect: (documentId: string) => void;
+  onToggleCollapsed: (documentId: string) => void;
   onStartCreate: (parentId: string | null) => void;
   onCancelCreate: () => void;
   onCreate: (title: string, parentId: string | null) => Promise<void>;
@@ -46,6 +48,7 @@ export function DocumentTree({
   documents,
   projectId,
   selectedId,
+  collapsedIds,
   creatingParentId,
   renamingId,
   canCreate,
@@ -53,6 +56,7 @@ export function DocumentTree({
   error,
   actionError,
   onSelect,
+  onToggleCollapsed,
   onStartCreate,
   onCancelCreate,
   onCreate,
@@ -78,11 +82,22 @@ export function DocumentTree({
     } else if (event.key === 'ArrowUp') {
       nextId = entries[Math.max(index - 1, 0)]?.document.id ?? null;
     } else if (event.key === 'ArrowRight') {
-      nextId =
-        entries.find(
-          ({ document }) => document.parent_id === current.document.id,
-        )?.document.id ?? null;
+      if (current.hasChildren && collapsedIds.has(current.document.id)) {
+        onToggleCollapsed(current.document.id);
+        event.preventDefault();
+        return;
+      }
+      nextId = current.hasChildren
+        ? (entries.find(
+            ({ document }) => document.parent_id === current.document.id,
+          )?.document.id ?? null)
+        : null;
     } else if (event.key === 'ArrowLeft') {
+      if (current.hasChildren && !collapsedIds.has(current.document.id)) {
+        onToggleCollapsed(current.document.id);
+        event.preventDefault();
+        return;
+      }
       nextId = current.document.parent_id;
     } else if (event.key === 'F2' && current.document.can_edit) {
       onStartRename(current.document.id);
@@ -100,13 +115,13 @@ export function DocumentTree({
       <header className="document-collection-header">
         <div>
           <p className="pane-eyebrow">{projectId ? 'Project' : 'Workspace'}</p>
-          <h1>{projectId ? 'Pages' : 'Documents'}</h1>
+          <h1>Library</h1>
         </div>
         {canCreate && (
           <button
             className="icon-button"
             type="button"
-            aria-label="New document"
+            aria-label="New Library note"
             onClick={() => onStartCreate(null)}
           >
             <Plus aria-hidden="true" size={16} />
@@ -117,27 +132,27 @@ export function DocumentTree({
       <div
         className="document-tree-scroll"
         role="tree"
-        aria-label={projectId ? 'Project pages' : 'Workspace documents'}
+        aria-label={projectId ? 'Project Library' : 'Workspace Library'}
         tabIndex={0}
         onKeyDown={treeKeyDown}
       >
         {creatingParentId === null && (
           <DocumentNameForm
-            label="Document title"
-            submitLabel="Create document"
+            label="Note title"
+            submitLabel="Create note"
             onCancel={onCancelCreate}
             onSubmit={(title) => onCreate(title, null)}
           />
         )}
         {loading ? (
-          <DocumentCollectionState>Loading documents…</DocumentCollectionState>
+          <DocumentCollectionState>Loading Library…</DocumentCollectionState>
         ) : error ? (
           <DocumentCollectionState error>{error}</DocumentCollectionState>
         ) : sections.length === 0 ? (
           <DocumentCollectionState>
             {canCreate
-              ? 'Create a Markdown document to start this knowledge space.'
-              : 'No documents are available in this scope.'}
+              ? 'Create a Markdown note to start this Library.'
+              : 'No Library notes are available in this scope.'}
           </DocumentCollectionState>
         ) : (
           sections.map((section) => (
@@ -147,9 +162,9 @@ export function DocumentTree({
                 <div key={entry.document.id}>
                   {renamingId === entry.document.id ? (
                     <DocumentNameForm
-                      label="Document title"
+                      label="Note title"
                       initialValue={entry.document.title}
-                      submitLabel="Rename document"
+                      submitLabel="Rename note"
                       depth={entry.depth}
                       onCancel={onCancelRename}
                       onSubmit={(title) => onRename(entry.document.id, title)}
@@ -158,9 +173,13 @@ export function DocumentTree({
                     <DocumentTreeRow
                       entry={entry}
                       active={entry.document.id === selectedId}
+                      collapsed={collapsedIds.has(entry.document.id)}
                       canMoveUp={canMove(entry.document, documents, -1)}
                       canMoveDown={canMove(entry.document, documents, 1)}
                       onSelect={() => onSelect(entry.document.id)}
+                      onToggleCollapsed={() =>
+                        onToggleCollapsed(entry.document.id)
+                      }
                       onCreateChild={() => onStartCreate(entry.document.id)}
                       onRename={() => onStartRename(entry.document.id)}
                       onMoveUp={() => onMove(entry.document, -1)}
@@ -170,8 +189,8 @@ export function DocumentTree({
                   )}
                   {creatingParentId === entry.document.id && (
                     <DocumentNameForm
-                      label="Child document title"
-                      submitLabel="Create child document"
+                      label="Nested note title"
+                      submitLabel="Create nested note"
                       depth={entry.depth + 1}
                       onCancel={onCancelCreate}
                       onSubmit={(title) => onCreate(title, entry.document.id)}
@@ -195,9 +214,11 @@ export function DocumentTree({
 function DocumentTreeRow({
   entry,
   active,
+  collapsed,
   canMoveUp,
   canMoveDown,
   onSelect,
+  onToggleCollapsed,
   onCreateChild,
   onRename,
   onMoveUp,
@@ -206,9 +227,11 @@ function DocumentTreeRow({
 }: {
   entry: TreeEntry;
   active: boolean;
+  collapsed: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   onSelect: () => void;
+  onToggleCollapsed: () => void;
   onCreateChild: () => void;
   onRename: () => void;
   onMoveUp: () => void;
@@ -218,26 +241,39 @@ function DocumentTreeRow({
   const style = { '--tree-depth': entry.depth } as CSSProperties;
   return (
     <div className="document-tree-row" style={style} data-selected={active}>
+      {entry.hasChildren ? (
+        <button
+          className="document-tree-toggle"
+          type="button"
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${entry.document.title}`}
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? (
+            <ChevronRight aria-hidden="true" size={13} />
+          ) : (
+            <ChevronDown aria-hidden="true" size={13} />
+          )}
+        </button>
+      ) : (
+        <span className="document-tree-toggle tree-spacer" aria-hidden="true" />
+      )}
       <button
         className="document-tree-main"
         type="button"
         role="treeitem"
         aria-level={entry.depth + 1}
         aria-selected={active}
+        aria-expanded={entry.hasChildren ? !collapsed : undefined}
         onClick={onSelect}
       >
-        {entry.hasChildren ? (
-          <ChevronDown aria-hidden="true" size={13} />
-        ) : (
-          <ChevronRight className="tree-spacer" aria-hidden="true" size={13} />
-        )}
         <FileText aria-hidden="true" size={14} />
         <span>{entry.document.title}</span>
       </button>
       {entry.document.can_edit && (
         <ContextMenu label={`Actions for ${entry.document.title}`}>
           <button role="menuitem" type="button" onClick={onCreateChild}>
-            <FilePlus2 aria-hidden="true" size={14} /> Add child
+            <FilePlus2 aria-hidden="true" size={14} /> Add nested note
           </button>
           <button role="menuitem" type="button" onClick={onRename}>
             <Pencil aria-hidden="true" size={14} /> Rename
@@ -346,5 +382,5 @@ function DocumentCollectionState({
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Document request failed';
+  return error instanceof Error ? error.message : 'Library request failed';
 }

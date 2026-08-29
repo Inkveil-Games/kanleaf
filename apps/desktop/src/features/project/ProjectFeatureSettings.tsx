@@ -59,8 +59,8 @@ export function ProjectFeatureSettings({
               ],
               [
                 'pages_enabled',
-                'Pages',
-                'Project-level Markdown documents. Planned for a later Core stage.',
+                'Library',
+                'Project-scoped access to the Workspace Markdown Library.',
               ],
               [
                 'views_enabled',

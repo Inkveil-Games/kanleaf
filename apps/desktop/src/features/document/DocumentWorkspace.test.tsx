@@ -47,6 +47,8 @@ function document(
     project_id: null,
     parent_id: null,
     title,
+    storage_name: id,
+    library_path: `Library/${id}.md`,
     position: 0,
     can_edit: true,
     archived_at: null,
@@ -168,17 +170,32 @@ describe('DocumentWorkspace', () => {
     renderWorkspace(fetchMock);
 
     const tree = await screen.findByRole('tree', {
-      name: 'Workspace documents',
+      name: 'Workspace Library',
     });
     expect(await screen.findByText('Editor root')).toBeInTheDocument();
+    expect(screen.getByText('Library/root.md')).toBeInTheDocument();
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    expect(await screen.findByText('Editor child')).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Collapse Architecture' }),
+    );
+    expect(
+      screen.queryByRole('treeitem', { name: /Vault/ }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText('Editor root')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Expand Architecture' }),
+    );
     tree.focus();
     fireEvent.keyDown(tree, { key: 'ArrowDown' });
     expect(await screen.findByText('Editor child')).toBeInTheDocument();
 
     fireEvent.keyDown(tree, { key: 'F2' });
-    const title = screen.getByRole('textbox', { name: 'Document title' });
+    const title = screen.getByRole('textbox', { name: 'Note title' });
     fireEvent.change(title, { target: { value: 'Vault contract' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Rename document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename note' }));
     expect(
       await screen.findByRole('treeitem', { name: /Vault contract/ }),
     ).toBeInTheDocument();
@@ -208,11 +225,11 @@ describe('DocumentWorkspace', () => {
     renderWorkspace(fetchMock);
     await screen.findByRole('treeitem', { name: /Architecture/ });
 
-    fireEvent.click(screen.getByRole('button', { name: 'New document' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Document title' }), {
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note title' }), {
       target: { value: 'Meeting notes' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Create document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create note' }));
     expect(
       await screen.findByRole('treeitem', { name: /Meeting notes/ }),
     ).toBeInTheDocument();
@@ -244,7 +261,7 @@ describe('DocumentWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
     expect(
-      screen.getByRole('alertdialog', { name: 'Archive document' }),
+      screen.getByRole('alertdialog', { name: 'Archive Library note' }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
     await waitFor(() =>

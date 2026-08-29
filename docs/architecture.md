@@ -81,9 +81,10 @@ User ──< Session
   layout. Personal names are unique per owner and scope; shared names are
   unique per scope. Project foreign keys and membership ownership keep records
   inside the same tenant.
-- Documents keep stable metadata in PostgreSQL and may form ordered trees. A
-  parent must share the same Workspace/Project scope; subtree moves validate
-  cycles and move every descendant together.
+- Library notes keep stable IDs, titles, portable storage names, hierarchy, and
+  ordering in PostgreSQL. A parent must share the same Workspace/Project scope;
+  subtree moves validate cycles and move every descendant together. Project is
+  access/filter metadata and never becomes a physical vault folder.
 - Task comments store Markdown collaboration records in PostgreSQL, including
   one reply level, structured mentions, immutable prior revisions, and
   tombstone deletion. Activity is a separate append-only product feed, not an
@@ -94,7 +95,7 @@ User ──< Session
   and preferences are stored—there is no queue or realtime delivery service.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
-  active tasks to Inbox and its Page trees to Workspace Documents in the same
+  active tasks to Inbox and its Library trees to Workspace scope in the same
   transaction. A Project move either rejects
   incompatible type, assignment, and hierarchy data or removes it only when
   the client explicitly requests cleanup.
@@ -152,35 +153,48 @@ disclosed without effective access.
 
 ## Markdown vault
 
-Tasks and Pages have distinct typed file identities:
+Tasks and Library notes have distinct typed file identities:
 
 ```text
 KANLEAF_DATA_DIR/
 └── vaults/
     └── <workspace UUID>/
         ├── Tasks/<task UUID>.md
-        └── Pages/<document UUID>.md
+        └── Library/
+            ├── getting_started.md
+            └── getting_started/
+                └── installation.md
 ```
 
-Paths are constructed internally from parsed UUIDs. The API never accepts an
-arbitrary path. Writes use a temporary sibling file followed by rename, and the
-server stores the supplied UTF-8 Markdown without frontmatter, formatting, or
-whitespace normalization. Task/Page title, hierarchy, scope, and archive
-changes leave the file identity and content unchanged.
+Task paths are constructed from parsed UUIDs. Library paths are constructed from
+validated storage-name segments resolved from the authorized PostgreSQL tree;
+the API never accepts an arbitrary path. A note's file and same-stem companion
+directory represent one tree node. Writes use a temporary sibling file followed
+by rename, and the server stores supplied UTF-8 Markdown without frontmatter,
+formatting, or whitespace normalization.
+
+The initial title produces a lowercase portable storage name with deterministic
+suffixes for sibling collisions. Later title edits do not rename the file.
+Reparenting moves both `<name>.md` and `<name>/`, so descendants and authored
+content remain intact. Manually authored links are not rewritten during that
+move; link-aware renames and backlinks are a later capability. No `.obsidian`
+directory is created or required.
 
 Reads return source plus a SHA-256 content revision. A write must include the
 revision it opened; if the current file differs, the server returns a stable
 conflict response and leaves both the external file and client source
 untouched.
 
-Task and Page creation coordinate the database transaction with initial file creation;
-the transaction is rolled back if the document cannot be created. Fully atomic
-transactions across PostgreSQL and a filesystem are not possible, so startup
-reconciliation remains outside v0.1.
+Task and Library-note creation coordinate the database transaction with initial
+file creation; the transaction is rolled back if the document cannot be
+created. Fully atomic transactions across PostgreSQL and a filesystem are not
+possible. Library move, delete, and legacy migration operations therefore write
+recovery manifests under `KANLEAF_DATA_DIR/operations`; startup reconciles them
+against PostgreSQL before binding the HTTP listener.
 
-Permanent Task/Page deletion uses the same trash-first boundary: the document is
+Permanent Task/Library deletion uses the same trash-first boundary: the document is
 renamed before the database commit, restored if the transaction fails, and
-purged only after the Task becomes unreachable. A purge failure is logged and
+purged only after its record becomes unreachable. A purge failure is logged and
 leaves internal trash for operator cleanup instead of encouraging an unsafe
 client retry.
 
@@ -204,9 +218,9 @@ The desktop app is feature-oriented:
   layouts;
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
   notification inbox, and account notification preferences;
-- `features/document` owns Workspace Documents and Project Pages trees,
-  hierarchy, ordering, scope moves, and archive interaction;
-- `features/markdown` owns the shared Task/Page source editor, Live Preview,
+- `features/document` owns the Workspace Library and Project-filtered Library
+  trees, hierarchy, ordering, scope moves, and archive interaction;
+- `features/markdown` owns the shared Task/Library source editor, Live Preview,
   reading renderer, revision conflict recovery, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
@@ -246,5 +260,6 @@ PostgreSQL data and vault files under the selected host data root.
 ## Deferred intentionally
 
 Offline caching and sync, automatic conflict merging or version history, attachments,
-full-text document indexing, plugins, real-time collaboration, mobile clients,
+full-text document indexing, wikilink resolution, backlinks/graph views, explicit
+file renames, plugins, real-time collaboration, mobile clients,
 release signing, and bundled TLS are not current implementation concerns.

@@ -153,10 +153,10 @@ export function ProjectOverview({
               />
               <FeatureRow
                 icon={<BookOpenText aria-hidden="true" size={16} />}
-                label="Pages"
+                label="Library"
                 enabled={project.pages_enabled}
                 onOpen={project.pages_enabled ? onOpenPages : undefined}
-                openDescription="Open document workspace"
+                openDescription="Open Markdown Library"
               />
               <FeatureRow
                 icon={<Eye aria-hidden="true" size={16} />}
