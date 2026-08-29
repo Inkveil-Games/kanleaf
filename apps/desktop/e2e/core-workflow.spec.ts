@@ -11,9 +11,27 @@ async function chooseSelectOption(
   selectName: string,
   optionName: string,
 ) {
-  await page.getByRole('combobox', { name: selectName, exact: true }).click();
-  await page.getByRole('option', { name: optionName, exact: true }).focus();
-  await page.keyboard.press('Enter');
+  const trigger = page.getByRole('combobox', {
+    name: selectName,
+    exact: true,
+  });
+  await trigger.focus();
+  await trigger.press('Enter');
+  const option = page.getByRole('option', { name: optionName, exact: true });
+  await expect(option).toBeVisible();
+  await option.press('Enter');
+}
+
+async function expectTaskPatch(page: Page, action: () => Promise<void>) {
+  const completed = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'PATCH' &&
+      /\/api\/workspaces\/[^/]+\/tasks\/[^/]+$/.test(path)
+    );
+  });
+  await action();
+  expect((await completed).ok()).toBe(true);
 }
 
 test('manages structured work and durable Markdown across reloads', async ({
@@ -225,21 +243,38 @@ let source_is_markdown = true;
     'Complete the v0.1 workflow',
   );
 
-  await chooseSelectOption(page, 'Cycle', 'Cycle 1');
+  await expectTaskPatch(page, () =>
+    chooseSelectOption(page, 'Cycle', 'Cycle 1'),
+  );
   await expect(page.getByLabel('Cycle')).toHaveAttribute('data-value', /.+/);
   await page.getByLabel('Edit Modules').click();
-  await page.getByRole('menuitemcheckbox', { name: 'Core' }).click();
+  await expectTaskPatch(page, () =>
+    page.getByRole('menuitemcheckbox', { name: 'Core' }).click(),
+  );
   await expect(page.getByLabel('Edit Modules')).toContainText('Core');
   await page.keyboard.press('Escape');
 
-  await chooseSelectOption(page, 'State', 'Review');
-  await chooseSelectOption(page, 'Task type', 'Bug');
-  await chooseSelectOption(page, 'Priority', 'Urgent');
+  await expectTaskPatch(page, () =>
+    chooseSelectOption(page, 'State', 'Review'),
+  );
+  await expectTaskPatch(page, () =>
+    chooseSelectOption(page, 'Task type', 'Bug'),
+  );
+  await expectTaskPatch(page, () =>
+    chooseSelectOption(page, 'Priority', 'Urgent'),
+  );
   await page.getByLabel('Edit assignees').click();
-  await page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click();
-  await page.getByLabel('Due date').fill('2026-09-30');
+  await expectTaskPatch(page, () =>
+    page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click(),
+  );
+  await page.keyboard.press('Escape');
+  await expectTaskPatch(page, () =>
+    page.getByLabel('Due date').fill('2026-09-30'),
+  );
   page.once('dialog', (dialog) => void dialog.accept());
-  await chooseSelectOption(page, 'Project', 'Inbox');
+  await expectTaskPatch(page, () =>
+    chooseSelectOption(page, 'Project', 'Inbox'),
+  );
 
   await page.getByRole('button', { name: 'My Work' }).click();
   const taskRow = page
@@ -322,7 +357,9 @@ Kanleaf keeps **structured work** beside durable notes.
     .click();
   await page.getByRole('treeitem', { name: /Project handbook/ }).click();
   await expect(
-    page.getByRole('heading', { name: 'Project handbook' }),
+    page
+      .locator('.document-detail-header')
+      .getByRole('heading', { name: 'Project handbook' }),
   ).toBeVisible();
   await expect(page.getByText('durable Markdown file')).toBeVisible();
   await expect(
