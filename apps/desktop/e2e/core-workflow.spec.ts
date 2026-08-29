@@ -162,6 +162,19 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByRole('button', { name: 'Save Markdown' }).click();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Filter tasks' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Urgent' }).click();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Layout').selectOption('table');
+  await page.getByRole('button', { name: 'Save View' }).click();
+  await page.getByLabel('Name').fill('Urgent work');
+  await page.getByRole('radio', { name: /Shared/ }).click();
+  await page.getByRole('button', { name: 'Create View' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Urgent work' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'My Work' }).click();
+
   await page.reload();
   await expect(taskRow).toBeVisible();
   await taskRow.click();
@@ -179,6 +192,12 @@ Kanleaf keeps **structured work** beside durable notes.
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Urgent work' }).click();
+  await expect(page.getByLabel('Layout')).toHaveValue('table');
+  await expect(page.getByRole('table')).toContainText(
+    'Complete the v0.1 workflow',
+  );
 });
 
 test('prevents a session from reading another workspace', async ({

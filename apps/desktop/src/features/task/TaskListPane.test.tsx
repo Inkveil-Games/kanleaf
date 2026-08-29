@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Task, TaskState } from '../workspace/types';
+import { createTaskQuery } from '../view/types';
 import { TaskListPane } from './TaskListPane';
 
 const tasks: Task[] = [
@@ -29,18 +36,36 @@ function renderList(
     collection: { kind: 'inbox' },
     projects: [],
     states,
+    labels: [],
+    taskTypes: [],
+    cycles: [],
+    modules: [],
+    members: [],
     tasks,
     selectedTaskId: null,
-    query: '',
+    query: createTaskQuery({ kind: 'inbox' }),
+    layout: 'list',
+    activeView: null,
     loading: false,
     error: null,
     canCreate: true,
+    canShareView: true,
+    canManageActiveView: false,
+    canChangeActiveViewVisibility: false,
     canEditTask: () => true,
     onQueryChange: vi.fn(),
+    onLayoutChange: vi.fn(),
     onSelectTask: vi.fn(),
     onCreateTask: vi.fn().mockResolvedValue(undefined),
     onUpdateState: vi.fn().mockResolvedValue(undefined),
+    onPatchTask: vi.fn().mockResolvedValue(undefined),
     onBulkUpdate: vi.fn().mockResolvedValue(undefined),
+    onCreateView: vi.fn().mockResolvedValue(undefined),
+    onUpdateView: vi.fn().mockResolvedValue(undefined),
+    onSaveViewConfiguration: vi.fn().mockResolvedValue(undefined),
+    onDuplicateView: vi.fn().mockResolvedValue(undefined),
+    onDeleteView: vi.fn().mockResolvedValue(undefined),
+    onViewActionError: vi.fn(),
     onRetry: vi.fn(),
     onClearSelection: vi.fn(),
     ...overrides,
@@ -145,6 +170,163 @@ describe('TaskListPane', () => {
       'Server unavailable',
     );
     expect(screen.getByLabelText('Set priority')).toBeEnabled();
+  });
+
+  it('builds a typed filter query from the toolbar', () => {
+    const props = renderList();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Urgent' }));
+
+    expect(props.onQueryChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ priorities: ['urgent'] }),
+      }),
+    );
+  });
+
+  it('adds date and unassigned estimate filters without a second query model', () => {
+    const props = renderList();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Date and estimate filters' }),
+    );
+    const dialog = screen.getByRole('dialog', {
+      name: 'Date and estimate filters',
+    });
+    const dueDate = within(dialog).getByRole('group', { name: 'Due date' });
+    fireEvent.change(within(dueDate).getByLabelText('From'), {
+      target: { value: '2026-09-01' },
+    });
+
+    expect(props.onQueryChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          due_date: {
+            from: '2026-09-01',
+            to: null,
+            include_none: false,
+          },
+        }),
+      }),
+    );
+  });
+
+  it('saves the current query and layout as a shared View', async () => {
+    const props = renderList({ layout: 'board' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save View' }));
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Delivery board' },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: /Shared/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create View' }));
+
+    await waitFor(() =>
+      expect(props.onCreateView).toHaveBeenCalledWith(
+        'Delivery board',
+        'shared',
+      ),
+    );
+  });
+
+  it.each([
+    ['board', 'Board grouped by state_group'],
+    ['calendar', 'Task due dates'],
+    ['table', 'Task'],
+    ['timeline', 'Unscheduled'],
+  ] as const)('renders the %s layout', (layout, expectedName) => {
+    renderList({ layout });
+
+    if (layout === 'board') {
+      expect(screen.getByLabelText(expectedName)).toBeInTheDocument();
+    } else if (layout === 'calendar') {
+      expect(
+        screen.getByRole('grid', { name: expectedName }),
+      ).toBeInTheDocument();
+    } else if (layout === 'table') {
+      expect(
+        screen.getByRole('columnheader', { name: expectedName }),
+      ).toBeInTheDocument();
+    } else {
+      expect(screen.getByText(expectedName)).toBeInTheDocument();
+    }
+  });
+
+  it('supports inline edits in the table layout', async () => {
+    const props = renderList({ layout: 'table' });
+
+    fireEvent.change(screen.getByLabelText('Design the navigation state'), {
+      target: { value: 'state-progress' },
+    });
+
+    await waitFor(() =>
+      expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {
+        state_id: 'state-progress',
+      }),
+    );
+  });
+
+  it('moves a Board task to the default state in another semantic group', async () => {
+    const props = renderList({ layout: 'board' });
+    const transfer = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData: (type: string, value: string) => transfer.set(type, value),
+      getData: (type: string) => transfer.get(type) ?? '',
+    };
+
+    fireEvent.dragStart(
+      screen.getByRole('button', { name: /Design the navigation/ }),
+      {
+        dataTransfer,
+      },
+    );
+    fireEvent.drop(
+      screen.getByRole('heading', { name: 'Done' }).closest('section')!,
+      {
+        dataTransfer,
+      },
+    );
+
+    await waitFor(() =>
+      expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {
+        state_id: 'state-done',
+      }),
+    );
+  });
+
+  it('renders primary grouping in the dense List layout', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    query.grouping.primary = 'state_group';
+
+    renderList({ query });
+
+    expect(screen.getByRole('group', { name: 'Todo' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'In Progress' }),
+    ).toBeInTheDocument();
+  });
+
+  it('resizes a scheduled task from the Timeline keyboard control', async () => {
+    const scheduled = {
+      ...tasks[0],
+      start_date: '2026-09-01',
+      due_date: '2026-09-03',
+    };
+    const props = renderList({ layout: 'timeline', tasks: [scheduled] });
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Resize Design the navigation end',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {
+        due_date: '2026-09-04',
+      }),
+    );
   });
 });
 

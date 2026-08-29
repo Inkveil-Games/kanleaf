@@ -1,4 +1,4 @@
-import { CalendarDays, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
+import { CalendarDays, Plus, Search, X } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -7,26 +7,69 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import type { Collection, Project, Task, TaskState } from '../workspace/types';
-import type { TaskBulkPatch } from '../workspace/types';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import type {
+  Collection,
+  Project,
+  Task,
+  TaskBulkPatch,
+  TaskLabel,
+  TaskPatch,
+  TaskPlanningLink,
+  TaskState,
+  TaskType,
+} from '../workspace/types';
+import { TaskLayouts } from '../view/TaskLayouts';
+import { buildTaskGroups } from '../view/grouping';
+import { TaskViewToolbar } from '../view/TaskViewToolbar';
+import type {
+  SavedView,
+  SavedViewVisibility,
+  TaskLayout,
+  TaskQuery,
+} from '../view/types';
 
 interface TaskListPaneProps {
   collection: Collection;
   projects: Project[];
   states: TaskState[];
+  labels: TaskLabel[];
+  taskTypes: TaskType[];
+  cycles: TaskPlanningLink[];
+  modules: TaskPlanningLink[];
+  members: { user_id: string; display_name: string }[];
   tasks: Task[];
   selectedTaskId: string | null;
-  query: string;
+  query: TaskQuery;
+  layout: TaskLayout;
+  activeView: SavedView | null;
   loading: boolean;
   error: string | null;
   canCreate: boolean;
+  canShareView: boolean;
+  canManageActiveView: boolean;
+  canChangeActiveViewVisibility: boolean;
   canEditTask: (task: Task) => boolean;
-  onQueryChange: (query: string) => void;
+  onQueryChange: (query: TaskQuery) => void;
+  onLayoutChange: (layout: TaskLayout) => void;
   onSelectTask: (taskId: string) => void;
   onCreateTask: (title: string) => Promise<void>;
   onUpdateState: (task: Task, stateId: string) => Promise<void>;
+  onPatchTask: (taskId: string, patch: TaskPatch) => Promise<void>;
   onBulkUpdate: (patch: TaskBulkPatch) => Promise<void>;
+  onCreateView: (
+    name: string,
+    visibility: SavedViewVisibility,
+  ) => Promise<void>;
+  onUpdateView: (
+    patch: Partial<Pick<SavedView, 'name' | 'visibility'>>,
+  ) => Promise<void>;
+  onSaveViewConfiguration: () => Promise<void>;
+  onDuplicateView: (
+    name: string,
+    visibility: SavedViewVisibility,
+  ) => Promise<void>;
+  onDeleteView: () => Promise<void>;
+  onViewActionError: (message: string) => void;
   onRetry: () => void;
   onClearSelection: () => void;
 }
@@ -35,36 +78,59 @@ export function TaskListPane({
   collection,
   projects,
   states,
+  labels,
+  taskTypes,
+  cycles,
+  modules,
+  members,
   tasks,
   selectedTaskId,
   query,
+  layout,
+  activeView,
   loading,
   error,
   canCreate,
+  canShareView,
+  canManageActiveView,
+  canChangeActiveViewVisibility,
   canEditTask,
   onQueryChange,
+  onLayoutChange,
   onSelectTask,
   onCreateTask,
   onUpdateState,
+  onPatchTask,
   onBulkUpdate,
+  onCreateView,
+  onUpdateView,
+  onSaveViewConfiguration,
+  onDuplicateView,
+  onDeleteView,
+  onViewActionError,
   onRetry,
   onClearSelection,
 }: TaskListPaneProps) {
   const [composing, setComposing] = useState(false);
   const [checkedTaskIds, setCheckedTaskIds] = useState<Set<string>>(new Set());
-  const [visibleFields, setVisibleFields] = useState({
-    priority: true,
-    assignees: true,
-    labels: true,
-    dueDate: true,
-  });
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const title = collectionTitle(collection, projects);
+  const title = activeView?.name ?? collectionTitle(collection, projects);
+  const visibleFields = {
+    priority: query.display.includes('priority'),
+    assignees: query.display.includes('assignees'),
+    labels: query.display.includes('labels'),
+    dueDate: query.display.includes('due_date'),
+  };
   const checkedVisibleIds = tasks
     .filter(({ id }) => checkedTaskIds.has(id))
     .map(({ id }) => id);
+  const groupedTasks = query.grouping.primary
+    ? buildTaskGroups(query.grouping.primary, tasks, projects, states).filter(
+        ({ taskIds }) => taskIds.size > 0,
+      )
+    : [];
 
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -141,34 +207,35 @@ export function TaskListPane({
     }
   }
 
+  function renderTaskRows(rows: Task[]) {
+    return rows.map((task) => (
+      <TaskRow
+        key={task.id}
+        task={task}
+        states={states}
+        canEdit={canEditTask(task)}
+        selected={task.id === selectedTaskId}
+        checked={checkedTaskIds.has(task.id)}
+        visibleFields={visibleFields}
+        onSelect={() => onSelectTask(task.id)}
+        onToggleChecked={() => toggleChecked(task.id)}
+        onUpdateState={(stateId) => onUpdateState(task, stateId)}
+      />
+    ));
+  }
+
   return (
     <section className="collection-pane" aria-labelledby="collection-title">
       <header className="collection-header">
         <div>
-          <p className="pane-eyebrow">Collection</p>
+          <p className="pane-eyebrow">
+            {activeView
+              ? `${activeView.visibility === 'shared' ? 'Shared' : 'Personal'} View`
+              : 'Collection'}
+          </p>
           <h1 id="collection-title">{title}</h1>
         </div>
         <div className="collection-actions">
-          <ContextMenu label="Visible task fields" className="field-menu">
-            {Object.entries(visibleFields).map(([field, visible]) => (
-              <button
-                key={field}
-                data-menu-keep-open
-                role="menuitemcheckbox"
-                aria-checked={visible}
-                type="button"
-                onClick={() =>
-                  setVisibleFields((current) => ({
-                    ...current,
-                    [field]: !current[field as keyof typeof current],
-                  }))
-                }
-              >
-                <SlidersHorizontal aria-hidden="true" size={14} />
-                {fieldLabel(field)}
-              </button>
-            ))}
-          </ContextMenu>
           {canCreate && (
             <button
               className="icon-button strong-icon-button"
@@ -192,21 +259,49 @@ export function TaskListPane({
             id="task-search-input"
             ref={searchRef}
             type="search"
-            value={query}
+            value={query.search ?? ''}
             placeholder="Search tasks"
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={(event) =>
+              onQueryChange({
+                ...query,
+                search: event.target.value || null,
+              })
+            }
           />
-          {query && (
+          {query.search && (
             <button
               type="button"
               aria-label="Clear search"
-              onClick={() => onQueryChange('')}
+              onClick={() => onQueryChange({ ...query, search: null })}
             >
               <X aria-hidden="true" size={14} />
             </button>
           )}
           <kbd>⌘K</kbd>
         </div>
+        <TaskViewToolbar
+          query={query}
+          layout={layout}
+          states={states}
+          labels={labels}
+          taskTypes={taskTypes}
+          projects={projects}
+          cycles={cycles}
+          modules={modules}
+          members={members}
+          activeView={activeView}
+          canShare={canShareView}
+          canManageActiveView={canManageActiveView}
+          canChangeActiveViewVisibility={canChangeActiveViewVisibility}
+          onQueryChange={onQueryChange}
+          onLayoutChange={onLayoutChange}
+          onCreateView={onCreateView}
+          onUpdateView={onUpdateView}
+          onSaveViewConfiguration={onSaveViewConfiguration}
+          onDuplicateView={onDuplicateView}
+          onDeleteView={onDeleteView}
+          onActionError={onViewActionError}
+        />
         {checkedVisibleIds.length > 0 && (
           <div className="bulk-toolbar" aria-label="Bulk task actions">
             <strong>{checkedVisibleIds.length} selected</strong>
@@ -266,14 +361,7 @@ export function TaskListPane({
         )}
       </div>
 
-      <div
-        className="task-list"
-        role="listbox"
-        aria-multiselectable="true"
-        aria-label={`${title} tasks`}
-        tabIndex={0}
-        onKeyDown={moveSelection}
-      >
+      <div className={`task-layout-surface task-layout-${layout}`}>
         {canCreate && composing && (
           <QuickTaskForm
             onCancel={() => setComposing(false)}
@@ -294,28 +382,83 @@ export function TaskListPane({
         )}
         {!loading && !error && tasks.length === 0 && (
           <div className="pane-state empty-state">
-            <p>{query ? 'No matching tasks.' : 'Nothing here yet.'}</p>
-            {!query && canCreate && (
+            <p>{query.search ? 'No matching tasks.' : 'Nothing here yet.'}</p>
+            {!query.search && canCreate && (
               <button type="button" onClick={() => setComposing(true)}>
                 Create a task <kbd>N</kbd>
               </button>
             )}
           </div>
         )}
-        {tasks.map((task) => (
-          <TaskRow
-            key={task.id}
-            task={task}
+        {tasks.length > 0 && layout === 'list' && (
+          <div
+            className="task-list"
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={`${title} tasks`}
+            tabIndex={0}
+            onKeyDown={moveSelection}
+          >
+            {groupedTasks.length > 0
+              ? groupedTasks.map((group) => {
+                  const primaryTasks = tasks.filter((task) =>
+                    group.taskIds.has(task.id),
+                  );
+                  const secondaryGroups = query.grouping.secondary
+                    ? buildTaskGroups(
+                        query.grouping.secondary,
+                        primaryTasks,
+                        projects,
+                        states,
+                      ).filter(({ taskIds }) => taskIds.size > 0)
+                    : [];
+                  return (
+                    <section
+                      className="task-list-group"
+                      role="group"
+                      aria-label={group.label}
+                      key={group.id}
+                    >
+                      <header>
+                        <strong>{group.label}</strong>
+                        <span>{primaryTasks.length}</span>
+                      </header>
+                      {secondaryGroups.length > 0
+                        ? secondaryGroups.map((secondary) => (
+                            <div
+                              className="task-list-subgroup"
+                              key={secondary.id}
+                            >
+                              <h3>{secondary.label}</h3>
+                              {renderTaskRows(
+                                primaryTasks.filter((task) =>
+                                  secondary.taskIds.has(task.id),
+                                ),
+                              )}
+                            </div>
+                          ))
+                        : renderTaskRows(primaryTasks)}
+                    </section>
+                  );
+                })
+              : renderTaskRows(tasks)}
+          </div>
+        )}
+        {tasks.length > 0 && layout !== 'list' && (
+          <TaskLayouts
+            layout={layout}
+            query={query}
+            tasks={tasks}
+            projects={projects}
             states={states}
-            canEdit={canEditTask(task)}
-            selected={task.id === selectedTaskId}
-            checked={checkedTaskIds.has(task.id)}
-            visibleFields={visibleFields}
-            onSelect={() => onSelectTask(task.id)}
-            onToggleChecked={() => toggleChecked(task.id)}
-            onUpdateState={(stateId) => onUpdateState(task, stateId)}
+            selectedTaskId={selectedTaskId}
+            checkedTaskIds={checkedTaskIds}
+            canEditTask={canEditTask}
+            onSelectTask={onSelectTask}
+            onToggleChecked={toggleChecked}
+            onPatchTask={onPatchTask}
           />
-        ))}
+        )}
       </div>
       <footer className="collection-footer">
         <span>{tasks.length} visible</span>
@@ -489,17 +632,6 @@ function collectionTitle(collection: Collection, projects: Project[]) {
   if (collection.kind === 'all') return 'All tasks';
   return (
     projects.find(({ id }) => id === collection.projectId)?.name ?? 'Project'
-  );
-}
-
-function fieldLabel(field: string) {
-  return (
-    {
-      priority: 'Priority',
-      assignees: 'Assignees',
-      labels: 'Labels',
-      dueDate: 'Due date',
-    }[field] ?? field
   );
 }
 

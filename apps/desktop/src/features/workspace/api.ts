@@ -515,27 +515,6 @@ export function listPlanningTasks(
   );
 }
 
-export function listTasks(
-  context: ApiContext,
-  workspaceId: string,
-  collection: Collection,
-  query: string,
-) {
-  const parameters = new URLSearchParams();
-  if (collection.kind === 'inbox') parameters.set('inbox', 'true');
-  if (collection.kind === 'my-work') parameters.set('my_work', 'true');
-  if (collection.kind === 'project') {
-    parameters.set('project_id', collection.projectId);
-  }
-  if (query.trim()) parameters.set('query', query.trim());
-  const search = parameters.size ? `?${parameters.toString()}` : '';
-  return apiRequest<Task[]>(
-    context.serverUrl,
-    `/api/workspaces/${workspaceId}/tasks${search}`,
-    { token: context.token },
-  );
-}
-
 export function getTask(
   context: ApiContext,
   workspaceId: string,

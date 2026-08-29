@@ -1,5 +1,6 @@
 import {
   CheckSquare2,
+  Bookmark,
   CalendarRange,
   Folder,
   Inbox,
@@ -13,6 +14,7 @@ import {
 import { useState, type ReactNode } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import type { AccountSettingsSection } from '../account/AccountSettings';
+import type { SavedView } from '../view/types';
 import { InlineNameForm } from './InlineNameForm';
 import type { Collection, Project, Workspace } from './types';
 
@@ -21,13 +23,17 @@ interface WorkspaceNavigationProps {
   displayName: string;
   workspace: Workspace;
   projects: Project[];
+  workspaceViews: SavedView[];
+  projectViews: SavedView[];
   collection: Collection;
   surface: WorkspaceSurface;
   activeProjectId: string | null;
+  activeViewId: string | null;
   onCreateProject: (name: string) => Promise<void>;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
+  onOpenSavedView: (view: SavedView) => void;
   onOpenAccountSettings: (section: AccountSettingsSection) => void;
   onSignOut: () => void;
 }
@@ -40,13 +46,17 @@ export function WorkspaceNavigation({
   displayName,
   workspace,
   projects,
+  workspaceViews,
+  projectViews,
   collection,
   surface,
   activeProjectId,
+  activeViewId,
   onCreateProject,
   onSelectCollection,
   onOpenProjectOverview,
   onOpenPlanning,
+  onOpenSavedView,
   onOpenAccountSettings,
   onSignOut,
 }: WorkspaceNavigationProps) {
@@ -60,20 +70,56 @@ export function WorkspaceNavigation({
           {canUseContent && (
             <>
               <NavButton
-                active={surface === 'tasks' && collection.kind === 'inbox'}
+                active={
+                  surface === 'tasks' &&
+                  collection.kind === 'inbox' &&
+                  !activeViewId
+                }
                 icon={<Inbox aria-hidden="true" size={16} />}
                 label="Inbox"
                 onClick={() => onSelectCollection({ kind: 'inbox' })}
               />
               <NavButton
-                active={surface === 'tasks' && collection.kind === 'my-work'}
+                active={
+                  surface === 'tasks' &&
+                  collection.kind === 'my-work' &&
+                  !activeViewId
+                }
                 icon={<CheckSquare2 aria-hidden="true" size={16} />}
                 label="My Work"
                 onClick={() => onSelectCollection({ kind: 'my-work' })}
               />
+              <NavButton
+                active={
+                  surface === 'tasks' &&
+                  collection.kind === 'all' &&
+                  !activeViewId
+                }
+                icon={<ListTodo aria-hidden="true" size={16} />}
+                label="All tasks"
+                onClick={() => onSelectCollection({ kind: 'all' })}
+              />
             </>
           )}
         </div>
+
+        {workspaceViews.length > 0 && (
+          <section className="nav-section" aria-labelledby="views-heading">
+            <div className="nav-section-heading">
+              <h2 id="views-heading">Saved Views</h2>
+            </div>
+            {workspaceViews.map((view) => (
+              <NavButton
+                key={view.id}
+                active={activeViewId === view.id}
+                icon={<Bookmark aria-hidden="true" size={14} />}
+                label={view.name}
+                suffix={view.visibility === 'shared' ? 'Shared' : undefined}
+                onClick={() => onOpenSavedView(view)}
+              />
+            ))}
+          </section>
+        )}
 
         <section className="nav-section" aria-labelledby="projects-heading">
           <div className="nav-section-heading">
@@ -142,7 +188,8 @@ export function WorkspaceNavigation({
                           active={
                             surface === 'tasks' &&
                             collection.kind === 'project' &&
-                            collection.projectId === project.id
+                            collection.projectId === project.id &&
+                            !activeViewId
                           }
                           icon={<ListTodo aria-hidden="true" size={14} />}
                           label="Work items"
@@ -172,6 +219,25 @@ export function WorkspaceNavigation({
                               onOpenPlanning(project.id, 'modules')
                             }
                           />
+                        )}
+                        {project.views_enabled && projectViews.length > 0 && (
+                          <div className="project-view-nav">
+                            <span>Views</span>
+                            {projectViews.map((view) => (
+                              <NavButton
+                                key={view.id}
+                                active={activeViewId === view.id}
+                                icon={<Bookmark aria-hidden="true" size={13} />}
+                                label={view.name}
+                                suffix={
+                                  view.visibility === 'shared'
+                                    ? 'Shared'
+                                    : undefined
+                                }
+                                onClick={() => onOpenSavedView(view)}
+                              />
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}

@@ -171,6 +171,9 @@ The desktop app is feature-oriented:
 - `features/task-config` owns workspace states, labels, types, and defaults;
 - `features/task` owns keyboard-selectable collection rows, bulk actions, My
   Work, and structured detail editing;
+- `features/view` owns the typed collection query, Personal/Shared View API,
+  presentation controls, and List, Board, Calendar, Table, and Timeline
+  layouts;
 - `features/markdown` owns source editing, preview, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
@@ -180,6 +183,12 @@ authentication. Local storage contains only the current bearer token and
 document-view preference. CodeMirror is lazy-loaded when a document opens.
 Preview uses `react-markdown` with GFM and raw HTML disabled; external links
 receive safe new-window attributes.
+
+Temporary filters, grouping, sorting, and layout changes stay in React state.
+Saving a View sends the same typed query used by the task endpoint to
+PostgreSQL; the client does not maintain a second filter representation. Board,
+Calendar, and Timeline changes use normal task update endpoints, so the same
+server authorization applies to direct edits and drag operations.
 
 The layout is desktop-first with a 900×600 minimum Tauri window. A compact top
 bar owns Workspace switching and global notifications; navigation, collection,

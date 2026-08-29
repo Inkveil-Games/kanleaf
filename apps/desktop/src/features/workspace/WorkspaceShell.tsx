@@ -16,6 +16,21 @@ import { TaskListPane } from '../task/TaskListPane';
 import { getTaskConfiguration } from '../task-config/api';
 import type { User } from '../../lib/api/types';
 import {
+  createSavedView,
+  deleteSavedView,
+  listSavedViews,
+  queryTasks,
+  updateSavedView,
+} from '../view/api';
+import {
+  collectionFromScope,
+  createTaskQuery,
+  scopeProjectId,
+  type SavedView,
+  type SavedViewVisibility,
+  type TaskLayout,
+} from '../view/types';
+import {
   activateWorkspace,
   addTaskRelation,
   archiveTask,
@@ -30,7 +45,6 @@ import {
   listProjectCycles,
   listProjectModules,
   listProjects,
-  listTasks,
   listWorkspaceMembers,
   listWorkspaces,
   removeTaskRelation,
@@ -71,8 +85,12 @@ export function WorkspaceShell({
     user.active_workspace_id,
   );
   const [collection, setCollection] = useState<Collection>({ kind: 'my-work' });
+  const [taskQuery, setTaskQuery] = useState(() =>
+    createTaskQuery({ kind: 'my-work' }),
+  );
+  const [taskLayout, setTaskLayout] = useState<TaskLayout>('list');
+  const [activeView, setActiveView] = useState<SavedView | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [surface, setSurface] = useState<WorkspaceSurface>('tasks');
   const [settingsModal, setSettingsModal] = useState<
@@ -84,7 +102,7 @@ export function WorkspaceShell({
     useState<AccountSettingsSection>('profile');
   const [workspaceSettingsSection, setWorkspaceSettingsSection] =
     useState<WorkspaceSettingsSection>('general');
-  const deferredSearch = useDeferredValue(search);
+  const deferredTaskQuery = useDeferredValue(taskQuery);
 
   useEffect(() => {
     applyTheme(user.theme);
@@ -112,20 +130,21 @@ export function WorkspaceShell({
       (surface === 'modules' && !activeProject.modules_enabled))
       ? 'project-overview'
       : surface;
-  const hasCollectionAccess =
-    collection.kind === 'project'
-      ? Boolean(
-          projects.data?.find(({ id }) => id === collection.projectId)
-            ?.effective_role,
-        )
-      : hasContentAccess;
+  const queryProjectId =
+    activeView?.project_id ?? scopeProjectId(taskQuery.scope);
+  const hasCollectionAccess = queryProjectId
+    ? Boolean(
+        projects.data?.find(({ id }) => id === queryProjectId)?.effective_role,
+      )
+    : hasContentAccess;
   const collectionKey =
-    collection.kind === 'project'
+    activeView?.id ??
+    (collection.kind === 'project'
       ? `${collection.kind}:${collection.projectId}`
-      : collection.kind;
+      : collection.kind);
   const tasks = useQuery({
-    queryKey: ['tasks', workspaceId, collectionKey, deferredSearch],
-    queryFn: () => listTasks(context, workspaceId!, collection, deferredSearch),
+    queryKey: ['tasks', workspaceId, deferredTaskQuery],
+    queryFn: () => queryTasks(context, workspaceId!, deferredTaskQuery),
     enabled: Boolean(
       workspaceId && hasCollectionAccess && visibleSurface === 'tasks',
     ),
@@ -134,6 +153,21 @@ export function WorkspaceShell({
     queryKey: ['task-configuration', workspaceId],
     queryFn: () => getTaskConfiguration(context, workspaceId!),
     enabled: Boolean(workspaceId),
+  });
+  const workspaceViews = useQuery({
+    queryKey: ['saved-views', workspaceId, null],
+    queryFn: () => listSavedViews(context, workspaceId!, null),
+    enabled: Boolean(workspaceId && hasContentAccess),
+  });
+  const projectViews = useQuery({
+    queryKey: ['saved-views', workspaceId, activeProjectId],
+    queryFn: () => listSavedViews(context, workspaceId!, activeProjectId),
+    enabled: Boolean(
+      workspaceId &&
+      activeProjectId &&
+      activeProject?.effective_role &&
+      activeProject.views_enabled,
+    ),
   });
   const task = useQuery({
     queryKey: ['task', workspaceId, selectedTaskId],
@@ -160,22 +194,23 @@ export function WorkspaceShell({
       listProjectMembers(context, workspaceId!, selectedProjectId!),
     enabled: Boolean(workspaceId && selectedProjectId),
   });
+  const planningProjectId = selectedProjectId ?? queryProjectId;
   const selectedProject = projects.data?.find(
-    ({ id }) => id === selectedProjectId,
+    ({ id }) => id === planningProjectId,
   );
   const selectedProjectCycles = useQuery({
-    queryKey: ['cycles', workspaceId, selectedProjectId],
-    queryFn: () => listProjectCycles(context, workspaceId!, selectedProjectId!),
+    queryKey: ['cycles', workspaceId, planningProjectId],
+    queryFn: () => listProjectCycles(context, workspaceId!, planningProjectId!),
     enabled: Boolean(
-      workspaceId && selectedProjectId && selectedProject?.cycles_enabled,
+      workspaceId && planningProjectId && selectedProject?.cycles_enabled,
     ),
   });
   const selectedProjectModules = useQuery({
-    queryKey: ['modules', workspaceId, selectedProjectId],
+    queryKey: ['modules', workspaceId, planningProjectId],
     queryFn: () =>
-      listProjectModules(context, workspaceId!, selectedProjectId!),
+      listProjectModules(context, workspaceId!, planningProjectId!),
     enabled: Boolean(
-      workspaceId && selectedProjectId && selectedProject?.modules_enabled,
+      workspaceId && planningProjectId && selectedProject?.modules_enabled,
     ),
   });
   const activeProjectMembers = useQuery({
@@ -184,9 +219,18 @@ export function WorkspaceShell({
     enabled: Boolean(
       workspaceId &&
       activeProjectId &&
-      (visibleSurface === 'cycles' || visibleSurface === 'modules'),
+      (visibleSurface === 'cycles' ||
+        visibleSurface === 'modules' ||
+        (visibleSurface === 'tasks' && collection.kind === 'project')),
     ),
   });
+
+  function resetTaskView(nextCollection: Collection) {
+    setCollection(nextCollection);
+    setTaskQuery(createTaskQuery(nextCollection));
+    setTaskLayout('list');
+    setActiveView(null);
+  }
 
   async function switchWorkspace(nextWorkspaceId: string) {
     if (nextWorkspaceId === workspaceId) return;
@@ -194,10 +238,9 @@ export function WorkspaceShell({
     try {
       await activateWorkspace(context, nextWorkspaceId);
       setActiveWorkspaceId(nextWorkspaceId);
-      setCollection({ kind: 'my-work' });
+      resetTaskView({ kind: 'my-work' });
       setSelectedTaskId(null);
       setActiveProjectId(null);
-      setSearch('');
       setSettingsModal(null);
       setWorkspaceSettingsSection('general');
     } catch (caught) {
@@ -211,7 +254,7 @@ export function WorkspaceShell({
       const workspace = await createWorkspace(context, name);
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       setActiveWorkspaceId(workspace.id);
-      setCollection({ kind: 'my-work' });
+      resetTaskView({ kind: 'my-work' });
       setSelectedTaskId(null);
       setActiveProjectId(null);
       setSurface('tasks');
@@ -359,12 +402,92 @@ export function WorkspaceShell({
 
   function selectCollection(nextCollection: Collection) {
     setSurface('tasks');
-    setCollection(nextCollection);
+    resetTaskView(nextCollection);
     setActiveProjectId(
       nextCollection.kind === 'project' ? nextCollection.projectId : null,
     );
     setSelectedTaskId(null);
-    setSearch('');
+  }
+
+  function openSavedView(view: SavedView) {
+    const nextCollection = collectionFromScope(view.query.scope);
+    setCollection(nextCollection);
+    setTaskQuery(view.query);
+    setTaskLayout(view.layout);
+    setActiveView(view);
+    setActiveProjectId(view.project_id);
+    setSelectedTaskId(null);
+    setSurface('tasks');
+    setActionError(null);
+  }
+
+  function changeTaskLayout(nextLayout: TaskLayout) {
+    setTaskLayout(nextLayout);
+    if (nextLayout === 'board' && !taskQuery.grouping.primary) {
+      setTaskQuery({
+        ...taskQuery,
+        grouping: { primary: 'state_group', secondary: null },
+      });
+    }
+  }
+
+  async function addSavedView(name: string, visibility: SavedViewVisibility) {
+    if (!workspaceId) return;
+    const created = await createSavedView(context, workspaceId, {
+      name,
+      visibility,
+      project_id: activeView?.project_id ?? scopeProjectId(taskQuery.scope),
+      query: taskQuery,
+      layout: taskLayout,
+    });
+    setActiveView(created);
+    await refreshSavedViewCache(created.project_id);
+  }
+
+  async function patchSavedView(
+    patch: Partial<Pick<SavedView, 'name' | 'visibility'>>,
+  ) {
+    if (!workspaceId || !activeView) return;
+    const updated = await updateSavedView(
+      context,
+      workspaceId,
+      activeView.id,
+      patch,
+    );
+    setActiveView(updated);
+    await refreshSavedViewCache(updated.project_id);
+  }
+
+  async function saveViewConfiguration() {
+    if (!workspaceId || !activeView) return;
+    const updated = await updateSavedView(context, workspaceId, activeView.id, {
+      query: taskQuery,
+      layout: taskLayout,
+    });
+    setActiveView(updated);
+    await refreshSavedViewCache(updated.project_id);
+  }
+
+  async function duplicateSavedView(
+    name: string,
+    visibility: SavedViewVisibility,
+  ) {
+    await addSavedView(name, visibility);
+  }
+
+  async function removeSavedView() {
+    if (!workspaceId || !activeView) return;
+    if (!window.confirm(`Delete the View “${activeView.name}”?`)) return;
+    const projectId = activeView.project_id;
+    await deleteSavedView(context, workspaceId, activeView.id);
+    setActiveView(null);
+    await refreshSavedViewCache(projectId);
+  }
+
+  async function refreshSavedViewCache(projectId: string | null) {
+    await queryClient.invalidateQueries({
+      queryKey: ['saved-views', workspaceId, projectId],
+    });
   }
 
   function openAccountSettings(section: AccountSettingsSection) {
@@ -380,6 +503,7 @@ export function WorkspaceShell({
   }
 
   function openProjectOverview(projectId: string) {
+    setActiveView(null);
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
     setSurface('project-overview');
@@ -395,6 +519,7 @@ export function WorkspaceShell({
   }
 
   function openPlanning(projectId: string, kind: 'cycles' | 'modules') {
+    setActiveView(null);
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
     setSurface(kind);
@@ -403,7 +528,7 @@ export function WorkspaceShell({
 
   function openPlanningTask(taskId: string) {
     if (!activeProject) return;
-    setCollection({ kind: 'project', projectId: activeProject.id });
+    resetTaskView({ kind: 'project', projectId: activeProject.id });
     setSelectedTaskId(taskId);
     setSurface('tasks');
   }
@@ -417,7 +542,7 @@ export function WorkspaceShell({
       await queryClient.invalidateQueries({
         queryKey: ['projects', workspaceId],
       });
-      setCollection({ kind: 'project', projectId: activeProject.id });
+      resetTaskView({ kind: 'project', projectId: activeProject.id });
       setSurface('tasks');
     } catch (caught) {
       setActionError(errorMessage(caught));
@@ -438,7 +563,7 @@ export function WorkspaceShell({
   }
 
   async function refreshAfterProjectRemoval() {
-    setCollection(hasContentAccess ? { kind: 'inbox' } : { kind: 'my-work' });
+    resetTaskView(hasContentAccess ? { kind: 'inbox' } : { kind: 'my-work' });
     setActiveProjectId(null);
     setSelectedTaskId(null);
     setSurface('tasks');
@@ -467,10 +592,9 @@ export function WorkspaceShell({
     const result = await workspaces.refetch();
     const nextWorkspace = result.data?.find(({ id }) => id !== workspaceId);
     setActiveWorkspaceId(nextWorkspace?.id ?? null);
-    setCollection({ kind: 'my-work' });
+    resetTaskView({ kind: 'my-work' });
     setSelectedTaskId(null);
     setActiveProjectId(null);
-    setSearch('');
     setSurface('tasks');
     setSettingsModal(null);
     await queryClient.invalidateQueries({ queryKey: ['session'] });
@@ -532,13 +656,36 @@ export function WorkspaceShell({
   }
 
   const canCreateTask =
-    collection.kind !== 'project'
-      ? hasContentAccess
-      : activeProject?.effective_role === 'admin' ||
-        activeProject?.effective_role === 'contributor';
+    taskQuery.scope.kind === 'cycle' || taskQuery.scope.kind === 'module'
+      ? false
+      : queryProjectId
+        ? activeProject?.effective_role === 'admin' ||
+          activeProject?.effective_role === 'contributor'
+        : hasContentAccess;
+  const canShareView = queryProjectId
+    ? activeProject?.effective_role === 'admin' ||
+      activeProject?.effective_role === 'contributor'
+    : activeWorkspace.role === 'owner' || activeWorkspace.role === 'admin';
+  const canManageActiveView = Boolean(
+    activeView &&
+    (activeView.owner_id === user.id ||
+      (activeView.visibility === 'shared' &&
+        (activeView.project_id
+          ? activeProject?.effective_role === 'admin'
+          : activeWorkspace.role === 'owner' ||
+            activeWorkspace.role === 'admin'))),
+  );
+  const canChangeActiveViewVisibility = Boolean(
+    activeView && activeView.owner_id === user.id,
+  );
+  const viewMembers = queryProjectId
+    ? (activeProjectMembers.data ?? [])
+    : (workspaceMembers.data ?? []).filter(({ role }) => role !== 'guest');
 
   return (
-    <main className="workspace-shell">
+    <main
+      className={`workspace-shell view-layout-${taskLayout}${selectedTask ? ' has-task-detail' : ''}`}
+    >
       <WorkspaceTopBar
         workspaces={workspaces.data ?? []}
         workspaceId={workspaceId}
@@ -552,13 +699,17 @@ export function WorkspaceShell({
         displayName={user.display_name}
         workspace={activeWorkspace}
         projects={projects.data ?? []}
+        workspaceViews={workspaceViews.data ?? []}
+        projectViews={projectViews.data ?? []}
         collection={collection}
         surface={visibleSurface}
         activeProjectId={activeProjectId}
+        activeViewId={activeView?.id ?? null}
         onCreateProject={addProject}
         onSelectCollection={selectCollection}
         onOpenProjectOverview={openProjectOverview}
         onOpenPlanning={openPlanning}
+        onOpenSavedView={openSavedView}
         onOpenAccountSettings={openAccountSettings}
         onSignOut={onSignOut}
       />
@@ -613,14 +764,25 @@ export function WorkspaceShell({
             collection={collection}
             projects={projects.data ?? []}
             states={taskConfiguration.data?.states ?? []}
+            labels={taskConfiguration.data?.labels ?? []}
+            taskTypes={taskConfiguration.data?.task_types ?? []}
+            cycles={selectedProjectCycles.data ?? []}
+            modules={selectedProjectModules.data ?? []}
+            members={viewMembers}
             tasks={visibleTasks}
             selectedTaskId={selectedTaskId}
-            query={search}
+            query={taskQuery}
+            layout={taskLayout}
+            activeView={activeView}
             loading={tasks.isPending || tasks.isFetching}
             error={tasks.error ? errorMessage(tasks.error) : null}
             canCreate={canCreateTask}
+            canShareView={canShareView}
+            canManageActiveView={canManageActiveView}
+            canChangeActiveViewVisibility={canChangeActiveViewVisibility}
             canEditTask={canEditTask}
-            onQueryChange={setSearch}
+            onQueryChange={setTaskQuery}
+            onLayoutChange={changeTaskLayout}
             onSelectTask={setSelectedTaskId}
             onCreateTask={addTask}
             onUpdateState={async (currentTask: Task, stateId) => {
@@ -631,7 +793,21 @@ export function WorkspaceShell({
                 setActionError(errorMessage(caught));
               }
             }}
+            onPatchTask={async (taskId, patch) => {
+              setActionError(null);
+              try {
+                await patchTask(taskId, patch);
+              } catch (caught) {
+                setActionError(errorMessage(caught));
+              }
+            }}
             onBulkUpdate={patchTasks}
+            onCreateView={addSavedView}
+            onUpdateView={patchSavedView}
+            onSaveViewConfiguration={saveViewConfiguration}
+            onDuplicateView={duplicateSavedView}
+            onDeleteView={removeSavedView}
+            onViewActionError={setActionError}
             onRetry={() => void tasks.refetch()}
             onClearSelection={() => setSelectedTaskId(null)}
           />

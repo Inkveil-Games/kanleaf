@@ -17,6 +17,8 @@ Markdown document.
 - Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, My Work, projects, task search, readable references, and bulk updates
+- Typed filters, grouping, sorting, Personal/Shared Views, and List, Board,
+  Calendar, Table, and Timeline layouts
 - Task assignees, labels, scheduling, estimates, hierarchy, and relations
 - Project Cycles and Modules with progress, leads, completion, and work transfer
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
