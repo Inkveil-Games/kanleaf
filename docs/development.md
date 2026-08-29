@@ -122,6 +122,13 @@ or starting services:
 docker build -f apps/server/Dockerfile -t kanleaf:0.1.0 .
 ```
 
+Pushes to `dev` and `main` publish a multi-architecture server manifest to
+`ghcr.io/inkveil-games/kanleaf`; version tags matching `v*` publish semver tags.
+The branch tags are intended for continuous self-host testing, `main` also
+publishes `latest`, and immutable `sha-*` tags remain available for rollback.
+Both `linux/amd64` and `linux/arm64` are built, covering common x86-64 servers
+and 64-bit Raspberry Pi 5 installations.
+
 For the full stack, change to `infra/self-host`; copying `.env.example` creates
 local deployment configuration in that directory.
 

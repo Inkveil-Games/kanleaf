@@ -42,7 +42,7 @@ Markdown document.
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
 - Build-time server configuration for local, LAN, or HTTPS deployments
-- Docker Compose self-hosting and a Tauri v2 desktop shell
+- AMD64/ARM64 server images, Docker Compose self-hosting, and a Tauri v2 shell
 
 Account and Workspace settings have separate focused windows, while Project
 settings use their own project-scoped window. Workspace and account switching
@@ -128,14 +128,21 @@ From `infra/self-host`:
 ```bash
 cp .env.example .env
 # Set a strong POSTGRES_PASSWORD and review the data directory.
-docker compose up -d --build
+docker compose pull kanleaf
+docker compose up -d
 docker compose ps
 ```
 
 The default host data root is `/srv/kanleaf`, containing `postgres/` and
-`vaults/`. The deployment exposes port 3000 and intentionally does not bundle a
-reverse proxy or TLS manager. Put the server behind the HTTPS setup appropriate
-for your environment when exposing it beyond a trusted network.
+`vaults/`. The default `dev` image at
+`ghcr.io/inkveil-games/kanleaf` contains `linux/amd64` and `linux/arm64`
+variants, so the same Compose deployment works on x86-64 hosts and a 64-bit
+Raspberry Pi 5. Use a release tag in `KANLEAF_IMAGE` when one is available, or
+run `docker compose build kanleaf` to build the checked-out source locally.
+
+The deployment exposes port 3000 and intentionally does not bundle a reverse
+proxy or TLS manager. Put the server behind the HTTPS setup appropriate for
+your environment when exposing it beyond a trusted network.
 
 ## License
 
