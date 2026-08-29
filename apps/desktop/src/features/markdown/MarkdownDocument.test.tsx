@@ -50,11 +50,26 @@ describe('MarkdownDocument', () => {
       .mockImplementation((_url: string, options: RequestInit | undefined) =>
         Promise.resolve(
           options?.method === 'PUT'
-            ? new Response(null, { status: 204 })
-            : new Response(JSON.stringify({ content: '# Original' }), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-              }),
+            ? new Response(
+                JSON.stringify({
+                  content: '# Architecture',
+                  revision: 'b'.repeat(64),
+                }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              )
+            : new Response(
+                JSON.stringify({
+                  content: '# Original',
+                  revision: 'a'.repeat(64),
+                }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              ),
         ),
       );
     renderDocument(fetchMock);
@@ -93,11 +108,23 @@ describe('MarkdownDocument', () => {
       .mockImplementation((_url: string, options: RequestInit | undefined) =>
         Promise.resolve(
           options?.method === 'PUT'
-            ? new Response(null, { status: 204 })
-            : new Response(JSON.stringify({ content: '' }), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-              }),
+            ? new Response(
+                JSON.stringify({
+                  content: '# Autosaved note',
+                  revision: 'b'.repeat(64),
+                }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              )
+            : new Response(
+                JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              ),
         ),
       );
     renderDocument(fetchMock);
@@ -119,10 +146,16 @@ describe('MarkdownDocument', () => {
 
   it('keeps Viewer documents readable without exposing save behavior', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ content: '# Readable note' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+      new Response(
+        JSON.stringify({
+          content: '# Readable note',
+          revision: 'a'.repeat(64),
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
     );
     renderDocument(fetchMock, true);
 
@@ -135,5 +168,56 @@ describe('MarkdownDocument', () => {
     ).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves local source and reloads explicitly after a revision conflict', async () => {
+    let reads = 0;
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((_url: string, options: RequestInit | undefined) => {
+        if (options?.method === 'PUT') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 'conflict',
+                  message: 'The Markdown document changed after it was opened',
+                },
+              }),
+              { status: 409, headers: { 'content-type': 'application/json' } },
+            ),
+          );
+        }
+        reads += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              content: reads === 1 ? '# Local base' : '# Remote edit',
+              revision: (reads === 1 ? 'a' : 'c').repeat(64),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    renderDocument(fetchMock);
+
+    const editor = await screen.findByLabelText('Markdown source');
+    fireEvent.change(editor, { target: { value: '# Local unsaved edit' } });
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+
+    expect(await screen.findByText('Conflict')).toBeInTheDocument();
+    expect(editor).toHaveValue('# Local unsaved edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy local' }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('# Local unsaved edit'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reload remote' }));
+    await waitFor(() => expect(editor).toHaveValue('# Remote edit'));
+    expect(screen.getByText('Saved')).toBeInTheDocument();
   });
 });

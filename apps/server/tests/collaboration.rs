@@ -410,19 +410,22 @@ async fn subscriptions_mentions_preferences_and_notification_isolation(pool: PgP
     );
 
     let document_uri = format!("/api/workspaces/{workspace_id}/tasks/{task_id}/document");
+    let mut revision =
+        body(send(&app, "GET", &document_uri, None, &owner_token).await).await["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     for source in ["First save", "Second save"] {
-        assert_eq!(
-            send(
-                &app,
-                "PUT",
-                &document_uri,
-                Some(json!({"content": source})),
-                &owner_token,
-            )
-            .await
-            .status(),
-            StatusCode::NO_CONTENT
-        );
+        let saved = send(
+            &app,
+            "PUT",
+            &document_uri,
+            Some(json!({"content": source, "base_revision": revision})),
+            &owner_token,
+        )
+        .await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        revision = body(saved).await["revision"].as_str().unwrap().to_owned();
     }
     let activity = body(send(&app, "GET", &feed_uri, None, &owner_token).await).await;
     let event_types = activity["activity"]

@@ -215,17 +215,43 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     );
 
     let markdown = "# Architecture\n\n  Keep spacing.  \n\n- [x] PostgreSQL\n- [ ] Preview\n";
+    let opened = app
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/document"),
+            &token,
+        ))
+        .await
+        .unwrap();
+    let base_revision = response_json(opened).await["revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let saved = app
         .clone()
         .oneshot(json_request(
             "PUT",
             &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/document"),
-            json!({"content": markdown}),
+            json!({"content": markdown, "base_revision": base_revision}),
             Some(&token),
         ))
         .await
         .unwrap();
-    assert_eq!(saved.status(), StatusCode::NO_CONTENT);
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved = response_json(saved).await;
+    assert_eq!(saved["content"], markdown);
+    let stale_save = app
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/document"),
+            json!({"content": "stale overwrite", "base_revision": base_revision}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stale_save.status(), StatusCode::CONFLICT);
 
     let document = app
         .clone()
@@ -325,7 +351,7 @@ async fn task_and_document_access_isolated_by_workspace(pool: PgPool) {
         json_request(
             "PUT",
             &format!("/api/workspaces/{second_workspace}/tasks/{second_task_id}/document"),
-            json!({"content": "stolen"}),
+            json!({"content": "stolen", "base_revision": "0".repeat(64)}),
             Some(&first_token),
         ),
     ];

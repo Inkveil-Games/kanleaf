@@ -30,6 +30,7 @@ use crate::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
         validate_task_type_assignment,
     },
+    vault::VaultError,
     workspace::{require_workspace_member, workspace_role},
 };
 
@@ -179,11 +180,13 @@ pub(crate) struct DeleteTaskRequest {
 #[derive(Deserialize)]
 pub(crate) struct DocumentRequest {
     content: String,
+    base_revision: String,
 }
 
 #[derive(Serialize)]
 pub(crate) struct DocumentResponse {
     content: String,
+    revision: String,
 }
 
 pub(crate) async fn list(
@@ -374,7 +377,7 @@ pub(crate) async fn create(
 
     state
         .vault
-        .create_document(workspace_id, task_id)
+        .create_task_document(workspace_id, task_id)
         .await
         .map_err(AppError::internal)?;
     transaction.commit().await?;
@@ -1269,13 +1272,16 @@ pub(crate) async fn read_document(
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
 
-    let content = state
+    let document = state
         .vault
-        .read_document(workspace_id, task_id)
+        .read_task_document(workspace_id, task_id)
         .await
         .map_err(AppError::internal)?;
     transaction.commit().await?;
-    Ok(Json(DocumentResponse { content }))
+    Ok(Json(DocumentResponse {
+        content: document.content,
+        revision: document.revision,
+    }))
 }
 
 pub(crate) async fn write_document(
@@ -1283,7 +1289,7 @@ pub(crate) async fn write_document(
     auth: AuthenticatedUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
     payload: Result<Json<DocumentRequest>, JsonRejection>,
-) -> Result<StatusCode, AppError> {
+) -> Result<Json<DocumentResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.content.len() > MAX_DOCUMENT_BYTES {
@@ -1291,16 +1297,23 @@ pub(crate) async fn write_document(
             "Markdown documents cannot exceed 5 MiB".to_owned(),
         ));
     }
+    validate_document_revision(&request.base_revision)?;
 
     let mut transaction = state.pool.begin().await?;
-    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
-    // Authorization is held by a shared task lock before constructing a vault path.
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
+    // The row lock serializes Kanleaf saves; the revision also catches edits made
+    // directly in the vault between reads.
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
-    state
+    let revision = state
         .vault
-        .write_document(workspace_id, task_id, &request.content)
+        .write_task_document(
+            workspace_id,
+            task_id,
+            &request.content,
+            &request.base_revision,
+        )
         .await
-        .map_err(AppError::internal)?;
+        .map_err(map_vault_write_error)?;
     record_activity(
         &mut transaction,
         workspace_id,
@@ -1311,7 +1324,32 @@ pub(crate) async fn write_document(
     )
     .await?;
     transaction.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(DocumentResponse {
+        content: request.content,
+        revision,
+    }))
+}
+
+pub(crate) fn validate_document_revision(revision: &str) -> Result<(), AppError> {
+    if revision.len() != 64
+        || !revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(AppError::Validation(
+            "Document revision must be a lowercase SHA-256 hash".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn map_vault_write_error(error: VaultError) -> AppError {
+    match error {
+        VaultError::RevisionConflict => {
+            AppError::Conflict("The Markdown document changed after it was opened".to_owned())
+        }
+        error => AppError::internal(error),
+    }
 }
 
 async fn authorize_task_location(

@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { readTaskDocument, writeTaskDocument } from './api';
 import { MarkdownPreview } from './MarkdownPreview';
+import { ApiError } from '../../lib/api/client';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
@@ -19,7 +20,7 @@ const MarkdownSourceEditor = lazy(() =>
 );
 
 type MarkdownMode = 'edit' | 'preview' | 'split';
-type SaveState = 'saved' | 'unsaved' | 'saving' | 'error';
+type SaveState = 'saved' | 'unsaved' | 'saving' | 'conflict' | 'error';
 
 interface MarkdownDocumentProps {
   serverUrl: string;
@@ -65,16 +66,19 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
       key={props.taskId}
       {...props}
       initialContent={document.data.content}
+      initialRevision={document.data.revision}
     />
   );
 }
 
 interface LoadedMarkdownDocumentProps extends MarkdownDocumentProps {
   initialContent: string;
+  initialRevision: string;
 }
 
 function LoadedMarkdownDocument({
   initialContent,
+  initialRevision,
   serverUrl,
   token,
   workspaceId,
@@ -85,13 +89,16 @@ function LoadedMarkdownDocument({
   const [mode, setMode] = useState(readMode);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const contentRef = useRef(content);
   const lastSavedRef = useRef(initialContent);
+  const revisionRef = useRef(initialRevision);
+  const conflictRef = useRef(false);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const queueSave = useCallback(
     async (nextContent: string) => {
-      if (readOnly) return;
+      if (readOnly || conflictRef.current) return;
       if (nextContent === lastSavedRef.current) {
         if (contentRef.current === nextContent) setSaveState('saved');
         return;
@@ -103,11 +110,13 @@ function LoadedMarkdownDocument({
         .catch(() => undefined)
         .then(async () => {
           if (nextContent === lastSavedRef.current) return;
-          await writeTaskDocument(
+          const saved = await writeTaskDocument(
             { serverUrl, token, workspaceId, taskId },
             nextContent,
+            revisionRef.current,
           );
           lastSavedRef.current = nextContent;
+          revisionRef.current = saved.revision;
         });
       saveChainRef.current = save;
 
@@ -118,7 +127,12 @@ function LoadedMarkdownDocument({
         );
       } catch (caught) {
         setSaveError(errorMessage(caught));
-        setSaveState('error');
+        if (caught instanceof ApiError && caught.code === 'conflict') {
+          conflictRef.current = true;
+          setSaveState('conflict');
+        } else {
+          setSaveState('error');
+        }
       }
     },
     [readOnly, serverUrl, taskId, token, workspaceId],
@@ -150,7 +164,11 @@ function LoadedMarkdownDocument({
 
   useEffect(
     () => () => {
-      if (!readOnly && contentRef.current !== lastSavedRef.current) {
+      if (
+        !readOnly &&
+        !conflictRef.current &&
+        contentRef.current !== lastSavedRef.current
+      ) {
         void queueSave(contentRef.current);
       }
     },
@@ -162,6 +180,38 @@ function LoadedMarkdownDocument({
     setContent(value);
     setSaveState(value === lastSavedRef.current ? 'saved' : 'unsaved');
     setSaveError(null);
+    setCopyState('idle');
+  }
+
+  async function reloadRemote() {
+    try {
+      const remote = await readTaskDocument({
+        serverUrl,
+        token,
+        workspaceId,
+        taskId,
+      });
+      contentRef.current = remote.content;
+      lastSavedRef.current = remote.content;
+      revisionRef.current = remote.revision;
+      conflictRef.current = false;
+      setContent(remote.content);
+      setSaveError(null);
+      setSaveState('saved');
+      setCopyState('idle');
+    } catch (caught) {
+      setSaveError(errorMessage(caught));
+      setSaveState('error');
+    }
+  }
+
+  async function copyLocal() {
+    try {
+      await navigator.clipboard.writeText(contentRef.current);
+      setCopyState('copied');
+    } catch {
+      setSaveError('Could not copy the local Markdown source');
+    }
   }
 
   function changeMode(nextMode: MarkdownMode) {
@@ -204,7 +254,11 @@ function LoadedMarkdownDocument({
           <div className="save-controls">
             <span
               className={`save-indicator save-${saveState}`}
-              role={saveState === 'error' ? 'alert' : 'status'}
+              role={
+                saveState === 'error' || saveState === 'conflict'
+                  ? 'alert'
+                  : 'status'
+              }
               title={saveError ?? undefined}
             >
               {saveLabel(saveState)}
@@ -220,6 +274,25 @@ function LoadedMarkdownDocument({
           </div>
         )}
       </header>
+
+      {saveState === 'conflict' && (
+        <div className="document-conflict" role="alert">
+          <div>
+            <strong>The file changed outside Kanleaf.</strong>
+            <span>
+              Your local Markdown is still open and has not been overwritten.
+            </span>
+          </div>
+          <div className="document-conflict-actions">
+            <button type="button" onClick={() => void copyLocal()}>
+              {copyState === 'copied' ? 'Local source copied' : 'Copy local'}
+            </button>
+            <button type="button" onClick={() => void reloadRemote()}>
+              Reload remote
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className={`document-workspace document-${mode}`}>
         {mode !== 'preview' && (
@@ -287,6 +360,7 @@ function saveLabel(state: SaveState) {
   if (state === 'saving') return 'Saving…';
   if (state === 'unsaved') return 'Unsaved';
   if (state === 'error') return 'Save failed';
+  if (state === 'conflict') return 'Conflict';
   return 'Saved';
 }
 
