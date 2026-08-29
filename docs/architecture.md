@@ -208,7 +208,7 @@ is logged for an operator and never exposes the internal path through the API.
 The desktop app is feature-oriented:
 
 - `lib/config` validates build-time client configuration, while `features/auth`
-  owns the local session;
+  owns a versioned account-session registry scoped to the normalized server URL;
 - `features/workspace` owns tenant navigation and API coordination;
 - `features/command` composes authorized Task queries, cached Library metadata,
   Project titles, and navigation actions into the global command palette;
@@ -228,8 +228,11 @@ The desktop app is feature-oriented:
 
 TanStack Query owns remote cache state. Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
-authentication. Local storage contains only the current bearer token and
-document-view preference. CodeMirror is lazy-loaded when a document opens.
+authentication. Local storage contains the bearer-token account registry and
+device preferences, never passwords; the registry is versioned and isolated by
+normalized server URL. Identity transitions first flush pending Markdown,
+validate the selected session, and clear account-scoped query data before
+committing the new identity. CodeMirror is lazy-loaded when a document opens.
 Live Preview is a CodeMirror state field over the GFM syntax tree: the active
 logical block stays raw, inactive inline syntax receives decorations, and
 multiline tables, fences, rules, and HTML blocks use atomic replacement

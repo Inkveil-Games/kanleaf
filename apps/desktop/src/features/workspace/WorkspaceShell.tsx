@@ -7,7 +7,9 @@ import {
   type FormEvent,
 } from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { AccountSwitcher } from '../account/AccountSwitcher';
 import type { AccountSettingsSection } from '../account/AccountSettings';
+import type { AccountSession } from '../auth/accountSessionStore';
 import { applyTheme } from '../account/theme';
 import { CommandPalette } from '../command/CommandPalette';
 import type { WorkspaceDocument } from '../document/types';
@@ -81,14 +83,28 @@ interface WorkspaceShellProps {
   serverUrl: string;
   token: string;
   user: User;
+  accountSessions: AccountSession[];
+  accountTransitioning: boolean;
+  accountError: string | null;
+  onSwitchAccount: (userId: string) => void;
+  onAddAccount: () => void;
+  onDismissAccountError: () => void;
   onSignOut: () => void;
+  onSignOutAll: () => void;
 }
 
 export function WorkspaceShell({
   serverUrl,
   token,
   user,
+  accountSessions,
+  accountTransitioning,
+  accountError,
+  onSwitchAccount,
+  onAddAccount,
+  onDismissAccountError,
   onSignOut,
+  onSignOutAll,
 }: WorkspaceShellProps) {
   const queryClient = useQueryClient();
   const context = { serverUrl, token };
@@ -854,8 +870,20 @@ export function WorkspaceShell({
         />
       )}
       <WorkspaceNavigation
-        email={user.email}
-        displayName={user.display_name}
+        accountSwitcher={
+          <AccountSwitcher
+            accounts={accountSessions}
+            activeUserId={user.id}
+            transitioning={accountTransitioning}
+            error={accountError}
+            onSwitchAccount={onSwitchAccount}
+            onAddAccount={onAddAccount}
+            onOpenAccountSettings={() => openAccountSettings('profile')}
+            onSignOutCurrent={onSignOut}
+            onSignOutAll={onSignOutAll}
+            onDismissError={onDismissAccountError}
+          />
+        }
         workspace={activeWorkspace}
         projects={projects.data ?? []}
         workspaceViews={workspaceViews.data ?? []}
@@ -870,8 +898,6 @@ export function WorkspaceShell({
         onOpenPlanning={openPlanning}
         onOpenDocuments={openDocuments}
         onOpenSavedView={openSavedView}
-        onOpenAccountSettings={openAccountSettings}
-        onSignOut={onSignOut}
       />
       {!paneLayout.narrow && paneLayout.navigationVisible && (
         <PaneResizeHandle

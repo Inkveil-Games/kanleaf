@@ -8,20 +8,15 @@ import {
   LayoutPanelTop,
   ListTodo,
   Layers3,
-  LogOut,
   Plus,
-  UserRound,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
-import type { AccountSettingsSection } from '../account/AccountSettings';
 import type { SavedView } from '../view/types';
 import { InlineNameForm } from './InlineNameForm';
 import type { Collection, Project, Workspace } from './types';
 
 interface WorkspaceNavigationProps {
-  email: string;
-  displayName: string;
+  accountSwitcher: ReactNode;
   workspace: Workspace;
   projects: Project[];
   workspaceViews: SavedView[];
@@ -36,16 +31,13 @@ interface WorkspaceNavigationProps {
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
   onOpenDocuments: (projectId: string | null) => void;
   onOpenSavedView: (view: SavedView) => void;
-  onOpenAccountSettings: (section: AccountSettingsSection) => void;
-  onSignOut: () => void;
 }
 
 export type WorkspaceSurface =
   'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents';
 
 export function WorkspaceNavigation({
-  email,
-  displayName,
+  accountSwitcher,
   workspace,
   projects,
   workspaceViews,
@@ -60,8 +52,6 @@ export function WorkspaceNavigation({
   onOpenPlanning,
   onOpenDocuments,
   onOpenSavedView,
-  onOpenAccountSettings,
-  onSignOut,
 }: WorkspaceNavigationProps) {
   const [composingProject, setComposingProject] = useState(false);
   const canUseContent = workspace.role !== 'guest';
@@ -266,33 +256,7 @@ export function WorkspaceNavigation({
         </section>
       </nav>
 
-      <div className="navigation-footer">
-        <button
-          className="account-button"
-          type="button"
-          onClick={() => onOpenAccountSettings('profile')}
-        >
-          <span className="member-monogram" aria-hidden="true">
-            {displayName.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="account-copy">
-            <span>{displayName}</span>
-            <small>{email}</small>
-          </span>
-        </button>
-        <ContextMenu label="Account actions" placement="up">
-          <button
-            role="menuitem"
-            type="button"
-            onClick={() => onOpenAccountSettings('profile')}
-          >
-            <UserRound aria-hidden="true" size={14} /> Account settings
-          </button>
-          <button role="menuitem" type="button" onClick={onSignOut}>
-            <LogOut aria-hidden="true" size={14} /> Sign out
-          </button>
-        </ContextMenu>
-      </div>
+      <div className="navigation-footer">{accountSwitcher}</div>
     </aside>
   );
 }

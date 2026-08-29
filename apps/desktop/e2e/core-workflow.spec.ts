@@ -12,7 +12,8 @@ async function chooseSelectOption(
   optionName: string,
 ) {
   await page.getByRole('combobox', { name: selectName, exact: true }).click();
-  await page.getByRole('option', { name: optionName, exact: true }).click();
+  await page.getByRole('option', { name: optionName, exact: true }).focus();
+  await page.keyboard.press('Enter');
 }
 
 test('manages structured work and durable Markdown across reloads', async ({
@@ -50,7 +51,8 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Workspace updated')).toBeVisible();
   await expect(workspaceSelect).toContainText('Studio Workspace');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await page.locator('.account-button').click();
+  await page.getByRole('button', { name: 'Switch account' }).click();
+  await page.getByRole('menuitem', { name: 'Account settings' }).click();
   await expect(
     page.getByRole('region', { name: 'Account settings' }),
   ).toBeVisible();
@@ -58,7 +60,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Display name').fill('Kanleaf Tester');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile updated')).toBeVisible();
-  await expect(page.locator('.account-copy')).toContainText('Kanleaf Tester');
+  await expect(
+    page.getByRole('button', { name: 'Switch account' }),
+  ).toContainText('Kanleaf Tester');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await workspaceSelect.click();
   await page
@@ -325,6 +329,66 @@ Kanleaf keeps **structured work** beside durable notes.
     page.getByRole('treeitem', { name: /Architecture decisions/ }),
   ).toBeVisible();
   expect(consoleErrors).toEqual([]);
+});
+
+test('switches retained accounts without crossing account data', async ({
+  page,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const firstEmail = `switch-first-${suffix}@example.com`;
+  const secondEmail = `switch-second-${suffix}@example.com`;
+  const firstTask = `First account note ${suffix}`;
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'New account' }).click();
+  await page.getByLabel('Email').fill(firstEmail);
+  await page.locator('input[type="password"]').fill('playwright-password');
+  await page.getByRole('button', { name: 'Register' }).click();
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'New task' }).click();
+  await page.getByLabel('Task title').fill(firstTask);
+  await page.getByRole('button', { name: 'Add' }).click();
+  const source = page.locator('.cm-content[contenteditable="true"]');
+  await source.fill('# Account one\n\nSaved while switching accounts.');
+
+  await page.getByRole('button', { name: 'Switch account' }).click();
+  await page.getByRole('menuitem', { name: 'Add another account' }).click();
+  const addAccount = page.getByRole('dialog', {
+    name: 'Add another account',
+  });
+  await addAccount.getByRole('button', { name: 'New account' }).click();
+  await addAccount.getByLabel('Email').fill(secondEmail);
+  await addAccount
+    .locator('input[type="password"]')
+    .fill('playwright-password');
+  await addAccount.getByRole('button', { name: 'Register' }).click();
+
+  const accountTrigger = page.getByRole('button', { name: 'Switch account' });
+  await expect(accountTrigger).toContainText(secondEmail);
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
+
+  await accountTrigger.click();
+  await page
+    .getByRole('menuitemradio', { name: new RegExp(firstEmail) })
+    .click();
+  await expect(accountTrigger).toContainText(firstEmail);
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByText(firstTask, { exact: true }).click();
+  await expect(source).toContainText('Saved while switching accounts.');
+
+  await page.reload();
+  await expect(accountTrigger).toContainText(firstEmail);
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await expect(page.getByText(firstTask, { exact: true })).toBeVisible();
+
+  await accountTrigger.click();
+  await page
+    .getByRole('menuitemradio', { name: new RegExp(secondEmail) })
+    .click();
+  await expect(accountTrigger).toContainText(secondEmail);
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
 });
 
 test('prevents a session from reading another workspace', async ({

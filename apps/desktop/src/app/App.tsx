@@ -30,11 +30,13 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
     token,
     transitioning,
     error: accountError,
+    clearError: clearAccountError,
     synchronizeValidatedSession,
     discardInvalidSession,
     switchAccount,
     addAuthenticated,
     signOutCurrent,
+    signOutAll,
   } = useAccountSessions(serverUrl, flushDocumentSaves);
   const [addingAccount, setAddingAccount] = useState(false);
   const health = useQuery({
@@ -127,13 +129,35 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
   }
 
   return (
-    <WorkspaceShell
-      key={session.data.user.id}
-      serverUrl={serverUrl}
-      token={token}
-      user={session.data.user}
-      onSignOut={() => void signOutCurrent()}
-    />
+    <>
+      <WorkspaceShell
+        key={session.data.user.id}
+        serverUrl={serverUrl}
+        token={token}
+        user={session.data.user}
+        accountSessions={retainedSessions.accounts}
+        accountTransitioning={transitioning}
+        accountError={accountError}
+        onSwitchAccount={(userId) => void switchAccount(userId)}
+        onAddAccount={() => {
+          clearAccountError();
+          setAddingAccount(true);
+        }}
+        onDismissAccountError={clearAccountError}
+        onSignOut={() => void signOutCurrent()}
+        onSignOutAll={() => void signOutAll()}
+      />
+      {addingAccount && (
+        <AddAccountDialog
+          serverUrl={serverUrl}
+          onAuthenticated={async (response) => {
+            await addAuthenticated(response);
+            setAddingAccount(false);
+          }}
+          onClose={() => setAddingAccount(false)}
+        />
+      )}
+    </>
   );
 }
 

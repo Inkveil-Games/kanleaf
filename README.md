@@ -12,6 +12,7 @@ Markdown document.
 ## Features
 
 - Email/password authentication with Argon2id hashes and hashed server sessions
+- Explicit switching between multiple retained accounts on the configured server
 - Multiple workspaces with personal workspace creation and switching
 - Workspace profile, member roles, invitations, ownership, and lifecycle tools
 - Project overview, visibility, membership roles, defaults, and feature controls
@@ -44,10 +45,10 @@ Markdown document.
 - Docker Compose self-hosting and a Tauri v2 desktop shell
 
 Account and Workspace settings have separate focused windows, while Project
-settings use their own project-scoped window. The top bar keeps Workspace
-switching, global search, and notifications available without crowding the
-navigation pane. Press `/` for collection-local Task search and `C` to create a
-Task when the current collection permits it.
+settings use their own project-scoped window. Workspace and account switching
+stay at the top and bottom of the navigation pane; the full-width top bar keeps
+global search and notifications available. Press `/` for collection-local Task
+search and `C` to create a Task when the current collection permits it.
 
 ## Architecture at a glance
 
