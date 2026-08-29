@@ -14,6 +14,7 @@ use axum::{
 };
 use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
@@ -21,6 +22,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
+    collaboration::{notify_assignments, notify_task_change, record_activity, subscribe},
     domain::{TaskPriority, TaskTitle},
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
@@ -158,8 +160,11 @@ pub(crate) struct CreateRelationRequest {
 
 #[derive(FromRow)]
 struct CurrentTask {
+    title: String,
     project_id: Option<Uuid>,
+    state_id: Uuid,
     task_type_id: Uuid,
+    priority: String,
     start_date: Option<NaiveDate>,
     due_date: Option<NaiveDate>,
     estimate: Option<i32>,
@@ -348,6 +353,24 @@ pub(crate) async fn create(
         &module_ids,
     )
     .await?;
+    subscribe(&mut transaction, workspace_id, task_id, auth.user.id).await?;
+    notify_assignments(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        &assignee_ids,
+    )
+    .await?;
+    record_activity(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        "task_created",
+        json!({}),
+    )
+    .await?;
 
     state
         .vault
@@ -408,8 +431,8 @@ pub(crate) async fn update(
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let current: CurrentTask = sqlx::query_as(
         r#"
-        SELECT project_id, task_type_id, start_date, due_date,
-               estimate, parent_id
+        SELECT title, project_id, state_id, task_type_id, priority,
+               start_date, due_date, estimate, parent_id
         FROM tasks
         WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
         FOR UPDATE
@@ -475,7 +498,7 @@ pub(crate) async fn update(
         .as_ref()
         .map(|ids| unique_ids(ids, "Task assignees cannot contain duplicates"))
         .transpose()?
-        .unwrap_or(current_assignees);
+        .unwrap_or_else(|| current_assignees.clone());
     let valid_assignees = valid_assignees(
         &mut transaction,
         workspace_id,
@@ -492,13 +515,15 @@ pub(crate) async fn update(
         target_assignees = valid_assignees;
     }
 
+    let current_labels = task_label_ids(&mut transaction, workspace_id, task_id).await?;
     let target_labels = request
         .label_ids
         .as_ref()
         .map(|ids| unique_ids(ids, "Task labels cannot contain duplicates"))
-        .transpose()?;
-    if let Some(label_ids) = &target_labels {
-        validate_labels(&mut transaction, workspace_id, label_ids).await?;
+        .transpose()?
+        .unwrap_or_else(|| current_labels.clone());
+    if request.label_ids.is_some() {
+        validate_labels(&mut transaction, workspace_id, &target_labels).await?;
     }
 
     let current_cycle = task_cycle_id(&mut transaction, workspace_id, task_id).await?;
@@ -538,7 +563,7 @@ pub(crate) async fn update(
             .as_ref()
             .map(|ids| unique_ids(ids, "Task Modules cannot contain duplicates"))
             .transpose()?
-            .unwrap_or(current_modules)
+            .unwrap_or_else(|| current_modules.clone())
     };
     if replace_modules_requested {
         validate_module_assignments(
@@ -653,8 +678,8 @@ pub(crate) async fn update(
     {
         replace_assignees(&mut transaction, workspace_id, task_id, &target_assignees).await?;
     }
-    if let Some(label_ids) = target_labels {
-        replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
+    if request.label_ids.is_some() {
+        replace_labels(&mut transaction, workspace_id, task_id, &target_labels).await?;
     }
     if replace_cycle_requested {
         replace_cycle(
@@ -673,6 +698,88 @@ pub(crate) async fn update(
             target_project,
             task_id,
             &target_modules,
+        )
+        .await?;
+    }
+    let mut changed_fields = Vec::new();
+    if title
+        .as_ref()
+        .is_some_and(|value| value.as_str() != current.title)
+    {
+        changed_fields.push("title");
+    }
+    let state_changed = request
+        .state_id
+        .is_some_and(|state_id| state_id != current.state_id);
+    if state_changed {
+        changed_fields.push("state");
+    }
+    if target_task_type != current.task_type_id {
+        changed_fields.push("task_type");
+    }
+    if request
+        .priority
+        .is_some_and(|priority| priority.as_str() != current.priority)
+    {
+        changed_fields.push("priority");
+    }
+    if project_changed {
+        changed_fields.push("project");
+    }
+    if target_start_date != current.start_date {
+        changed_fields.push("start_date");
+    }
+    if target_due_date != current.due_date {
+        changed_fields.push("due_date");
+    }
+    if target_estimate != current.estimate {
+        changed_fields.push("estimate");
+    }
+    if target_parent != current.parent_id {
+        changed_fields.push("parent");
+    }
+    if target_assignees != current_assignees {
+        changed_fields.push("assignees");
+    }
+    if target_labels != current_labels {
+        changed_fields.push("labels");
+    }
+    if target_cycle != current_cycle {
+        changed_fields.push("cycle");
+    }
+    if target_modules != current_modules {
+        changed_fields.push("modules");
+    }
+    if !changed_fields.is_empty() {
+        record_activity(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            auth.user.id,
+            "task_updated",
+            json!({ "fields": changed_fields }),
+        )
+        .await?;
+        let newly_assigned = target_assignees
+            .iter()
+            .copied()
+            .filter(|user_id| !current_assignees.contains(user_id))
+            .collect::<Vec<_>>();
+        notify_task_change(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            auth.user.id,
+            state_changed,
+            changed_fields.iter().any(|field| *field != "state"),
+        )
+        .await?;
+        notify_assignments(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            auth.user.id,
+            &newly_assigned,
         )
         .await?;
     }
@@ -715,6 +822,24 @@ pub(crate) async fn archive(
     .await?;
     delete_cycle_assignment(&mut transaction, workspace_id, task_id).await?;
     delete_module_assignments(&mut transaction, workspace_id, task_id).await?;
+    record_activity(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        "task_archived",
+        json!({}),
+    )
+    .await?;
+    notify_task_change(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        false,
+        true,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -959,6 +1084,32 @@ pub(crate) async fn bulk_update(
         .bind(task_id)
         .execute(&mut *transaction)
         .await?;
+        let fields = [
+            request.state_id.map(|_| "state"),
+            request.priority.map(|_| "priority"),
+            request.project_id.map(|_| "project"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        record_activity(
+            &mut transaction,
+            workspace_id,
+            *task_id,
+            auth.user.id,
+            "task_updated",
+            json!({ "fields": fields }),
+        )
+        .await?;
+        notify_task_change(
+            &mut transaction,
+            workspace_id,
+            *task_id,
+            auth.user.id,
+            request.state_id.is_some(),
+            request.priority.is_some() || request.project_id.is_some(),
+        )
+        .await?;
     }
     transaction.commit().await?;
     let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
@@ -1026,6 +1177,24 @@ pub(crate) async fn add_relation(
         }
         Err(error) => return Err(error.into()),
     }
+    record_activity(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        "relation_added",
+        json!({ "related_task_id": request.task_id }),
+    )
+    .await?;
+    notify_task_change(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        false,
+        true,
+    )
+    .await?;
     transaction.commit().await?;
     Ok((
         StatusCode::CREATED,
@@ -1068,6 +1237,24 @@ pub(crate) async fn remove_relation(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task relation not found".to_owned()));
     }
+    record_activity(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        "relation_removed",
+        json!({ "related_task_id": related_task_id }),
+    )
+    .await?;
+    notify_task_change(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        false,
+        true,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1114,6 +1301,15 @@ pub(crate) async fn write_document(
         .write_document(workspace_id, task_id, &request.content)
         .await
         .map_err(AppError::internal)?;
+    record_activity(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        "document_updated",
+        json!({}),
+    )
+    .await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1353,6 +1549,20 @@ async fn task_assignee_ids(
 ) -> Result<Vec<Uuid>, AppError> {
     Ok(sqlx::query_scalar(
         "SELECT user_id FROM task_assignees WHERE workspace_id = $1 AND task_id = $2 ORDER BY user_id",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+async fn task_label_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT label_id FROM task_label_assignments WHERE workspace_id = $1 AND task_id = $2 ORDER BY label_id",
     )
     .bind(workspace_id)
     .bind(task_id)

@@ -26,7 +26,10 @@ use crate::{
     workspace::{WorkspaceRole, workspace_role},
 };
 
-pub(crate) use access::{require_project_access, require_project_admin, require_project_editor};
+pub(crate) use access::{
+    require_project_access, require_project_admin, require_project_commenter,
+    require_project_editor,
+};
 
 #[derive(Clone, Debug, Serialize, FromRow)]
 pub struct ProjectResponse {

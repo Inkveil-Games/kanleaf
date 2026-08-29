@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod collaboration;
 pub mod config;
 pub mod domain;
 pub mod error;

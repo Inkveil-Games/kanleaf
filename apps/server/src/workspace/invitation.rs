@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::{AuthenticatedUser, generate_bearer_token, hash_bearer_token},
+    collaboration::notify_invitation,
     domain::NormalizedEmail,
     error::{AppError, is_unique_violation},
 };
@@ -158,6 +159,7 @@ async fn create(
     let invitation_id = Uuid::new_v4();
     let (token, token_hash) = generate_bearer_token()?;
     let expires_at = invitation_expiry();
+    let mut transaction = state.pool.begin().await?;
     let inserted = sqlx::query(
         r#"
         INSERT INTO workspace_invitations
@@ -172,7 +174,7 @@ async fn create(
     .bind(token_hash.as_slice())
     .bind(auth.user.id)
     .bind(expires_at)
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await;
     if let Err(error) = inserted {
         return if is_unique_violation(&error) {
@@ -183,6 +185,16 @@ async fn create(
             Err(error.into())
         };
     }
+
+    notify_invitation(
+        &mut transaction,
+        workspace_id,
+        invitation_id,
+        email.as_str(),
+        auth.user.id,
+    )
+    .await?;
+    transaction.commit().await?;
 
     let invitation = find_invitation(&state.pool, invitation_id).await?;
     Ok((

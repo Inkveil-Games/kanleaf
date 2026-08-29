@@ -56,6 +56,19 @@ pub(crate) async fn require_project_editor(
     Ok(role)
 }
 
+pub(crate) async fn require_project_commenter(
+    pool: &PgPool,
+    user_id: Uuid,
+    workspace_id: Uuid,
+    project_id: Uuid,
+) -> Result<ProjectRole, AppError> {
+    let role = require_project_access(pool, user_id, workspace_id, project_id).await?;
+    if role == ProjectRole::Viewer {
+        return Err(AppError::Forbidden);
+    }
+    Ok(role)
+}
+
 pub(crate) async fn require_project_admin(
     pool: &PgPool,
     user_id: Uuid,
