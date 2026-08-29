@@ -57,7 +57,6 @@ import {
   listWorkspaceMembers,
   listWorkspaces,
   removeTaskRelation,
-  renameWorkspace,
   updateTask,
 } from './api';
 import type {
@@ -76,6 +75,7 @@ import type { WorkspaceSettingsSection } from './WorkspaceSettings';
 import { PaneResizeHandle } from './PaneResizeHandle';
 import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
+import { WorkspaceControl } from './WorkspaceControl';
 
 interface WorkspaceShellProps {
   serverUrl: string;
@@ -305,18 +305,6 @@ export function WorkspaceShell({
       setActiveProjectId(null);
       setSurface('tasks');
       setSettingsModal(null);
-    } catch (caught) {
-      setActionError(errorMessage(caught));
-      throw caught;
-    }
-  }
-
-  async function updateWorkspaceName(name: string) {
-    if (!workspaceId) return;
-    setActionError(null);
-    try {
-      await renameWorkspace(context, workspaceId, name);
-      await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
     } catch (caught) {
       setActionError(errorMessage(caught));
       throw caught;
@@ -838,21 +826,24 @@ export function WorkspaceShell({
 
   return (
     <main className={shellClassName} style={shellStyle}>
-      <WorkspaceTopBar
-        context={context}
+      <WorkspaceControl
+        userEmail={user.email}
         workspaces={workspaces.data ?? []}
         workspaceId={workspaceId}
+        navigationVisible={paneLayout.navigationVisible}
         onSwitchWorkspace={switchWorkspace}
         onCreateWorkspace={addWorkspace}
-        onRenameWorkspace={updateWorkspaceName}
         onOpenWorkspaceSettings={openWorkspaceSettings}
+        onOpenInvitations={() => openAccountSettings('invitations')}
+        onToggleNavigation={paneLayout.toggleNavigation}
+      />
+      <WorkspaceTopBar
+        context={context}
         onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
           void openNotificationTask(notificationWorkspaceId, taskId)
         }
         onOpenInvitations={() => openAccountSettings('invitations')}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        navigationVisible={paneLayout.navigationVisible}
-        onToggleNavigation={paneLayout.toggleNavigation}
       />
       {paneLayout.narrow && paneLayout.navigationVisible && (
         <button

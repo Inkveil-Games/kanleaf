@@ -34,18 +34,16 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Register' }).click();
 
   const workspaceSelect = page.getByLabel('Active workspace');
-  await expect(workspaceSelect).toHaveAttribute('data-value', /.+/);
   await expect(workspaceSelect).toContainText('Personal');
 
-  await page.getByLabel('Workspace actions').click();
+  await workspaceSelect.click();
   await page.getByRole('menuitem', { name: 'New workspace' }).click();
   await page.getByLabel('Workspace name').fill('Studio');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(workspaceSelect).toHaveAttribute('data-value', /.+/);
   await expect(workspaceSelect).toContainText('Studio');
 
-  await page.getByLabel('Workspace actions').click();
-  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await workspaceSelect.click();
+  await page.getByRole('menuitem', { name: 'Settings for Studio' }).click();
   await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
@@ -62,8 +60,10 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Profile updated')).toBeVisible();
   await expect(page.locator('.account-copy')).toContainText('Kanleaf Tester');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await page.getByLabel('Workspace actions').click();
-  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
+  await workspaceSelect.click();
+  await page
+    .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
+    .click();
   await expect(
     page.getByRole('region', { name: 'Workspace settings' }),
   ).toBeVisible();
@@ -432,10 +432,7 @@ test('delivers collaboration activity through the notification inbox', async ({
     owner.token,
   );
   await page.goto('/');
-  await expect(page.getByLabel('Active workspace')).toHaveAttribute(
-    'data-value',
-    owner.workspaceId,
-  );
+  await expect(page.getByLabel('Active workspace')).toContainText('Personal');
   await expect(page.getByLabel('1 unread')).toBeVisible();
   await page.getByRole('button', { name: 'Notifications' }).click();
   await page
