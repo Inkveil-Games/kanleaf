@@ -5,6 +5,7 @@ pub mod domain;
 pub mod error;
 pub mod http;
 pub mod project;
+pub mod saved_view;
 pub mod state;
 pub mod task;
 pub mod task_config;

@@ -19,7 +19,7 @@ use crate::{
     auth::{AuthenticatedUser, verify_password},
     domain::{ResourceName, ValidatedPassword},
     error::AppError,
-    project, task, task_config,
+    project, saved_view, task, task_config,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +141,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(invitation::routes())
         .merge(task_config::routes())
         .merge(project::routes())
+        .merge(saved_view::routes())
         .route(
             "/api/workspaces/{workspace_id}/tasks",
             get(task::list).post(task::create),
@@ -152,6 +153,10 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/api/workspaces/{workspace_id}/tasks/reorder",
             axum::routing::put(task::reorder),
+        )
+        .route(
+            "/api/workspaces/{workspace_id}/tasks/query",
+            post(task::query),
         )
         .route(
             "/api/workspaces/{workspace_id}/tasks/{task_id}",

@@ -38,6 +38,7 @@ User ──< Session
                                       ├────< TaskState
                                       ├────< TaskLabel
                                       ├────< TaskType
+                                      ├────< SavedView
                                       ├────< Project ────< ProjectMembership
                                       │          ├───────< ProjectTaskType
                                       │          ├───────< ProjectCycle
@@ -71,6 +72,10 @@ User ──< Session
 - Cycles are non-overlapping Project timeboxes and a Task can belong to at most
   one. Modules are Project-scoped thematic groups and Tasks can belong to many.
   Composite keys prevent either planning link from crossing a Project boundary.
+- Saved Views keep a validated, versioned task query and one presentation
+  layout. Personal names are unique per owner and scope; shared names are
+  unique per scope. Project foreign keys and membership ownership keep records
+  inside the same tenant.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
   active tasks to Inbox in the same transaction. A Project move either rejects
@@ -105,6 +110,13 @@ editing, commenting, and read-only access; task and vault operations inherit
 that boundary. Vault access occurs only while the authorized task identity is
 held by a database lock. API errors use a stable JSON envelope and do not expose
 database or filesystem details.
+
+The task collection endpoint accepts only a versioned, typed JSON query. All
+filter values are bound SQL parameters; ordering, grouping, and filter columns
+come from closed Rust enums. Saved Views can be Personal or Shared. Workspace
+Owner/Admin manage shared workspace Views; Project Contributors can create and
+edit their own shared Project Views, while Project Admin manages all shared
+Views in the Project.
 
 Workspace invitations contain normalized target emails, seven-day expiry, and
 only SHA-256 token digests. Owner/Admin can issue, renew, or revoke invitations;

@@ -1,5 +1,6 @@
 mod model;
 mod planning;
+mod query_engine;
 
 use std::collections::HashSet;
 
@@ -37,6 +38,7 @@ use self::planning::{
     replace_modules, validate_assignments as validate_planning_assignments,
     validate_cycle as validate_cycle_assignment, validate_modules as validate_module_assignments,
 };
+pub(crate) use self::query_engine::TaskQuery;
 
 const MAX_SEARCH_LENGTH: usize = 200;
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
@@ -187,12 +189,16 @@ pub(crate) async fn list(
 ) -> Result<Json<Vec<TaskResponse>>, AppError> {
     let Path(workspace_id) = path.map_err(AppError::from)?;
     let Query(filters) = filters.map_err(AppError::from)?;
-    if filters.inbox && filters.project_id.is_some() {
+    let scope_count = usize::from(filters.inbox)
+        + usize::from(filters.my_work)
+        + usize::from(filters.project_id.is_some())
+        + usize::from(filters.cycle_id.is_some())
+        + usize::from(filters.module_id.is_some());
+    if scope_count > 1 {
         return Err(AppError::Validation(
-            "Inbox and project filters cannot be combined".to_owned(),
+            "Task collection scope filters cannot be combined".to_owned(),
         ));
     }
-    let search = filters.query.as_deref().map(search_pattern).transpose()?;
     let role = require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
     if filters.inbox && !role.can_access_content() {
         return Err(AppError::Forbidden);
@@ -201,98 +207,24 @@ pub(crate) async fn list(
         require_project_access(&state.pool, auth.user.id, workspace_id, project_id).await?;
     }
 
-    let rows = sqlx::query_as::<_, TaskRow>(
-        r#"
-        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
-               projects.identifier AS project_identifier, tasks.task_number,
-               states.id AS state_id, states.name AS state_name,
-               states.color AS state_color, states.state_group,
-               task_types.id AS task_type_id, task_types.name AS task_type_name,
-               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
-               tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
-               tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
-        FROM tasks
-        LEFT JOIN projects ON projects.id = tasks.project_id
-        JOIN task_states AS states
-          ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
-        JOIN task_types
-          ON task_types.workspace_id = tasks.workspace_id
-         AND task_types.id = tasks.task_type_id
-        WHERE tasks.workspace_id = $1
-          AND tasks.archived_at IS NULL
-          AND ($2::uuid IS NULL OR tasks.project_id = $2)
-          AND (NOT $3 OR tasks.project_id IS NULL)
-          AND ($4::text IS NULL OR tasks.title ILIKE $4 ESCAPE '\')
-          AND (NOT $5 OR EXISTS(
-              SELECT 1 FROM task_assignees
-              WHERE task_assignees.workspace_id = tasks.workspace_id
-                AND task_assignees.task_id = tasks.id
-                AND task_assignees.user_id = $6
-          ))
-          AND ($7::uuid IS NULL OR tasks.state_id = $7)
-          AND ($8::uuid IS NULL OR tasks.task_type_id = $8)
-          AND ($9::text IS NULL OR tasks.priority = $9)
-          AND ($10::uuid IS NULL OR EXISTS(
-              SELECT 1 FROM task_assignees
-              WHERE task_assignees.workspace_id = tasks.workspace_id
-                AND task_assignees.task_id = tasks.id
-                AND task_assignees.user_id = $10
-          ))
-          AND ($11::uuid IS NULL OR EXISTS(
-              SELECT 1 FROM task_label_assignments
-              WHERE task_label_assignments.workspace_id = tasks.workspace_id
-                AND task_label_assignments.task_id = tasks.id
-                AND task_label_assignments.label_id = $11
-          ))
-          AND ($12::uuid IS NULL OR EXISTS(
-              SELECT 1 FROM task_cycle_assignments
-              WHERE task_cycle_assignments.workspace_id = tasks.workspace_id
-                AND task_cycle_assignments.task_id = tasks.id
-                AND task_cycle_assignments.cycle_id = $12
-          ))
-          AND ($13::uuid IS NULL OR EXISTS(
-              SELECT 1 FROM task_module_assignments
-              WHERE task_module_assignments.workspace_id = tasks.workspace_id
-                AND task_module_assignments.task_id = tasks.id
-                AND task_module_assignments.module_id = $13
-          ))
-          AND ($14::date IS NULL OR tasks.due_date <= $14)
-          AND ($15::date IS NULL OR tasks.due_date >= $15)
-          AND (
-              ($16 AND tasks.project_id IS NULL)
-              OR $17
-              OR EXISTS(
-                  SELECT 1 FROM project_memberships
-                  WHERE project_memberships.workspace_id = tasks.workspace_id
-                    AND project_memberships.project_id = tasks.project_id
-                    AND project_memberships.user_id = $6
-              )
-          )
-        ORDER BY tasks.position, tasks.task_number
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(filters.project_id)
-    .bind(filters.inbox)
-    .bind(search)
-    .bind(filters.my_work)
-    .bind(auth.user.id)
-    .bind(filters.state_id)
-    .bind(filters.task_type_id)
-    .bind(filters.priority.map(TaskPriority::as_str))
-    .bind(filters.assignee_id)
-    .bind(filters.label_id)
-    .bind(filters.cycle_id)
-    .bind(filters.module_id)
-    .bind(filters.due_before)
-    .bind(filters.due_after)
-    .bind(role.can_access_content())
-    .bind(role.can_manage())
-    .fetch_all(&state.pool)
-    .await?;
-    let mut tasks = rows.into_iter().map(TaskResponse::from).collect::<Vec<_>>();
-    hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
-    Ok(Json(tasks))
+    let query = TaskQuery::from_legacy(filters);
+    Ok(Json(
+        query_engine::run(&state.pool, auth.user.id, workspace_id, role, query).await?,
+    ))
+}
+
+pub(crate) async fn query(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    payload: Result<Json<TaskQuery>, JsonRejection>,
+) -> Result<Json<Vec<TaskResponse>>, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    let Json(query) = payload.map_err(AppError::from)?;
+    let role = require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
+    Ok(Json(
+        query_engine::run(&state.pool, auth.user.id, workspace_id, role, query).await?,
+    ))
 }
 
 pub(crate) async fn create(
@@ -1675,7 +1607,7 @@ async fn cleanup_or_reject_move(
     Ok(())
 }
 
-fn search_pattern(value: &str) -> Result<String, AppError> {
+pub(super) fn search_pattern(value: &str) -> Result<String, AppError> {
     let value = value.trim();
     if value.chars().count() > MAX_SEARCH_LENGTH {
         return Err(AppError::Validation(
