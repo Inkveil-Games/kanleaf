@@ -59,6 +59,32 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
         .await
         .unwrap();
 
+    let document_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Note', 'note', 1)",
+    )
+    .bind(document_id)
+    .bind(first_workspace)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let duplicate_library_name = sqlx::query(
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Duplicate', 'note', 1)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_workspace)
+    .execute(&pool)
+    .await;
+    assert!(duplicate_library_name.is_err());
+    let unsafe_library_name = sqlx::query(
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Unsafe', '../escape', 1)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_workspace)
+    .execute(&pool)
+    .await;
+    assert!(unsafe_library_name.is_err());
+
     let cross_workspace_task = sqlx::query(
         "INSERT INTO tasks (id, workspace_id, project_id, title, state_id, task_type_id, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, 1, 1024)",
     )

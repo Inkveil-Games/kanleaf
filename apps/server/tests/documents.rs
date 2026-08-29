@@ -8,7 +8,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, router};
+use kanleaf_server::{AppState, document::migrate_legacy_library, router};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -139,13 +139,21 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     )
     .await;
     let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(root["storage_name"], "architecture");
+    assert_eq!(root["library_path"], "Library/architecture.md");
+    assert_eq!(child["storage_name"], "vault");
+    assert_eq!(child["library_path"], "Library/architecture/vault.md");
     let root_path = data_dir
         .path()
         .join("vaults")
         .join(workspace_id.to_string())
-        .join("Pages")
-        .join(format!("{root_id}.md"));
-    let child_path = root_path.with_file_name(format!("{child_id}.md"));
+        .join("Library")
+        .join("architecture.md");
+    let child_path = root_path
+        .parent()
+        .unwrap()
+        .join("architecture")
+        .join("vault.md");
     assert_eq!(fs::read_to_string(&root_path).unwrap(), "");
 
     let content_uri = format!("/api/workspaces/{workspace_id}/documents/{root_id}/content");
@@ -201,6 +209,11 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
         .await
         .unwrap();
     assert_eq!(moved.status(), StatusCode::OK);
+    let moved = body(moved).await;
+    assert_eq!(moved["title"], "System architecture");
+    assert_eq!(moved["storage_name"], "architecture");
+    assert_eq!(moved["library_path"], "Library/architecture.md");
+    assert!(root_path.exists());
     let child_project: Option<Uuid> =
         sqlx::query_scalar("SELECT project_id FROM documents WHERE id = $1")
             .bind(child_id)
@@ -283,6 +296,223 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
     assert!(!root_path.exists());
     assert!(!child_path.exists());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn reparenting_moves_the_portable_markdown_subtree(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let source = create_document(&app, &token, workspace_id, "Source", None, None).await;
+    let destination = create_document(&app, &token, workspace_id, "Destination", None, None).await;
+    let source_id: Uuid = source["id"].as_str().unwrap().parse().unwrap();
+    let destination_id: Uuid = destination["id"].as_str().unwrap().parse().unwrap();
+    let child = create_document(
+        &app,
+        &token,
+        workspace_id,
+        "Install Guide",
+        None,
+        Some(source_id),
+    )
+    .await;
+    let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    let grandchild =
+        create_document(&app, &token, workspace_id, "Linux", None, Some(child_id)).await;
+    let vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Library");
+    let old_child = vault.join("source/install_guide.md");
+    let old_grandchild = vault.join("source/install_guide/linux.md");
+    fs::write(&old_child, "# Install\n\nKeep this source.\n").unwrap();
+    fs::write(&old_grandchild, "# Linux\n").unwrap();
+
+    let moved = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}"),
+            Some(json!({
+                "title": "Installation",
+                "parent_id": destination_id,
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(moved.status(), StatusCode::OK);
+    let moved = body(moved).await;
+    assert_eq!(moved["storage_name"], "install_guide");
+    assert_eq!(
+        moved["library_path"],
+        "Library/destination/install_guide.md"
+    );
+    assert_eq!(
+        grandchild["library_path"],
+        "Library/source/install_guide/linux.md"
+    );
+    let new_child = vault.join("destination/install_guide.md");
+    let new_grandchild = vault.join("destination/install_guide/linux.md");
+    assert_eq!(
+        fs::read_to_string(&new_child).unwrap(),
+        "# Install\n\nKeep this source.\n"
+    );
+    assert_eq!(fs::read_to_string(&new_grandchild).unwrap(), "# Linux\n");
+    assert!(!old_child.exists());
+    assert!(!old_grandchild.exists());
+    assert!(!vault.join("source").exists());
+
+    let detail = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    assert_eq!(
+        body(detail).await["library_path"],
+        "Library/destination/install_guide.md"
+    );
+
+    let archived = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archived.status(), StatusCode::NO_CONTENT);
+    let deleted = app
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}/delete"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    assert!(!new_child.exists());
+    assert!(!new_grandchild.exists());
+    assert!(!vault.join("destination").exists());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn legacy_uuid_pages_migrate_to_deterministic_library_paths(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let root = create_document(&app, &token, workspace_id, "Getting Started", None, None).await;
+    let root_id: Uuid = root["id"].as_str().unwrap().parse().unwrap();
+    let child = create_document(
+        &app,
+        &token,
+        workspace_id,
+        "Installation",
+        None,
+        Some(root_id),
+    )
+    .await;
+    let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    let duplicate =
+        create_document(&app, &token, workspace_id, "Getting Started", None, None).await;
+    let duplicate_id: Uuid = duplicate["id"].as_str().unwrap().parse().unwrap();
+
+    let workspace_vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string());
+    let library = workspace_vault.join("Library");
+    let legacy = workspace_vault.join("Pages");
+    fs::create_dir_all(&legacy).unwrap();
+    for (id, path, content) in [
+        (root_id, library.join("getting_started.md"), "# Start\n"),
+        (
+            child_id,
+            library.join("getting_started/installation.md"),
+            "# Install\n",
+        ),
+        (
+            duplicate_id,
+            library.join("getting_started_2.md"),
+            "# Another start\n",
+        ),
+    ] {
+        fs::write(&path, content).unwrap();
+        fs::rename(path, legacy.join(format!("{id}.md"))).unwrap();
+    }
+    fs::remove_dir_all(&library).unwrap();
+    for id in [root_id, child_id, duplicate_id] {
+        sqlx::query(
+            "UPDATE documents SET storage_name = lower(id::text), storage_layout_version = 0 WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    migrate_legacy_library(&state).await.unwrap();
+    migrate_legacy_library(&state).await.unwrap();
+
+    let migrated: Vec<(Uuid, String, i16)> = sqlx::query_as(
+        "SELECT id, storage_name, storage_layout_version FROM documents WHERE workspace_id = $1 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(migrated.iter().all(|(_, _, version)| *version == 1));
+    assert_eq!(
+        migrated.iter().find(|(id, _, _)| *id == root_id).unwrap().1,
+        "getting_started"
+    );
+    assert_eq!(
+        migrated
+            .iter()
+            .find(|(id, _, _)| *id == duplicate_id)
+            .unwrap()
+            .1,
+        "getting_started_2"
+    );
+    assert_eq!(
+        fs::read_to_string(library.join("getting_started.md")).unwrap(),
+        "# Start\n"
+    );
+    assert_eq!(
+        fs::read_to_string(library.join("getting_started/installation.md")).unwrap(),
+        "# Install\n"
+    );
+    assert_eq!(
+        fs::read_to_string(library.join("getting_started_2.md")).unwrap(),
+        "# Another start\n"
+    );
+    assert!(!legacy.exists());
+    assert!(
+        state
+            .vault
+            .pending_library_operations()
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]

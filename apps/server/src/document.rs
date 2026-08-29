@@ -1,7 +1,12 @@
 use std::collections::HashSet;
 
 mod content;
+mod migration;
 mod persistence;
+mod recovery;
+
+pub use migration::migrate_legacy_library;
+pub use recovery::recover_library_operations;
 
 use axum::{
     Json, Router,
@@ -24,8 +29,9 @@ use crate::{
 };
 
 use persistence::{
-    authorize_scope, cleanup_unattached_page, find_authorized_document, lock_document,
-    lock_workspace_documents, map_vault_create_error, next_position, restore_page_trash,
+    authorize_scope, available_storage_name, cleanup_unattached_page,
+    ensure_storage_name_available, find_authorized_document, library_path, lock_document,
+    lock_workspace_documents, map_vault_create_error, next_position, restore_library_trash,
     unique_ids, validate_parent,
 };
 
@@ -36,6 +42,8 @@ pub struct DocumentResponse {
     pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,
     pub title: String,
+    pub storage_name: String,
+    pub library_path: String,
     pub position: i64,
     pub can_edit: bool,
     pub archived_at: Option<DateTime<Utc>>,
@@ -119,8 +127,21 @@ async fn list(
 
     let documents = sqlx::query_as::<_, DocumentResponse>(
         r#"
+        WITH RECURSIVE document_paths AS (
+            SELECT id, workspace_id, storage_name::text AS relative_path
+            FROM documents
+            WHERE workspace_id = $2 AND parent_id IS NULL
+            UNION ALL
+            SELECT child.id, child.workspace_id,
+                   parent.relative_path || '/' || child.storage_name
+            FROM documents AS child
+            JOIN document_paths AS parent ON child.parent_id = parent.id
+            WHERE child.workspace_id = $2
+        )
         SELECT documents.id, documents.workspace_id, documents.project_id,
-               documents.parent_id, documents.title, documents.position,
+               documents.parent_id, documents.title, documents.storage_name,
+               'Library/' || document_paths.relative_path || '.md' AS library_path,
+               documents.position,
                CASE
                    WHEN documents.project_id IS NULL THEN workspace_memberships.role <> 'guest'
                    WHEN workspace_memberships.role IN ('owner', 'admin') THEN true
@@ -131,6 +152,7 @@ async fn list(
         JOIN workspace_memberships
           ON workspace_memberships.workspace_id = documents.workspace_id
          AND workspace_memberships.user_id = $1
+        JOIN document_paths ON document_paths.id = documents.id
         LEFT JOIN projects
           ON projects.workspace_id = documents.workspace_id
          AND projects.id = documents.project_id
@@ -206,13 +228,21 @@ async fn create(
         request.parent_id,
     )
     .await?;
+    let storage_name = available_storage_name(
+        &mut transaction,
+        workspace_id,
+        request.parent_id,
+        title.as_str(),
+    )
+    .await?;
     let document_id = Uuid::new_v4();
-    let document = sqlx::query_as::<_, DocumentResponse>(
+    sqlx::query(
         r#"
-        INSERT INTO documents (id, workspace_id, project_id, parent_id, title, position)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, workspace_id, project_id, parent_id, title, position,
-                  true AS can_edit, archived_at, created_at, updated_at
+        INSERT INTO documents (
+            id, workspace_id, project_id, parent_id, title, storage_name,
+            storage_layout_version, position
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 1, $7)
         "#,
     )
     .bind(document_id)
@@ -220,20 +250,26 @@ async fn create(
     .bind(request.project_id)
     .bind(request.parent_id)
     .bind(title.as_str())
+    .bind(storage_name.as_str())
     .bind(position)
-    .fetch_one(&mut *transaction)
+    .execute(&mut *transaction)
     .await?;
+
+    let path = library_path(&mut transaction, workspace_id, document_id).await?;
 
     state
         .vault
-        .create_page_document(workspace_id, document_id)
+        .create_page_document(workspace_id, &path)
         .await
         .map_err(map_vault_create_error)?;
     if let Err(error) = transaction.commit().await {
-        cleanup_unattached_page(&state, workspace_id, document_id).await;
+        cleanup_unattached_page(&state, workspace_id, &path).await;
         return Err(error.into());
     }
-    Ok((StatusCode::CREATED, Json(document)))
+    Ok((
+        StatusCode::CREATED,
+        Json(find_authorized_document(&state, auth.user.id, workspace_id, document_id).await?),
+    ))
 }
 
 async fn update(
@@ -268,6 +304,7 @@ async fn update(
     let mut transaction = state.pool.begin().await?;
     lock_workspace_documents(&mut transaction, workspace_id).await?;
     let current = lock_document(&mut transaction, workspace_id, document_id, false).await?;
+    let source_path = library_path(&mut transaction, workspace_id, document_id).await?;
     authorize_scope(&state, auth.user.id, workspace_id, current.project_id, true).await?;
     let project_id = request.project_id.unwrap_or(current.project_id);
     if project_id != current.project_id {
@@ -282,6 +319,16 @@ async fn update(
         Some(document_id),
     )
     .await?;
+    if parent_id != current.parent_id {
+        ensure_storage_name_available(
+            &mut transaction,
+            workspace_id,
+            document_id,
+            parent_id,
+            &current.storage_name,
+        )
+        .await?;
+    }
     let moved = project_id != current.project_id || parent_id != current.parent_id;
     let position = match request.position {
         Some(position) => position,
@@ -328,7 +375,26 @@ async fn update(
     .bind(position)
     .execute(&mut *transaction)
     .await?;
-    transaction.commit().await?;
+
+    let destination_path = library_path(&mut transaction, workspace_id, document_id).await?;
+    let movement = state
+        .vault
+        .move_library_tree(workspace_id, document_id, &source_path, &destination_path)
+        .await
+        .map_err(map_vault_create_error)?;
+    if let Err(error) = transaction.commit().await {
+        if let Some(movement) = &movement
+            && let Err(rollback_error) = state.vault.rollback_library_move(movement).await
+        {
+            warn!(document_id = %document_id, %rollback_error, "failed to roll back Library move");
+        }
+        return Err(error.into());
+    }
+    if let Some(movement) = &movement
+        && let Err(error) = state.vault.finish_library_move(movement).await
+    {
+        warn!(document_id = %document_id, %error, "failed to finish Library move cleanup");
+    }
 
     Ok(Json(
         find_authorized_document(&state, auth.user.id, workspace_id, document_id).await?,
@@ -481,34 +547,27 @@ async fn delete_permanently(
         ));
     }
 
-    let mut trash = Vec::new();
-    for id in ids {
-        match state.vault.trash_page(workspace_id, id).await {
-            Ok(Some(item)) => trash.push(item),
-            Ok(None) => {}
-            Err(error) => {
-                restore_page_trash(&state, &trash).await;
-                return Err(AppError::internal(error));
-            }
-        }
-    }
+    let root_path = library_path(&mut transaction, workspace_id, document_id).await?;
+    let trash = state
+        .vault
+        .trash_library_tree(workspace_id, document_id, &root_path)
+        .await
+        .map_err(AppError::internal)?;
     let delete_result = sqlx::query("DELETE FROM documents WHERE workspace_id = $1 AND id = $2")
         .bind(workspace_id)
         .bind(document_id)
         .execute(&mut *transaction)
         .await;
     if let Err(error) = delete_result {
-        restore_page_trash(&state, &trash).await;
+        restore_library_trash(&state, &trash).await;
         return Err(error.into());
     }
     if let Err(error) = transaction.commit().await {
-        restore_page_trash(&state, &trash).await;
+        restore_library_trash(&state, &trash).await;
         return Err(error.into());
     }
-    for item in trash {
-        if let Err(error) = state.vault.purge_page_trash(&item).await {
-            warn!(document_id = %document_id, %error, "failed to purge deleted Page document");
-        }
+    if let Err(error) = state.vault.purge_library_trash(&trash).await {
+        warn!(document_id = %document_id, %error, "failed to purge deleted Library subtree");
     }
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,7 +1,12 @@
 use std::future::pending;
 
 use anyhow::Context;
-use kanleaf_server::{AppState, config::Config, router};
+use kanleaf_server::{
+    AppState,
+    config::Config,
+    document::{migrate_legacy_library, recover_library_operations},
+    router,
+};
 use sqlx::postgres::PgPoolOptions;
 use tokio::signal;
 use tracing::{info, warn};
@@ -27,14 +32,19 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to run database migrations")?;
 
+    let state = AppState::new(pool, config.data_dir, config.session_ttl);
+    recover_library_operations(&state)
+        .await
+        .context("failed to recover interrupted Library operations")?;
+    migrate_legacy_library(&state)
+        .await
+        .context("failed to migrate legacy Pages into the Library vault")?;
+
     let listener = tokio::net::TcpListener::bind(config.bind_address)
         .await
         .context("failed to bind server address")?;
     let address = listener.local_addr()?;
-    let app = router(
-        AppState::new(pool, config.data_dir, config.session_ttl),
-        config.cors_origins,
-    );
+    let app = router(state, config.cors_origins);
 
     info!(%address, "Kanleaf server listening");
     axum::serve(listener, app)

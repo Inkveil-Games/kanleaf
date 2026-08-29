@@ -7,6 +7,7 @@ const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_RESOURCE_NAME_LENGTH: usize = 120;
 const MAX_TASK_TITLE_LENGTH: usize = 300;
 const MAX_DOCUMENT_TITLE_LENGTH: usize = 300;
+pub const MAX_LIBRARY_STORAGE_NAME_BYTES: usize = 120;
 const MAX_CONFIGURATION_DESCRIPTION_LENGTH: usize = 500;
 const MAX_PROJECT_DESCRIPTION_LENGTH: usize = 2000;
 
@@ -120,6 +121,91 @@ impl DocumentTitle {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LibraryStorageName(String);
+
+impl LibraryStorageName {
+    pub fn from_title(value: &str) -> Self {
+        let mut name = String::new();
+        let mut separator = false;
+        for character in value.trim().chars().flat_map(char::to_lowercase) {
+            if character.is_alphanumeric() {
+                if separator && !name.is_empty() {
+                    name.push('_');
+                }
+                name.push(character);
+                separator = false;
+            } else if character.is_whitespace() || matches!(character, '-' | '_') {
+                separator = !name.is_empty();
+            }
+        }
+        trim_to_byte_limit(&mut name, MAX_LIBRARY_STORAGE_NAME_BYTES);
+        if name.is_empty() {
+            name.push_str("note");
+        } else if is_windows_reserved_name(&name) {
+            name.insert_str(0, "note_");
+        }
+        Self(name)
+    }
+
+    pub fn parse(value: &str) -> Result<Self, ValidationError> {
+        let valid = !value.is_empty()
+            && value.len() <= MAX_LIBRARY_STORAGE_NAME_BYTES
+            && value == value.to_lowercase()
+            && value
+                .chars()
+                .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
+            && !is_windows_reserved_name(value);
+        if !valid {
+            return Err(ValidationError::new(
+                "Library storage name is not a portable filename",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn candidate(&self, sequence: usize) -> Self {
+        if sequence <= 1 {
+            return self.clone();
+        }
+        let suffix = format!("_{sequence}");
+        let mut base = self.0.clone();
+        trim_to_byte_limit(
+            &mut base,
+            MAX_LIBRARY_STORAGE_NAME_BYTES.saturating_sub(suffix.len()),
+        );
+        Self(format!("{base}{suffix}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+fn trim_to_byte_limit(value: &mut String, limit: usize) {
+    if value.len() <= limit {
+        return;
+    }
+    let mut end = limit;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
+    while value.ends_with('_') {
+        value.pop();
+    }
+}
+
+fn is_windows_reserved_name(value: &str) -> bool {
+    matches!(value, "con" | "prn" | "aux" | "nul")
+        || value
+            .strip_prefix("com")
+            .or_else(|| value.strip_prefix("lpt"))
+            .is_some_and(|suffix| {
+                matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+            })
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -346,9 +432,9 @@ impl ValidationError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigurationDescription, DocumentTitle, HexColor, NormalizedEmail, ProjectDescription,
-        ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName, TaskPriority,
-        TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
+        ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
+        ProjectDescription, ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName,
+        TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
     };
 
     #[test]
@@ -401,6 +487,27 @@ mod tests {
         );
         assert!(DocumentTitle::new(" ").is_err());
         assert!(DocumentTitle::new(&"x".repeat(301)).is_err());
+    }
+
+    #[test]
+    fn creates_portable_library_storage_names() {
+        assert_eq!(
+            LibraryStorageName::from_title("  Bắt đầu / Getting-Started  ").as_str(),
+            "bắt_đầu_getting_started"
+        );
+        assert_eq!(LibraryStorageName::from_title("CON").as_str(), "note_con");
+        assert_eq!(LibraryStorageName::from_title("../").as_str(), "note");
+
+        let long = LibraryStorageName::from_title(&"界".repeat(100));
+        assert!(long.as_str().len() <= 120);
+        assert!(long.as_str().is_char_boundary(long.as_str().len()));
+        assert!(long.candidate(2).as_str().len() <= 120);
+        assert_eq!(
+            LibraryStorageName::from_title("Getting started")
+                .candidate(2)
+                .as_str(),
+            "getting_started_2"
+        );
     }
 
     #[test]

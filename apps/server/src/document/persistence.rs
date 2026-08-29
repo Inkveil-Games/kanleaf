@@ -7,9 +7,10 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    domain::LibraryStorageName,
     error::AppError,
     project::{require_project_access, require_project_editor},
-    vault::VaultError,
+    vault::{LibraryPath, VaultError},
     workspace::workspace_role,
 };
 
@@ -19,6 +20,7 @@ use super::DocumentResponse;
 pub(super) struct LockedDocument {
     pub(super) project_id: Option<Uuid>,
     pub(super) parent_id: Option<Uuid>,
+    pub(super) storage_name: String,
     pub(super) position: i64,
     pub(super) archived_at: Option<DateTime<Utc>>,
 }
@@ -31,8 +33,24 @@ pub(super) async fn find_authorized_document(
 ) -> Result<DocumentResponse, AppError> {
     sqlx::query_as::<_, DocumentResponse>(
         r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_id, storage_name, ARRAY[storage_name]::text[] AS segments
+            FROM documents
+            WHERE workspace_id = $2 AND id = $3
+            UNION ALL
+            SELECT parent.id, parent.parent_id, parent.storage_name,
+                   ARRAY[parent.storage_name]::text[] || child.segments
+            FROM documents AS parent
+            JOIN ancestors AS child ON child.parent_id = parent.id
+            WHERE parent.workspace_id = $2
+        ), resolved_path AS (
+            SELECT array_to_string(segments, '/') AS relative_path
+            FROM ancestors WHERE parent_id IS NULL
+        )
         SELECT documents.id, documents.workspace_id, documents.project_id,
-               documents.parent_id, documents.title, documents.position,
+               documents.parent_id, documents.title, documents.storage_name,
+               'Library/' || resolved_path.relative_path || '.md' AS library_path,
+               documents.position,
                CASE
                    WHEN documents.project_id IS NULL THEN workspace_memberships.role <> 'guest'
                    WHEN workspace_memberships.role IN ('owner', 'admin') THEN true
@@ -50,6 +68,7 @@ pub(super) async fn find_authorized_document(
           ON project_memberships.workspace_id = documents.workspace_id
          AND project_memberships.project_id = documents.project_id
          AND project_memberships.user_id = $1
+        CROSS JOIN resolved_path
         WHERE documents.workspace_id = $2
           AND documents.id = $3
           AND documents.archived_at IS NULL
@@ -119,7 +138,7 @@ pub(super) async fn lock_document(
 ) -> Result<LockedDocument, AppError> {
     sqlx::query_as::<_, LockedDocument>(
         r#"
-        SELECT project_id, parent_id, position, archived_at
+        SELECT project_id, parent_id, storage_name, position, archived_at
         FROM documents
         WHERE workspace_id = $1 AND id = $2
           AND ($3 OR archived_at IS NULL)
@@ -132,6 +151,102 @@ pub(super) async fn lock_document(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))
+}
+
+pub(super) async fn library_path(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    document_id: Uuid,
+) -> Result<LibraryPath, AppError> {
+    let segments: Vec<String> = sqlx::query_scalar(
+        r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_id, storage_name, ARRAY[storage_name]::text[] AS segments
+            FROM documents
+            WHERE workspace_id = $1 AND id = $2
+            UNION ALL
+            SELECT parent.id, parent.parent_id, parent.storage_name,
+                   ARRAY[parent.storage_name]::text[] || child.segments
+            FROM documents AS parent
+            JOIN ancestors AS child ON child.parent_id = parent.id
+            WHERE parent.workspace_id = $1
+        )
+        SELECT segments FROM ancestors WHERE parent_id IS NULL
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(document_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))?;
+    LibraryPath::parse(segments.iter().map(String::as_str)).map_err(|_| {
+        AppError::Validation("The Library path exceeds the supported depth or length".to_owned())
+    })
+}
+
+pub(super) async fn available_storage_name(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    parent_id: Option<Uuid>,
+    title: &str,
+) -> Result<LibraryStorageName, AppError> {
+    let base = LibraryStorageName::from_title(title);
+    for sequence in 1..=10_000 {
+        let candidate = base.candidate(sequence);
+        let occupied: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM documents
+                WHERE workspace_id = $1
+                  AND parent_id IS NOT DISTINCT FROM $2
+                  AND storage_name = $3
+            )
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(parent_id)
+        .bind(candidate.as_str())
+        .fetch_one(&mut **transaction)
+        .await?;
+        if !occupied {
+            return Ok(candidate);
+        }
+    }
+    Err(AppError::Conflict(
+        "No portable Library filename is available for this title".to_owned(),
+    ))
+}
+
+pub(super) async fn ensure_storage_name_available(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    document_id: Uuid,
+    parent_id: Option<Uuid>,
+    storage_name: &str,
+) -> Result<(), AppError> {
+    let occupied: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM documents
+            WHERE workspace_id = $1
+              AND parent_id IS NOT DISTINCT FROM $2
+              AND storage_name = $3
+              AND id <> $4
+        )
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(parent_id)
+    .bind(storage_name)
+    .bind(document_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if occupied {
+        return Err(AppError::Conflict(format!(
+            "A Library note named {storage_name}.md already exists at that location"
+        )));
+    }
+    Ok(())
 }
 
 pub(super) async fn validate_parent(
@@ -233,18 +348,17 @@ pub(super) fn map_vault_create_error(error: VaultError) -> AppError {
 pub(super) async fn cleanup_unattached_page(
     state: &AppState,
     workspace_id: Uuid,
-    document_id: Uuid,
+    path: &LibraryPath,
 ) {
-    if let Ok(Some(trash)) = state.vault.trash_page(workspace_id, document_id).await {
-        let _ = state.vault.purge_page_trash(&trash).await;
-    }
+    let _ = state
+        .vault
+        .remove_unattached_library_file(workspace_id, path)
+        .await;
 }
 
-pub(super) async fn restore_page_trash(state: &AppState, trash: &[crate::vault::PageTrash]) {
-    for item in trash.iter().rev() {
-        if let Err(error) = state.vault.restore_page(item).await {
-            warn!(%error, "failed to restore Page document after transaction rollback");
-        }
+pub(super) async fn restore_library_trash(state: &AppState, trash: &crate::vault::LibraryTrash) {
+    if let Err(error) = state.vault.restore_library_trash(trash).await {
+        warn!(%error, "failed to restore Library subtree after transaction rollback");
     }
 }
 

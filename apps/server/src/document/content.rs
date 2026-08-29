@@ -12,7 +12,7 @@ use crate::{
     task::{map_vault_write_error, validate_document_revision},
 };
 
-use super::persistence::{authorize_scope, lock_document};
+use super::persistence::{authorize_scope, library_path, lock_document};
 
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;
 
@@ -44,9 +44,10 @@ pub(super) async fn read(
         false,
     )
     .await?;
+    let path = library_path(&mut transaction, workspace_id, document_id).await?;
     let document = state
         .vault
-        .read_page_document(workspace_id, document_id)
+        .read_page_document(workspace_id, &path)
         .await
         .map_err(AppError::internal)?;
     transaction.commit().await?;
@@ -74,11 +75,12 @@ pub(super) async fn write(
     let mut transaction = state.pool.begin().await?;
     let current = lock_document(&mut transaction, workspace_id, document_id, false).await?;
     authorize_scope(&state, auth.user.id, workspace_id, current.project_id, true).await?;
+    let path = library_path(&mut transaction, workspace_id, document_id).await?;
     let revision = state
         .vault
         .write_page_document(
             workspace_id,
-            document_id,
+            &path,
             &request.content,
             &request.base_revision,
         )
