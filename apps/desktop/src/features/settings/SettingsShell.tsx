@@ -70,16 +70,12 @@ export function AccountSettingsShell({
             label="Invitations"
             onClick={() => onSectionChange('invitations')}
           />
-          <button
-            className="settings-link"
-            type="button"
-            disabled
-            title="In-app notifications arrive in a later Kanleaf Core stage"
-          >
-            <Bell aria-hidden="true" size={15} />
-            <span>Notifications</span>
-            <small>Later</small>
-          </button>
+          <SettingsLink
+            active={section === 'notifications'}
+            icon={<Bell aria-hidden="true" size={15} />}
+            label="Notifications"
+            onClick={() => onSectionChange('notifications')}
+          />
         </SettingsGroup>
       }
     >

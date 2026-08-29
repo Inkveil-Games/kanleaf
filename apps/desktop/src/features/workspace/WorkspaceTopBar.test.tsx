@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workspace } from './types';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 
+vi.mock('../collaboration/Notifications', () => ({
+  Notifications: () => <button type="button">Notifications</button>,
+}));
+
+const context = {
+  serverUrl: 'https://kanleaf.example.com',
+  token: 'session-token',
+};
+
 const workspaces: Workspace[] = [
   workspace('workspace-1', 'Kanleaf Core'),
   workspace('workspace-2', 'Website'),
@@ -15,12 +24,15 @@ describe('WorkspaceTopBar', () => {
     const onOpenWorkspaceSettings = vi.fn();
     render(
       <WorkspaceTopBar
+        context={context}
         workspaces={workspaces}
         workspaceId="workspace-1"
         onSwitchWorkspace={onSwitchWorkspace}
         onCreateWorkspace={onCreateWorkspace}
         onRenameWorkspace={vi.fn().mockResolvedValue(undefined)}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+        onOpenNotificationTask={vi.fn()}
+        onOpenInvitations={vi.fn()}
       />,
     );
 
@@ -50,24 +62,23 @@ describe('WorkspaceTopBar', () => {
     render(
       <div>
         <WorkspaceTopBar
+          context={context}
           workspaces={workspaces}
           workspaceId="workspace-1"
           onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
           onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
           onRenameWorkspace={vi.fn().mockResolvedValue(undefined)}
           onOpenWorkspaceSettings={vi.fn()}
+          onOpenNotificationTask={vi.fn()}
+          onOpenInvitations={vi.fn()}
         />
         <button type="button">Outside</button>
       </div>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     expect(
-      screen.getByRole('dialog', { name: 'Notifications' }),
+      screen.getByRole('button', { name: 'Notifications' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('No notifications yet')).toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
-    expect(screen.queryByText('No notifications yet')).toBeNull();
   });
 });
 

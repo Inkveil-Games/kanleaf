@@ -215,6 +215,7 @@ test('prevents a session from reading another workspace', async ({
     },
   );
   expect(create.status()).toBe(201);
+  const task = (await create.json()) as { id: string };
 
   const forbidden = await request.get(
     `${serverUrl}/api/workspaces/${first.workspaceId}/tasks`,
@@ -224,6 +225,119 @@ test('prevents a session from reading another workspace', async ({
   expect(await forbidden.json()).toMatchObject({
     error: { code: 'forbidden' },
   });
+
+  const activityForbidden = await request.get(
+    `${serverUrl}/api/workspaces/${first.workspaceId}/tasks/${task.id}/activity`,
+    { headers: { authorization: `Bearer ${second.token}` } },
+  );
+  expect(activityForbidden.status()).toBe(403);
+});
+
+test('delivers collaboration activity through the notification inbox', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await register(request, `collab-owner-${suffix}@example.com`);
+  const memberEmail = `collab-member-${suffix}@example.com`;
+  const member = await register(request, memberEmail);
+  const ownerHeaders = { authorization: `Bearer ${owner.token}` };
+  const memberHeaders = { authorization: `Bearer ${member.token}` };
+
+  const invitationResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/invitations`,
+    {
+      headers: ownerHeaders,
+      data: { email: memberEmail, role: 'member' },
+    },
+  );
+  expect(invitationResponse.status()).toBe(201);
+  const invitation = (await invitationResponse.json()) as { id: string };
+  const accepted = await request.post(
+    `${serverUrl}/api/invitations/${invitation.id}/accept`,
+    { headers: memberHeaders },
+  );
+  expect(accepted.status()).toBe(204);
+
+  const taskResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/tasks`,
+    {
+      headers: ownerHeaders,
+      data: { title: 'Collaborate securely' },
+    },
+  );
+  expect(taskResponse.status()).toBe(201);
+  const task = (await taskResponse.json()) as { id: string };
+  const commentResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/tasks/${task.id}/comments`,
+    {
+      headers: memberHeaders,
+      data: {
+        body: 'Please review the **authorization boundary**.',
+        parent_id: null,
+        mention_ids: [],
+      },
+    },
+  );
+  expect(commentResponse.status()).toBe(201);
+
+  await page.addInitScript(
+    (token) => localStorage.setItem('kanleaf.session-token', token),
+    owner.token,
+  );
+  await page.goto('/');
+  await expect(page.getByLabel('Active workspace')).toHaveValue(
+    owner.workspaceId,
+  );
+  await expect(page.getByLabel('1 unread')).toBeVisible();
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await page
+    .getByRole('button', { name: /commented on.*Collaborate securely/ })
+    .click();
+
+  await expect(page.getByLabel('Task title')).toHaveValue(
+    'Collaborate securely',
+  );
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(
+    page.locator('.activity-comment .markdown-preview strong'),
+  ).toHaveText('authorization boundary');
+  await expect(page.getByLabel('1 unread')).not.toBeVisible();
+
+  await page
+    .locator('.activity-comment')
+    .filter({ hasText: 'authorization boundary' })
+    .getByRole('button', { name: 'Reply' })
+    .click();
+  await page
+    .getByLabel('Add comment')
+    .fill('Confirmed. The boundary is enforced.');
+  const replySaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/tasks/${task.id}/comments`),
+  );
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
+  expect((await replySaved).status()).toBe(201);
+  await expect(
+    page.locator('.activity-comment-reply .markdown-preview'),
+  ).toContainText('Confirmed. The boundary is enforced.');
+
+  const memberNotifications = await request.get(
+    `${serverUrl}/api/notifications`,
+    {
+      headers: memberHeaders,
+    },
+  );
+  expect(memberNotifications.status()).toBe(200);
+  expect(await memberNotifications.json()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        notification_type: 'reply',
+        task_id: task.id,
+      }),
+    ]),
+  );
 });
 
 async function register(request: APIRequestContext, email: string) {

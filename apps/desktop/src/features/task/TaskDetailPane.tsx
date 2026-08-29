@@ -20,6 +20,7 @@ import type {
   TaskType,
 } from '../workspace/types';
 import { ContextMenu } from '../../components/ui/ContextMenu';
+import { TaskActivity } from '../collaboration/TaskActivity';
 
 const MarkdownDocument = lazy(() =>
   import('../markdown/MarkdownDocument').then((module) => ({
@@ -43,6 +44,9 @@ interface TaskDetailPaneProps {
   loading: boolean;
   error: string | null;
   canEdit: boolean;
+  currentUserId?: string;
+  canComment?: boolean;
+  canModerate?: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
   onArchive: () => Promise<void>;
   onDelete: (reference: string) => Promise<void>;
@@ -105,6 +109,9 @@ function SelectedTaskDetail({
   token,
   workspaceId,
   canEdit,
+  currentUserId = '',
+  canComment = false,
+  canModerate = false,
 }: Omit<TaskDetailPaneProps, 'task'> & { task: Task }) {
   const [title, setTitle] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -113,6 +120,7 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
+  const [tab, setTab] = useState<'details' | 'activity'>('details');
 
   async function saveTitle() {
     const nextTitle = title.trim();
@@ -216,352 +224,408 @@ function SelectedTaskDetail({
           onKeyDown={titleKeyDown}
         />
 
-        <dl className="task-properties">
-          <Property label="State">
-            <select
-              aria-label="State"
-              value={task.state.id}
-              disabled={!canEdit}
-              onChange={(event) => void patch({ state_id: event.target.value })}
-            >
-              {selectableStates(states, task).map((state) => (
-                <option key={state.id} value={state.id}>
-                  {state.name}
-                </option>
-              ))}
-            </select>
-          </Property>
-          <Property label="Type">
-            <select
-              aria-label="Task type"
-              value={task.task_type.id}
-              disabled={!canEdit}
-              onChange={(event) =>
-                void patch({ task_type_id: event.target.value })
-              }
-            >
-              {selectableTypes(taskTypes, task).map((taskType) => (
-                <option key={taskType.id} value={taskType.id}>
-                  {taskType.name}
-                </option>
-              ))}
-            </select>
-          </Property>
-          <Property label="Priority">
-            <select
-              aria-label="Priority"
-              value={task.priority}
-              disabled={!canEdit}
-              onChange={(event) =>
-                void patch({ priority: event.target.value as TaskPriority })
-              }
-            >
-              <option value="none">No priority</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </Property>
-          <Property label="Project">
-            <select
-              aria-label="Project"
-              value={task.project_id ?? ''}
-              disabled={!canEdit}
-              onChange={(event) => {
-                const projectId = event.target.value || null;
-                const cleanup = window.confirm(
-                  'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
-                );
-                if (!cleanup) return;
-                void patch({
-                  project_id: projectId,
-                  cleanup_invalid: true,
-                });
-              }}
-            >
-              <option value="">Inbox</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </Property>
-          {task.project_id && (
-            <Property label="Cycle">
+        <div
+          className="detail-tabs"
+          role="tablist"
+          aria-label="Task detail sections"
+        >
+          <button
+            id={`task-${task.id}-details-tab`}
+            type="button"
+            role="tab"
+            aria-controls={`task-${task.id}-details-panel`}
+            aria-selected={tab === 'details'}
+            onClick={() => setTab('details')}
+          >
+            Details
+          </button>
+          <button
+            id={`task-${task.id}-activity-tab`}
+            type="button"
+            role="tab"
+            aria-controls={`task-${task.id}-activity-panel`}
+            aria-selected={tab === 'activity'}
+            onClick={() => setTab('activity')}
+          >
+            Activity
+          </button>
+        </div>
+
+        {/* Keep the editor mounted so Activity cannot discard its local buffer. */}
+        <div
+          id={`task-${task.id}-details-panel`}
+          className="task-details-section"
+          role="tabpanel"
+          aria-labelledby={`task-${task.id}-details-tab`}
+          hidden={tab !== 'details'}
+        >
+          <dl className="task-properties">
+            <Property label="State">
               <select
-                aria-label="Cycle"
-                value={task.cycle?.id ?? ''}
+                aria-label="State"
+                value={task.state.id}
                 disabled={!canEdit}
                 onChange={(event) =>
-                  void patch({ cycle_id: event.target.value || null })
+                  void patch({ state_id: event.target.value })
                 }
               >
-                <option value="">No Cycle</option>
-                {task.cycle &&
-                  !cycles.some(({ id }) => id === task.cycle?.id) && (
-                    <option value={task.cycle.id}>{task.cycle.name}</option>
-                  )}
-                {cycles
+                {selectableStates(states, task).map((state) => (
+                  <option key={state.id} value={state.id}>
+                    {state.name}
+                  </option>
+                ))}
+              </select>
+            </Property>
+            <Property label="Type">
+              <select
+                aria-label="Task type"
+                value={task.task_type.id}
+                disabled={!canEdit}
+                onChange={(event) =>
+                  void patch({ task_type_id: event.target.value })
+                }
+              >
+                {selectableTypes(taskTypes, task).map((taskType) => (
+                  <option key={taskType.id} value={taskType.id}>
+                    {taskType.name}
+                  </option>
+                ))}
+              </select>
+            </Property>
+            <Property label="Priority">
+              <select
+                aria-label="Priority"
+                value={task.priority}
+                disabled={!canEdit}
+                onChange={(event) =>
+                  void patch({ priority: event.target.value as TaskPriority })
+                }
+              >
+                <option value="none">No priority</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </Property>
+            <Property label="Project">
+              <select
+                aria-label="Project"
+                value={task.project_id ?? ''}
+                disabled={!canEdit}
+                onChange={(event) => {
+                  const projectId = event.target.value || null;
+                  const cleanup = window.confirm(
+                    'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
+                  );
+                  if (!cleanup) return;
+                  void patch({
+                    project_id: projectId,
+                    cleanup_invalid: true,
+                  });
+                }}
+              >
+                <option value="">Inbox</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </Property>
+            {task.project_id && (
+              <Property label="Cycle">
+                <select
+                  aria-label="Cycle"
+                  value={task.cycle?.id ?? ''}
+                  disabled={!canEdit}
+                  onChange={(event) =>
+                    void patch({ cycle_id: event.target.value || null })
+                  }
+                >
+                  <option value="">No Cycle</option>
+                  {task.cycle &&
+                    !cycles.some(({ id }) => id === task.cycle?.id) && (
+                      <option value={task.cycle.id}>{task.cycle.name}</option>
+                    )}
+                  {cycles
+                    .filter(
+                      (cycle) =>
+                        cycle.status !== 'completed' ||
+                        cycle.id === task.cycle?.id,
+                    )
+                    .map((cycle) => (
+                      <option key={cycle.id} value={cycle.id}>
+                        {cycle.name}
+                        {cycle.status === 'completed' ? ' · Completed' : ''}
+                      </option>
+                    ))}
+                </select>
+              </Property>
+            )}
+            {task.project_id && (
+              <Property label="Modules">
+                <MultiValuePicker
+                  label="Edit Modules"
+                  emptyLabel="No Modules"
+                  disabled={!canEdit}
+                  values={task.modules.map(({ id }) => id)}
+                  options={[
+                    ...task.modules.filter(
+                      (assigned) =>
+                        !modules.some((module) => module.id === assigned.id),
+                    ),
+                    ...modules,
+                  ].map((module) => ({ id: module.id, label: module.name }))}
+                  onChange={(moduleIds) => patch({ module_ids: moduleIds })}
+                />
+              </Property>
+            )}
+            <Property label="Assignees">
+              <MultiValuePicker
+                label="Edit assignees"
+                emptyLabel="Unassigned"
+                disabled={!canEdit}
+                values={task.assignees.map(({ user_id }) => user_id)}
+                options={assigneeCandidates.map((member) => ({
+                  id: member.user_id,
+                  label: member.display_name,
+                }))}
+                onChange={(assigneeIds) => patch({ assignee_ids: assigneeIds })}
+              />
+            </Property>
+            <Property label="Labels">
+              <MultiValuePicker
+                label="Edit labels"
+                emptyLabel="No labels"
+                disabled={!canEdit}
+                values={task.labels.map(({ id }) => id)}
+                options={labels
                   .filter(
-                    (cycle) =>
-                      cycle.status !== 'completed' ||
-                      cycle.id === task.cycle?.id,
+                    ({ id, archived_at }) =>
+                      !archived_at ||
+                      task.labels.some((label) => label.id === id),
                   )
-                  .map((cycle) => (
-                    <option key={cycle.id} value={cycle.id}>
-                      {cycle.name}
-                      {cycle.status === 'completed' ? ' · Completed' : ''}
+                  .map((label) => ({ id: label.id, label: label.name }))}
+                onChange={(labelIds) => patch({ label_ids: labelIds })}
+              />
+            </Property>
+            <Property label="Start date">
+              <input
+                aria-label="Start date"
+                type="date"
+                disabled={!canEdit}
+                value={task.start_date ?? ''}
+                onChange={(event) =>
+                  void patch({ start_date: event.target.value || null })
+                }
+              />
+            </Property>
+            <Property label="Due date">
+              <input
+                aria-label="Due date"
+                type="date"
+                disabled={!canEdit}
+                value={task.due_date ?? ''}
+                onChange={(event) =>
+                  void patch({ due_date: event.target.value || null })
+                }
+              />
+            </Property>
+            <Property label="Estimate">
+              <input
+                aria-label="Estimate"
+                type="number"
+                min={0}
+                disabled={!canEdit}
+                value={task.estimate ?? ''}
+                placeholder="No estimate"
+                onChange={(event) =>
+                  void patch({
+                    estimate: event.target.value
+                      ? Number(event.target.value)
+                      : null,
+                  })
+                }
+              />
+            </Property>
+            <Property label="Parent">
+              <select
+                aria-label="Parent task"
+                disabled={!canEdit}
+                value={task.parent?.id ?? ''}
+                onChange={(event) =>
+                  void patch({ parent_id: event.target.value || null })
+                }
+              >
+                <option value="">No parent</option>
+                {taskCandidates
+                  .filter(
+                    (candidate) =>
+                      candidate.id !== task.id &&
+                      candidate.project_id === task.project_id,
+                  )
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.reference} · {candidate.title}
                     </option>
                   ))}
               </select>
             </Property>
+          </dl>
+          {error && (
+            <p className="detail-error" role="alert">
+              {error}
+            </p>
           )}
-          {task.project_id && (
-            <Property label="Modules">
-              <MultiValuePicker
-                label="Edit Modules"
-                emptyLabel="No Modules"
-                disabled={!canEdit}
-                values={task.modules.map(({ id }) => id)}
-                options={[
-                  ...task.modules.filter(
-                    (assigned) =>
-                      !modules.some((module) => module.id === assigned.id),
-                  ),
-                  ...modules,
-                ].map((module) => ({ id: module.id, label: module.name }))}
-                onChange={(moduleIds) => patch({ module_ids: moduleIds })}
-              />
-            </Property>
-          )}
-          <Property label="Assignees">
-            <MultiValuePicker
-              label="Edit assignees"
-              emptyLabel="Unassigned"
-              disabled={!canEdit}
-              values={task.assignees.map(({ user_id }) => user_id)}
-              options={assigneeCandidates.map((member) => ({
-                id: member.user_id,
-                label: member.display_name,
-              }))}
-              onChange={(assigneeIds) => patch({ assignee_ids: assigneeIds })}
-            />
-          </Property>
-          <Property label="Labels">
-            <MultiValuePicker
-              label="Edit labels"
-              emptyLabel="No labels"
-              disabled={!canEdit}
-              values={task.labels.map(({ id }) => id)}
-              options={labels
-                .filter(
-                  ({ id, archived_at }) =>
-                    !archived_at ||
-                    task.labels.some((label) => label.id === id),
-                )
-                .map((label) => ({ id: label.id, label: label.name }))}
-              onChange={(labelIds) => patch({ label_ids: labelIds })}
-            />
-          </Property>
-          <Property label="Start date">
-            <input
-              aria-label="Start date"
-              type="date"
-              disabled={!canEdit}
-              value={task.start_date ?? ''}
-              onChange={(event) =>
-                void patch({ start_date: event.target.value || null })
-              }
-            />
-          </Property>
-          <Property label="Due date">
-            <input
-              aria-label="Due date"
-              type="date"
-              disabled={!canEdit}
-              value={task.due_date ?? ''}
-              onChange={(event) =>
-                void patch({ due_date: event.target.value || null })
-              }
-            />
-          </Property>
-          <Property label="Estimate">
-            <input
-              aria-label="Estimate"
-              type="number"
-              min={0}
-              disabled={!canEdit}
-              value={task.estimate ?? ''}
-              placeholder="No estimate"
-              onChange={(event) =>
-                void patch({
-                  estimate: event.target.value
-                    ? Number(event.target.value)
-                    : null,
-                })
-              }
-            />
-          </Property>
-          <Property label="Parent">
-            <select
-              aria-label="Parent task"
-              disabled={!canEdit}
-              value={task.parent?.id ?? ''}
-              onChange={(event) =>
-                void patch({ parent_id: event.target.value || null })
-              }
-            >
-              <option value="">No parent</option>
-              {taskCandidates
-                .filter(
-                  (candidate) =>
-                    candidate.id !== task.id &&
-                    candidate.project_id === task.project_id,
-                )
-                .map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.reference} · {candidate.title}
-                  </option>
-                ))}
-            </select>
-          </Property>
-        </dl>
-        {error && (
-          <p className="detail-error" role="alert">
-            {error}
-          </p>
-        )}
 
-        <Suspense
-          fallback={
-            <section className="task-document">
-              <div className="document-state">Loading editor…</div>
-            </section>
-          }
-        >
-          <MarkdownDocument
-            serverUrl={serverUrl}
-            token={token}
-            workspaceId={workspaceId}
-            taskId={task.id}
-            readOnly={!canEdit}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <section className="task-document">
+                <div className="document-state">Loading editor…</div>
+              </section>
+            }
+          >
+            <MarkdownDocument
+              serverUrl={serverUrl}
+              token={token}
+              workspaceId={workspaceId}
+              taskId={task.id}
+              readOnly={!canEdit}
+            />
+          </Suspense>
 
-        <section
-          className="task-secondary-details"
-          aria-labelledby="task-links-title"
-        >
-          <header>
-            <div>
-              <p className="pane-eyebrow">Structure</p>
-              <h2 id="task-links-title">Subtasks and relations</h2>
-            </div>
-          </header>
-          <div className="task-link-section">
-            <h3>Subtasks</h3>
-            {task.subtasks.length === 0 ? (
-              <p>No subtasks.</p>
-            ) : (
-              task.subtasks.map((subtask) => (
-                <button
-                  key={subtask.id}
-                  type="button"
-                  onClick={() => onOpenTask(subtask.id)}
-                >
-                  <span>{subtask.reference}</span>
-                  {subtask.title}
-                </button>
-              ))
-            )}
-          </div>
-          <div className="task-link-section">
-            <h3>Relations</h3>
-            {task.relations.map((relation) => (
-              <div className="task-relation-row" key={relation.task.id}>
-                <button
-                  type="button"
-                  onClick={() => onOpenTask(relation.task.id)}
-                >
-                  <span>{relationLabel(relation.relation_type)}</span>
-                  {relation.task.reference} · {relation.task.title}
-                </button>
-                {canEdit && (
+          <section
+            className="task-secondary-details"
+            aria-labelledby="task-links-title"
+          >
+            <header>
+              <div>
+                <p className="pane-eyebrow">Structure</p>
+                <h2 id="task-links-title">Subtasks and relations</h2>
+              </div>
+            </header>
+            <div className="task-link-section">
+              <h3>Subtasks</h3>
+              {task.subtasks.length === 0 ? (
+                <p>No subtasks.</p>
+              ) : (
+                task.subtasks.map((subtask) => (
                   <button
-                    className="icon-button"
+                    key={subtask.id}
                     type="button"
-                    aria-label={`Remove relation to ${relation.task.title}`}
-                    onClick={() =>
-                      void onRemoveRelation(relation.task.id).catch(
-                        (caught: unknown) => setError(errorMessage(caught)),
+                    onClick={() => onOpenTask(subtask.id)}
+                  >
+                    <span>{subtask.reference}</span>
+                    {subtask.title}
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="task-link-section">
+              <h3>Relations</h3>
+              {task.relations.map((relation) => (
+                <div className="task-relation-row" key={relation.task.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask(relation.task.id)}
+                  >
+                    <span>{relationLabel(relation.relation_type)}</span>
+                    {relation.task.reference} · {relation.task.title}
+                  </button>
+                  {canEdit && (
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`Remove relation to ${relation.task.title}`}
+                      onClick={() =>
+                        void onRemoveRelation(relation.task.id).catch(
+                          (caught: unknown) => setError(errorMessage(caught)),
+                        )
+                      }
+                    >
+                      <X aria-hidden="true" size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {task.relations.length === 0 && <p>No relations.</p>}
+              {canEdit && (
+                <form
+                  className="relation-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!relatedTaskId) return;
+                    setRelationSaving(true);
+                    void onAddRelation(relatedTaskId, relationType)
+                      .then(() => setRelatedTaskId(''))
+                      .catch((caught: unknown) =>
+                        setError(errorMessage(caught)),
                       )
+                      .finally(() => setRelationSaving(false));
+                  }}
+                >
+                  <Link2 aria-hidden="true" size={14} />
+                  <select
+                    aria-label="Relation type"
+                    value={relationType}
+                    onChange={(event) =>
+                      setRelationType(event.target.value as TaskRelationType)
                     }
                   >
-                    <X aria-hidden="true" size={13} />
+                    <option value="relates_to">Relates to</option>
+                    <option value="blocking">Blocking</option>
+                    <option value="blocked_by">Blocked by</option>
+                    <option value="duplicate">Duplicate</option>
+                  </select>
+                  <select
+                    required
+                    aria-label="Related task"
+                    value={relatedTaskId}
+                    onChange={(event) => setRelatedTaskId(event.target.value)}
+                  >
+                    <option value="">Choose a Task…</option>
+                    {taskCandidates
+                      .filter(
+                        (candidate) =>
+                          candidate.id !== task.id &&
+                          !task.relations.some(
+                            (relation) => relation.task.id === candidate.id,
+                          ),
+                      )
+                      .map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.reference} · {candidate.title}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={relationSaving || !relatedTaskId}
+                  >
+                    <Plus aria-hidden="true" size={14} /> Add
                   </button>
-                )}
-              </div>
-            ))}
-            {task.relations.length === 0 && <p>No relations.</p>}
-            {canEdit && (
-              <form
-                className="relation-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!relatedTaskId) return;
-                  setRelationSaving(true);
-                  void onAddRelation(relatedTaskId, relationType)
-                    .then(() => setRelatedTaskId(''))
-                    .catch((caught: unknown) => setError(errorMessage(caught)))
-                    .finally(() => setRelationSaving(false));
-                }}
-              >
-                <Link2 aria-hidden="true" size={14} />
-                <select
-                  aria-label="Relation type"
-                  value={relationType}
-                  onChange={(event) =>
-                    setRelationType(event.target.value as TaskRelationType)
-                  }
-                >
-                  <option value="relates_to">Relates to</option>
-                  <option value="blocking">Blocking</option>
-                  <option value="blocked_by">Blocked by</option>
-                  <option value="duplicate">Duplicate</option>
-                </select>
-                <select
-                  required
-                  aria-label="Related task"
-                  value={relatedTaskId}
-                  onChange={(event) => setRelatedTaskId(event.target.value)}
-                >
-                  <option value="">Choose a Task…</option>
-                  {taskCandidates
-                    .filter(
-                      (candidate) =>
-                        candidate.id !== task.id &&
-                        !task.relations.some(
-                          (relation) => relation.task.id === candidate.id,
-                        ),
-                    )
-                    .map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {candidate.reference} · {candidate.title}
-                      </option>
-                    ))}
-                </select>
-                <button
-                  type="submit"
-                  disabled={relationSaving || !relatedTaskId}
-                >
-                  <Plus aria-hidden="true" size={14} /> Add
-                </button>
-              </form>
-            )}
+                </form>
+              )}
+            </div>
+          </section>
+        </div>
+        {tab === 'activity' && (
+          <div
+            id={`task-${task.id}-activity-panel`}
+            role="tabpanel"
+            aria-labelledby={`task-${task.id}-activity-tab`}
+          >
+            <TaskActivity
+              context={{ serverUrl, token }}
+              workspaceId={workspaceId}
+              taskId={task.id}
+              currentUserId={currentUserId}
+              canComment={canComment}
+              canModerate={canModerate}
+            />
           </div>
-        </section>
+        )}
       </div>
     </section>
   );

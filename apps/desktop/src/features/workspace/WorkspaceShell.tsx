@@ -496,6 +496,26 @@ export function WorkspaceShell({
     setActionError(null);
   }
 
+  async function openNotificationTask(
+    notificationWorkspaceId: string,
+    taskId: string,
+  ) {
+    setActionError(null);
+    try {
+      if (notificationWorkspaceId !== workspaceId) {
+        await activateWorkspace(context, notificationWorkspaceId);
+        setActiveWorkspaceId(notificationWorkspaceId);
+      }
+      resetTaskView({ kind: 'my-work' });
+      setActiveProjectId(null);
+      setSettingsModal(null);
+      setSurface('tasks');
+      setSelectedTaskId(taskId);
+    } catch (caught) {
+      setActionError(errorMessage(caught));
+    }
+  }
+
   function openWorkspaceSettings(section: WorkspaceSettingsSection) {
     setWorkspaceSettingsSection(section);
     setSettingsModal('workspace');
@@ -655,6 +675,28 @@ export function WorkspaceShell({
     );
   }
 
+  function canCommentTask(currentTask: Task) {
+    if (!currentTask.project_id) return hasContentAccess;
+    const role = projects.data?.find(
+      ({ id }) => id === currentTask.project_id,
+    )?.effective_role;
+    return Boolean(role && role !== 'viewer');
+  }
+
+  function canModerateTask(currentTask: Task) {
+    if (
+      activeWorkspace?.role === 'owner' ||
+      activeWorkspace?.role === 'admin'
+    ) {
+      return true;
+    }
+    return Boolean(
+      currentTask.project_id &&
+      projects.data?.find(({ id }) => id === currentTask.project_id)
+        ?.effective_role === 'admin',
+    );
+  }
+
   const canCreateTask =
     taskQuery.scope.kind === 'cycle' || taskQuery.scope.kind === 'module'
       ? false
@@ -687,12 +729,17 @@ export function WorkspaceShell({
       className={`workspace-shell view-layout-${taskLayout}${selectedTask ? ' has-task-detail' : ''}`}
     >
       <WorkspaceTopBar
+        context={context}
         workspaces={workspaces.data ?? []}
         workspaceId={workspaceId}
         onSwitchWorkspace={switchWorkspace}
         onCreateWorkspace={addWorkspace}
         onRenameWorkspace={updateWorkspaceName}
         onOpenWorkspaceSettings={openWorkspaceSettings}
+        onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
+          void openNotificationTask(notificationWorkspaceId, taskId)
+        }
+        onOpenInvitations={() => openAccountSettings('invitations')}
       />
       <WorkspaceNavigation
         email={user.email}
@@ -833,6 +880,9 @@ export function WorkspaceShell({
             loading={Boolean(selectedTaskId) && task.isPending}
             error={task.error ? errorMessage(task.error) : null}
             canEdit={selectedTask ? canEditTask(selectedTask) : false}
+            currentUserId={user.id}
+            canComment={selectedTask ? canCommentTask(selectedTask) : false}
+            canModerate={selectedTask ? canModerateTask(selectedTask) : false}
             onPatch={(patch) => patchTask(selectedTaskId!, patch)}
             onArchive={removeTask}
             onDelete={permanentlyDeleteTask}

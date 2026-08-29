@@ -1,29 +1,37 @@
-import { Bell, ChevronDown, Pencil, Plus, Settings } from 'lucide-react';
+import { ChevronDown, Pencil, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { Notifications } from '../collaboration/Notifications';
 import { InlineNameForm } from './InlineNameForm';
+import type { ApiContext } from './api';
 import type { Workspace } from './types';
 import type { WorkspaceSettingsSection } from './WorkspaceSettings';
 
 interface WorkspaceTopBarProps {
+  context: ApiContext;
   workspaces: Workspace[];
   workspaceId: string;
   onSwitchWorkspace: (workspaceId: string) => Promise<void>;
   onCreateWorkspace: (name: string) => Promise<void>;
   onRenameWorkspace: (name: string) => Promise<void>;
   onOpenWorkspaceSettings: (section: WorkspaceSettingsSection) => void;
+  onOpenNotificationTask: (workspaceId: string, taskId: string) => void;
+  onOpenInvitations: () => void;
 }
 
 type Composer = 'create' | 'rename' | null;
 
 export function WorkspaceTopBar({
+  context,
   workspaces,
   workspaceId,
   onSwitchWorkspace,
   onCreateWorkspace,
   onRenameWorkspace,
   onOpenWorkspaceSettings,
+  onOpenNotificationTask,
+  onOpenInvitations,
 }: WorkspaceTopBarProps) {
   const [composer, setComposer] = useState<Composer>(null);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
@@ -103,18 +111,11 @@ export function WorkspaceTopBar({
           </div>
         )}
       </div>
-      <ContextMenu
-        label="Notifications"
-        className="notification-menu"
-        popoverRole="dialog"
-        trigger={<Bell aria-hidden="true" size={16} />}
-      >
-        <div className="notification-empty" role="status">
-          <Bell aria-hidden="true" size={17} />
-          <strong>No notifications yet</strong>
-          <span>Updates about your work will appear here.</span>
-        </div>
-      </ContextMenu>
+      <Notifications
+        context={context}
+        onOpenTask={onOpenNotificationTask}
+        onOpenInvitations={onOpenInvitations}
+      />
     </header>
   );
 }

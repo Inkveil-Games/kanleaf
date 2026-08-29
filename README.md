@@ -21,6 +21,9 @@ Markdown document.
   Calendar, Table, and Timeline layouts
 - Task assignees, labels, scheduling, estimates, hierarchy, and relations
 - Project Cycles and Modules with progress, leads, completion, and work transfer
+- Markdown comments, one-level replies, mentions, edit history, and moderation
+- Task activity, watch subscriptions, and a role-aware notification inbox
+- Account notification preferences with unread filtering and read state
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
 - Source Markdown editing with undo/redo, tab indentation, and keyboard save
 - Edit, Preview, and Split document modes with safe GitHub-flavored rendering

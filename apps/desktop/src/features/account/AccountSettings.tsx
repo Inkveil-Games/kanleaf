@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import type { User } from '../../lib/api/types';
+import { NotificationSettings } from '../collaboration/NotificationSettings';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   FormActions,
@@ -32,7 +33,7 @@ import {
 import { applyTheme } from './theme';
 
 export type AccountSettingsSection =
-  'profile' | 'preferences' | 'security' | 'invitations';
+  'profile' | 'preferences' | 'security' | 'invitations' | 'notifications';
 
 interface AccountSettingsProps {
   context: ApiContext;
@@ -59,6 +60,9 @@ export function AccountSettings({
   }
   if (section === 'security') {
     return <SecuritySettings context={context} />;
+  }
+  if (section === 'notifications') {
+    return <NotificationSettings context={context} />;
   }
   return <PendingInvitations context={context} />;
 }

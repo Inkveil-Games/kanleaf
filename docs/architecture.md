@@ -33,6 +33,7 @@ The ordered migration in `apps/server/migrations` creates:
 
 ```text
 User ──< Session
+  ├──< Notification
   │
   └──< WorkspaceMembership >── Workspace ──< WorkspaceInvitation
                                       ├────< TaskState
@@ -47,7 +48,10 @@ User ──< Session
                                                 ├──< TaskLabelAssignment
                                                 ├─── TaskCycleAssignment
                                                 ├──< TaskModuleAssignment
-                                                └──< TaskRelation >── Task
+                                                ├──< TaskRelation >── Task
+                                                ├──< TaskComment ──< CommentRevision
+                                                ├──< TaskSubscription
+                                                └──< TaskActivity
 ```
 
 - A membership is the workspace tenant and authorization boundary. Fixed
@@ -76,6 +80,14 @@ User ──< Session
   layout. Personal names are unique per owner and scope; shared names are
   unique per scope. Project foreign keys and membership ownership keep records
   inside the same tenant.
+- Task comments store Markdown collaboration records in PostgreSQL, including
+  one reply level, structured mentions, immutable prior revisions, and
+  tombstone deletion. Activity is a separate append-only product feed, not an
+  event-sourcing or compliance-audit mechanism.
+- Subscriptions drive in-app notifications for comments and selected Task
+  changes. Assignment, mention, reply, and invitation delivery remains enabled;
+  each user may mute routine comment or metadata notifications. Only read state
+  and preferences are stored—there is no queue or realtime delivery service.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and task archives are timestamps; archiving a project moves its
   active tasks to Inbox in the same transaction. A Project move either rejects
@@ -110,6 +122,12 @@ editing, commenting, and read-only access; task and vault operations inherit
 that boundary. Vault access occurs only while the authorized task identity is
 held by a database lock. API errors use a stable JSON envelope and do not expose
 database or filesystem details.
+
+Comment creation requires Inbox content access or Project Commenter and above.
+Only authors edit their comments; authors, Project Admin, and Workspace
+Owner/Admin may delete them. Mention candidates are computed after Task access
+is resolved. Notification queries re-check current Task access so a removed
+member cannot use an old notification to discover content.
 
 The task collection endpoint accepts only a versioned, typed JSON query. All
 filter values are bound SQL parameters; ordering, grouping, and filter columns
@@ -174,6 +192,8 @@ The desktop app is feature-oriented:
 - `features/view` owns the typed collection query, Personal/Shared View API,
   presentation controls, and List, Board, Calendar, Table, and Timeline
   layouts;
+- `features/collaboration` owns the merged Task feed, comments, subscriptions,
+  notification inbox, and account notification preferences;
 - `features/markdown` owns source editing, preview, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
@@ -194,7 +214,9 @@ The layout is desktop-first with a 900×600 minimum Tauri window. A compact top
 bar owns Workspace switching and global notifications; navigation, collection,
 and detail panes use subtle separators and strong row selection beneath it.
 Account and Workspace settings are separate floating windows, and task detail
-remains a pane rather than a modal.
+remains a pane rather than a modal. Task detail switches between structured
+Details and chronological Activity without losing its pane context. The top-bar
+inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
 
 ## Deployment
 

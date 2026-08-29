@@ -14,6 +14,10 @@ vi.mock('../markdown/MarkdownDocument', () => ({
   MarkdownDocument: () => <div>Markdown editor</div>,
 }));
 
+vi.mock('../collaboration/TaskActivity', () => ({
+  TaskActivity: () => <div>Task activity feed</div>,
+}));
+
 const task: Task = {
   id: 'task-1',
   workspace_id: 'workspace-1',
@@ -202,6 +206,12 @@ describe('TaskDetailPane', () => {
         title: 'Document the architecture',
       });
     });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(screen.getByText('Task activity feed')).toBeInTheDocument();
+    expect(screen.getByText('Markdown editor').closest('[hidden]')).toHaveClass(
+      'task-details-section',
+    );
   });
 
   it('renders Project Viewer task metadata without edit actions', () => {
