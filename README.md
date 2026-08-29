@@ -17,6 +17,8 @@ Markdown document.
 - Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, My Work, projects, task search, readable references, and bulk updates
+- Ctrl/Cmd+K command palette for authorized Task, Project, Library, settings,
+  and navigation search
 - Typed filters, grouping, sorting, Personal/Shared Views, and List, Board,
   Calendar, Table, and Timeline layouts
 - Task assignees, labels, scheduling, estimates, hierarchy, and relations
@@ -41,7 +43,9 @@ Markdown document.
 
 Account and Workspace settings have separate focused windows, while Project
 settings use their own project-scoped window. The top bar keeps Workspace
-switching and notifications available without crowding the navigation pane.
+switching, global search, and notifications available without crowding the
+navigation pane. Press `/` for collection-local Task search and `C` to create a
+Task when the current collection permits it.
 
 ## Architecture at a glance
 

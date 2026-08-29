@@ -27,6 +27,8 @@ interface DocumentWorkspaceProps {
   projects: Project[];
   projectId: string | null;
   canCreateWorkspaceDocuments: boolean;
+  selectedDocumentId: string | null;
+  onSelectDocument: (documentId: string | null) => void;
 }
 
 export function DocumentWorkspace({
@@ -35,6 +37,8 @@ export function DocumentWorkspace({
   projects,
   projectId,
   canCreateWorkspaceDocuments,
+  selectedDocumentId,
+  onSelectDocument,
 }: DocumentWorkspaceProps) {
   const queryClient = useQueryClient();
   const queryKey = ['documents', workspaceId, projectId ?? 'all'] as const;
@@ -42,7 +46,6 @@ export function DocumentWorkspace({
     queryKey,
     queryFn: () => listDocuments(context, workspaceId, projectId ?? undefined),
   });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingParentId, setCreatingParentId] = useState<
     string | null | undefined
   >(undefined);
@@ -66,7 +69,7 @@ export function DocumentWorkspace({
     [sections],
   );
   const activeSelectedId = nearestVisibleSelection(
-    selectedId,
+    selectedDocumentId,
     entries.map(({ document }) => document),
     documents.data ?? [],
   );
@@ -83,7 +86,7 @@ export function DocumentWorkspace({
     await queryClient.invalidateQueries({
       queryKey: ['documents', workspaceId],
     });
-    if (preferredId !== undefined) setSelectedId(preferredId);
+    if (preferredId !== undefined) onSelectDocument(preferredId);
   }
 
   async function run(action: () => Promise<void>) {
@@ -176,17 +179,19 @@ export function DocumentWorkspace({
         error={documents.error ? errorMessage(documents.error) : null}
         actionError={actionError}
         onSelect={(documentId) => {
-          setSelectedId(documentId);
+          onSelectDocument(documentId);
           setArchiveCandidateId(null);
         }}
         onToggleCollapsed={(documentId) => {
           const collapsing = !collapsedIds.has(documentId);
           if (
             collapsing &&
-            selectedId &&
-            descendantIds(documents.data ?? [], documentId).has(selectedId)
+            selectedDocumentId &&
+            descendantIds(documents.data ?? [], documentId).has(
+              selectedDocumentId,
+            )
           ) {
-            setSelectedId(documentId);
+            onSelectDocument(documentId);
           }
           setCollapsedIds((current) => {
             const next = new Set(current);
@@ -197,7 +202,7 @@ export function DocumentWorkspace({
         }}
         onStartCreate={(parentId) => {
           if (parentId) {
-            setSelectedId(parentId);
+            onSelectDocument(parentId);
             setCollapsedIds((current) => {
               const next = new Set(current);
               next.delete(parentId);
@@ -215,7 +220,7 @@ export function DocumentWorkspace({
           void moveSibling(document, offset).catch(() => undefined);
         }}
         onArchive={(documentId) => {
-          setSelectedId(documentId);
+          onSelectDocument(documentId);
           setArchiveCandidateId(documentId);
         }}
       />

@@ -22,6 +22,7 @@ describe('WorkspaceTopBar', () => {
     const onSwitchWorkspace = vi.fn().mockResolvedValue(undefined);
     const onCreateWorkspace = vi.fn().mockResolvedValue(undefined);
     const onOpenWorkspaceSettings = vi.fn();
+    const onOpenCommandPalette = vi.fn();
     render(
       <WorkspaceTopBar
         context={context}
@@ -33,6 +34,7 @@ describe('WorkspaceTopBar', () => {
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
         onOpenNotificationTask={vi.fn()}
         onOpenInvitations={vi.fn()}
+        onOpenCommandPalette={onOpenCommandPalette}
       />,
     );
 
@@ -56,6 +58,13 @@ describe('WorkspaceTopBar', () => {
     await waitFor(() =>
       expect(onCreateWorkspace).toHaveBeenCalledWith('Studio'),
     );
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Search and commands (Ctrl or Command K)',
+      }),
+    );
+    expect(onOpenCommandPalette).toHaveBeenCalled();
   });
 
   it('opens an empty notification popover and closes it outside', () => {
@@ -71,6 +80,7 @@ describe('WorkspaceTopBar', () => {
           onOpenWorkspaceSettings={vi.fn()}
           onOpenNotificationTask={vi.fn()}
           onOpenInvitations={vi.fn()}
+          onOpenCommandPalette={vi.fn()}
         />
         <button type="button">Outside</button>
       </div>,

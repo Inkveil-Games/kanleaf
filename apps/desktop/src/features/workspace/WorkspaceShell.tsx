@@ -3,6 +3,8 @@ import { useDeferredValue, useEffect, useState, type FormEvent } from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { AccountSettingsSection } from '../account/AccountSettings';
 import { applyTheme } from '../account/theme';
+import { CommandPalette } from '../command/CommandPalette';
+import type { WorkspaceDocument } from '../document/types';
 import { ProjectOverview } from '../project/ProjectOverview';
 import { ProjectPlanningPane } from '../project/ProjectPlanningPane';
 import { ProjectSettings } from '../project/ProjectSettings';
@@ -97,7 +99,11 @@ export function WorkspaceShell({
   const [settingsModal, setSettingsModal] = useState<
     'account' | 'workspace' | 'project' | null
   >(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
+    null,
+  );
   const [joiningProject, setJoiningProject] = useState(false);
   const [accountSettingsSection, setAccountSettingsSection] =
     useState<AccountSettingsSection>('profile');
@@ -109,6 +115,21 @@ export function WorkspaceShell({
     applyTheme(user.theme);
     return () => applyTheme('system');
   }, [user.theme]);
+
+  useEffect(() => {
+    function openCommands(event: KeyboardEvent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        event.key.toLocaleLowerCase() === 'k'
+      ) {
+        event.preventDefault();
+        setCommandPaletteOpen((current) => !current);
+      }
+    }
+    window.addEventListener('keydown', openCommands, true);
+    return () => window.removeEventListener('keydown', openCommands, true);
+  }, []);
 
   const workspaces = useQuery({
     queryKey: ['workspaces', serverUrl, token],
@@ -242,6 +263,7 @@ export function WorkspaceShell({
       setActiveWorkspaceId(nextWorkspaceId);
       resetTaskView({ kind: 'my-work' });
       setSelectedTaskId(null);
+      setSelectedDocumentId(null);
       setActiveProjectId(null);
       setSurface('tasks');
       setSettingsModal(null);
@@ -259,6 +281,7 @@ export function WorkspaceShell({
       setActiveWorkspaceId(workspace.id);
       resetTaskView({ kind: 'my-work' });
       setSelectedTaskId(null);
+      setSelectedDocumentId(null);
       setActiveProjectId(null);
       setSurface('tasks');
       setSettingsModal(null);
@@ -291,6 +314,7 @@ export function WorkspaceShell({
       setCollection({ kind: 'project', projectId: project.id });
       setActiveProjectId(project.id);
       setSelectedTaskId(null);
+      setSelectedDocumentId(null);
       setSurface('project-overview');
       setSettingsModal(null);
     } catch (caught) {
@@ -410,6 +434,7 @@ export function WorkspaceShell({
       nextCollection.kind === 'project' ? nextCollection.projectId : null,
     );
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
   }
 
   function openSavedView(view: SavedView) {
@@ -420,6 +445,7 @@ export function WorkspaceShell({
     setActiveView(view);
     setActiveProjectId(view.project_id);
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setSurface('tasks');
     setActionError(null);
   }
@@ -529,6 +555,7 @@ export function WorkspaceShell({
     setActiveView(null);
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setSurface('project-overview');
     setActionError(null);
   }
@@ -536,6 +563,7 @@ export function WorkspaceShell({
   function openProjectSettings(projectId: string) {
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setSurface('project-overview');
     setSettingsModal('project');
     setActionError(null);
@@ -545,14 +573,19 @@ export function WorkspaceShell({
     setActiveView(null);
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setSurface(kind);
     setActionError(null);
   }
 
-  function openDocuments(projectId: string | null) {
+  function openDocuments(
+    projectId: string | null,
+    documentId: string | null = null,
+  ) {
     setActiveView(null);
     setActiveProjectId(projectId);
     setSelectedTaskId(null);
+    setSelectedDocumentId(documentId);
     setTaskLayout('list');
     setSurface('documents');
     setActionError(null);
@@ -563,6 +596,21 @@ export function WorkspaceShell({
     resetTaskView({ kind: 'project', projectId: activeProject.id });
     setSelectedTaskId(taskId);
     setSurface('tasks');
+  }
+
+  function openCommandTask(currentTask: Task) {
+    resetTaskView({ kind: 'all' });
+    setActiveProjectId(currentTask.project_id);
+    setSelectedTaskId(currentTask.id);
+    setSelectedDocumentId(null);
+    setSettingsModal(null);
+    setSurface('tasks');
+    setActionError(null);
+  }
+
+  function openCommandDocument(document: WorkspaceDocument) {
+    openDocuments(document.project_id, document.id);
+    setSettingsModal(null);
   }
 
   async function joinActiveProject() {
@@ -598,6 +646,7 @@ export function WorkspaceShell({
     resetTaskView(hasContentAccess ? { kind: 'inbox' } : { kind: 'my-work' });
     setActiveProjectId(null);
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setSurface('tasks');
     setSettingsModal(null);
     await Promise.all([
@@ -626,6 +675,7 @@ export function WorkspaceShell({
     setActiveWorkspaceId(nextWorkspace?.id ?? null);
     resetTaskView({ kind: 'my-work' });
     setSelectedTaskId(null);
+    setSelectedDocumentId(null);
     setActiveProjectId(null);
     setSurface('tasks');
     setSettingsModal(null);
@@ -752,6 +802,7 @@ export function WorkspaceShell({
           void openNotificationTask(notificationWorkspaceId, taskId)
         }
         onOpenInvitations={() => openAccountSettings('invitations')}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
       <WorkspaceNavigation
         email={user.email}
@@ -794,6 +845,8 @@ export function WorkspaceShell({
           projects={projects.data ?? []}
           projectId={activeProjectId}
           canCreateWorkspaceDocuments={hasContentAccess}
+          selectedDocumentId={selectedDocumentId}
+          onSelectDocument={setSelectedDocumentId}
         />
       ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
         activeProject &&
@@ -974,6 +1027,22 @@ export function WorkspaceShell({
             onRemoved={refreshAfterProjectRemoval}
           />
         </SettingsDialog>
+      )}
+      {commandPaletteOpen && (
+        <CommandPalette
+          context={context}
+          workspaceId={workspaceId}
+          projects={projects.data ?? []}
+          canUseWorkspaceContent={hasContentAccess}
+          onClose={() => setCommandPaletteOpen(false)}
+          onOpenCollection={selectCollection}
+          onOpenProject={openProjectOverview}
+          onOpenTask={openCommandTask}
+          onOpenDocument={openCommandDocument}
+          onOpenLibrary={() => openDocuments(null)}
+          onOpenAccountSettings={() => openAccountSettings('profile')}
+          onOpenWorkspaceSettings={() => openWorkspaceSettings('general')}
+        />
       )}
       {actionError && (
         <div className="toast-error" role="alert">

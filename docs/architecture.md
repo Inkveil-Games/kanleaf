@@ -210,6 +210,8 @@ The desktop app is feature-oriented:
 - `lib/config` validates build-time client configuration, while `features/auth`
   owns the local session;
 - `features/workspace` owns tenant navigation and API coordination;
+- `features/command` composes authorized Task queries, cached Library metadata,
+  Project titles, and navigation actions into the global command palette;
 - `features/task-config` owns workspace states, labels, types, and defaults;
 - `features/task` owns keyboard-selectable collection rows, bulk actions, My
   Work, and structured detail editing;

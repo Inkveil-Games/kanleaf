@@ -135,14 +135,20 @@ export function TaskListPane({
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
       if (event.defaultPrevented) return;
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof Element ? event.target : null;
       const isEditing =
         target?.matches('input, textarea, select, [contenteditable="true"]') ??
         false;
       const isTransientSurface = Boolean(
         target?.closest('[role="menu"], [role="dialog"]'),
       );
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (
+        !isEditing &&
+        !isTransientSurface &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        event.key === '/'
+      ) {
         event.preventDefault();
         searchRef.current?.focus();
         return;
@@ -152,7 +158,8 @@ export function TaskListPane({
         !isEditing &&
         !event.metaKey &&
         !event.ctrlKey &&
-        event.key === 'n'
+        (event.key.toLocaleLowerCase() === 'c' ||
+          event.key.toLocaleLowerCase() === 'n')
       ) {
         event.preventDefault();
         setComposing(true);
@@ -171,10 +178,11 @@ export function TaskListPane({
       toggleChecked(selectedTaskId);
       return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const key = event.key.toLocaleLowerCase();
+    if (!['arrowdown', 'arrowup', 'j', 'k'].includes(key)) return;
     event.preventDefault();
     const currentIndex = tasks.findIndex(({ id }) => id === selectedTaskId);
-    const offset = event.key === 'ArrowDown' ? 1 : -1;
+    const offset = key === 'arrowdown' || key === 'j' ? 1 : -1;
     const nextIndex = Math.min(
       tasks.length - 1,
       Math.max(0, currentIndex < 0 ? 0 : currentIndex + offset),
@@ -277,7 +285,7 @@ export function TaskListPane({
               <X aria-hidden="true" size={14} />
             </button>
           )}
-          <kbd>⌘K</kbd>
+          <kbd>/</kbd>
         </div>
         <TaskViewToolbar
           query={query}
@@ -385,7 +393,7 @@ export function TaskListPane({
             <p>{query.search ? 'No matching tasks.' : 'Nothing here yet.'}</p>
             {!query.search && canCreate && (
               <button type="button" onClick={() => setComposing(true)}>
-                Create a task <kbd>N</kbd>
+                Create a task <kbd>C</kbd>
               </button>
             )}
           </div>

@@ -323,15 +323,202 @@ select {
 .workspace-topbar {
   position: relative;
   z-index: 30;
-  display: flex;
+  display: grid;
   min-width: 0;
   grid-column: 1 / -1;
   grid-row: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 420px) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   padding: 0 10px 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-canvas);
+}
+
+.topbar-command-trigger {
+  display: flex;
+  width: min(100%, 360px);
+  height: 30px;
+  min-width: 0;
+  align-items: center;
+  justify-self: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.topbar-command-trigger:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.topbar-command-trigger span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-topbar > .context-menu {
+  justify-self: end;
+}
+
+.command-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  margin: 11vh auto 0;
+  padding: 0;
+  overflow: visible;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: transparent;
+  box-shadow: var(--shadow-popover);
+}
+
+.command-dialog::backdrop {
+  background: rgb(20 22 19 / 34%);
+}
+
+.command-palette {
+  display: grid;
+  max-height: min(640px, 78vh);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--color-surface);
+}
+
+.command-search {
+  display: grid;
+  height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.command-search input {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font-size: var(--font-size-md);
+}
+
+.command-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.command-results {
+  min-height: 120px;
+  padding: 6px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.command-results section + section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+
+.command-results h2 {
+  margin: 0;
+  padding: 5px var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.command-results button {
+  display: flex;
+  width: 100%;
+  min-height: 39px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  text-align: left;
+}
+
+.command-results button[aria-selected='true'] {
+  color: var(--color-text);
+  background: var(--color-selection);
+}
+
+.command-results button > svg {
+  flex: 0 0 auto;
+}
+
+.command-results button > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.command-results strong,
+.command-results small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-results strong {
+  color: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 590;
+}
+
+.command-results small {
+  color: var(--color-text-muted);
+  font-size: 0.66rem;
+}
+
+.command-empty,
+.command-error {
+  margin: 0;
+  padding: var(--space-6) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.command-error {
+  color: var(--color-danger);
+}
+
+.command-footer {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+}
+
+.command-footer span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .topbar-workspace-area {

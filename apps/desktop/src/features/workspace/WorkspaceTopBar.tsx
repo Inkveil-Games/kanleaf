@@ -1,4 +1,4 @@
-import { ChevronDown, Pencil, Plus, Settings } from 'lucide-react';
+import { ChevronDown, Pencil, Plus, Search, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Wordmark } from '../../components/ui/Wordmark';
@@ -18,6 +18,7 @@ interface WorkspaceTopBarProps {
   onOpenWorkspaceSettings: (section: WorkspaceSettingsSection) => void;
   onOpenNotificationTask: (workspaceId: string, taskId: string) => void;
   onOpenInvitations: () => void;
+  onOpenCommandPalette: () => void;
 }
 
 type Composer = 'create' | 'rename' | null;
@@ -32,6 +33,7 @@ export function WorkspaceTopBar({
   onOpenWorkspaceSettings,
   onOpenNotificationTask,
   onOpenInvitations,
+  onOpenCommandPalette,
 }: WorkspaceTopBarProps) {
   const [composer, setComposer] = useState<Composer>(null);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
@@ -111,6 +113,16 @@ export function WorkspaceTopBar({
           </div>
         )}
       </div>
+      <button
+        className="topbar-command-trigger"
+        type="button"
+        aria-label="Search and commands (Ctrl or Command K)"
+        onClick={onOpenCommandPalette}
+      >
+        <Search aria-hidden="true" size={15} />
+        <span>Search or jump</span>
+        <kbd>Ctrl/⌘ K</kbd>
+      </button>
       <Notifications
         context={context}
         onOpenTask={onOpenNotificationTask}

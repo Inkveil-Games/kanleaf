@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from '../workspace/types';
 import { DocumentWorkspace } from './DocumentWorkspace';
@@ -145,17 +146,25 @@ function renderWorkspace(fetchMock: ReturnType<typeof vi.fn>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
-    <QueryClientProvider client={client}>
-      <DocumentWorkspace
-        context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
-        workspaceId="workspace-1"
-        projects={projects}
-        projectId={null}
-        canCreateWorkspaceDocuments
-      />
-    </QueryClientProvider>,
-  );
+  function Harness() {
+    const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
+      null,
+    );
+    return (
+      <QueryClientProvider client={client}>
+        <DocumentWorkspace
+          context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
+          workspaceId="workspace-1"
+          projects={projects}
+          projectId={null}
+          canCreateWorkspaceDocuments
+          selectedDocumentId={selectedDocumentId}
+          onSelectDocument={setSelectedDocumentId}
+        />
+      </QueryClientProvider>
+    );
+  }
+  render(<Harness />);
 }
 
 describe('DocumentWorkspace', () => {

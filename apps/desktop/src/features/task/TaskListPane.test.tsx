@@ -109,6 +109,16 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
+  it('supports compact task shortcuts without taking Ctrl K from global search', () => {
+    const props = renderList();
+
+    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByLabelText('Search tasks')).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'j' });
+    expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
+  });
+
   it('lets an open menu consume Escape before clearing the task detail', () => {
     const onClearSelection = vi.fn();
     renderList({ selectedTaskId: 'task-1', onClearSelection });

@@ -141,6 +141,21 @@ let source_is_markdown = true;
     page.getByRole('treeitem', { name: /Architecture decisions/ }),
   ).toBeVisible();
 
+  await page.keyboard.press('Control+k');
+  const commandPalette = page.getByRole('dialog', {
+    name: 'Search and commands',
+  });
+  await expect(commandPalette).toBeVisible();
+  await commandPalette
+    .getByRole('combobox', { name: 'Search Kanleaf' })
+    .fill('Architecture decisions');
+  await commandPalette
+    .getByRole('option', { name: /Architecture decisions/ })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Architecture decisions' }),
+  ).toBeVisible();
+
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
