@@ -55,6 +55,30 @@ describe('settings shells', () => {
     expect(screen.queryByRole('button', { name: 'Profile' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Members' }));
     expect(onSectionChange).toHaveBeenCalledWith('members');
+    fireEvent.click(screen.getByRole('button', { name: 'Storage & backup' }));
+    expect(onSectionChange).toHaveBeenCalledWith('storage');
+  });
+
+  it('hides administrative Workspace pages from members', () => {
+    renderWithClient(
+      <WorkspaceSettingsShell
+        context={context}
+        user={user}
+        workspace={{ ...workspace, role: 'member' }}
+        workspaceCount={2}
+        section="general"
+        onSectionChange={vi.fn()}
+        onClose={vi.fn()}
+        onWorkspaceUpdated={vi.fn()}
+        onConfigurationUpdated={vi.fn()}
+        onWorkspaceRemoved={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Invitations' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Storage & backup' }),
+    ).toBeNull();
   });
 });
 

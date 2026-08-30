@@ -21,9 +21,15 @@ import { canManageWorkspace } from './permissions';
 import type { Workspace, WorkspaceAccent } from './types';
 import { WorkspaceInvitationSettings } from './WorkspaceInvitationSettings';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
+import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
 
 export type WorkspaceSettingsSection =
-  'general' | 'members' | 'invitations' | TaskConfigurationSection | 'danger';
+  | 'general'
+  | 'members'
+  | 'invitations'
+  | 'storage'
+  | TaskConfigurationSection
+  | 'danger';
 
 interface WorkspaceSettingsProps {
   context: ApiContext;
@@ -80,6 +86,15 @@ export function WorkspaceSettings({
         context={context}
         workspace={workspace}
         section={section}
+        onConfigurationUpdated={onConfigurationUpdated}
+      />
+    );
+  }
+  if (section === 'storage') {
+    return (
+      <WorkspaceStorageSettings
+        context={context}
+        workspace={workspace}
         onConfigurationUpdated={onConfigurationUpdated}
       />
     );

@@ -1,6 +1,7 @@
 import {
   Check,
   ChevronDown,
+  FileUp,
   Mail,
   PanelLeftClose,
   PanelLeftOpen,
@@ -22,6 +23,7 @@ interface WorkspaceControlProps {
   onCreateWorkspace: (name: string) => Promise<void>;
   onOpenWorkspaceSettings: (section: WorkspaceSettingsSection) => void;
   onOpenInvitations: () => void;
+  onImportWorkspace: () => void;
   onToggleNavigation: () => void;
 }
 
@@ -34,6 +36,7 @@ export function WorkspaceControl({
   onCreateWorkspace,
   onOpenWorkspaceSettings,
   onOpenInvitations,
+  onImportWorkspace,
   onToggleNavigation,
 }: WorkspaceControlProps) {
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
@@ -140,6 +143,13 @@ export function WorkspaceControl({
                   onClick={() => setCreatingWorkspace(true)}
                 >
                   <Plus aria-hidden="true" size={14} /> New workspace
+                </button>
+                <button
+                  role="menuitem"
+                  type="button"
+                  onClick={onImportWorkspace}
+                >
+                  <FileUp aria-hidden="true" size={14} /> Import workspace
                 </button>
                 <button
                   role="menuitem"

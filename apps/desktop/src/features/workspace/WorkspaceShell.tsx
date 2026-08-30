@@ -78,6 +78,7 @@ import { PaneResizeHandle } from './PaneResizeHandle';
 import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 import { WorkspaceControl } from './WorkspaceControl';
+import { WorkspaceImportDialog } from './WorkspaceImportDialog';
 
 interface WorkspaceShellProps {
   serverUrl: string;
@@ -124,6 +125,7 @@ export function WorkspaceShell({
     'account' | 'workspace' | 'project' | null
   >(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     null,
@@ -325,6 +327,18 @@ export function WorkspaceShell({
       setActionError(errorMessage(caught));
       throw caught;
     }
+  }
+
+  async function openImportedWorkspace(importedWorkspaceId: string) {
+    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    await queryClient.invalidateQueries({ queryKey: ['session'] });
+    setActiveWorkspaceId(importedWorkspaceId);
+    resetTaskView({ kind: 'my-work' });
+    setSelectedTaskId(null);
+    setSelectedDocumentId(null);
+    setActiveProjectId(null);
+    setSurface('tasks');
+    setSettingsModal(null);
   }
 
   async function addProject(name: string) {
@@ -851,6 +865,11 @@ export function WorkspaceShell({
         onCreateWorkspace={addWorkspace}
         onOpenWorkspaceSettings={openWorkspaceSettings}
         onOpenInvitations={() => openAccountSettings('invitations')}
+        onImportWorkspace={() => {
+          setSettingsModal(null);
+          setImportDialogOpen(true);
+          setActionError(null);
+        }}
         onToggleNavigation={paneLayout.toggleNavigation}
       />
       <WorkspaceTopBar
@@ -1086,6 +1105,13 @@ export function WorkspaceShell({
             onClose={() => setSettingsModal(null)}
           />
         </SettingsDialog>
+      )}
+      {importDialogOpen && (
+        <WorkspaceImportDialog
+          context={context}
+          onImported={openImportedWorkspace}
+          onClose={() => setImportDialogOpen(false)}
+        />
       )}
       {settingsModal === 'workspace' && (
         <SettingsDialog

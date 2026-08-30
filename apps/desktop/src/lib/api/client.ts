@@ -27,7 +27,11 @@ export async function apiRequest<T>(
   { token, headers: suppliedHeaders, ...options }: ApiRequestOptions = {},
 ): Promise<T> {
   const headers = new Headers(suppliedHeaders);
-  if (options.body && !headers.has('content-type')) {
+  if (
+    options.body &&
+    !(options.body instanceof FormData) &&
+    !headers.has('content-type')
+  ) {
     headers.set('content-type', 'application/json');
   }
   if (token) {
@@ -56,6 +60,33 @@ export async function apiRequest<T>(
     );
   }
   return payload as T;
+}
+
+export async function apiDownload(
+  serverUrl: string,
+  path: string,
+  token: string,
+): Promise<{ blob: Blob; fileName: string | null }> {
+  const response = await fetch(`${serverUrl}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const payload = (await readJson(response)) as ErrorEnvelope;
+    throw new ApiError(
+      response.status,
+      payload.error?.code ?? 'request_failed',
+      payload.error?.message ?? `Request failed with status ${response.status}`,
+    );
+  }
+  return {
+    blob: await response.blob(),
+    fileName: attachmentFileName(response.headers.get('content-disposition')),
+  };
+}
+
+function attachmentFileName(disposition: string | null) {
+  const match = disposition?.match(/filename="([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 
 async function readJson(response: Response): Promise<unknown> {

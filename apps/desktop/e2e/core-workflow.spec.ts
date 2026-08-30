@@ -15,11 +15,10 @@ async function chooseSelectOption(
     name: selectName,
     exact: true,
   });
-  await trigger.focus();
-  await trigger.press('Enter');
+  await trigger.click();
   const option = page.getByRole('option', { name: optionName, exact: true });
   await expect(option).toBeVisible();
-  await option.press('Enter');
+  await option.click();
 }
 
 async function expectTaskPatch(page: Page, action: () => Promise<void>) {
@@ -365,6 +364,50 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('treeitem', { name: /Architecture decisions/ }),
   ).toBeVisible();
+
+  await workspaceSelect.click();
+  await page
+    .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
+    .click();
+  await page.getByRole('button', { name: 'Storage & backup' }).click();
+  await page.getByRole('button', { name: 'Scan vault' }).click();
+  await expect(
+    page.getByText('No external Task property changes were found.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Prepare archive' }).click();
+  const downloadButton = page.getByRole('button', {
+    name: 'Download archive',
+  });
+  await expect(downloadButton).toBeVisible();
+  const [archiveDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    downloadButton.click(),
+  ]);
+  const archivePath = await archiveDownload.path();
+  expect(archivePath).not.toBeNull();
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+
+  await workspaceSelect.click();
+  await page.getByRole('menuitem', { name: 'Import workspace' }).click();
+  const importDialog = page.getByRole('dialog', { name: 'Import Workspace' });
+  await importDialog.locator('input[type="file"]').setInputFiles(archivePath!);
+  await expect(
+    importDialog.getByText('Studio Workspace', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    importDialog.getByText(/Access is reset for safety/),
+  ).toBeVisible();
+  await importDialog
+    .getByRole('button', { name: 'Import as new Workspace' })
+    .click();
+  await expect(importDialog).not.toBeVisible();
+  await expect(workspaceSelect).toContainText('Studio Workspace');
+  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByText('Complete the v0.1 workflow', { exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Architecture' }),
+  ).toBeVisible();
+  await expect(page.getByText('Filesystem Markdown')).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
 

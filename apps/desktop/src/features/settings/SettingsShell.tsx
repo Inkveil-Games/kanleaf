@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Archive,
   Bell,
   KeyRound,
   Mail,
@@ -154,12 +155,20 @@ export function WorkspaceSettingsShell({
             onClick={() => onSectionChange('task-types')}
           />
           {canManageWorkspace && (
-            <SettingsLink
-              active={section === 'invitations'}
-              icon={<Mail aria-hidden="true" size={15} />}
-              label="Invitations"
-              onClick={() => onSectionChange('invitations')}
-            />
+            <>
+              <SettingsLink
+                active={section === 'invitations'}
+                icon={<Mail aria-hidden="true" size={15} />}
+                label="Invitations"
+                onClick={() => onSectionChange('invitations')}
+              />
+              <SettingsLink
+                active={section === 'storage'}
+                icon={<Archive aria-hidden="true" size={15} />}
+                label="Storage & backup"
+                onClick={() => onSectionChange('storage')}
+              />
+            </>
           )}
           <SettingsLink
             active={section === 'danger'}

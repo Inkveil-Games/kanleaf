@@ -14,6 +14,7 @@ describe('WorkspaceControl', () => {
     const onCreateWorkspace = vi.fn().mockResolvedValue(undefined);
     const onOpenWorkspaceSettings = vi.fn();
     const onOpenInvitations = vi.fn();
+    const onImportWorkspace = vi.fn();
     const onToggleNavigation = vi.fn();
     render(
       <WorkspaceControl
@@ -25,6 +26,7 @@ describe('WorkspaceControl', () => {
         onCreateWorkspace={onCreateWorkspace}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
         onOpenInvitations={onOpenInvitations}
+        onImportWorkspace={onImportWorkspace}
         onToggleNavigation={onToggleNavigation}
       />,
     );
@@ -53,6 +55,10 @@ describe('WorkspaceControl', () => {
     expect(onOpenInvitations).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import workspace' }));
+    expect(onImportWorkspace).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Personal notes' },
@@ -79,6 +85,7 @@ describe('WorkspaceControl', () => {
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
         onOpenWorkspaceSettings={vi.fn()}
         onOpenInvitations={vi.fn()}
+        onImportWorkspace={vi.fn()}
         onToggleNavigation={vi.fn()}
       />,
     );
