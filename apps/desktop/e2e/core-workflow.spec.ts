@@ -194,6 +194,27 @@ let source_is_markdown = true;
     (element) => element.getBoundingClientRect().height,
   );
   expect(focusedHeadingHeight).toBeCloseTo(readingHeadingHeight, 1);
+  const liveContentLeft = await liveHeading.evaluate(
+    (element) => element.getBoundingClientRect().left,
+  );
+  await page.getByRole('button', { name: 'Source' }).click();
+  const sourceHeading = page
+    .locator('.library-document-editor .cm-line')
+    .first();
+  await expect(sourceHeading).toContainText('# Project handbook');
+  const sourceContentLeft = await sourceHeading.evaluate(
+    (element) => element.getBoundingClientRect().left,
+  );
+  await page.getByRole('button', { name: 'Reading' }).click();
+  const readingHeading = page
+    .getByLabel('Markdown document')
+    .getByRole('heading', { name: 'Project handbook' });
+  const readingContentLeft = await readingHeading.evaluate(
+    (element) => element.getBoundingClientRect().left,
+  );
+  expect(Math.abs(sourceContentLeft - liveContentLeft)).toBeLessThan(1);
+  expect(Math.abs(sourceContentLeft - readingContentLeft)).toBeLessThan(1);
+  await page.getByRole('button', { name: 'Live' }).click();
   const liveTable = page.locator(
     '.library-document-editor .cm-live-block-widget table',
   );
