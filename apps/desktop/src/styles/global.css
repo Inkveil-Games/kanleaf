@@ -4722,11 +4722,20 @@ button.document-tree-toggle:hover {
   line-height: 1.68;
 }
 
+.document-live .cm-line {
+  padding-inline: 0;
+}
+
+.document-live .cm-line:not(.cm-activeLine):has(> br) {
+  line-height: 0.75rem;
+}
+
 .document-live .cm-line:not(.cm-live-source-line) [class*='cm-syntax-'] {
   color: inherit;
 }
 
 .cm-live-heading-line {
+  margin: 0.25em 0 0.15em;
   color: var(--color-text);
   font-weight: 650;
   line-height: 1.28;
@@ -4734,24 +4743,20 @@ button.document-tree-toggle:hover {
 }
 
 .cm-live-heading-1 {
-  margin-top: 0.75em;
   font-size: 1.65rem;
 }
 
 .cm-live-heading-2 {
-  margin-top: 0.65em;
   font-size: 1.3rem;
 }
 
 .cm-live-heading-3 {
-  margin-top: 0.5em;
   font-size: 1.08rem;
 }
 
 .cm-live-heading-4,
 .cm-live-heading-5,
 .cm-live-heading-6 {
-  margin-top: 0.4em;
   font-size: 0.95rem;
 }
 
@@ -4803,7 +4808,6 @@ button.document-tree-toggle:hover {
 
 .cm-live-block-widget {
   display: block;
-  padding: 0.2em 0;
   white-space: normal;
 }
 
@@ -4815,8 +4819,7 @@ button.document-tree-toggle:hover {
 }
 
 .cm-live-block-widget .markdown-preview :is(pre, table, hr) {
-  margin-top: 0.55em;
-  margin-bottom: 0.55em;
+  margin: 0;
 }
 
 .markdown-preview {

@@ -89,7 +89,7 @@ function buildDecorations(state: EditorState) {
   const decorations: Range<Decoration>[] = [];
   const atomic: Range<Decoration>[] = [];
 
-  for (const lineFrom of activeLineStarts(state, active)) {
+  for (const lineFrom of lineStartsInRanges(state, active)) {
     decorations.push(
       Decoration.line({ class: 'cm-live-source-line' }).range(lineFrom),
     );
@@ -97,7 +97,10 @@ function buildDecorations(state: EditorState) {
 
   syntaxTree(state).iterate({
     enter(node) {
-      if (isInsideActiveBlock(node, active)) return false;
+      if (isInsideActiveBlock(node, active)) {
+        decorateActiveBlock(state, node, decorations);
+        return false;
+      }
 
       if (renderedBlockNames.has(node.name)) {
         const source = state.doc.sliceString(node.from, node.to);
@@ -121,7 +124,22 @@ function buildDecorations(state: EditorState) {
   };
 }
 
-function activeLineStarts(state: EditorState, ranges: SourceRange[]) {
+function decorateActiveBlock(
+  state: EditorState,
+  node: { name: string; from: number; to: number },
+  decorations: Range<Decoration>[],
+) {
+  decorateHeading(state, node, decorations);
+  if (node.name !== 'Blockquote') return;
+
+  for (const lineFrom of lineStartsInRanges(state, [node])) {
+    decorations.push(
+      Decoration.line({ class: 'cm-live-blockquote' }).range(lineFrom),
+    );
+  }
+}
+
+function lineStartsInRanges(state: EditorState, ranges: SourceRange[]) {
   const starts = new Set<number>();
   for (const range of ranges) {
     let line = state.doc.lineAt(range.from);
@@ -139,15 +157,7 @@ function decorateNode(
   node: { name: string; from: number; to: number },
   decorations: Range<Decoration>[],
 ) {
-  const headingLevel = headingLevelFor(node.name);
-  if (headingLevel) {
-    const line = state.doc.lineAt(node.from);
-    decorations.push(
-      Decoration.line({
-        class: `cm-live-heading-line cm-live-heading-${headingLevel}`,
-      }).range(line.from),
-    );
-  }
+  decorateHeading(state, node, decorations);
 
   const markClass = inlineClassFor(node.name);
   if (markClass) {
@@ -197,6 +207,22 @@ function decorateNode(
       Decoration.replace({
         widget: new TaskMarkerWidget(node.from, /[xX]/.test(source)),
       }).range(node.from, node.to),
+    );
+  }
+}
+
+function decorateHeading(
+  state: EditorState,
+  node: { name: string; from: number },
+  decorations: Range<Decoration>[],
+) {
+  const headingLevel = headingLevelFor(node.name);
+  if (headingLevel) {
+    const line = state.doc.lineAt(node.from);
+    decorations.push(
+      Decoration.line({
+        class: `cm-live-heading-line cm-live-heading-${headingLevel}`,
+      }).range(line.from),
     );
   }
 }

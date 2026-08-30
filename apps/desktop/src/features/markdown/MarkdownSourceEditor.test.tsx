@@ -61,8 +61,11 @@ describe('MarkdownSourceEditor', () => {
     ).toHaveTextContent('let faithful = true;');
     expect(container.querySelector('script')).not.toBeInTheDocument();
     expect(container).not.toHaveTextContent('unsafeLivePreview');
-    expect(container.querySelector('.cm-live-source-line')).toHaveTextContent(
-      '# Live Preview',
+    const activeHeading = container.querySelector('.cm-live-source-line');
+    expect(activeHeading).toHaveTextContent('# Live Preview');
+    expect(activeHeading).toHaveClass(
+      'cm-live-heading-line',
+      'cm-live-heading-1',
     );
     expect(table.closest('.cm-live-source-line')).toBeNull();
 
