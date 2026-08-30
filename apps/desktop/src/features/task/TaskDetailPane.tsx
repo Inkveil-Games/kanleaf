@@ -7,7 +7,16 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useState, type KeyboardEvent } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import type {
   Project,
   ProjectCycle,
@@ -116,6 +125,7 @@ function SelectedTaskDetail({
   canComment = false,
   canModerate = false,
 }: Omit<TaskDetailPaneProps, 'task'> & { task: Task }) {
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const [title, setTitle] = useState(task.title);
   const [savingTitle, setSavingTitle] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +133,20 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
+
+  const fitTitle = useCallback(() => {
+    const input = titleRef.current;
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = `${input.scrollHeight}px`;
+  }, []);
+
+  useLayoutEffect(() => fitTitle(), [fitTitle, title]);
+
+  useEffect(() => {
+    window.addEventListener('resize', fitTitle);
+    return () => window.removeEventListener('resize', fitTitle);
+  }, [fitTitle]);
 
   async function saveTitle() {
     const nextTitle = title.trim();
@@ -229,9 +253,10 @@ function SelectedTaskDetail({
 
       <div className="detail-scroll">
         <textarea
+          ref={titleRef}
           className="task-title-input"
           aria-label="Task title"
-          rows={2}
+          rows={1}
           maxLength={300}
           value={title}
           readOnly={!canEdit}

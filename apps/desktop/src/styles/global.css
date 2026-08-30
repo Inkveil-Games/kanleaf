@@ -3335,7 +3335,7 @@ kbd {
 .task-title-input {
   display: block;
   width: 100%;
-  min-height: 68px;
+  min-height: 40px;
   padding: 0;
   resize: none;
   overflow: hidden;

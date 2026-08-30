@@ -200,7 +200,18 @@ describe('TaskDetailPane', () => {
     );
     chooseSelectOption('Project', 'Kanleaf');
     const title = screen.getByLabelText('Task title');
+    let titleHeight = 72;
+    Object.defineProperty(title, 'scrollHeight', {
+      configurable: true,
+      get: () => titleHeight,
+    });
+    fireEvent.change(title, {
+      target: { value: 'Document the architecture across a wrapped line' },
+    });
+    expect(title).toHaveStyle({ height: '72px' });
+    titleHeight = 38;
     fireEvent.change(title, { target: { value: 'Document the architecture' } });
+    expect(title).toHaveStyle({ height: '38px' });
     fireEvent.blur(title);
 
     await waitFor(() => {
