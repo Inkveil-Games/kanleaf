@@ -178,6 +178,22 @@ let source_is_markdown = true;
   );
   await pageSource.fill(pageMarkdown);
   await pageSource.press('Control+Home');
+  const liveHeading = page.locator(
+    '.library-document-editor .cm-live-heading-1',
+  );
+  await expect(liveHeading).toContainText('# Project handbook');
+  const focusedHeadingHeight = await liveHeading.evaluate(
+    (element) => element.getBoundingClientRect().height,
+  );
+  await page
+    .locator('.library-document-editor .cm-line')
+    .filter({ hasText: 'This note is stored' })
+    .click();
+  await expect(liveHeading).toHaveText('Project handbook');
+  const readingHeadingHeight = await liveHeading.evaluate(
+    (element) => element.getBoundingClientRect().height,
+  );
+  expect(focusedHeadingHeight).toBeCloseTo(readingHeadingHeight, 1);
   const liveTable = page.locator(
     '.library-document-editor .cm-live-block-widget table',
   );

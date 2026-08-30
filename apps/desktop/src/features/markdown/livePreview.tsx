@@ -97,7 +97,10 @@ function buildDecorations(state: EditorState) {
 
   syntaxTree(state).iterate({
     enter(node) {
-      if (isInsideActiveBlock(node, active)) return false;
+      if (isInsideActiveBlock(node, active)) {
+        decorateActiveBlock(state, node, decorations);
+        return false;
+      }
 
       if (renderedBlockNames.has(node.name)) {
         const source = state.doc.sliceString(node.from, node.to);
@@ -119,6 +122,22 @@ function buildDecorations(state: EditorState) {
     decorations: Decoration.set(decorations, true),
     atomic: Decoration.set(atomic, true),
   };
+}
+
+function decorateActiveBlock(
+  state: EditorState,
+  node: {
+    name: string;
+    from: number;
+    to: number;
+    node?: { parent: MarkdownNode | null };
+  },
+  decorations: Range<Decoration>[],
+) {
+  // Revealing the source must not collapse the surrounding document layout.
+  // Keep block typography while leaving Markdown markers visible and editable.
+  decorateHeading(state, node, decorations);
+  decorateReadingBlock(state, node, decorations);
 }
 
 function lineStartsInRanges(state: EditorState, ranges: SourceRange[]) {
