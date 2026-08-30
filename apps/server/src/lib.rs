@@ -6,6 +6,7 @@ pub mod document;
 pub mod domain;
 pub mod error;
 pub mod http;
+pub mod portability;
 pub mod project;
 pub mod saved_view;
 pub mod state;

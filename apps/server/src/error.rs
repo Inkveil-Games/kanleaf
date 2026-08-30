@@ -16,6 +16,10 @@ pub enum AppError {
     NotFound(String),
     #[error("{0}")]
     Conflict(String),
+    #[error("{0}")]
+    StalePreview(String),
+    #[error("vault storage is unavailable")]
+    VaultUnavailable,
     #[error(transparent)]
     Internal(#[from] Error),
 }
@@ -88,6 +92,12 @@ impl IntoResponse for AppError {
             ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
             Self::Conflict(message) => (StatusCode::CONFLICT, "conflict", message),
+            Self::StalePreview(message) => (StatusCode::CONFLICT, "stale_preview", message),
+            Self::VaultUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "vault_unavailable",
+                "Vault storage is temporarily unavailable".to_owned(),
+            ),
             Self::Internal(source) => {
                 error!(error = ?source, "request failed");
                 (

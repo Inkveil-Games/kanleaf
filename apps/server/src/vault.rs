@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::Write as _,
     io,
     path::{Path, PathBuf},
@@ -31,6 +32,7 @@ pub use task_operation::{PendingTaskMove, TaskMove};
 
 const MAX_LIBRARY_DEPTH: usize = 12;
 const MAX_LIBRARY_RELATIVE_PATH_BYTES: usize = 240;
+const MAX_SYNC_TASK_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct Vault {
@@ -45,6 +47,33 @@ pub struct WorkspaceTrash {
 pub struct TaskTrash {
     original: PathBuf,
     trashed: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct TaskVaultScan {
+    pub files: Vec<ScannedTaskFile>,
+    pub issues: Vec<TaskVaultScanIssue>,
+}
+
+#[derive(Debug)]
+pub struct ScannedTaskFile {
+    pub path: TaskPath,
+    pub relative_path: String,
+    pub document: VaultDocument,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskVaultScanIssueKind {
+    InvalidEntry,
+    UnmanagedEntry,
+    UnknownProject,
+    OversizedFile,
+}
+
+#[derive(Debug)]
+pub struct TaskVaultScanIssue {
+    pub relative_path: String,
+    pub kind: TaskVaultScanIssueKind,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -143,6 +172,114 @@ impl Vault {
         self.ensure_regular_library_file(workspace_id, &destination)
             .await?;
         write_document(&destination, content, base_revision).await
+    }
+
+    pub async fn scan_task_documents(
+        &self,
+        workspace_id: Uuid,
+        project_storage_names: &[String],
+    ) -> Result<TaskVaultScan, VaultError> {
+        let mut scan = TaskVaultScan {
+            files: Vec::new(),
+            issues: Vec::new(),
+        };
+        self.scan_task_directory(workspace_id, None, &mut scan)
+            .await?;
+
+        let known_projects = project_storage_names.iter().collect::<HashSet<_>>();
+        let projects_directory = self.workspace_directory(workspace_id).join("Projects");
+        let mut entries = match safe_read_directory(&projects_directory).await? {
+            Some(entries) => entries,
+            None => return Ok(scan),
+        };
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let relative_path = format!("Projects/{name}");
+            let metadata = fs::symlink_metadata(entry.path()).await?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                scan.issues.push(TaskVaultScanIssue {
+                    relative_path,
+                    kind: TaskVaultScanIssueKind::InvalidEntry,
+                });
+                continue;
+            }
+            if !known_projects.contains(&name) {
+                scan.issues.push(TaskVaultScanIssue {
+                    relative_path,
+                    kind: TaskVaultScanIssueKind::UnknownProject,
+                });
+                continue;
+            }
+            self.scan_task_directory(workspace_id, Some(&name), &mut scan)
+                .await?;
+        }
+        Ok(scan)
+    }
+
+    async fn scan_task_directory(
+        &self,
+        workspace_id: Uuid,
+        project_storage_name: Option<&str>,
+        scan: &mut TaskVaultScan,
+    ) -> Result<(), VaultError> {
+        let directory = project_storage_name.map_or_else(
+            || self.workspace_directory(workspace_id).join("Todo"),
+            |project| {
+                self.workspace_directory(workspace_id)
+                    .join("Projects")
+                    .join(project)
+                    .join("Todo")
+            },
+        );
+        let Some(mut entries) = safe_read_directory(&directory).await? else {
+            return Ok(());
+        };
+        while let Some(entry) = entries.next_entry().await? {
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            let relative_path = project_storage_name.map_or_else(
+                || format!("Todo/{file_name}"),
+                |project| format!("Projects/{project}/Todo/{file_name}"),
+            );
+            let metadata = fs::symlink_metadata(entry.path()).await?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                scan.issues.push(TaskVaultScanIssue {
+                    relative_path,
+                    kind: TaskVaultScanIssueKind::InvalidEntry,
+                });
+                continue;
+            }
+            if metadata.len() > MAX_SYNC_TASK_BYTES {
+                scan.issues.push(TaskVaultScanIssue {
+                    relative_path,
+                    kind: TaskVaultScanIssueKind::OversizedFile,
+                });
+                continue;
+            }
+            let Some(storage_name) = file_name.strip_suffix(".md") else {
+                scan.issues.push(TaskVaultScanIssue {
+                    relative_path,
+                    kind: TaskVaultScanIssueKind::UnmanagedEntry,
+                });
+                continue;
+            };
+            let path = match TaskPath::parse(project_storage_name, storage_name) {
+                Ok(path) => path,
+                Err(_) => {
+                    scan.issues.push(TaskVaultScanIssue {
+                        relative_path,
+                        kind: TaskVaultScanIssueKind::InvalidEntry,
+                    });
+                    continue;
+                }
+            };
+            let document = self.read_task_document(workspace_id, &path).await?;
+            scan.files.push(ScannedTaskFile {
+                relative_path,
+                path,
+                document,
+            });
+        }
+        Ok(())
     }
 
     pub async fn trash_workspace(
@@ -332,6 +469,17 @@ impl Vault {
             }
         }
         Ok(())
+    }
+}
+
+async fn safe_read_directory(path: &Path) -> Result<Option<fs::ReadDir>, VaultError> {
+    match fs::symlink_metadata(path).await {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            Err(VaultError::InvalidManagedPath)
+        }
+        Ok(_) => Ok(Some(fs::read_dir(path).await?)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 

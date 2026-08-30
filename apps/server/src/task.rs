@@ -4,6 +4,7 @@ mod planning;
 mod projection;
 mod query_engine;
 
+pub(crate) use frontmatter::{TaskProperties, read_properties as read_task_properties};
 pub(crate) use projection::{
     ProjectionHealth, enqueue as enqueue_projection, health as projection_health,
     initialize as initialize_projection, project_many, project_now,
@@ -83,36 +84,36 @@ pub(crate) struct CreateTaskRequest {
     module_ids: Vec<Uuid>,
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub(crate) struct UpdateTaskRequest {
     #[serde(default)]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
     #[serde(default)]
-    state_id: Option<Uuid>,
+    pub(crate) state_id: Option<Uuid>,
     #[serde(default)]
-    task_type_id: Option<Uuid>,
+    pub(crate) task_type_id: Option<Uuid>,
     #[serde(default)]
-    priority: Option<TaskPriority>,
+    pub(crate) priority: Option<TaskPriority>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    project_id: Option<Option<Uuid>>,
+    pub(crate) project_id: Option<Option<Uuid>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    start_date: Option<Option<NaiveDate>>,
+    pub(crate) start_date: Option<Option<NaiveDate>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    due_date: Option<Option<NaiveDate>>,
+    pub(crate) due_date: Option<Option<NaiveDate>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    estimate: Option<Option<i32>>,
+    pub(crate) estimate: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    parent_id: Option<Option<Uuid>>,
+    pub(crate) parent_id: Option<Option<Uuid>>,
     #[serde(default)]
-    assignee_ids: Option<Vec<Uuid>>,
+    pub(crate) assignee_ids: Option<Vec<Uuid>>,
     #[serde(default)]
-    label_ids: Option<Vec<Uuid>>,
+    pub(crate) label_ids: Option<Vec<Uuid>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    cycle_id: Option<Option<Uuid>>,
+    pub(crate) cycle_id: Option<Option<Uuid>>,
     #[serde(default)]
-    module_ids: Option<Vec<Uuid>>,
+    pub(crate) module_ids: Option<Vec<Uuid>>,
     #[serde(default)]
-    cleanup_invalid: bool,
+    pub(crate) cleanup_invalid: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -209,7 +210,7 @@ impl TaskVaultRow {
             .map_err(AppError::internal)
     }
 
-    fn properties(&self) -> frontmatter::TaskProperties {
+    pub(crate) fn properties(&self) -> frontmatter::TaskProperties {
         frontmatter::TaskProperties {
             kanleaf_id: self.kanleaf_id,
             reference: model::task_reference(self.project_identifier.as_deref(), self.task_number),
@@ -494,6 +495,18 @@ pub(crate) async fn update(
 ) -> Result<Json<TaskResponse>, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
+    Ok(Json(
+        update_task(&state, auth.user.id, workspace_id, task_id, request).await?,
+    ))
+}
+
+pub(crate) async fn update_task(
+    state: &AppState,
+    actor_id: Uuid,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    request: UpdateTaskRequest,
+) -> Result<TaskResponse, AppError> {
     if request.title.is_none()
         && request.state_id.is_none()
         && request.task_type_id.is_none()
@@ -537,7 +550,7 @@ pub(crate) async fn update(
     let source_vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(
         &state.pool,
-        auth.user.id,
+        actor_id,
         workspace_id,
         current.project_id,
         true,
@@ -546,14 +559,7 @@ pub(crate) async fn update(
     let target_project = request.project_id.unwrap_or(current.project_id);
     let project_changed = target_project != current.project_id;
     if project_changed {
-        authorize_task_location(
-            &state.pool,
-            auth.user.id,
-            workspace_id,
-            target_project,
-            true,
-        )
-        .await?;
+        authorize_task_location(&state.pool, actor_id, workspace_id, target_project, true).await?;
     }
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
@@ -848,7 +854,7 @@ pub(crate) async fn update(
             &mut transaction,
             workspace_id,
             task_id,
-            auth.user.id,
+            actor_id,
             "task_updated",
             json!({ "fields": changed_fields }),
         )
@@ -862,7 +868,7 @@ pub(crate) async fn update(
             &mut transaction,
             workspace_id,
             task_id,
-            auth.user.id,
+            actor_id,
             state_changed,
             changed_fields.iter().any(|field| *field != "state"),
         )
@@ -871,7 +877,7 @@ pub(crate) async fn update(
             &mut transaction,
             workspace_id,
             task_id,
-            auth.user.id,
+            actor_id,
             &newly_assigned,
         )
         .await?;
@@ -885,7 +891,7 @@ pub(crate) async fn update(
             task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
         Some(
             apply_task_file_update(
-                &state,
+                state,
                 workspace_id,
                 task_id,
                 &source_vault_row,
@@ -898,15 +904,15 @@ pub(crate) async fn update(
     };
     if let Err(error) = transaction.commit().await {
         if let Some(file_update) = &file_update {
-            rollback_task_file_update(&state, workspace_id, task_id, file_update).await;
+            rollback_task_file_update(state, workspace_id, task_id, file_update).await;
         }
         return Err(error.into());
     }
     if let Some(file_update) = &file_update {
-        finish_task_file_update(&state, task_id, file_update).await;
+        finish_task_file_update(state, task_id, file_update).await;
     }
-    project_many(&state, workspace_id, &projection_task_ids).await;
-    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
+    project_many(state, workspace_id, &projection_task_ids).await;
+    find_task(&state.pool, workspace_id, task_id).await
 }
 
 pub(crate) async fn archive(

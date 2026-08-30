@@ -5,6 +5,7 @@ use kanleaf_server::{
     AppState,
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
+    portability::recover_workspace_operations,
     router,
     task::{recover_projection_jobs, spawn_projection_worker},
     workspace::migrate_workspace_vaults,
@@ -33,6 +34,9 @@ async fn main() -> anyhow::Result<()> {
         .run(&pool)
         .await
         .context("failed to run database migrations")?;
+    recover_workspace_operations(&pool)
+        .await
+        .context("failed to clean expired Workspace operations")?;
 
     let state = AppState::new(pool, config.data_dir, config.session_ttl);
     recover_library_operations(&state)

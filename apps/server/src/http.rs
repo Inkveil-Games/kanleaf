@@ -12,7 +12,7 @@ use tower_http::{
 };
 
 use crate::AppState;
-use crate::{account, auth, collaboration, workspace};
+use crate::{account, auth, collaboration, portability, workspace};
 
 static REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -41,6 +41,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .route("/api/session", get(auth::session))
         .merge(account::routes())
         .merge(collaboration::routes())
+        .merge(portability::routes())
         .merge(workspace::routes())
         .with_state(state)
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))

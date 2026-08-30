@@ -41,6 +41,8 @@ Markdown document.
   changes the vault file
 - Durable metadata projection jobs that preserve custom YAML and retry after
   temporary vault failures
+- Explicit, conflict-aware Vault Sync previews for importing external Task
+  property edits through normal Kanleaf validation
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
 - Build-time server configuration for local, LAN, or HTTPS deployments

@@ -22,26 +22,26 @@ const OWNED_KEYS: &[&str] = &[
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct TaskProperties {
-    pub(super) kanleaf_id: Uuid,
-    pub(super) reference: String,
-    pub(super) title: String,
-    pub(super) project: Option<String>,
-    pub(super) state: String,
-    pub(super) task_type: String,
-    pub(super) priority: Option<String>,
-    pub(super) assignees: Vec<String>,
-    pub(super) labels: Vec<String>,
-    pub(super) cycle: Option<String>,
-    pub(super) modules: Vec<String>,
-    pub(super) start_date: Option<NaiveDate>,
-    pub(super) due_date: Option<NaiveDate>,
-    pub(super) estimate: Option<i32>,
-    pub(super) parent: Option<String>,
+pub(crate) struct TaskProperties {
+    pub(crate) kanleaf_id: Uuid,
+    pub(crate) reference: String,
+    pub(crate) title: String,
+    pub(crate) project: Option<String>,
+    pub(crate) state: String,
+    pub(crate) task_type: String,
+    pub(crate) priority: Option<String>,
+    pub(crate) assignees: Vec<String>,
+    pub(crate) labels: Vec<String>,
+    pub(crate) cycle: Option<String>,
+    pub(crate) modules: Vec<String>,
+    pub(crate) start_date: Option<NaiveDate>,
+    pub(crate) due_date: Option<NaiveDate>,
+    pub(crate) estimate: Option<i32>,
+    pub(crate) parent: Option<String>,
 }
 
 #[derive(Debug, Error)]
-pub(super) enum FrontmatterError {
+pub(crate) enum FrontmatterError {
     #[error("Task Markdown does not contain valid Kanleaf properties")]
     Invalid,
     #[error("Task Markdown belongs to a different Task")]
@@ -90,6 +90,105 @@ pub(super) fn patch(source: &str, properties: &TaskProperties) -> Result<String,
     patched.push_str(&preserved);
     patched.push_str(split.closing_and_body);
     Ok(patched)
+}
+
+pub(crate) fn read_properties(source: &str) -> Result<TaskProperties, FrontmatterError> {
+    let split = split(source)?;
+    let document = parse_document(split.frontmatter)?;
+    let mapping = document.as_mapping().ok_or(FrontmatterError::Invalid)?;
+    validate_owned_shapes(mapping)?;
+
+    Ok(TaskProperties {
+        kanleaf_id: Uuid::parse_str(required_scalar(mapping, "Kanleaf ID")?)
+            .map_err(|_| FrontmatterError::Invalid)?,
+        reference: required_scalar(mapping, "Reference")?.to_owned(),
+        title: required_scalar(mapping, "Title")?.to_owned(),
+        project: optional_single(mapping, "Project")?,
+        state: required_single(mapping, "State")?,
+        task_type: required_single(mapping, "Type")?,
+        priority: optional_single(mapping, "Priority")?,
+        assignees: scalar_list(mapping, "Assignees")?,
+        labels: scalar_list(mapping, "Labels")?,
+        cycle: optional_single(mapping, "Cycle")?,
+        modules: scalar_list(mapping, "Modules")?,
+        start_date: optional_scalar(mapping, "Start date")?
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .map_err(|_| FrontmatterError::Invalid)?,
+        due_date: optional_scalar(mapping, "Due date")?
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .map_err(|_| FrontmatterError::Invalid)?,
+        estimate: optional_scalar(mapping, "Estimate")?
+            .map(str::parse)
+            .transpose()
+            .map_err(|_| FrontmatterError::Invalid)?,
+        parent: optional_single(mapping, "Parent")?,
+    })
+}
+
+fn required_scalar<'a>(
+    mapping: &'a marked_yaml::types::MarkedMappingNode,
+    key: &str,
+) -> Result<&'a str, FrontmatterError> {
+    mapping
+        .get_node(key)
+        .and_then(Node::as_scalar)
+        .map(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .ok_or(FrontmatterError::Invalid)
+}
+
+fn optional_scalar<'a>(
+    mapping: &'a marked_yaml::types::MarkedMappingNode,
+    key: &str,
+) -> Result<Option<&'a str>, FrontmatterError> {
+    let value = mapping
+        .get_node(key)
+        .and_then(Node::as_scalar)
+        .ok_or(FrontmatterError::Invalid)?
+        .as_str();
+    Ok((!value.is_empty()).then_some(value))
+}
+
+fn scalar_list(
+    mapping: &marked_yaml::types::MarkedMappingNode,
+    key: &str,
+) -> Result<Vec<String>, FrontmatterError> {
+    mapping
+        .get_node(key)
+        .and_then(Node::as_sequence)
+        .ok_or(FrontmatterError::Invalid)?
+        .iter()
+        .map(|item| {
+            item.as_scalar()
+                .map(|value| value.as_str().to_owned())
+                .filter(|value| !value.is_empty())
+                .ok_or(FrontmatterError::Invalid)
+        })
+        .collect()
+}
+
+fn required_single(
+    mapping: &marked_yaml::types::MarkedMappingNode,
+    key: &str,
+) -> Result<String, FrontmatterError> {
+    let values = scalar_list(mapping, key)?;
+    if values.len() != 1 {
+        return Err(FrontmatterError::Invalid);
+    }
+    values.into_iter().next().ok_or(FrontmatterError::Invalid)
+}
+
+fn optional_single(
+    mapping: &marked_yaml::types::MarkedMappingNode,
+    key: &str,
+) -> Result<Option<String>, FrontmatterError> {
+    let values = scalar_list(mapping, key)?;
+    if values.len() > 1 {
+        return Err(FrontmatterError::Invalid);
+    }
+    Ok(values.into_iter().next())
 }
 
 struct SplitDocument<'a> {
@@ -381,7 +480,7 @@ mod tests {
     use chrono::NaiveDate;
     use uuid::Uuid;
 
-    use super::{TaskProperties, body, patch, render_new, replace_body};
+    use super::{TaskProperties, body, patch, read_properties, render_new, replace_body};
 
     fn properties() -> TaskProperties {
         TaskProperties {
@@ -417,6 +516,7 @@ mod tests {
             body(&source).unwrap(),
             "# Export behavior\n\n---\n\n  Preserve spacing.  \n"
         );
+        assert_eq!(read_properties(&source).unwrap(), properties());
     }
 
     #[test]
@@ -466,5 +566,9 @@ mod tests {
         ] {
             assert!(patch(&source, &properties()).is_err(), "accepted {source}");
         }
+        let multiple_projects = format!(
+            "---\nKanleaf ID: {id}\nReference: KAN-42\nTitle: Task\nProject:\n  - One\n  - Two\nState:\n  - Todo\nType:\n  - Task\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\n---\n"
+        );
+        assert!(read_properties(&multiple_projects).is_err());
     }
 }

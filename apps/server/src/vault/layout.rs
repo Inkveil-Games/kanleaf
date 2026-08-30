@@ -74,6 +74,10 @@ impl TaskPath {
         })
     }
 
+    pub fn display(&self) -> String {
+        self.relative_file().to_string_lossy().replace('\\', "/")
+    }
+
     pub(super) fn relative_file(&self) -> PathBuf {
         self.scope
             .content_directory("Todo")

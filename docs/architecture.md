@@ -193,6 +193,17 @@ membership changes fan out through the same queue. A failed metadata-only
 projection does not roll back canonical PostgreSQL state or overwrite invalid
 external YAML; the stored health state makes that divergence explicit.
 
+Workspace Owner/Admin can explicitly preview external Task-property changes
+with Vault Sync. The server scans only the Workspace and known Project `Todo`
+roots, rejects symlinked or untyped entries, and matches files by `Kanleaf ID`.
+The durable preview records both the complete-file SHA-256 revision and Task
+metadata version. Apply first rechecks every selected item, then invokes the
+same Task update use case used by HTTP so Project access, vocabulary,
+assignment, hierarchy, planning, and typed move rules cannot be bypassed.
+Unknown, duplicate, missing, manually moved, malformed, and invalid files stay
+visible as non-applicable results. Preview operations are actor/Workspace
+scoped and expire without deleting Markdown.
+
 Later Task or Project title edits do not rename files. A Task scope change moves
 its stable basename between `Todo` roots. Wiki reparenting or scope changes move
 both `<name>.md` and `<name>/`, preserving descendants and authored content.
