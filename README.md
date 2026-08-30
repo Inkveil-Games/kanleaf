@@ -43,6 +43,10 @@ Markdown document.
   temporary vault failures
 - Explicit, conflict-aware Vault Sync previews for importing external Task
   property edits through normal Kanleaf validation
+- Versioned `.kanleaf` configuration snapshots for Workspace vocabulary,
+  Projects, planning, shared Views, portable identities, and member references
+- Authorized `.kanleaf.zip` Workspace exports with payload checksums and
+  explicit reporting of unmanaged files that were excluded
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
 - Build-time server configuration for local, LAN, or HTTPS deployments
@@ -75,6 +79,9 @@ live under the top-level `Wiki/`. Task files contain Obsidian-compatible YAML
 properties plus source-faithful Markdown bodies. Stable storage names keep Task
 and Project renames from breaking paths; Wiki reparenting moves the note and its
 complete companion subtree.
+Workspace Owner/Admin can export this managed vault as a portable backup. The
+archive excludes sessions, credentials, invitations, account preferences,
+notifications, comments/activity, `.obsidian`, and unmanaged files.
 See
 [docs/architecture.md](docs/architecture.md) for the full boundary and data
 model.

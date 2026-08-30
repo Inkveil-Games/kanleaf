@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{
     fs::{self, OpenOptions},
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
 };
 use uuid::Uuid;
 
@@ -33,6 +33,8 @@ pub use task_operation::{PendingTaskMove, TaskMove};
 const MAX_LIBRARY_DEPTH: usize = 12;
 const MAX_LIBRARY_RELATIVE_PATH_BYTES: usize = 240;
 const MAX_SYNC_TASK_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_EXPORT_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_EXPORT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct Vault {
@@ -60,6 +62,33 @@ pub struct ScannedTaskFile {
     pub path: TaskPath,
     pub relative_path: String,
     pub document: VaultDocument,
+}
+
+pub struct PortableConfigSnapshot {
+    pub workspace: String,
+    pub task_config: String,
+    pub views: String,
+    pub projects: Vec<(Uuid, String)>,
+    pub manifest: String,
+}
+
+pub(crate) struct WorkspaceExportScan {
+    pub files: Vec<ManagedExportFile>,
+    pub exclusions: Vec<ExportExclusion>,
+    pub missing: Vec<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ManagedExportFile {
+    pub relative_path: String,
+    pub source: PathBuf,
+    pub size: u64,
+    pub sha256: String,
+}
+
+pub(crate) struct ExportExclusion {
+    pub relative_path: String,
+    pub reason: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,6 +243,248 @@ impl Vault {
                 .await?;
         }
         Ok(scan)
+    }
+
+    pub async fn write_portable_config(
+        &self,
+        workspace_id: Uuid,
+        snapshot: &PortableConfigSnapshot,
+    ) -> Result<(), VaultError> {
+        let root = self.workspace_directory(workspace_id).join(".kanleaf");
+        let projects = root.join("projects");
+        self.verify_managed_ancestors(workspace_id, &projects.join("project.json"), true)
+            .await?;
+
+        replace_managed_file(&root.join("workspace.json"), &snapshot.workspace).await?;
+        replace_managed_file(&root.join("task-config.json"), &snapshot.task_config).await?;
+        replace_managed_file(&root.join("views.json"), &snapshot.views).await?;
+
+        let expected = snapshot
+            .projects
+            .iter()
+            .map(|(project_id, _)| format!("{project_id}.json"))
+            .collect::<HashSet<_>>();
+        if let Some(mut entries) = safe_read_directory(&projects).await? {
+            while let Some(entry) = entries.next_entry().await? {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if expected.contains(&name) {
+                    continue;
+                }
+                let Some(stem) = name.strip_suffix(".json") else {
+                    continue;
+                };
+                if Uuid::parse_str(stem).is_err() {
+                    continue;
+                }
+                let metadata = fs::symlink_metadata(entry.path()).await?;
+                if metadata.file_type().is_symlink() || !metadata.is_file() {
+                    return Err(VaultError::InvalidManagedPath);
+                }
+                fs::remove_file(entry.path()).await?;
+            }
+        }
+        for (project_id, content) in &snapshot.projects {
+            replace_managed_file(&projects.join(format!("{project_id}.json")), content).await?;
+        }
+
+        // Readers use the manifest version as the commit marker for the files above.
+        replace_managed_file(&root.join("manifest.json"), &snapshot.manifest).await
+    }
+
+    pub(crate) async fn scan_workspace_export(
+        &self,
+        workspace_id: Uuid,
+        expected_paths: &HashSet<String>,
+    ) -> Result<WorkspaceExportScan, VaultError> {
+        let root = self.workspace_directory(workspace_id);
+        self.verify_managed_ancestors(workspace_id, &root.join("export.scan"), false)
+            .await?;
+        let mut pending = vec![root.clone()];
+        let mut files = Vec::new();
+        let mut exclusions = Vec::new();
+        let mut found = HashSet::new();
+        let mut total_size = 0_u64;
+
+        while let Some(directory) = pending.pop() {
+            let Some(mut entries) = safe_read_directory(&directory).await? else {
+                continue;
+            };
+            while let Some(entry) = entries.next_entry().await? {
+                let relative_path = entry
+                    .path()
+                    .strip_prefix(&root)
+                    .map_err(|_| VaultError::InvalidManagedPath)?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let metadata = fs::symlink_metadata(entry.path()).await?;
+                if metadata.file_type().is_symlink() {
+                    exclusions.push(ExportExclusion {
+                        relative_path,
+                        reason: "symlink",
+                    });
+                    continue;
+                }
+                if metadata.is_dir() {
+                    if relative_path == ".obsidian" || relative_path.ends_with("/.obsidian") {
+                        exclusions.push(ExportExclusion {
+                            relative_path,
+                            reason: "obsidian_configuration",
+                        });
+                    } else {
+                        pending.push(entry.path());
+                    }
+                    continue;
+                }
+                if !metadata.is_file() {
+                    exclusions.push(ExportExclusion {
+                        relative_path,
+                        reason: "unsupported_entry",
+                    });
+                    continue;
+                }
+                if relative_path == ".kanleaf/manifest.json" {
+                    continue;
+                }
+                if !expected_paths.contains(&relative_path) {
+                    exclusions.push(ExportExclusion {
+                        relative_path,
+                        reason: "unmanaged_file",
+                    });
+                    continue;
+                }
+                if metadata.len() > MAX_EXPORT_FILE_BYTES {
+                    return Err(VaultError::InvalidManagedPath);
+                }
+                total_size = total_size
+                    .checked_add(metadata.len())
+                    .filter(|size| *size <= MAX_EXPORT_TOTAL_BYTES)
+                    .ok_or(VaultError::InvalidManagedPath)?;
+                files.push(ManagedExportFile {
+                    relative_path: relative_path.clone(),
+                    source: entry.path(),
+                    size: metadata.len(),
+                    sha256: file_revision(&entry.path()).await?,
+                });
+                found.insert(relative_path);
+            }
+        }
+        files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        exclusions.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        let mut missing = expected_paths
+            .difference(&found)
+            .cloned()
+            .collect::<Vec<_>>();
+        missing.sort();
+        Ok(WorkspaceExportScan {
+            files,
+            exclusions,
+            missing,
+        })
+    }
+
+    pub(crate) async fn read_live_manifest(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<String, VaultError> {
+        let path = self
+            .workspace_directory(workspace_id)
+            .join(".kanleaf")
+            .join("manifest.json");
+        self.ensure_regular_managed_file(workspace_id, &path)
+            .await?;
+        Ok(fs::read_to_string(path).await?)
+    }
+
+    pub(crate) async fn read_portable_config_file(
+        &self,
+        workspace_id: Uuid,
+        relative_path: &str,
+    ) -> Result<String, VaultError> {
+        let path = match relative_path {
+            ".kanleaf/workspace.json" | ".kanleaf/task-config.json" | ".kanleaf/views.json" => {
+                self.workspace_directory(workspace_id).join(relative_path)
+            }
+            _ => {
+                let Some(project_id) = relative_path
+                    .strip_prefix(".kanleaf/projects/")
+                    .and_then(|name| name.strip_suffix(".json"))
+                    .and_then(|name| Uuid::parse_str(name).ok())
+                else {
+                    return Err(VaultError::InvalidManagedPath);
+                };
+                self.workspace_directory(workspace_id)
+                    .join(".kanleaf")
+                    .join("projects")
+                    .join(format!("{project_id}.json"))
+            }
+        };
+        self.ensure_regular_managed_file(workspace_id, &path)
+            .await?;
+        Ok(fs::read_to_string(path).await?)
+    }
+
+    pub(crate) async fn export_files_unchanged(
+        &self,
+        files: &[ManagedExportFile],
+    ) -> Result<bool, VaultError> {
+        for file in files {
+            let metadata = fs::symlink_metadata(&file.source).await?;
+            if metadata.file_type().is_symlink()
+                || !metadata.is_file()
+                || metadata.len() != file.size
+                || file_revision(&file.source).await? != file.sha256
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    pub(crate) async fn prepare_export_artifact(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<PathBuf, VaultError> {
+        let directory = self.data_dir.join("operations");
+        fs::create_dir_all(&directory).await?;
+        let path = directory.join(format!("{staging_key}.kanleaf.zip"));
+        match fs::symlink_metadata(&path).await {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path),
+            Ok(_) => Err(VaultError::ExistingDocument),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn export_artifact(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<(fs::File, u64), VaultError> {
+        let path = self
+            .data_dir
+            .join("operations")
+            .join(format!("{staging_key}.kanleaf.zip"));
+        let metadata = fs::symlink_metadata(&path).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        Ok((fs::File::open(path).await?, metadata.len()))
+    }
+
+    pub(crate) async fn remove_export_artifact(&self, staging_key: Uuid) -> Result<(), VaultError> {
+        let path = self
+            .data_dir
+            .join("operations")
+            .join(format!("{staging_key}.kanleaf.zip"));
+        match fs::symlink_metadata(&path).await {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                Err(VaultError::InvalidManagedPath)
+            }
+            Ok(_) => {
+                fs::remove_file(path).await?;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn scan_task_directory(
@@ -557,6 +828,37 @@ async fn write_document(
     Ok(content_revision(content.as_bytes()))
 }
 
+async fn replace_managed_file(destination: &Path, content: &str) -> Result<(), VaultError> {
+    match fs::symlink_metadata(destination).await {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let directory = destination.parent().ok_or(VaultError::InvalidManagedPath)?;
+    let temporary = directory.join(format!(".{}.tmp", Uuid::new_v4()));
+    let write_result = async {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .await?;
+        file.write_all(content.as_bytes()).await?;
+        file.flush().await?;
+        file.sync_all().await?;
+        drop(file);
+        fs::rename(&temporary, destination).await?;
+        Ok::<(), io::Error>(())
+    }
+    .await;
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary).await;
+    }
+    write_result.map_err(Into::into)
+}
+
 fn content_revision(content: &[u8]) -> String {
     let digest = Sha256::digest(content);
     let mut revision = String::with_capacity(digest.len() * 2);
@@ -564,6 +866,25 @@ fn content_revision(content: &[u8]) -> String {
         write!(&mut revision, "{byte:02x}").expect("writing to String cannot fail");
     }
     revision
+}
+
+async fn file_revision(path: &Path) -> Result<String, VaultError> {
+    let mut file = fs::File::open(path).await?;
+    let mut digest = Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    let bytes = digest.finalize();
+    let mut revision = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut revision, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    Ok(revision)
 }
 
 #[cfg(test)]

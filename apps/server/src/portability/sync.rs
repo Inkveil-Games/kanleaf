@@ -21,7 +21,10 @@ use crate::{
     workspace::require_workspace_admin,
 };
 
-use super::operation::{self, OperationRow};
+use super::{
+    config,
+    operation::{self, OperationRow},
+};
 
 const SYNC_KIND: &str = "vault_sync";
 
@@ -323,15 +326,25 @@ async fn build_preview(state: &AppState, workspace_id: Uuid) -> Result<StoredSyn
         .scan_task_documents(workspace_id, &project_storage_names)
         .await
         .map_err(|_| AppError::VaultUnavailable)?;
-    let mut issues = scan
-        .issues
+    let mut issues = config::detect_drift(state, workspace_id)
+        .await
         .into_iter()
-        .map(|issue| SyncIssue {
-            kind: scan_issue_kind(issue.kind).to_owned(),
-            path: issue.relative_path,
-            message: "This entry is outside Kanleaf's managed Task layout".to_owned(),
+        .map(|drift| SyncIssue {
+            kind: "configuration_drift".to_owned(),
+            path: drift.path,
+            message: drift.message,
         })
         .collect::<Vec<_>>();
+    issues.extend(
+        scan.issues
+            .into_iter()
+            .map(|issue| SyncIssue {
+                kind: scan_issue_kind(issue.kind).to_owned(),
+                path: issue.relative_path,
+                message: "This entry is outside Kanleaf's managed Task layout".to_owned(),
+            })
+            .collect::<Vec<_>>(),
+    );
     let mut files_by_id: HashMap<Uuid, Vec<ScannedProperties>> = HashMap::new();
     for file in scan.files {
         match read_task_properties(&file.document.content) {

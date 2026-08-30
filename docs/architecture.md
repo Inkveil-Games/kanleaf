@@ -204,6 +204,26 @@ Unknown, duplicate, missing, manually moved, malformed, and invalid files stay
 visible as non-applicable results. Preview operations are actor/Workspace
 scoped and expire without deleting Markdown.
 
+Portable Workspace configuration is projected into versioned JSON below
+`.kanleaf/`. PostgreSQL triggers increment one coalescing Workspace version in
+the same transaction as changes to Workspace metadata, membership references,
+Projects, Task vocabulary, planning, shared Views, Tasks, or Library identity.
+A startup/periodic worker writes `workspace.json`, `task-config.json`,
+`views.json`, `projects/<project-id>.json`, then publishes `manifest.json` last
+as the snapshot commit marker. User profile changes fan out only display
+references; account preferences, sessions, invitations, notifications, and
+comment/activity history never mark or enter portable configuration.
+
+Workspace export is an actor-scoped, expiring server operation available to
+current Owner/Admin roles. It drains Task and config projections, inventories
+only database-known Markdown and JSON paths, hashes each payload, writes a ZIP
+artifact in internal operation storage, then verifies file and database
+versions again before publication. The archive manifest is the root of trust
+and checksums every other entry. Symlinks, `.obsidian`, temporary, and
+unmanaged files are not followed or copied and are reported in the operation
+result. Download authorization is checked again, and startup plus a bounded
+cleanup worker remove interrupted or expired artifacts.
+
 Later Task or Project title edits do not rename files. A Task scope change moves
 its stable basename between `Todo` roots. Wiki reparenting or scope changes move
 both `<name>.md` and `<name>/`, preserving descendants and authored content.

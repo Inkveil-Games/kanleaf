@@ -76,6 +76,13 @@ Deployment/server configuration belongs in environment variables. Application
 entities belong in PostgreSQL, client-local preferences in local storage, and
 Markdown documents in the vault.
 
+Each Workspace vault also contains server-projected `.kanleaf` JSON. These
+files are portable snapshots, not deployment configuration and not a second
+write API. External Task YAML changes use the explicit Vault Sync preview;
+external `.kanleaf` edits are restored from PostgreSQL by the next projection.
+Workspace export artifacts are temporary, authorization-gated files under the
+server's internal operation storage and expire automatically.
+
 ## Verification
 
 Backend unit tests do not require PostgreSQL. `--all-features` enables isolated

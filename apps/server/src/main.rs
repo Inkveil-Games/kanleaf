@@ -5,7 +5,10 @@ use kanleaf_server::{
     AppState,
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
-    portability::recover_workspace_operations,
+    portability::{
+        recover_config_projection_jobs, recover_export_operations, recover_workspace_operations,
+        spawn_config_projection_worker, spawn_export_cleanup_worker,
+    },
     router,
     task::{recover_projection_jobs, spawn_projection_worker},
     workspace::migrate_workspace_vaults,
@@ -39,6 +42,9 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to clean expired Workspace operations")?;
 
     let state = AppState::new(pool, config.data_dir, config.session_ttl);
+    recover_export_operations(&state)
+        .await
+        .context("failed to recover Workspace export operations")?;
     recover_library_operations(&state)
         .await
         .context("failed to recover interrupted Library operations")?;
@@ -51,12 +57,17 @@ async fn main() -> anyhow::Result<()> {
     recover_projection_jobs(&state)
         .await
         .context("failed to recover pending Task property projections")?;
+    recover_config_projection_jobs(&state)
+        .await
+        .context("failed to recover pending Workspace config projections")?;
 
     let listener = tokio::net::TcpListener::bind(config.bind_address)
         .await
         .context("failed to bind server address")?;
     let address = listener.local_addr()?;
     spawn_projection_worker(state.clone());
+    spawn_config_projection_worker(state.clone());
+    spawn_export_cleanup_worker(state.clone());
     let app = router(state, config.cors_origins);
 
     info!(%address, "Kanleaf server listening");
