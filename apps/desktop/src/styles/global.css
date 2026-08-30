@@ -4738,24 +4738,13 @@ button.document-tree-toggle:hover {
   color: inherit;
 }
 
-.cm-live-paragraph-start,
-.cm-live-list-outer-start,
-.cm-live-blockquote-start {
+.document-live .cm-line.cm-live-paragraph-start,
+.document-live .cm-line.cm-live-list-outer-start {
   padding-top: 0.85em;
 }
 
-.cm-live-paragraph-end,
-.cm-live-list-outer-end,
-.cm-live-blockquote-end {
-  padding-bottom: 0.85em;
-}
-
-.cm-live-list-nested-start {
+.document-live .cm-line.cm-live-list-nested-start {
   padding-top: 0.25em;
-}
-
-.cm-live-list-nested-end {
-  padding-bottom: 0.25em;
 }
 
 .cm-live-strong {
@@ -4770,16 +4759,28 @@ button.document-tree-toggle:hover {
   text-decoration: line-through;
 }
 
-.cm-line.cm-live-blockquote {
+.document-live .cm-line.cm-live-blockquote {
+  position: relative;
   padding-left: 1em;
 }
 
-.cm-line.cm-live-blockquote-start {
-  padding-top: 0.95em;
+.document-live .cm-line.cm-live-blockquote::before {
+  position: absolute;
+  top: var(--live-quote-border-start, 0);
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--color-border);
+  content: '';
 }
 
-.cm-line.cm-live-blockquote-end {
-  padding-bottom: 0.95em;
+.document-live .cm-line.cm-live-blockquote-start {
+  padding-top: 0.95em;
+  --live-quote-border-start: 0.85em;
+}
+
+.document-live .cm-line.cm-live-blockquote-end {
+  padding-bottom: 0.1em;
 }
 
 .cm-live-list-marker {
@@ -4799,27 +4800,23 @@ button.document-tree-toggle:hover {
 
 .cm-live-block-widget {
   display: block;
-  padding: 0.85em 0;
+  padding: 0.85em 0 0;
   white-space: normal;
 }
 
 .cm-live-block-widget[data-block-kind='HorizontalRule'] {
-  padding: 1.8em 0;
+  padding: 1.8em 0 0;
 }
 
 .cm-live-block-widget:is(
   [data-block-kind='SetextHeading1'],
   [data-block-kind='SetextHeading2']
 ) {
-  padding: 1.5em 0 0.55em;
+  padding: 1.5em 0 0;
 }
 
 .cm-live-block-widget[data-document-start='true'] {
   padding-top: 0;
-}
-
-.cm-live-block-widget[data-document-end='true'] {
-  padding-bottom: 0;
 }
 
 .cm-live-block-widget .markdown-preview {
@@ -4860,9 +4857,8 @@ button.document-tree-toggle:hover {
   letter-spacing: -0.018em;
 }
 
-.cm-live-heading-line {
+.document-live .cm-line.cm-live-heading-line {
   padding-top: 1.5em;
-  padding-bottom: 0.55em;
   color: var(--color-text);
   font-weight: 650;
   line-height: 1.25;
@@ -4870,63 +4866,38 @@ button.document-tree-toggle:hover {
 }
 
 .markdown-preview h1,
-.document-live .cm-live-heading-1 {
+.document-live .cm-line.cm-live-heading-1 {
+  padding-bottom: 0.3em;
   border-bottom: 1px solid var(--color-border);
   font-size: 1.65rem;
 }
 
-.document-live .cm-live-heading-1 {
-  padding-bottom: 0.85em;
-}
-
 .markdown-preview h2,
-.document-live .cm-live-heading-2 {
+.document-live .cm-line.cm-live-heading-2 {
+  padding-bottom: 0.25em;
   border-bottom: 1px solid var(--color-border);
   font-size: 1.3rem;
 }
 
-.markdown-preview h1 {
-  padding-bottom: 0.3em;
-}
-
-.markdown-preview h2 {
-  padding-bottom: 0.25em;
-}
-
-.document-live .cm-live-heading-2 {
-  padding-bottom: 0.8em;
-}
-
 .markdown-preview h3,
-.cm-live-heading-3 {
+.document-live .cm-line.cm-live-heading-3 {
   font-size: 1.08rem;
 }
 
 .markdown-preview h4,
-.cm-live-heading-4,
-.cm-live-heading-5,
-.cm-live-heading-6 {
+.document-live .cm-line.cm-live-heading-4,
+.document-live .cm-line.cm-live-heading-5,
+.document-live .cm-line.cm-live-heading-6 {
   font-size: 0.95rem;
 }
 
-.cm-line.cm-live-document-start {
+.document-live .cm-line.cm-live-document-start {
   padding-top: 0;
 }
 
-.cm-line.cm-live-document-end:not(.cm-live-heading-1, .cm-live-heading-2) {
-  padding-bottom: 0;
-}
-
-.cm-line.cm-live-document-end.cm-live-heading-1 {
-  padding-bottom: 0.3em;
-}
-
-.cm-line.cm-live-document-end.cm-live-heading-2 {
-  padding-bottom: 0.25em;
-}
-
-.cm-line.cm-live-document-end.cm-live-blockquote-end {
-  padding-bottom: 0.1em;
+.document-live .cm-line.cm-live-document-start.cm-live-blockquote-start {
+  padding-top: 0.1em;
+  --live-quote-border-start: 0;
 }
 
 .markdown-preview p,
@@ -4962,9 +4933,12 @@ button.document-tree-toggle:hover {
   accent-color: var(--color-accent);
 }
 
-.markdown-preview blockquote,
-.cm-line.cm-live-blockquote {
+.markdown-preview blockquote {
   border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.document-live .cm-line.cm-live-blockquote {
   color: var(--color-text-muted);
 }
 

@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from '@playwright/test';
 import { serverUrl } from './environment';
@@ -38,6 +39,31 @@ async function addTaskProperty(page: Page, property: string) {
   await expect(page.getByLabel('Search properties')).toBeVisible();
   await page.getByLabel('Search properties').fill(property);
   await page.getByRole('button', { name: `Add ${property} property` }).click();
+}
+
+async function textGeometry(locator: Locator, text: string) {
+  return locator.evaluate((element, expectedText) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const start = node.textContent?.indexOf(expectedText) ?? -1;
+      if (start >= 0) {
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + expectedText.length);
+        const textRect = range.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        return {
+          top: textRect.top,
+          height: textRect.height,
+          boxBottom: elementRect.bottom,
+          textBottom: textRect.bottom,
+        };
+      }
+      node = walker.nextNode();
+    }
+    throw new Error(`Could not find text geometry for ${expectedText}`);
+  }, text);
 }
 
 test('manages structured work and durable Markdown across reloads', async ({
@@ -172,7 +198,14 @@ This note is stored as a durable **Markdown file**.
 
 \`\`\`rust
 let source_is_markdown = true;
-\`\`\``;
+\`\`\`
+
+# Section 1
+## Subsection 1
+- Test nha
+> Note
+### Subsubsection
+2`;
   const pageSource = page.locator(
     '.library-document-editor .cm-content[contenteditable="true"]',
   );
@@ -185,9 +218,9 @@ let source_is_markdown = true;
   await expect(liveTodoLine).toHaveClass(/cm-live-source-line/);
   await expect(liveTodoLine).toContainText('- [ ] Ship Live Preview');
   await pageSource.press('Control+Home');
-  const liveHeading = page.locator(
-    '.library-document-editor .cm-live-heading-1',
-  );
+  const liveHeading = page
+    .locator('.library-document-editor .cm-live-heading-1')
+    .filter({ hasText: 'Project handbook' });
   await expect(liveHeading).toContainText('# Project handbook');
   const focusedHeadingHeight = await liveHeading.evaluate(
     (element) => element.getBoundingClientRect().height,
@@ -204,6 +237,40 @@ let source_is_markdown = true;
   const liveContentLeft = await liveHeading.evaluate(
     (element) => element.getBoundingClientRect().left,
   );
+  const liveRhythm = await Promise.all([
+    textGeometry(
+      page
+        .locator('.library-document-editor .cm-live-heading-1')
+        .filter({ hasText: 'Section 1' }),
+      'Section 1',
+    ),
+    textGeometry(
+      page.locator('.library-document-editor .cm-live-heading-2'),
+      'Subsection 1',
+    ),
+    textGeometry(
+      page
+        .locator('.library-document-editor .cm-line')
+        .filter({ hasText: 'Test nha' }),
+      'Test nha',
+    ),
+    textGeometry(
+      page
+        .locator('.library-document-editor .cm-live-blockquote')
+        .filter({ hasText: 'Note' }),
+      'Note',
+    ),
+    textGeometry(
+      page.locator('.library-document-editor .cm-live-heading-3'),
+      'Subsubsection',
+    ),
+    textGeometry(
+      page
+        .locator('.library-document-editor .cm-line')
+        .filter({ hasText: /^2$/ }),
+      '2',
+    ),
+  ]);
   await page.getByRole('button', { name: 'Source' }).click();
   const sourceHeading = page
     .locator('.library-document-editor .cm-line')
@@ -218,6 +285,38 @@ let source_is_markdown = true;
     .getByRole('heading', { name: 'Project handbook' });
   const readingContentLeft = await readingHeading.evaluate(
     (element) => element.getBoundingClientRect().left,
+  );
+  const preview = page
+    .getByLabel('Markdown document')
+    .locator('.markdown-preview');
+  const readingRhythm = await Promise.all([
+    textGeometry(
+      preview.locator('h1').filter({ hasText: 'Section 1' }),
+      'Section 1',
+    ),
+    textGeometry(preview.locator('h2'), 'Subsection 1'),
+    textGeometry(
+      preview.locator('li').filter({ hasText: 'Test nha' }),
+      'Test nha',
+    ),
+    textGeometry(
+      preview.locator('blockquote').filter({ hasText: 'Note' }),
+      'Note',
+    ),
+    textGeometry(preview.locator('h3'), 'Subsubsection'),
+    textGeometry(preview.locator('p').filter({ hasText: /^2$/ }), '2'),
+  ]);
+  for (const [index, liveBlock] of liveRhythm.entries()) {
+    const readingBlock = readingRhythm[index];
+    expect(liveBlock.height).toBeCloseTo(readingBlock.height, 1);
+    expect(liveBlock.top - liveRhythm[0].top).toBeCloseTo(
+      readingBlock.top - readingRhythm[0].top,
+      0,
+    );
+  }
+  expect(liveRhythm[0].boxBottom - liveRhythm[0].textBottom).toBeCloseTo(
+    readingRhythm[0].boxBottom - readingRhythm[0].textBottom,
+    1,
   );
   expect(Math.abs(sourceContentLeft - liveContentLeft)).toBeLessThan(1);
   expect(Math.abs(sourceContentLeft - readingContentLeft)).toBeLessThan(1);

@@ -387,9 +387,6 @@ class MarkdownBlockWidget extends WidgetType {
     element.className = 'cm-live-block-widget';
     element.dataset.blockKind = this.kind;
     element.dataset.documentStart = String(this.from === 0);
-    element.dataset.documentEnd = String(
-      this.from + this.source.length === view.state.doc.length,
-    );
     const root = createRoot(element);
     root.render(<MarkdownPreview content={this.source} />);
     blockRoots.set(element, root);
