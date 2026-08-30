@@ -272,6 +272,17 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         opened["projection"]["projected_metadata_version"]
     );
     let base_revision = opened["revision"].as_str().unwrap().to_owned();
+    let metadata_update = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+            json!({"priority": "high"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(metadata_update.status(), StatusCode::OK);
     let saved = app
         .clone()
         .oneshot(json_request(
@@ -310,6 +321,7 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     let source = fs::read_to_string(&document_path).unwrap();
     assert!(source.contains("Title: Finish Markdown persistence\n"));
     assert!(source.contains("State:\n  - Done\n"));
+    assert!(source.contains("Priority:\n  - High\n"));
     assert!(source.ends_with(markdown));
 
     let archived = app

@@ -181,8 +181,10 @@ Task files contain canonical Obsidian-compatible YAML properties followed by the
 user's source-faithful Markdown body. Structured metadata remains canonical in
 PostgreSQL; Kanleaf patches only its owned property keys and preserves unknown
 properties, comments, body formatting, and whitespace. Task document endpoints
-expose only the body and projection health, while their SHA-256 revision covers
-the complete file.
+expose only the body and projection health. Their SHA-256 revision covers the
+body alone, so a Kanleaf metadata projection does not create a false editing
+conflict. A body write rereads the latest complete file, replaces only its body,
+and still uses a complete-file revision for the final atomic filesystem write.
 
 Every structured metadata mutation increments a per-Task version and coalesces
 one projection job in the same PostgreSQL transaction. After commit, the
@@ -251,10 +253,11 @@ Manually authored links are not rewritten during a move; link-aware renames and
 backlinks are a later capability. No `.obsidian` directory is created or
 required.
 
-Reads return source plus a SHA-256 content revision. A write must include the
-revision it opened; if the current file differs, the server returns a stable
-conflict response and leaves both the external file and client source
-untouched.
+Library reads return source plus a complete-file SHA-256 revision. Task reads
+return a revision of the user-authored body while preserving the latest YAML
+properties during a write. A write must include the revision it opened; if its
+owned content differs, the server returns a stable conflict response and leaves
+both the external file and client source untouched.
 
 Task and Library-note creation coordinate the database transaction with initial
 file creation; the transaction is rolled back if the document cannot be

@@ -1019,7 +1019,7 @@ async fn replace_managed_file(destination: &Path, content: &str) -> Result<(), V
     write_result.map_err(Into::into)
 }
 
-fn content_revision(content: &[u8]) -> String {
+pub(crate) fn content_revision(content: &[u8]) -> String {
     let digest = Sha256::digest(content);
     let mut revision = String::with_capacity(digest.len() * 2);
     for byte in digest {

@@ -41,7 +41,7 @@ use crate::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
         validate_task_type_assignment,
     },
-    vault::{TaskPath, VaultError},
+    vault::{TaskPath, VaultError, content_revision},
     workspace::{require_workspace_member, workspace_role},
 };
 
@@ -1468,14 +1468,14 @@ pub(crate) async fn read_document(
         .read_task_document(workspace_id, &task_path)
         .await
         .map_err(AppError::internal)?;
-    let content = frontmatter::body(&document.content)
-        .map_err(map_frontmatter_error)?
-        .to_owned();
+    let content = frontmatter::body(&document.content).map_err(map_frontmatter_error)?;
+    let revision = content_revision(content.as_bytes());
+    let content = content.to_owned();
     transaction.commit().await?;
     let projection = projection_health(&state, workspace_id, task_id).await?;
     Ok(Json(DocumentResponse {
         content,
-        revision: document.revision,
+        revision,
         projection,
     }))
 }
@@ -1508,18 +1508,20 @@ pub(crate) async fn write_document(
         .read_task_document(workspace_id, &task_path)
         .await
         .map_err(AppError::internal)?;
-    if current.revision != request.base_revision {
+    let current_body = frontmatter::body(&current.content).map_err(map_frontmatter_error)?;
+    if content_revision(current_body.as_bytes()) != request.base_revision {
         return Err(AppError::Conflict(
             "The Markdown document changed after it was opened".to_owned(),
         ));
     }
     let source = frontmatter::replace_body(&current.content, &request.content)
         .map_err(map_frontmatter_error)?;
-    let revision = state
+    state
         .vault
-        .write_task_document(workspace_id, &task_path, &source, &request.base_revision)
+        .write_task_document(workspace_id, &task_path, &source, &current.revision)
         .await
         .map_err(map_vault_write_error)?;
+    let revision = content_revision(request.content.as_bytes());
     record_activity(
         &mut transaction,
         workspace_id,
