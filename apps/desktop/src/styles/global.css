@@ -4722,6 +4722,10 @@ button.document-tree-toggle:hover {
   line-height: 1.68;
 }
 
+.document-live .cm-line:not(.cm-live-source-line) [class*='cm-syntax-'] {
+  color: inherit;
+}
+
 .cm-live-heading-line {
   color: var(--color-text);
   font-weight: 650;

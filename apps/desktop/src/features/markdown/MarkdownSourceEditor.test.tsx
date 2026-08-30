@@ -61,6 +61,10 @@ describe('MarkdownSourceEditor', () => {
     ).toHaveTextContent('let faithful = true;');
     expect(container.querySelector('script')).not.toBeInTheDocument();
     expect(container).not.toHaveTextContent('unsafeLivePreview');
+    expect(container.querySelector('.cm-live-source-line')).toHaveTextContent(
+      '# Live Preview',
+    );
+    expect(table.closest('.cm-live-source-line')).toBeNull();
 
     fireEvent.mouseDown(table);
     await waitFor(() =>
@@ -69,6 +73,9 @@ describe('MarkdownSourceEditor', () => {
       ).not.toBeInTheDocument(),
     );
     expect(container.querySelector('.cm-content')).toHaveTextContent(
+      '| Layer | Store |',
+    );
+    expect(container.querySelector('.cm-live-source-line')).toHaveTextContent(
       '| Layer | Store |',
     );
   });

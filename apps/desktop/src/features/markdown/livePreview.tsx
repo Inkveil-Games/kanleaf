@@ -88,6 +88,13 @@ function buildDecorations(state: EditorState) {
   const active = activeLogicalBlockRanges(state);
   const decorations: Range<Decoration>[] = [];
   const atomic: Range<Decoration>[] = [];
+
+  for (const lineFrom of activeLineStarts(state, active)) {
+    decorations.push(
+      Decoration.line({ class: 'cm-live-source-line' }).range(lineFrom),
+    );
+  }
+
   syntaxTree(state).iterate({
     enter(node) {
       if (isInsideActiveBlock(node, active)) return false;
@@ -112,6 +119,19 @@ function buildDecorations(state: EditorState) {
     decorations: Decoration.set(decorations, true),
     atomic: Decoration.set(atomic, true),
   };
+}
+
+function activeLineStarts(state: EditorState, ranges: SourceRange[]) {
+  const starts = new Set<number>();
+  for (const range of ranges) {
+    let line = state.doc.lineAt(range.from);
+    for (;;) {
+      starts.add(line.from);
+      if (line.to >= range.to || line.number === state.doc.lines) break;
+      line = state.doc.line(line.number + 1);
+    }
+  }
+  return starts;
 }
 
 function decorateNode(
