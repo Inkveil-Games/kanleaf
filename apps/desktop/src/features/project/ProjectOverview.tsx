@@ -20,6 +20,7 @@ interface ProjectOverviewProps {
   onOpenCycles: () => void;
   onOpenModules: () => void;
   onOpenPages: () => void;
+  onOpenViews: () => void;
   onOpenSettings: () => void;
 }
 
@@ -31,6 +32,7 @@ export function ProjectOverview({
   onOpenCycles,
   onOpenModules,
   onOpenPages,
+  onOpenViews,
   onOpenSettings,
 }: ProjectOverviewProps) {
   const accessible = project.effective_role !== null;
@@ -162,6 +164,13 @@ export function ProjectOverview({
                 icon={<Eye aria-hidden="true" size={16} />}
                 label="Views"
                 enabled={project.views_enabled}
+                onOpen={project.views_enabled ? onOpenViews : undefined}
+                onConfigure={
+                  project.effective_role === 'admin'
+                    ? onOpenSettings
+                    : undefined
+                }
+                openDescription="Open saved task Views"
               />
             </div>
           </section>

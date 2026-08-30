@@ -149,24 +149,6 @@ describe('useAccountSessions', () => {
     expect(result.current.sessions.accounts[0]?.token).toBe('legacy-token');
   });
 
-  it('signs out every retained session after flushing the active document', async () => {
-    retainAccounts(account('user-1'), account('user-2'));
-    const flushDocumentSaves = vi.fn().mockResolvedValue(undefined);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(null, { status: 204 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const { result } = renderAccountSessions(flushDocumentSaves);
-
-    await act(() => result.current.signOutAll());
-
-    expect(flushDocumentSaves).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.current.token).toBeNull();
-    expect(result.current.sessions.accounts).toEqual([]);
-    expect(readServerAccountSessions(serverUrl).accounts).toEqual([]);
-  });
-
   it('signs out only the active account without choosing another identity', async () => {
     retainAccounts(account('user-1'), account('user-2'));
     vi.stubGlobal(

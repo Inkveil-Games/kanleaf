@@ -8,7 +8,6 @@ import {
   ListTodo,
   Search,
   Settings,
-  UserRound,
 } from 'lucide-react';
 import {
   useEffect,
@@ -150,8 +149,8 @@ export function CommandPalette({
     add({
       id: 'account-settings',
       group: 'Navigate',
-      label: 'Account settings',
-      icon: <UserRound aria-hidden="true" size={16} />,
+      label: 'Settings',
+      icon: <Settings aria-hidden="true" size={16} />,
       run: onOpenAccountSettings,
     });
     add({

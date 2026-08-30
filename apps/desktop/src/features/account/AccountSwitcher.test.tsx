@@ -9,7 +9,6 @@ describe('AccountSwitcher', () => {
     const onAddAccount = vi.fn();
     const onOpenAccountSettings = vi.fn();
     const onSignOutCurrent = vi.fn();
-    const onSignOutAll = vi.fn();
     render(
       <AccountSwitcher
         accounts={[account('user-1'), account('user-2')]}
@@ -20,7 +19,6 @@ describe('AccountSwitcher', () => {
         onAddAccount={onAddAccount}
         onOpenAccountSettings={onOpenAccountSettings}
         onSignOutCurrent={onSignOutCurrent}
-        onSignOutAll={onSignOutAll}
         onDismissError={vi.fn()}
       />,
     );
@@ -39,18 +37,16 @@ describe('AccountSwitcher', () => {
     );
     expect(onAddAccount).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Account settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     fireEvent.click(
       screen.getByRole('menuitem', { name: 'Sign out this account' }),
     );
     expect(onSignOutCurrent).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
-    fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Sign out all accounts' }),
-    );
-    expect(onSignOutAll).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Sign out all accounts' }),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps transition errors visible until dismissed', () => {
@@ -65,7 +61,6 @@ describe('AccountSwitcher', () => {
         onAddAccount={vi.fn()}
         onOpenAccountSettings={vi.fn()}
         onSignOutCurrent={vi.fn()}
-        onSignOutAll={vi.fn()}
         onDismissError={onDismissError}
       />,
     );
@@ -77,9 +72,6 @@ describe('AccountSwitcher', () => {
     expect(
       screen.getByRole('menuitemradio', { name: /Account user-1/ }),
     ).toBeDisabled();
-    expect(
-      screen.queryByRole('menuitem', { name: 'Sign out all accounts' }),
-    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Dismiss account error' }),
     );

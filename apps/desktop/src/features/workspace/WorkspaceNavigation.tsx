@@ -30,11 +30,12 @@ interface WorkspaceNavigationProps {
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
   onOpenDocuments: (projectId: string | null) => void;
+  onOpenViews: (projectId: string) => void;
   onOpenSavedView: (view: SavedView) => void;
 }
 
 export type WorkspaceSurface =
-  'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents';
+  'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents' | 'views';
 
 export function WorkspaceNavigation({
   accountSwitcher,
@@ -51,6 +52,7 @@ export function WorkspaceNavigation({
   onOpenProjectOverview,
   onOpenPlanning,
   onOpenDocuments,
+  onOpenViews,
   onOpenSavedView,
 }: WorkspaceNavigationProps) {
   const [composingProject, setComposingProject] = useState(false);
@@ -227,24 +229,36 @@ export function WorkspaceNavigation({
                             onClick={() => onOpenDocuments(project.id)}
                           />
                         )}
-                        {project.views_enabled && projectViews.length > 0 && (
-                          <div className="project-view-nav">
-                            <span>Views</span>
-                            {projectViews.map((view) => (
-                              <NavButton
-                                key={view.id}
-                                active={activeViewId === view.id}
-                                icon={<Bookmark aria-hidden="true" size={13} />}
-                                label={view.name}
-                                suffix={
-                                  view.visibility === 'shared'
-                                    ? 'Shared'
-                                    : undefined
-                                }
-                                onClick={() => onOpenSavedView(view)}
-                              />
-                            ))}
-                          </div>
+                        {project.views_enabled && (
+                          <>
+                            <NavButton
+                              active={surface === 'views'}
+                              icon={<Bookmark aria-hidden="true" size={14} />}
+                              label="Views"
+                              onClick={() => onOpenViews(project.id)}
+                            />
+                            {projectViews.length > 0 && (
+                              <div className="project-view-nav">
+                                <span>Saved</span>
+                                {projectViews.map((view) => (
+                                  <NavButton
+                                    key={view.id}
+                                    active={activeViewId === view.id}
+                                    icon={
+                                      <Bookmark aria-hidden="true" size={13} />
+                                    }
+                                    label={view.name}
+                                    suffix={
+                                      view.visibility === 'shared'
+                                        ? 'Shared'
+                                        : undefined
+                                    }
+                                    onClick={() => onOpenSavedView(view)}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}

@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useDeferredValue,
   useEffect,
+  useMemo,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -41,6 +42,7 @@ import {
   type SavedViewVisibility,
   type TaskLayout,
 } from '../view/types';
+import { ProjectViewsPane } from '../view/ProjectViewsPane';
 import {
   activateWorkspace,
   addTaskRelation,
@@ -91,7 +93,6 @@ interface WorkspaceShellProps {
   onAddAccount: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
-  onSignOutAll: () => void;
 }
 
 export function WorkspaceShell({
@@ -105,7 +106,6 @@ export function WorkspaceShell({
   onAddAccount,
   onDismissAccountError,
   onSignOut,
-  onSignOutAll,
 }: WorkspaceShellProps) {
   const queryClient = useQueryClient();
   const context = { serverUrl, token };
@@ -137,7 +137,6 @@ export function WorkspaceShell({
     useState<WorkspaceSettingsSection>('general');
   const paneLayout = useWorkspacePaneLayout();
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
-  const deferredTaskQuery = useDeferredValue(taskQuery);
 
   useEffect(() => {
     applyTheme(user.theme);
@@ -164,6 +163,11 @@ export function WorkspaceShell({
     queryFn: () => listWorkspaces(context),
   });
   const workspaceId = activeWorkspaceId ?? workspaces.data?.[0]?.id ?? null;
+  const taskRequest = useMemo(
+    () => ({ workspaceId, query: taskQuery }),
+    [taskQuery, workspaceId],
+  );
+  const deferredTaskRequest = useDeferredValue(taskRequest);
   const activeWorkspace = workspaces.data?.find(({ id }) => id === workspaceId);
   const hasContentAccess = Boolean(
     activeWorkspace && activeWorkspace.role !== 'guest',
@@ -178,7 +182,8 @@ export function WorkspaceShell({
     activeProject &&
     ((surface === 'cycles' && !activeProject.cycles_enabled) ||
       (surface === 'modules' && !activeProject.modules_enabled) ||
-      (surface === 'documents' && !activeProject.pages_enabled))
+      (surface === 'documents' && !activeProject.pages_enabled) ||
+      (surface === 'views' && !activeProject.views_enabled))
       ? 'project-overview'
       : surface;
   const queryProjectId =
@@ -204,10 +209,13 @@ export function WorkspaceShell({
     visibleSurface,
   ]);
   const tasks = useQuery({
-    queryKey: ['tasks', workspaceId, deferredTaskQuery],
-    queryFn: () => queryTasks(context, workspaceId!, deferredTaskQuery),
+    queryKey: ['tasks', workspaceId, deferredTaskRequest.query],
+    queryFn: () => queryTasks(context, workspaceId!, deferredTaskRequest.query),
     enabled: Boolean(
-      workspaceId && hasCollectionAccess && visibleSurface === 'tasks',
+      workspaceId &&
+      deferredTaskRequest.workspaceId === workspaceId &&
+      hasCollectionAccess &&
+      visibleSurface === 'tasks',
     ),
   });
   const taskConfiguration = useQuery({
@@ -511,6 +519,26 @@ export function WorkspaceShell({
     await refreshSavedViewCache(created.project_id);
   }
 
+  async function addProjectSavedView(
+    name: string,
+    visibility: SavedViewVisibility,
+  ) {
+    if (!workspaceId || !activeProjectId) return;
+    const query = createTaskQuery({
+      kind: 'project',
+      projectId: activeProjectId,
+    });
+    const created = await createSavedView(context, workspaceId, {
+      name,
+      visibility,
+      project_id: activeProjectId,
+      query,
+      layout: 'list',
+    });
+    await refreshSavedViewCache(activeProjectId);
+    openSavedView(created);
+  }
+
   async function patchSavedView(
     patch: Partial<Pick<SavedView, 'name' | 'visibility'>>,
   ) {
@@ -626,6 +654,15 @@ export function WorkspaceShell({
     setSelectedDocumentId(documentId);
     setTaskLayout('list');
     setSurface('documents');
+    setActionError(null);
+  }
+
+  function openProjectViews(projectId: string) {
+    setActiveView(null);
+    setActiveProjectId(projectId);
+    setSelectedTaskId(null);
+    setSelectedDocumentId(null);
+    setSurface('views');
     setActionError(null);
   }
 
@@ -899,7 +936,6 @@ export function WorkspaceShell({
             onAddAccount={onAddAccount}
             onOpenAccountSettings={() => openAccountSettings('profile')}
             onSignOutCurrent={onSignOut}
-            onSignOutAll={onSignOutAll}
             onDismissError={onDismissAccountError}
           />
         }
@@ -916,6 +952,7 @@ export function WorkspaceShell({
         onOpenProjectOverview={openProjectOverview}
         onOpenPlanning={openPlanning}
         onOpenDocuments={openDocuments}
+        onOpenViews={openProjectViews}
         onOpenSavedView={openSavedView}
       />
       {!paneLayout.narrow && paneLayout.navigationVisible && (
@@ -957,7 +994,22 @@ export function WorkspaceShell({
           onOpenCycles={() => openPlanning(activeProject.id, 'cycles')}
           onOpenModules={() => openPlanning(activeProject.id, 'modules')}
           onOpenPages={() => openDocuments(activeProject.id)}
+          onOpenViews={() => openProjectViews(activeProject.id)}
           onOpenSettings={() => openProjectSettings(activeProject.id)}
+        />
+      ) : visibleSurface === 'views' && activeProject ? (
+        <ProjectViewsPane
+          project={activeProject}
+          views={projectViews.data ?? []}
+          loading={projectViews.isPending}
+          error={projectViews.error ? errorMessage(projectViews.error) : null}
+          canShare={
+            activeProject.effective_role === 'admin' ||
+            activeProject.effective_role === 'contributor'
+          }
+          onCreate={addProjectSavedView}
+          onOpen={openSavedView}
+          onRetry={() => void projectViews.refetch()}
         />
       ) : visibleSurface === 'documents' ? (
         <DocumentWorkspace

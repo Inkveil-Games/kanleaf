@@ -17,7 +17,7 @@ const project: Project = {
   cycles_enabled: true,
   modules_enabled: false,
   pages_enabled: true,
-  views_enabled: false,
+  views_enabled: true,
   enabled_task_type_ids: ['type-task'],
   effective_role: 'admin',
   can_join: false,
@@ -32,6 +32,7 @@ describe('ProjectOverview', () => {
     const openSettings = vi.fn();
     const openCycles = vi.fn();
     const openPages = vi.fn();
+    const openViews = vi.fn();
     render(
       <ProjectOverview
         project={project}
@@ -41,6 +42,7 @@ describe('ProjectOverview', () => {
         onOpenCycles={openCycles}
         onOpenModules={vi.fn()}
         onOpenPages={openPages}
+        onOpenViews={openViews}
         onOpenSettings={openSettings}
       />,
     );
@@ -52,10 +54,12 @@ describe('ProjectOverview', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Work items/ })[0]);
     fireEvent.click(screen.getByRole('button', { name: /Cycles/ }));
     fireEvent.click(screen.getByRole('button', { name: /Library/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Views/ }));
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
     expect(openWorkItems).toHaveBeenCalledOnce();
     expect(openCycles).toHaveBeenCalledOnce();
     expect(openPages).toHaveBeenCalledOnce();
+    expect(openViews).toHaveBeenCalledOnce();
     expect(openSettings).toHaveBeenCalledOnce();
   });
 
@@ -70,6 +74,7 @@ describe('ProjectOverview', () => {
         onOpenCycles={vi.fn()}
         onOpenModules={vi.fn()}
         onOpenPages={vi.fn()}
+        onOpenViews={vi.fn()}
         onOpenSettings={vi.fn()}
       />,
     );

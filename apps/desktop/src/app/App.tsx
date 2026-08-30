@@ -36,7 +36,6 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
     switchAccount,
     addAuthenticated,
     signOutCurrent,
-    signOutAll,
   } = useAccountSessions(serverUrl, flushDocumentSaves);
   const [addingAccount, setAddingAccount] = useState(false);
   const health = useQuery({
@@ -145,7 +144,6 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
         }}
         onDismissAccountError={clearAccountError}
         onSignOut={() => void signOutCurrent()}
-        onSignOutAll={() => void signOutAll()}
       />
       {addingAccount && (
         <AddAccountDialog

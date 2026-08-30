@@ -171,9 +171,8 @@ and contains:
 2. retained account rows with monogram, display name, email, and an active
    checkmark;
 3. `Add another account`;
-4. `Account settings`;
-5. `Sign out this account`;
-6. `Sign out all accounts` when at least two accounts are retained.
+4. `Settings`, shown with a gear icon;
+5. `Sign out this account`.
 
 Selecting another row shows `Saving and switching…` and disables repeated
 identity actions until the transition finishes. Long names and emails truncate

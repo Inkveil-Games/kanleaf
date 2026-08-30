@@ -4,7 +4,6 @@ import { ApiError, apiRequest } from '../../lib/api/client';
 import type { AuthResponse, SessionResponse } from '../../lib/api/types';
 import {
   activateAccountSession,
-  clearServerAccountSessions,
   readLegacySessionToken,
   readServerAccountSessions,
   removeAccountSession,
@@ -210,34 +209,6 @@ export function useAccountSessions(
     }
   }
 
-  async function signOutAll(): Promise<boolean> {
-    if (!startTransition()) return false;
-    setError(null);
-    try {
-      try {
-        await flushDocumentSaves();
-      } catch (cause) {
-        setError(errorMessage(cause));
-        return false;
-      }
-      const tokens = new Set(
-        sessionsRef.current.accounts.map((account) => account.token),
-      );
-      if (token) tokens.add(token);
-      await Promise.all([...tokens].map(revokeSession));
-      const next = { active_user_id: null, accounts: [] };
-      sessionsRef.current = next;
-      setSessions(next);
-      clearServerAccountSessions(serverUrl);
-      writeLegacySessionToken(null);
-      await clearAccountQueries();
-      setToken(null);
-      return true;
-    } finally {
-      finishTransition();
-    }
-  }
-
   const discardInvalidSession = useCallback(
     async (invalidToken: string) => {
       const current = sessionsRef.current;
@@ -290,7 +261,6 @@ export function useAccountSessions(
     switchAccount,
     addAuthenticated,
     signOutCurrent,
-    signOutAll,
   };
 }
 

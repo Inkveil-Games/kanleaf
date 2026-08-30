@@ -37,8 +37,16 @@ test('manages structured work and durable Markdown across reloads', async ({
   page,
 }) => {
   const consoleErrors: string[] = [];
+  const failedResponses: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      failedResponses.push(
+        `${response.status()} ${response.url()} ${response.request().postData() ?? ''}`,
+      );
+    }
   });
   const suffix = `${Date.now()}-${test.info().workerIndex}`;
   await page.goto('/');
@@ -69,7 +77,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(workspaceSelect).toContainText('Studio Workspace');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await page.getByRole('button', { name: 'Switch account' }).click();
-  await page.getByRole('menuitem', { name: 'Account settings' }).click();
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
   await expect(
     page.getByRole('region', { name: 'Account settings' }),
   ).toBeVisible();
@@ -352,6 +360,59 @@ Kanleaf keeps **structured work** beside durable notes.
     .click();
   await page
     .locator('.project-subnav')
+    .getByRole('button', { name: 'Views', exact: true })
+    .click();
+  const projectViewsSurface = page.locator('.project-views-surface');
+  await expect(
+    projectViewsSurface.getByRole('heading', {
+      name: 'Views',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await projectViewsSurface
+    .getByRole('button', { name: 'Create the first View' })
+    .click();
+  await page.getByLabel('Name').fill('Project focus');
+  await page.getByRole('radio', { name: /Shared/ }).click();
+  await page.getByRole('button', { name: 'Create View' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Project focus' }),
+  ).toBeVisible();
+  await chooseSelectOption(page, 'Layout', 'Board');
+  const viewSaved = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'PATCH' &&
+      /\/api\/workspaces\/[^/]+\/views\/[^/]+$/.test(path)
+    );
+  });
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  expect((await viewSaved).ok()).toBe(true);
+
+  await page.reload();
+  await page
+    .locator('.project-nav-row')
+    .getByRole('button', { name: 'Kanleaf' })
+    .click();
+  await page
+    .locator('.project-subnav')
+    .getByRole('button', { name: 'Views', exact: true })
+    .click();
+  const savedViewRow = page
+    .locator('.project-views-surface')
+    .getByRole('button', { name: /Project focus/ });
+  await expect(savedViewRow).toContainText('Board layout');
+  await savedViewRow.click();
+  await expect(
+    page.getByRole('heading', { name: 'Project focus' }),
+  ).toBeVisible();
+
+  await page
+    .locator('.project-nav-row')
+    .getByRole('button', { name: 'Kanleaf' })
+    .click();
+  await page
+    .locator('.project-subnav')
     .getByRole('button', { name: 'Library' })
     .click();
   await page.getByRole('treeitem', { name: /Project handbook/ }).click();
@@ -408,6 +469,7 @@ Kanleaf keeps **structured work** beside durable notes.
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
+  expect(failedResponses).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
 

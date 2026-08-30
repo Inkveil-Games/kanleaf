@@ -1631,7 +1631,8 @@ select {
   min-width: 0;
   grid-template-columns: 28px minmax(0, 1fr) 18px;
   align-items: center;
-  gap: var(--space-2);
+  justify-items: stretch;
+  gap: 6px;
   padding: 4px 5px;
   border: 0;
   border-radius: var(--radius-sm);
@@ -1653,11 +1654,18 @@ select {
 
 .account-switcher-copy {
   display: grid;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+  justify-items: start;
+  overflow: hidden;
+  text-align: left;
 }
 
 .account-switcher-copy strong,
 .account-switcher-copy small {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1722,6 +1730,7 @@ select {
 .account-switcher-menu .account-switcher-account {
   height: 42px;
   min-width: 0;
+  gap: 6px;
   color: var(--color-text);
 }
 
@@ -6103,6 +6112,160 @@ button.document-tree-toggle:hover {
   gap: var(--space-6);
   padding: 32px clamp(28px, 5vw, 64px);
   border-bottom: 1px solid var(--color-border);
+}
+
+.project-views-header {
+  display: flex;
+  min-height: 118px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: 28px clamp(28px, 5vw, 64px);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project-views-header h1 {
+  margin: 3px 0 0;
+  font-size: 1.45rem;
+  font-weight: 630;
+  letter-spacing: -0.02em;
+}
+
+.project-views-header p:last-child {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.project-views-header > button {
+  flex: 0 0 auto;
+}
+
+.project-views-body {
+  width: min(100%, 820px);
+  padding: clamp(28px, 5vw, 56px) clamp(28px, 6vw, 76px) 80px;
+}
+
+.project-views-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.project-views-state p {
+  margin: 0;
+}
+
+.project-views-empty {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.project-views-empty h2,
+.project-views-empty p {
+  margin: 0;
+}
+
+.project-views-empty h2 {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: 620;
+}
+
+.project-views-empty p {
+  max-width: 44ch;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.project-views-empty button {
+  margin-top: var(--space-2);
+}
+
+.project-view-groups,
+.project-view-group {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.project-view-group {
+  gap: var(--space-3);
+}
+
+.project-view-group > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.project-view-group h2,
+.project-view-group p {
+  margin: 0;
+}
+
+.project-view-group h2 {
+  font-size: var(--font-size-md);
+  font-weight: 630;
+}
+
+.project-view-group p,
+.project-view-group > header > span {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+
+.project-view-list {
+  display: grid;
+  border-top: 1px solid var(--color-border);
+}
+
+.project-view-list > button {
+  display: grid;
+  min-height: 50px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: transparent;
+  text-align: left;
+}
+
+.project-view-list > button:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.project-view-list > button > span {
+  display: grid;
+  min-width: 0;
+}
+
+.project-view-list strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 610;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-view-list small {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
 }
 
 .project-identity,
