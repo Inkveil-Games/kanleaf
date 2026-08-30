@@ -97,10 +97,7 @@ function buildDecorations(state: EditorState) {
 
   syntaxTree(state).iterate({
     enter(node) {
-      if (isInsideActiveBlock(node, active)) {
-        decorateActiveBlock(state, node, decorations);
-        return false;
-      }
+      if (isInsideActiveBlock(node, active)) return false;
 
       if (renderedBlockNames.has(node.name)) {
         const source = state.doc.sliceString(node.from, node.to);
@@ -124,21 +121,6 @@ function buildDecorations(state: EditorState) {
   };
 }
 
-function decorateActiveBlock(
-  state: EditorState,
-  node: { name: string; from: number; to: number },
-  decorations: Range<Decoration>[],
-) {
-  decorateHeading(state, node, decorations);
-  if (node.name !== 'Blockquote') return;
-
-  for (const lineFrom of lineStartsInRanges(state, [node])) {
-    decorations.push(
-      Decoration.line({ class: 'cm-live-blockquote' }).range(lineFrom),
-    );
-  }
-}
-
 function lineStartsInRanges(state: EditorState, ranges: SourceRange[]) {
   const starts = new Set<number>();
   for (const range of ranges) {
@@ -154,10 +136,16 @@ function lineStartsInRanges(state: EditorState, ranges: SourceRange[]) {
 
 function decorateNode(
   state: EditorState,
-  node: { name: string; from: number; to: number },
+  node: {
+    name: string;
+    from: number;
+    to: number;
+    node?: { parent: MarkdownNode | null };
+  },
   decorations: Range<Decoration>[],
 ) {
   decorateHeading(state, node, decorations);
+  decorateReadingBlock(state, node, decorations);
 
   const markClass = inlineClassFor(node.name);
   if (markClass) {
@@ -176,13 +164,12 @@ function decorateNode(
     node.name === 'QuoteMark' ||
     node.name === 'HTMLTag'
   ) {
-    decorations.push(Decoration.replace({}).range(node.from, node.to));
-    if (node.name === 'QuoteMark') {
-      const line = state.doc.lineAt(node.from);
-      decorations.push(
-        Decoration.line({ class: 'cm-live-blockquote' }).range(line.from),
-      );
-    }
+    decorations.push(
+      Decoration.replace({}).range(
+        node.from,
+        markerReplacementEnd(state, node),
+      ),
+    );
     return;
   }
 
@@ -196,7 +183,7 @@ function decorateNode(
     decorations.push(
       Decoration.replace({
         widget: task ? undefined : new ListMarkerWidget(source),
-      }).range(node.from, node.to),
+      }).range(node.from, markerReplacementEnd(state, node)),
     );
     return;
   }
@@ -211,6 +198,67 @@ function decorateNode(
   }
 }
 
+function markerReplacementEnd(
+  state: EditorState,
+  node: { name: string; to: number },
+) {
+  if (
+    node.name !== 'HeaderMark' &&
+    node.name !== 'QuoteMark' &&
+    node.name !== 'ListMark'
+  ) {
+    return node.to;
+  }
+  const whitespace = /^[ \t]+/.exec(
+    state.doc.sliceString(node.to, Math.min(state.doc.length, node.to + 4)),
+  );
+  return node.to + (whitespace?.[0].length ?? 0);
+}
+
+function decorateReadingBlock(
+  state: EditorState,
+  node: {
+    name: string;
+    from: number;
+    to: number;
+    node?: { parent: MarkdownNode | null };
+  },
+  decorations: Range<Decoration>[],
+) {
+  if (node.name === 'Paragraph' && node.node?.parent?.name === 'Document') {
+    decorateLines(state, node, 'cm-live-paragraph', decorations);
+    return;
+  }
+  if (node.name === 'Blockquote') {
+    decorateLines(state, node, 'cm-live-blockquote', decorations);
+    return;
+  }
+  if (node.name === 'BulletList' || node.name === 'OrderedList') {
+    const spacing = node.node?.parent?.name === 'Document' ? 'outer' : 'nested';
+    decorateLines(state, node, `cm-live-list-${spacing}`, decorations);
+  }
+}
+
+function decorateLines(
+  state: EditorState,
+  range: SourceRange,
+  className: string,
+  decorations: Range<Decoration>[],
+) {
+  const starts = [...lineStartsInRanges(state, [range])];
+  starts.forEach((lineFrom, index) => {
+    const line = state.doc.lineAt(lineFrom);
+    const classes = [className];
+    if (index === 0) classes.push(`${className}-start`);
+    if (index === starts.length - 1) classes.push(`${className}-end`);
+    if (line.from === 0) classes.push('cm-live-document-start');
+    if (line.to === state.doc.length) classes.push('cm-live-document-end');
+    decorations.push(
+      Decoration.line({ class: classes.join(' ') }).range(lineFrom),
+    );
+  });
+}
+
 function decorateHeading(
   state: EditorState,
   node: { name: string; from: number },
@@ -219,9 +267,17 @@ function decorateHeading(
   const headingLevel = headingLevelFor(node.name);
   if (headingLevel) {
     const line = state.doc.lineAt(node.from);
+    const classes = [
+      'cm-live-heading-line',
+      `cm-live-heading-${headingLevel}`,
+      line.from === 0 ? 'cm-live-document-start' : '',
+      line.to === state.doc.length ? 'cm-live-document-end' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     decorations.push(
       Decoration.line({
-        class: `cm-live-heading-line cm-live-heading-${headingLevel}`,
+        class: classes,
       }).range(line.from),
     );
   }
@@ -311,6 +367,10 @@ class MarkdownBlockWidget extends WidgetType {
     const element = document.createElement('div');
     element.className = 'cm-live-block-widget';
     element.dataset.blockKind = this.kind;
+    element.dataset.documentStart = String(this.from === 0);
+    element.dataset.documentEnd = String(
+      this.from + this.source.length === view.state.doc.length,
+    );
     const root = createRoot(element);
     root.render(<MarkdownPreview content={this.source} />);
     blockRoots.set(element, root);

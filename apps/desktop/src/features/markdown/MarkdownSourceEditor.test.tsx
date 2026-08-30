@@ -4,6 +4,8 @@ import { MarkdownSourceEditor } from './MarkdownSourceEditor';
 
 const source = `# Live Preview
 
+A **durable** note.
+
 - [x] Durable source
 
 | Layer | Store |
@@ -63,10 +65,9 @@ describe('MarkdownSourceEditor', () => {
     expect(container).not.toHaveTextContent('unsafeLivePreview');
     const activeHeading = container.querySelector('.cm-live-source-line');
     expect(activeHeading).toHaveTextContent('# Live Preview');
-    expect(activeHeading).toHaveClass(
-      'cm-live-heading-line',
-      'cm-live-heading-1',
-    );
+    expect(activeHeading).not.toHaveClass('cm-live-heading-line');
+    expect(container.querySelector('.cm-live-paragraph-start')).toBeVisible();
+    expect(container.querySelector('.cm-live-list-outer-start')).toBeVisible();
     expect(table.closest('.cm-live-source-line')).toBeNull();
 
     fireEvent.mouseDown(table);
@@ -80,6 +81,9 @@ describe('MarkdownSourceEditor', () => {
     );
     expect(container.querySelector('.cm-live-source-line')).toHaveTextContent(
       '| Layer | Store |',
+    );
+    expect(container.querySelector('.cm-live-heading-1')?.textContent).toBe(
+      'Live Preview',
     );
   });
 
