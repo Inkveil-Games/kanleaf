@@ -223,6 +223,11 @@ let source_is_markdown = true;
     .locator('.library-document-editor .cm-live-heading-1')
     .filter({ hasText: 'Project handbook' });
   await expect(liveHeading).toContainText('# Project handbook');
+  await expect(liveHeading).toHaveClass(/cm-activeLine/);
+  const liveActiveBackground = await liveHeading.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(liveActiveBackground).toBe('rgba(0, 0, 0, 0)');
   const focusedHeadingHeight = await liveHeading.evaluate(
     (element) => element.getBoundingClientRect().height,
   );
@@ -277,6 +282,10 @@ let source_is_markdown = true;
     .locator('.library-document-editor .cm-line')
     .first();
   await expect(sourceHeading).toContainText('# Project handbook');
+  const sourceActiveBackground = await page
+    .locator('.library-document-editor .cm-activeLine')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(sourceActiveBackground).not.toBe(liveActiveBackground);
   const sourceContentLeft = await sourceHeading.evaluate(
     (element) => element.getBoundingClientRect().left,
   );

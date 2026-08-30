@@ -4730,6 +4730,10 @@ button.document-tree-toggle:hover {
   line-height: 1.68;
 }
 
+.document-live .cm-line.cm-activeLine {
+  background: transparent;
+}
+
 .document-live .cm-line:not(.cm-activeLine):has(> br) {
   display: none;
 }
