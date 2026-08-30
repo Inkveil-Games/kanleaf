@@ -370,6 +370,36 @@ let source_is_markdown = true;
   await expect(
     page.getByRole('heading', { name: 'Architecture decisions' }),
   ).toBeVisible();
+  const nestedSource = page.locator(
+    '.library-document-editor .cm-content[contenteditable="true"]',
+  );
+  await nestedSource.fill('Decision log');
+  const nestedScroller = page.locator('.library-document-editor .cm-scroller');
+  const nestedScrollerBounds = await nestedScroller.boundingBox();
+  const nestedLineBounds = await page
+    .locator('.library-document-editor .cm-line')
+    .last()
+    .boundingBox();
+  expect(nestedScrollerBounds).not.toBeNull();
+  expect(nestedLineBounds).not.toBeNull();
+  expect(
+    nestedScrollerBounds!.y + nestedScrollerBounds!.height,
+  ).toBeGreaterThan(nestedLineBounds!.y + nestedLineBounds!.height + 16);
+  await nestedScroller.click({
+    position: {
+      x: 48,
+      y: nestedScrollerBounds!.height - 16,
+    },
+  });
+  await page.keyboard.type('Recorded from trailing whitespace');
+  const nestedLines = page.locator('.library-document-editor .cm-line');
+  await expect(nestedLines).toHaveCount(2);
+  await expect(nestedLines.first()).toHaveText('Decision log');
+  await expect(nestedLines.last()).toHaveText(
+    'Recorded from trailing whitespace',
+  );
+  await page.getByRole('button', { name: 'Save Markdown' }).click();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(
     page.getByRole('button', { name: 'Back to Library' }),

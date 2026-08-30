@@ -28,6 +28,20 @@ const ready: boolean = true;
 \`\`\`
 `;
 
+function bounds(x: number, y: number, width: number, height: number): DOMRect {
+  return {
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+    left: x,
+    toJSON: () => ({}),
+  };
+}
+
 describe('MarkdownSourceEditor', () => {
   it('highlights Markdown and fenced code with the Kanleaf syntax theme', async () => {
     const { container } = render(
@@ -119,5 +133,47 @@ describe('MarkdownSourceEditor', () => {
     await waitFor(() =>
       expect(onChange.mock.calls.at(-1)?.[0]).toContain('- [x] Durable source'),
     );
+  });
+
+  it('opens one editable line when trailing Live whitespace is clicked', async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownSourceEditor
+        value="One durable line"
+        onChange={onChange}
+        livePreview
+      />,
+    );
+    const scroller = container.querySelector<HTMLElement>('.cm-scroller')!;
+    const content = container.querySelector<HTMLElement>('.cm-content')!;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: HTMLElement) {
+        if (this.classList.contains('cm-scroller')) {
+          return bounds(0, 0, 320, 200);
+        }
+        if (
+          this.classList.contains('cm-line') ||
+          this.classList.contains('cm-live-block-widget')
+        ) {
+          return bounds(20, 10, 280, 24);
+        }
+        return bounds(0, 0, 0, 0);
+      },
+    );
+
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 24 });
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 100 });
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        'One durable line\n',
+        expect.anything(),
+      ),
+    );
+    expect(content).toHaveFocus();
+
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 120 });
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
