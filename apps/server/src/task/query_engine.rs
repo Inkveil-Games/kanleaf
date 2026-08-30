@@ -340,7 +340,7 @@ pub(super) async fn run(
         .await?;
     let mut sql = QueryBuilder::<Postgres>::new(
         r#"
-        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
                states.color AS state_color, states.state_group,

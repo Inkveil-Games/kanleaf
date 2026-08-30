@@ -8,7 +8,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, router};
+use kanleaf_server::{AppState, domain::VaultStorageName, router};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -133,6 +133,11 @@ async fn effective_roles_keep_private_projects_hidden_and_open_projects_joinable
 
     let project = create_project(&app, &owner_token, workspace_id, "Private Roadmap").await;
     let project_id = project["id"].as_str().unwrap();
+    let parsed_project_id = Uuid::parse_str(project_id).unwrap();
+    assert_eq!(
+        project["storage_name"],
+        VaultStorageName::from_initial_name("Private Roadmap", parsed_project_id).as_str()
+    );
     assert_eq!(project["effective_role"], "admin");
 
     for token in [&member_token, &guest_token, &discoverer_token] {

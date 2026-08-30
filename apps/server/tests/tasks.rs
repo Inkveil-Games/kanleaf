@@ -7,7 +7,7 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, router};
+use kanleaf_server::{AppState, domain::VaultStorageName, router};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -155,6 +155,10 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     .await;
     let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
     assert_eq!(task["title"], "Finish Markdown workflow");
+    assert_eq!(
+        task["storage_name"],
+        VaultStorageName::from_initial_name("Finish Markdown workflow", task_id).as_str()
+    );
     assert_eq!(task["state"]["state_group"], "in_progress");
     assert_eq!(task["task_type"]["name"], "Task");
     assert_eq!(task["priority"], "high");

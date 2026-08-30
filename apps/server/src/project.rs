@@ -20,7 +20,9 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ProjectDescription, ProjectIdentifier, ProjectVisibility, ResourceName},
+    domain::{
+        ProjectDescription, ProjectIdentifier, ProjectVisibility, ResourceName, VaultStorageName,
+    },
     error::{AppError, is_unique_violation},
     task_config::{validate_state_assignment, validate_task_type_assignment},
     workspace::{WorkspaceRole, workspace_role},
@@ -36,6 +38,7 @@ pub struct ProjectResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: String,
+    pub storage_name: String,
     pub identifier: String,
     pub description: String,
     pub lead_user_id: Option<Uuid>,
@@ -129,7 +132,7 @@ async fn list(
     workspace_role(&state.pool, auth.user.id, workspace_id).await?;
     let projects = sqlx::query_as::<_, ProjectResponse>(
         r#"
-        SELECT projects.id, projects.workspace_id, projects.name,
+        SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
                projects.default_state_id, projects.default_task_type_id,
@@ -207,6 +210,7 @@ async fn create(
     }
 
     let project_id = Uuid::new_v4();
+    let storage_name = VaultStorageName::from_initial_name(name.as_str(), project_id);
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
     let identifier = match request.identifier {
@@ -217,10 +221,10 @@ async fn create(
     let result = sqlx::query(
         r#"
         INSERT INTO projects (
-            id, workspace_id, name, identifier, lead_user_id,
+            id, workspace_id, name, storage_name, identifier, lead_user_id,
             default_state_id, default_task_type_id
         )
-        SELECT $1, id, $3, $4, $5,
+        SELECT $1, id, $3, $4, $5, $6,
                default_inbox_state_id, default_task_type_id
         FROM workspaces
         WHERE id = $2
@@ -229,6 +233,7 @@ async fn create(
     .bind(project_id)
     .bind(workspace_id)
     .bind(name.as_str())
+    .bind(storage_name.as_str())
     .bind(identifier.as_str())
     .bind(auth.user.id)
     .execute(&mut *transaction)
@@ -530,7 +535,7 @@ async fn select_project(
 ) -> Result<ProjectResponse, AppError> {
     sqlx::query_as::<_, ProjectResponse>(
         r#"
-        SELECT projects.id, projects.workspace_id, projects.name,
+        SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
                projects.default_state_id, projects.default_task_type_id,

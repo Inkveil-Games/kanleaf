@@ -64,6 +64,7 @@ pub struct TaskResponse {
     pub task_number: i64,
     pub reference: String,
     pub title: String,
+    pub storage_name: String,
     pub state: TaskStateSummary,
     pub task_type: TaskTypeSummary,
     pub priority: String,
@@ -91,6 +92,7 @@ pub(super) struct TaskRow {
     project_identifier: Option<String>,
     task_number: i64,
     title: String,
+    storage_name: String,
     state_id: Uuid,
     state_name: String,
     state_color: String,
@@ -118,6 +120,7 @@ impl From<TaskRow> for TaskResponse {
             task_number: row.task_number,
             reference: task_reference(row.project_identifier.as_deref(), row.task_number),
             title: row.title,
+            storage_name: row.storage_name,
             state: TaskStateSummary {
                 id: row.state_id,
                 name: row.state_name,

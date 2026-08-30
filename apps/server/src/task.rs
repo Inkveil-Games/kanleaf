@@ -23,7 +23,7 @@ use crate::{
     AppState,
     auth::AuthenticatedUser,
     collaboration::{notify_assignments, notify_task_change, record_activity, subscribe},
-    domain::{TaskPriority, TaskTitle},
+    domain::{TaskPriority, TaskTitle, VaultStorageName},
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
     task_config::{
@@ -315,12 +315,13 @@ pub(crate) async fn create(
     .await?;
 
     let task_id = Uuid::new_v4();
+    let storage_name = VaultStorageName::from_initial_name(title.as_str(), task_id);
     sqlx::query(
         r#"
         INSERT INTO tasks
-            (id, workspace_id, project_id, task_number, title, state_id,
-             task_type_id, priority, start_date, due_date, estimate, parent_id, position)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            (id, workspace_id, project_id, task_number, title, storage_name,
+             state_id, task_type_id, priority, start_date, due_date, estimate, parent_id, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
     )
     .bind(task_id)
@@ -328,6 +329,7 @@ pub(crate) async fn create(
     .bind(request.project_id)
     .bind(task_number)
     .bind(title.as_str())
+    .bind(storage_name.as_str())
     .bind(state_id)
     .bind(task_type_id)
     .bind(request.priority.as_str())
@@ -1426,7 +1428,7 @@ async fn find_tasks(
 ) -> Result<Vec<TaskResponse>, AppError> {
     let rows = sqlx::query_as::<_, TaskRow>(
         r#"
-        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
                states.color AS state_color, states.state_group,
@@ -1458,7 +1460,7 @@ fn select_task_query()
 -> sqlx::query::QueryAs<'static, Postgres, TaskRow, sqlx::postgres::PgArguments> {
     sqlx::query_as(
         r#"
-        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title,
+        SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
                states.color AS state_color, states.state_group,

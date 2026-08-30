@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
 
 const MAX_EMAIL_LENGTH: usize = 320;
 const MIN_PASSWORD_LENGTH: usize = 10;
@@ -8,6 +9,7 @@ const MAX_RESOURCE_NAME_LENGTH: usize = 120;
 const MAX_TASK_TITLE_LENGTH: usize = 300;
 const MAX_DOCUMENT_TITLE_LENGTH: usize = 300;
 pub const MAX_LIBRARY_STORAGE_NAME_BYTES: usize = 120;
+pub const MAX_VAULT_STORAGE_NAME_BYTES: usize = 120;
 const MAX_CONFIGURATION_DESCRIPTION_LENGTH: usize = 500;
 const MAX_PROJECT_DESCRIPTION_LENGTH: usize = 2000;
 
@@ -184,6 +186,64 @@ impl LibraryStorageName {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultStorageName(String);
+
+impl VaultStorageName {
+    pub fn from_initial_name(value: &str, id: Uuid) -> Self {
+        let mut name = String::new();
+        let mut separator = false;
+        for character in value.trim().chars().flat_map(char::to_lowercase) {
+            if character.is_alphanumeric() {
+                if separator && !name.is_empty() {
+                    name.push('-');
+                }
+                name.push(character);
+                separator = false;
+            } else {
+                separator = !name.is_empty();
+            }
+        }
+        trim_to_byte_limit(&mut name, MAX_VAULT_STORAGE_NAME_BYTES - 8);
+        if name.is_empty() {
+            name.push_str("item");
+        }
+        let simple_id = id.simple().to_string();
+        Self(format!("{name}--{}", &simple_id[..6]))
+    }
+
+    pub fn parse(value: &str) -> Result<Self, ValidationError> {
+        let Some((name, suffix)) = value.rsplit_once("--") else {
+            return Err(invalid_vault_storage_name());
+        };
+        let valid = value.len() <= MAX_VAULT_STORAGE_NAME_BYTES
+            && value == value.to_lowercase()
+            && !name.is_empty()
+            && !name.starts_with('-')
+            && !name.ends_with('-')
+            && !name.contains("--")
+            && name
+                .chars()
+                .all(|character| character.is_alphanumeric() || character == '-')
+            && suffix.len() == 6
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase());
+        if !valid {
+            return Err(invalid_vault_storage_name());
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+fn invalid_vault_storage_name() -> ValidationError {
+    ValidationError::new("Vault storage name is not a portable filename")
+}
+
 fn trim_to_byte_limit(value: &mut String, limit: usize) {
     if value.len() <= limit {
         return;
@@ -193,7 +253,7 @@ fn trim_to_byte_limit(value: &mut String, limit: usize) {
         end -= 1;
     }
     value.truncate(end);
-    while value.ends_with('_') {
+    while value.ends_with(['_', '-']) {
         value.pop();
     }
 }
@@ -434,8 +494,9 @@ mod tests {
     use super::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
         ProjectDescription, ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName,
-        TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
+        TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword, VaultStorageName,
     };
+    use uuid::Uuid;
 
     #[test]
     fn normalizes_valid_email_addresses() {
@@ -508,6 +569,39 @@ mod tests {
                 .as_str(),
             "getting_started_2"
         );
+    }
+
+    #[test]
+    fn creates_stable_vault_storage_names() {
+        let id = Uuid::parse_str("b7c8d9e4-f120-44ea-8fd1-74948a86ccf1").unwrap();
+        assert_eq!(
+            VaultStorageName::from_initial_name("  Implement export / backup  ", id).as_str(),
+            "implement-export-backup--b7c8d9"
+        );
+        assert_eq!(
+            VaultStorageName::from_initial_name("../", id).as_str(),
+            "item--b7c8d9"
+        );
+        assert_eq!(
+            VaultStorageName::from_initial_name("CON", id).as_str(),
+            "con--b7c8d9"
+        );
+
+        let unicode = VaultStorageName::from_initial_name(&"界".repeat(100), id);
+        assert!(unicode.as_str().len() <= 120);
+        assert!(unicode.as_str().is_char_boundary(unicode.as_str().len()));
+        assert_eq!(VaultStorageName::parse(unicode.as_str()).unwrap(), unicode);
+        for invalid in [
+            "project",
+            "project--12345",
+            "../x--123456",
+            "Project--123456",
+        ] {
+            assert!(
+                VaultStorageName::parse(invalid).is_err(),
+                "accepted {invalid}"
+            );
+        }
     }
 
     #[test]
