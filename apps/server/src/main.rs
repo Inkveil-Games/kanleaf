@@ -6,8 +6,9 @@ use kanleaf_server::{
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
     portability::{
-        recover_config_projection_jobs, recover_export_operations, recover_workspace_operations,
-        spawn_config_projection_worker, spawn_export_cleanup_worker,
+        recover_config_projection_jobs, recover_export_operations, recover_import_operations,
+        recover_workspace_operations, spawn_config_projection_worker, spawn_export_cleanup_worker,
+        spawn_import_cleanup_worker,
     },
     router,
     task::{recover_projection_jobs, spawn_projection_worker},
@@ -45,6 +46,9 @@ async fn main() -> anyhow::Result<()> {
     recover_export_operations(&state)
         .await
         .context("failed to recover Workspace export operations")?;
+    recover_import_operations(&state)
+        .await
+        .context("failed to recover Workspace import operations")?;
     recover_library_operations(&state)
         .await
         .context("failed to recover interrupted Library operations")?;
@@ -68,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_projection_worker(state.clone());
     spawn_config_projection_worker(state.clone());
     spawn_export_cleanup_worker(state.clone());
+    spawn_import_cleanup_worker(state.clone());
     let app = router(state, config.cors_origins);
 
     info!(%address, "Kanleaf server listening");

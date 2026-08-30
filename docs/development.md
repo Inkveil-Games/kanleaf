@@ -82,6 +82,9 @@ write API. External Task YAML changes use the explicit Vault Sync preview;
 external `.kanleaf` edits are restored from PostgreSQL by the next projection.
 Workspace export artifacts are temporary, authorization-gated files under the
 server's internal operation storage and expire automatically.
+Workspace import uploads are staged under the same internal namespace, checked
+again at apply time, and removed after completion, failure, cancellation, or
+expiry. Imports create a new Workspace and never replace an existing vault.
 
 ## Verification
 

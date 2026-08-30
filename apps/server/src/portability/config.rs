@@ -207,6 +207,8 @@ pub(super) struct TaskIdentity {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
     pub storage_name: String,
+    pub number: i64,
+    pub position: i64,
     pub archived: bool,
 }
 
@@ -216,7 +218,9 @@ pub(super) struct DocumentIdentity {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,
+    pub title: String,
     pub storage_name: String,
+    pub position: i64,
     pub archived: bool,
 }
 
@@ -444,7 +448,8 @@ async fn build_snapshot(
     .await?;
     let tasks = sqlx::query_as::<_, TaskIdentity>(
         r#"
-        SELECT id, project_id, storage_name, archived_at IS NOT NULL AS archived
+        SELECT id, project_id, storage_name, task_number AS number, position,
+               archived_at IS NOT NULL AS archived
         FROM tasks WHERE workspace_id = $1 ORDER BY id
         "#,
     )
@@ -453,7 +458,7 @@ async fn build_snapshot(
     .await?;
     let documents = sqlx::query_as::<_, DocumentIdentity>(
         r#"
-        SELECT id, project_id, parent_id, storage_name,
+        SELECT id, project_id, parent_id, title, storage_name, position,
                archived_at IS NOT NULL AS archived
         FROM documents WHERE workspace_id = $1 ORDER BY id
         "#,

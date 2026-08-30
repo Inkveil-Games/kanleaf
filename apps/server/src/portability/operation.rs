@@ -28,7 +28,7 @@ pub(super) async fn create(
     kind: &str,
     result: &impl Serialize,
 ) -> Result<OperationRow, AppError> {
-    create_with_state(pool, actor_id, workspace_id, kind, "ready", result).await
+    create_with_state(pool, actor_id, Some(workspace_id), kind, "ready", result).await
 }
 
 pub(super) async fn create_preparing(
@@ -38,13 +38,30 @@ pub(super) async fn create_preparing(
     kind: &str,
     result: &impl Serialize,
 ) -> Result<OperationRow, AppError> {
-    create_with_state(pool, actor_id, workspace_id, kind, "preparing", result).await
+    create_with_state(
+        pool,
+        actor_id,
+        Some(workspace_id),
+        kind,
+        "preparing",
+        result,
+    )
+    .await
+}
+
+pub(super) async fn create_import_preparing(
+    pool: &PgPool,
+    actor_id: Uuid,
+    kind: &str,
+    result: &impl Serialize,
+) -> Result<OperationRow, AppError> {
+    create_with_state(pool, actor_id, None, kind, "preparing", result).await
 }
 
 async fn create_with_state(
     pool: &PgPool,
     actor_id: Uuid,
-    workspace_id: Uuid,
+    workspace_id: Option<Uuid>,
     kind: &str,
     operation_state: &str,
     result: &impl Serialize,
@@ -153,6 +170,36 @@ pub(super) async fn set_state(
     .ok_or_else(|| AppError::Conflict("Workspace operation state changed".to_owned()))
 }
 
+pub(super) async fn recover_state(
+    pool: &PgPool,
+    operation_id: Uuid,
+    expected_state: &str,
+    state: &str,
+    result: &impl Serialize,
+) -> Result<(), AppError> {
+    let result = serde_json::to_value(result).map_err(AppError::internal)?;
+    let updated = sqlx::query(
+        r#"
+        UPDATE workspace_operations
+        SET state = $3, result = $4, revision = $5, updated_at = now()
+        WHERE id = $1 AND state = $2
+        "#,
+    )
+    .bind(operation_id)
+    .bind(expected_state)
+    .bind(state)
+    .bind(result)
+    .bind(Uuid::new_v4())
+    .execute(pool)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::Conflict(
+            "Workspace operation state changed".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn delete_actor(
     pool: &PgPool,
     operation_id: Uuid,
@@ -222,7 +269,11 @@ pub async fn recover_workspace_operations(pool: &PgPool) -> Result<(), sqlx::Err
     .execute(pool)
     .await?;
     sqlx::query(
-        "DELETE FROM workspace_operations WHERE expires_at <= now() AND kind <> 'workspace_export'",
+        r#"
+        DELETE FROM workspace_operations
+        WHERE expires_at <= now()
+          AND kind NOT IN ('workspace_export', 'workspace_import')
+        "#,
     )
     .execute(pool)
     .await?;

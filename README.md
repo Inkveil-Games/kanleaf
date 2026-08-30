@@ -47,6 +47,8 @@ Markdown document.
   Projects, planning, shared Views, portable identities, and member references
 - Authorized `.kanleaf.zip` Workspace exports with payload checksums and
   explicit reporting of unmanaged files that were excluded
+- Previewed `.kanleaf.zip` imports that restore a new isolated Workspace,
+  remap stable IDs, preserve Markdown, and deliberately drop access grants
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
 - Build-time server configuration for local, LAN, or HTTPS deployments
@@ -82,6 +84,10 @@ complete companion subtree.
 Workspace Owner/Admin can export this managed vault as a portable backup. The
 archive excludes sessions, credentials, invitations, account preferences,
 notifications, comments/activity, `.obsidian`, and unmanaged files.
+Any signed-in user can preview and import that archive as a new Workspace they
+own. Import verifies paths, file types, size limits, the complete payload
+inventory, and SHA-256 checksums before creating database records; member roles
+and Task assignees are not restored as permissions.
 See
 [docs/architecture.md](docs/architecture.md) for the full boundary and data
 model.

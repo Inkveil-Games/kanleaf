@@ -4,7 +4,9 @@ mod planning;
 mod projection;
 mod query_engine;
 
-pub(crate) use frontmatter::{TaskProperties, read_properties as read_task_properties};
+pub(crate) use frontmatter::{
+    TaskProperties, read_properties as read_task_properties, remap_identity as remap_task_identity,
+};
 pub(crate) use projection::{
     ProjectionHealth, enqueue as enqueue_projection, health as projection_health,
     initialize as initialize_projection, project_many, project_now,
@@ -50,7 +52,7 @@ use self::planning::{
     replace_modules, validate_assignments as validate_planning_assignments,
     validate_cycle as validate_cycle_assignment, validate_modules as validate_module_assignments,
 };
-pub(crate) use self::query_engine::TaskQuery;
+pub(crate) use self::query_engine::{IdFilter, TaskQuery, TaskQueryScope};
 
 const MAX_SEARCH_LENGTH: usize = 200;
 const MAX_DOCUMENT_BYTES: usize = 5 * 1024 * 1024;

@@ -224,6 +224,26 @@ unmanaged files are not followed or copied and are reported in the operation
 result. Download authorization is checked again, and startup plus a bounded
 cleanup worker remove interrupted or expired artifacts.
 
+Workspace import is always a copy, never an in-place overwrite. A signed-in
+user uploads one archive into typed internal staging, receives a durable
+preview with counts and explicit identity omissions, then applies that exact
+revision. Preview rejects path traversal, links and special files, duplicate or
+unmanaged entries, decompression-limit violations, unsupported schemas,
+checksum drift, invalid configuration relationships, and structured values
+that would violate current domain rules. Apply revalidates the staged bytes,
+creates a new Workspace owned only by the importer, remaps every database and
+Task YAML identity, clears Task assignees, and remaps shared View filters.
+Source member/Project-role references remain descriptive archive data and never
+become authorization grants. Comments, activity, invitations, notifications,
+sessions, and account preferences are intentionally absent.
+
+The importer writes remapped Task files in staging before activating the vault
+with a directory rename and committing SQL. A failed database commit moves the
+vault back. Startup recovery removes orphaned activated vaults, completes an
+operation when both committed data and its vault exist, fails interrupted
+previews, and cleans expired staging. A committed Workspace without its vault
+stops startup instead of silently accepting data loss.
+
 Later Task or Project title edits do not rename files. A Task scope change moves
 its stable basename between `Todo` roots. Wiki reparenting or scope changes move
 both `<name>.md` and `<name>/`, preserving descendants and authored content.

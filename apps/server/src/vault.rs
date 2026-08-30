@@ -91,6 +91,11 @@ pub(crate) struct ExportExclusion {
     pub reason: &'static str,
 }
 
+pub(crate) struct ImportActivation {
+    staging: PathBuf,
+    destination: PathBuf,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskVaultScanIssueKind {
     InvalidEntry,
@@ -483,6 +488,161 @@ impl Vault {
                 Ok(())
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn prepare_import_staging(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<(PathBuf, PathBuf), VaultError> {
+        let root = self
+            .data_dir
+            .join("operations")
+            .join(format!("import-{staging_key}"));
+        match fs::create_dir(&root).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir_all(self.data_dir.join("operations")).await?;
+                fs::create_dir(&root).await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let vault = root.join("vault");
+        fs::create_dir(&vault).await?;
+        Ok((root.join("upload.kanleaf.zip"), vault))
+    }
+
+    pub(crate) async fn import_staging_vault(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<PathBuf, VaultError> {
+        let root = self
+            .data_dir
+            .join("operations")
+            .join(format!("import-{staging_key}"));
+        let metadata = fs::symlink_metadata(&root).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        let vault = root.join("vault");
+        let metadata = fs::symlink_metadata(&vault).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        Ok(vault)
+    }
+
+    pub(crate) async fn remove_import_staging(&self, staging_key: Uuid) -> Result<(), VaultError> {
+        let root = self
+            .data_dir
+            .join("operations")
+            .join(format!("import-{staging_key}"));
+        match fs::symlink_metadata(&root).await {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                Err(VaultError::InvalidManagedPath)
+            }
+            Ok(_) => {
+                fs::remove_dir_all(root).await?;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn write_imported_task(
+        &self,
+        staging_key: Uuid,
+        path: &TaskPath,
+        content: &str,
+    ) -> Result<(), VaultError> {
+        let vault = self.import_staging_vault(staging_key).await?;
+        let destination = vault.join(path.relative_file());
+        let metadata = fs::symlink_metadata(&destination).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        replace_managed_file(&destination, content).await
+    }
+
+    pub(crate) async fn remove_imported_config(&self, staging_key: Uuid) -> Result<(), VaultError> {
+        let vault = self.import_staging_vault(staging_key).await?;
+        let config = vault.join(".kanleaf");
+        let metadata = fs::symlink_metadata(&config).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        fs::remove_dir_all(config).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn activate_imported_workspace(
+        &self,
+        staging_key: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<ImportActivation, VaultError> {
+        let staging = self.import_staging_vault(staging_key).await?;
+        let destination = self.workspace_directory(workspace_id);
+        match fs::symlink_metadata(&destination).await {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Ok(_) => return Err(VaultError::ExistingDocument),
+            Err(error) => return Err(error.into()),
+        }
+        fs::create_dir_all(self.data_dir.join("vaults")).await?;
+        fs::rename(&staging, &destination).await?;
+        Ok(ImportActivation {
+            staging,
+            destination,
+        })
+    }
+
+    pub(crate) async fn rollback_import_activation(
+        &self,
+        activation: &ImportActivation,
+    ) -> Result<(), VaultError> {
+        if let Some(parent) = activation.staging.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::rename(&activation.destination, &activation.staging).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn finish_import_activation(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<(), VaultError> {
+        self.remove_import_staging(staging_key).await
+    }
+
+    pub(crate) async fn remove_orphaned_import_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<(), VaultError> {
+        let destination = self.workspace_directory(workspace_id);
+        match fs::symlink_metadata(&destination).await {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                Err(VaultError::InvalidManagedPath)
+            }
+            Ok(_) => {
+                fs::remove_dir_all(destination).await?;
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn imported_workspace_exists(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<bool, VaultError> {
+        match fs::symlink_metadata(self.workspace_directory(workspace_id)).await {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                Err(VaultError::InvalidManagedPath)
+            }
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(error) => Err(error.into()),
         }
     }

@@ -69,7 +69,23 @@ pub(super) fn replace_body(source: &str, body: &str) -> Result<String, Frontmatt
     Ok(output)
 }
 
-pub(super) fn patch(source: &str, properties: &TaskProperties) -> Result<String, FrontmatterError> {
+pub(crate) fn patch(source: &str, properties: &TaskProperties) -> Result<String, FrontmatterError> {
+    patch_with_source_identity(source, properties.kanleaf_id, properties)
+}
+
+pub(crate) fn remap_identity(
+    source: &str,
+    source_id: Uuid,
+    properties: &TaskProperties,
+) -> Result<String, FrontmatterError> {
+    patch_with_source_identity(source, source_id, properties)
+}
+
+fn patch_with_source_identity(
+    source: &str,
+    source_id: Uuid,
+    properties: &TaskProperties,
+) -> Result<String, FrontmatterError> {
     let split = split(source)?;
     let document = parse_document(split.frontmatter)?;
     let mapping = document.as_mapping().ok_or(FrontmatterError::Invalid)?;
@@ -79,7 +95,7 @@ pub(super) fn patch(source: &str, properties: &TaskProperties) -> Result<String,
         .and_then(Node::as_scalar)
         .and_then(|value| Uuid::parse_str(value.as_str()).ok())
         .ok_or(FrontmatterError::Invalid)?;
-    if current_id != properties.kanleaf_id {
+    if current_id != source_id {
         return Err(FrontmatterError::IdentityMismatch);
     }
 
@@ -480,7 +496,9 @@ mod tests {
     use chrono::NaiveDate;
     use uuid::Uuid;
 
-    use super::{TaskProperties, body, patch, read_properties, render_new, replace_body};
+    use super::{
+        TaskProperties, body, patch, read_properties, remap_identity, render_new, replace_body,
+    };
 
     fn properties() -> TaskProperties {
         TaskProperties {
@@ -529,6 +547,23 @@ mod tests {
             "# keep this comment\nCustom property:\n  nested: \"01\"\n  tags: [one, two]\n"
         ));
         assert_eq!(body(&patched).unwrap(), "Body with [[Wiki link]].\n");
+    }
+
+    #[test]
+    fn import_remaps_only_the_validated_machine_identity() {
+        let source_id = properties().kanleaf_id;
+        let source = format!(
+            "---\nKanleaf ID: {source_id}\nReference: KAN-42\nTitle: Old\nProject: []\nState:\n  - Todo\nType:\n  - Task\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\nCustom property: keep\n---\n\nBody\n"
+        );
+        let mut imported = properties();
+        imported.kanleaf_id = Uuid::new_v4();
+
+        let patched = remap_identity(&source, source_id, &imported).unwrap();
+
+        assert!(patched.contains(&format!("Kanleaf ID: {}", imported.kanleaf_id)));
+        assert!(patched.contains("Custom property: keep\n"));
+        assert_eq!(body(&patched).unwrap(), "Body\n");
+        assert!(remap_identity(&source, Uuid::new_v4(), &imported).is_err());
     }
 
     #[test]

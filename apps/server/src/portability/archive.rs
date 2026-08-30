@@ -85,8 +85,18 @@ struct ArchiveManifest {
     exported_at: DateTime<Utc>,
     source: LiveManifest,
     files: Vec<ArchiveFile>,
+    relations: Vec<ArchiveRelation>,
     exclusions: Vec<ExportExclusionResponse>,
     omitted: ArchiveOmissions,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveRelation {
+    task_a_id: Uuid,
+    task_b_id: Uuid,
+    relation_type: String,
+    task_a_blocks: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -375,6 +385,27 @@ async fn prepare_export(
         .iter()
         .map(exclusion_response)
         .collect::<Vec<_>>();
+    let relations = sqlx::query_as::<_, (Uuid, Uuid, String, Option<bool>)>(
+        r#"
+        SELECT task_a_id, task_b_id, relation_type, task_a_blocks
+        FROM task_relations WHERE workspace_id = $1
+        ORDER BY task_a_id, task_b_id
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| ExportFailure::Database)?
+    .into_iter()
+    .map(
+        |(task_a_id, task_b_id, relation_type, task_a_blocks)| ArchiveRelation {
+            task_a_id,
+            task_b_id,
+            relation_type,
+            task_a_blocks,
+        },
+    )
+    .collect();
     let manifest = ArchiveManifest {
         format_version: 1,
         exported_at: Utc::now(),
@@ -389,6 +420,7 @@ async fn prepare_export(
                 sha256: file.sha256.clone(),
             })
             .collect(),
+        relations,
         exclusions: exclusions.clone(),
         omitted: ArchiveOmissions {
             authentication: true,
