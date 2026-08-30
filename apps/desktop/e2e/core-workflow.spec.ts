@@ -33,6 +33,13 @@ async function expectTaskPatch(page: Page, action: () => Promise<void>) {
   expect((await completed).ok()).toBe(true);
 }
 
+async function addTaskProperty(page: Page, property: string) {
+  await page.getByRole('button', { name: 'Add property' }).click();
+  await expect(page.getByLabel('Search properties')).toBeVisible();
+  await page.getByLabel('Search properties').fill(property);
+  await page.getByRole('button', { name: `Add ${property} property` }).click();
+}
+
 test('manages structured work and durable Markdown across reloads', async ({
   page,
 }) => {
@@ -246,14 +253,17 @@ let source_is_markdown = true;
   await page.getByRole('button', { name: 'New task' }).click();
   await page.getByLabel('Task title').fill('Complete the v0.1 workflow');
   await page.getByRole('button', { name: 'Add' }).click();
-  await expect(page.getByLabel('Task title')).toHaveValue(
+  const taskDetail = page.getByRole('region', { name: 'Task detail' });
+  await expect(taskDetail.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
   );
 
+  await addTaskProperty(page, 'Cycle');
   await expectTaskPatch(page, () =>
     chooseSelectOption(page, 'Cycle', 'Cycle 1'),
   );
   await expect(page.getByLabel('Cycle')).toHaveAttribute('data-value', /.+/);
+  await addTaskProperty(page, 'Modules');
   await page.getByLabel('Edit Modules').click();
   await expectTaskPatch(page, () =>
     page.getByRole('menuitemcheckbox', { name: 'Core' }).click(),
@@ -277,6 +287,10 @@ let source_is_markdown = true;
   await page.keyboard.press('Escape');
   await expectTaskPatch(page, () =>
     page.getByLabel('Due date').fill('2026-09-30'),
+  );
+  await addTaskProperty(page, 'Start date');
+  await expectTaskPatch(page, () =>
+    page.getByLabel('Start date').fill('2026-09-01'),
   );
   page.once('dialog', (dialog) => void dialog.accept());
   await expectTaskPatch(page, () =>
@@ -340,6 +354,7 @@ Kanleaf keeps **structured work** beside durable notes.
     'urgent',
   );
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
+  await expect(page.getByLabel('Start date')).toHaveValue('2026-09-01');
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();

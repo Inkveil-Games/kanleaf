@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type {
@@ -180,6 +186,10 @@ describe('TaskDetailPane', () => {
     fireEvent.click(
       screen.getByRole('menuitemcheckbox', { name: 'Alex Morgan' }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Project property' }),
+    );
     chooseSelectOption('Project', 'Kanleaf');
     const title = screen.getByLabelText('Task title');
     fireEvent.change(title, { target: { value: 'Document the architecture' } });
@@ -241,6 +251,77 @@ describe('TaskDetailPane', () => {
     expect(
       screen.queryByRole('button', { name: 'Task actions' }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add property' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('pins core fields and reveals only selected extended properties', async () => {
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={task}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn().mockResolvedValue(undefined)}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('State')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Edit assignees' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Priority')).toBeVisible();
+    expect(screen.getByLabelText('Due date')).toBeVisible();
+    expect(screen.getByLabelText('Task type')).toBeVisible();
+    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    const search = screen.getByLabelText('Search properties');
+    fireEvent.change(search, { target: { value: 'label' } });
+    expect(
+      screen.getByRole('button', { name: 'Add Labels property' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Add Project property' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Labels property' }),
+    );
+    expect(screen.getByRole('button', { name: 'Edit labels' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.change(screen.getByLabelText('Search properties'), {
+      target: { value: 'start' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Start date property' }),
+    );
+    const startDate = screen.getByLabelText('Start date');
+    await waitFor(() => expect(startDate).toHaveFocus());
+    screen.getByLabelText('Task title').focus();
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument(),
+    );
   });
 
   it('assigns a Project Task to a Cycle and multiple Modules', async () => {
@@ -251,7 +332,9 @@ describe('TaskDetailPane', () => {
         token="session-token"
         workspaceId="workspace-1"
         task={{ ...task, project_id: 'project-1' }}
-        projects={projects}
+        projects={[
+          { ...projects[0], cycles_enabled: true, modules_enabled: true },
+        ]}
         states={states}
         taskTypes={taskTypes}
         labels={[]}
@@ -273,7 +356,19 @@ describe('TaskDetailPane', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    expect(
+      screen.queryByRole('button', { name: 'Add Project property' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add Type property' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Cycle property' }));
     chooseSelectOption('Cycle', 'Cycle 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Modules property' }),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Edit Modules' }));
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Backend' }));
 
@@ -281,6 +376,55 @@ describe('TaskDetailPane', () => {
       expect(patch).toHaveBeenCalledWith({ cycle_id: 'cycle-1' });
       expect(patch).toHaveBeenCalledWith({ module_ids: ['module-1'] });
     });
+  });
+
+  it('keeps an added property visible when its update fails', async () => {
+    const patch = vi.fn().mockRejectedValue(new Error('Task update failed'));
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={task}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={patch}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Start date property' }),
+    );
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2026-09-04' },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Task update failed',
+    );
+    screen.getByLabelText('Task title').focus();
+    await act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(screen.getByLabelText('Start date')).toBeVisible();
   });
 });
 

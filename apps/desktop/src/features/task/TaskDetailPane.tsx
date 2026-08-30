@@ -1,20 +1,13 @@
 import {
   Archive,
   ArrowLeft,
-  Check,
   FileText,
   Link2,
   Plus,
   Trash2,
   X,
 } from 'lucide-react';
-import {
-  lazy,
-  Suspense,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
+import { lazy, Suspense, useState, type KeyboardEvent } from 'react';
 import type {
   Project,
   ProjectCycle,
@@ -23,7 +16,6 @@ import type {
   TaskAssignee,
   TaskLabel,
   TaskPatch,
-  TaskPriority,
   TaskRelationType,
   TaskState,
   TaskType,
@@ -31,6 +23,7 @@ import type {
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Select } from '../../components/ui/Select';
 import { TaskActivity } from '../collaboration/TaskActivity';
+import { TaskProperties } from './TaskProperties';
 
 const MarkdownDocument = lazy(() =>
   import('../markdown/MarkdownDocument').then((module) => ({
@@ -162,15 +155,6 @@ function SelectedTaskDetail({
     }
   }
 
-  async function patch(patchValue: TaskPatch) {
-    setError(null);
-    try {
-      await onPatch(patchValue);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Task update failed');
-    }
-  }
-
   return (
     <section className="detail-pane" aria-label="Task detail">
       <header className="detail-toolbar">
@@ -270,233 +254,42 @@ function SelectedTaskDetail({
           aria-labelledby={`task-${task.id}-details-tab`}
           hidden={tab !== 'details'}
         >
-          <dl className="task-properties">
-            <Property label="State">
-              <Select
-                ariaLabel="State"
-                value={task.state.id}
-                disabled={!canEdit}
-                options={selectableStates(states, task).map((state) => ({
-                  value: state.id,
-                  label: state.name,
-                }))}
-                onValueChange={(value) => void patch({ state_id: value })}
-              />
-            </Property>
-            <Property label="Type">
-              <Select
-                ariaLabel="Task type"
-                value={task.task_type.id}
-                disabled={!canEdit}
-                options={selectableTypes(taskTypes, task).map((taskType) => ({
-                  value: taskType.id,
-                  label: taskType.name,
-                }))}
-                onValueChange={(value) => void patch({ task_type_id: value })}
-              />
-            </Property>
-            <Property label="Priority">
-              <Select
-                ariaLabel="Priority"
-                value={task.priority}
-                disabled={!canEdit}
-                options={[
-                  { value: 'none', label: 'No priority' },
-                  { value: 'low', label: 'Low' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'high', label: 'High' },
-                  { value: 'urgent', label: 'Urgent' },
-                ]}
-                onValueChange={(value) =>
-                  void patch({ priority: value as TaskPriority })
-                }
-              />
-            </Property>
-            <Property label="Project">
-              <Select
-                ariaLabel="Project"
-                value={task.project_id ?? ''}
-                disabled={!canEdit}
-                options={[
-                  { value: '', label: 'Inbox' },
-                  ...projects.map((project) => ({
-                    value: project.id,
-                    label: project.name,
-                  })),
-                ]}
-                onValueChange={(value) => {
-                  const projectId = value || null;
-                  const cleanup = window.confirm(
-                    'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
-                  );
-                  if (!cleanup) return;
-                  void patch({
-                    project_id: projectId,
-                    cleanup_invalid: true,
-                  });
-                }}
-              />
-            </Property>
-            {task.project_id && (
-              <Property label="Cycle">
-                <Select
-                  ariaLabel="Cycle"
-                  value={task.cycle?.id ?? ''}
-                  disabled={!canEdit}
-                  options={[
-                    { value: '', label: 'No Cycle' },
-                    ...(task.cycle &&
-                    !cycles.some(({ id }) => id === task.cycle?.id)
-                      ? [{ value: task.cycle.id, label: task.cycle.name }]
-                      : []),
-                    ...cycles
-                      .filter(
-                        (cycle) =>
-                          cycle.status !== 'completed' ||
-                          cycle.id === task.cycle?.id,
-                      )
-                      .map((cycle) => ({
-                        value: cycle.id,
-                        label: `${cycle.name}${cycle.status === 'completed' ? ' · Completed' : ''}`,
-                      })),
-                  ]}
-                  onValueChange={(value) =>
-                    void patch({ cycle_id: value || null })
-                  }
-                />
-              </Property>
-            )}
-            {task.project_id && (
-              <Property label="Modules">
-                <MultiValuePicker
-                  label="Edit Modules"
-                  emptyLabel="No Modules"
-                  disabled={!canEdit}
-                  values={task.modules.map(({ id }) => id)}
-                  options={[
-                    ...task.modules.filter(
-                      (assigned) =>
-                        !modules.some((module) => module.id === assigned.id),
-                    ),
-                    ...modules,
-                  ].map((module) => ({ id: module.id, label: module.name }))}
-                  onChange={(moduleIds) => patch({ module_ids: moduleIds })}
-                />
-              </Property>
-            )}
-            <Property label="Assignees">
-              <MultiValuePicker
-                label="Edit assignees"
-                emptyLabel="Unassigned"
-                disabled={!canEdit}
-                values={task.assignees.map(({ user_id }) => user_id)}
-                options={assigneeCandidates.map((member) => ({
-                  id: member.user_id,
-                  label: member.display_name,
-                }))}
-                onChange={(assigneeIds) => patch({ assignee_ids: assigneeIds })}
-              />
-            </Property>
-            <Property label="Labels">
-              <MultiValuePicker
-                label="Edit labels"
-                emptyLabel="No labels"
-                disabled={!canEdit}
-                values={task.labels.map(({ id }) => id)}
-                options={labels
-                  .filter(
-                    ({ id, archived_at }) =>
-                      !archived_at ||
-                      task.labels.some((label) => label.id === id),
-                  )
-                  .map((label) => ({ id: label.id, label: label.name }))}
-                onChange={(labelIds) => patch({ label_ids: labelIds })}
-              />
-            </Property>
-            <Property label="Start date">
-              <input
-                aria-label="Start date"
-                type="date"
-                disabled={!canEdit}
-                value={task.start_date ?? ''}
-                onChange={(event) =>
-                  void patch({ start_date: event.target.value || null })
-                }
-              />
-            </Property>
-            <Property label="Due date">
-              <input
-                aria-label="Due date"
-                type="date"
-                disabled={!canEdit}
-                value={task.due_date ?? ''}
-                onChange={(event) =>
-                  void patch({ due_date: event.target.value || null })
-                }
-              />
-            </Property>
-            <Property label="Estimate">
-              <input
-                aria-label="Estimate"
-                type="number"
-                min={0}
-                disabled={!canEdit}
-                value={task.estimate ?? ''}
-                placeholder="No estimate"
-                onChange={(event) =>
-                  void patch({
-                    estimate: event.target.value
-                      ? Number(event.target.value)
-                      : null,
-                  })
-                }
-              />
-            </Property>
-            <Property label="Parent">
-              <Select
-                ariaLabel="Parent task"
-                disabled={!canEdit}
-                value={task.parent?.id ?? ''}
-                options={[
-                  { value: '', label: 'No parent' },
-                  ...taskCandidates
-                    .filter(
-                      (candidate) =>
-                        candidate.id !== task.id &&
-                        candidate.project_id === task.project_id,
-                    )
-                    .map((candidate) => ({
-                      value: candidate.id,
-                      label: `${candidate.reference} · ${candidate.title}`,
-                    })),
-                ]}
-                onValueChange={(value) =>
-                  void patch({ parent_id: value || null })
-                }
-              />
-            </Property>
-          </dl>
-          {error && (
-            <p className="detail-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <Suspense
-            fallback={
-              <section className="task-document">
-                <div className="document-state">Loading editor…</div>
-              </section>
-            }
-          >
-            <MarkdownDocument
-              serverUrl={serverUrl}
-              token={token}
-              workspaceId={workspaceId}
-              target={{ kind: 'task', id: task.id }}
-              readOnly={!canEdit}
+          <div className="task-editor-surface">
+            <TaskProperties
+              task={task}
+              projects={projects}
+              states={states}
+              taskTypes={taskTypes}
+              labels={labels}
+              cycles={cycles}
+              modules={modules}
+              assigneeCandidates={assigneeCandidates}
+              taskCandidates={taskCandidates}
+              canEdit={canEdit}
+              onPatch={onPatch}
             />
-          </Suspense>
+            {error && (
+              <p className="detail-error" role="alert">
+                {error}
+              </p>
+            )}
+
+            <Suspense
+              fallback={
+                <section className="task-document">
+                  <div className="document-state">Loading editor…</div>
+                </section>
+              }
+            >
+              <MarkdownDocument
+                serverUrl={serverUrl}
+                token={token}
+                workspaceId={workspaceId}
+                target={{ kind: 'task', id: task.id }}
+                readOnly={!canEdit}
+              />
+            </Suspense>
+          </div>
 
           <section
             className="task-secondary-details"
@@ -631,117 +424,6 @@ function SelectedTaskDetail({
         )}
       </div>
     </section>
-  );
-}
-
-function selectableStates(states: TaskState[], task: Task) {
-  const active = states.filter(({ archived_at }) => !archived_at);
-  if (active.some(({ id }) => id === task.state.id)) return active;
-  return [
-    {
-      ...task.state,
-      workspace_id: task.workspace_id,
-      position: -1,
-      archived_at: task.updated_at,
-      created_at: task.created_at,
-      updated_at: task.updated_at,
-    },
-    ...active,
-  ];
-}
-
-function selectableTypes(taskTypes: TaskType[], task: Task) {
-  const active = taskTypes.filter(({ archived_at }) => !archived_at);
-  if (active.some(({ id }) => id === task.task_type.id)) return active;
-  return [
-    {
-      ...task.task_type,
-      workspace_id: task.workspace_id,
-      description: '',
-      position: -1,
-      is_protected: false,
-      archived_at: task.updated_at,
-      created_at: task.created_at,
-      updated_at: task.updated_at,
-    },
-    ...active,
-  ];
-}
-
-interface PropertyProps {
-  label: string;
-  children: ReactNode;
-}
-
-function Property({ label, children }: PropertyProps) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </div>
-  );
-}
-
-interface MultiValuePickerProps {
-  label: string;
-  emptyLabel: string;
-  disabled: boolean;
-  values: string[];
-  options: { id: string; label: string }[];
-  onChange: (values: string[]) => Promise<void>;
-}
-
-function MultiValuePicker({
-  label,
-  emptyLabel,
-  disabled,
-  values,
-  options,
-  onChange,
-}: MultiValuePickerProps) {
-  const [saving, setSaving] = useState(false);
-  const selectedLabels = options
-    .filter(({ id }) => values.includes(id))
-    .map((option) => option.label);
-  const summary =
-    selectedLabels.length > 0 ? selectedLabels.join(', ') : emptyLabel;
-  if (disabled)
-    return <span className="property-readonly-value">{summary}</span>;
-  return (
-    <ContextMenu
-      label={label}
-      className="property-picker"
-      trigger={<span>{summary}</span>}
-    >
-      {options.length === 0 ? (
-        <span className="menu-empty-state">No options available</span>
-      ) : (
-        options.map((option) => {
-          const selected = values.includes(option.id);
-          return (
-            <button
-              key={option.id}
-              data-menu-keep-open
-              role="menuitemcheckbox"
-              aria-checked={selected}
-              type="button"
-              disabled={saving}
-              onClick={() => {
-                setSaving(true);
-                void onChange(
-                  selected
-                    ? values.filter((value) => value !== option.id)
-                    : [...values, option.id],
-                ).finally(() => setSaving(false));
-              }}
-            >
-              <Check aria-hidden="true" size={14} opacity={selected ? 1 : 0} />
-              {option.label}
-            </button>
-          );
-        })
-      )}
-    </ContextMenu>
   );
 }
 

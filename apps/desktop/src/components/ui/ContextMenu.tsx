@@ -11,6 +11,7 @@ import {
 interface ContextMenuProps {
   label: string;
   children: ReactNode;
+  disabled?: boolean;
   placement?: 'down' | 'up';
   className?: string;
   trigger?: ReactNode;
@@ -20,6 +21,7 @@ interface ContextMenuProps {
 export function ContextMenu({
   label,
   children,
+  disabled = false,
   placement = 'down',
   className,
   trigger,
@@ -88,6 +90,7 @@ export function ContextMenu({
         aria-haspopup={popoverRole}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={openFromKeyboard}
       >
