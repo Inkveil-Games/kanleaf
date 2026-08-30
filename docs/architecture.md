@@ -159,26 +159,36 @@ Tasks and Library notes have distinct typed file identities:
 KANLEAF_DATA_DIR/
 └── vaults/
     └── <workspace UUID>/
-        ├── Tasks/<task UUID>.md
-        └── Library/
+        ├── Todo/<task storage name>.md
+        ├── Wiki/
             ├── getting_started.md
             └── getting_started/
                 └── installation.md
+        └── Projects/
+            └── <project storage name>/
+                ├── Todo/<task storage name>.md
+                └── Wiki/architecture.md
 ```
 
-Task paths are constructed from parsed UUIDs. Library paths are constructed from
-validated storage-name segments resolved from the authorized PostgreSQL tree;
-the API never accepts an arbitrary path. A note's file and same-stem companion
-directory represent one tree node. Writes use a temporary sibling file followed
-by rename, and the server stores supplied UTF-8 Markdown without frontmatter,
-formatting, or whitespace normalization.
+Task and Project paths use immutable, validated storage names derived from their
+initial title plus a short stable-ID suffix. Library paths use validated segments
+resolved from the authorized PostgreSQL tree. These typed identities select the
+Workspace or Project scope internally; the API never accepts an arbitrary path.
+A Wiki note's file and same-stem companion directory represent one tree node.
+Writes use a temporary sibling file followed by rename.
 
-The initial title produces a lowercase portable storage name with deterministic
-suffixes for sibling collisions. Later title edits do not rename the file.
-Reparenting moves both `<name>.md` and `<name>/`, so descendants and authored
-content remain intact. Manually authored links are not rewritten during that
-move; link-aware renames and backlinks are a later capability. No `.obsidian`
-directory is created or required.
+Task files contain canonical Obsidian-compatible YAML properties followed by the
+user's source-faithful Markdown body. Structured metadata remains canonical in
+PostgreSQL; Kanleaf patches only its owned property keys and preserves unknown
+properties, comments, body formatting, and whitespace. Task document endpoints
+expose only the body, while their SHA-256 revision covers the complete file.
+
+Later Task or Project title edits do not rename files. A Task scope change moves
+its stable basename between `Todo` roots. Wiki reparenting or scope changes move
+both `<name>.md` and `<name>/`, preserving descendants and authored content.
+Manually authored links are not rewritten during a move; link-aware renames and
+backlinks are a later capability. No `.obsidian` directory is created or
+required.
 
 Reads return source plus a SHA-256 content revision. A write must include the
 revision it opened; if the current file differs, the server returns a stable
@@ -187,7 +197,11 @@ untouched.
 
 Task and Library-note creation coordinate the database transaction with initial
 file creation; the transaction is rolled back if the document cannot be
-created. Fully atomic transactions across PostgreSQL and a filesystem are not
+created. Task, Wiki, and Project-scope moves use durable manifests plus reverse
+compensation when the SQL transaction fails. Startup also migrates legacy
+`Tasks`/`Library` layouts through a verified sibling staging directory and keeps
+the previous Workspace directory as a timestamped recovery copy. Fully atomic
+transactions across PostgreSQL and a filesystem are not
 possible. Library move, delete, and legacy migration operations therefore write
 recovery manifests under `KANLEAF_DATA_DIR/operations`; startup reconciles them
 against PostgreSQL before binding the HTTP listener.

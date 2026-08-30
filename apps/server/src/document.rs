@@ -140,7 +140,10 @@ async fn list(
         )
         SELECT documents.id, documents.workspace_id, documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
-               'Library/' || document_paths.relative_path || '.md' AS library_path,
+               CASE
+                   WHEN documents.project_id IS NULL THEN 'Wiki/'
+                   ELSE 'Projects/' || projects.storage_name || '/Wiki/'
+               END || document_paths.relative_path || '.md' AS library_path,
                documents.position,
                CASE
                    WHEN documents.project_id IS NULL THEN workspace_memberships.role <> 'guest'

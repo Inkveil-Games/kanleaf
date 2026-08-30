@@ -15,6 +15,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -24,7 +25,12 @@ use crate::{
         ProjectDescription, ProjectIdentifier, ProjectVisibility, ResourceName, VaultStorageName,
     },
     error::{AppError, is_unique_violation},
+    task::{
+        AppliedTaskFileUpdate, TaskVaultRow, apply_task_file_update, finish_task_file_update,
+        rollback_task_file_update, task_vault_row,
+    },
     task_config::{validate_state_assignment, validate_task_type_assignment},
+    vault::{LibraryMove, LibraryPath},
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -436,6 +442,7 @@ async fn archive(
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
+    let vault_sources = project_vault_sources(&mut transaction, workspace_id, project_id).await?;
     let result = sqlx::query(
         "UPDATE projects SET archived_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL",
     )
@@ -448,7 +455,13 @@ async fn archive(
     }
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
     move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
-    transaction.commit().await?;
+    let vault_changes =
+        apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
+    if let Err(error) = transaction.commit().await {
+        rollback_project_vault_changes(&state, workspace_id, &vault_changes).await;
+        return Err(error.into());
+    }
+    finish_project_vault_changes(&state, &vault_changes).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -477,15 +490,152 @@ async fn delete_project(
             "Project identifier does not match".to_owned(),
         ));
     }
+    let vault_sources = project_vault_sources(&mut transaction, workspace_id, project_id).await?;
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
     move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
+    let vault_changes =
+        apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
     sqlx::query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2")
         .bind(workspace_id)
         .bind(project_id)
         .execute(&mut *transaction)
         .await?;
-    transaction.commit().await?;
+    if let Err(error) = transaction.commit().await {
+        rollback_project_vault_changes(&state, workspace_id, &vault_changes).await;
+        return Err(error.into());
+    }
+    finish_project_vault_changes(&state, &vault_changes).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+struct ProjectVaultSources {
+    tasks: Vec<(Uuid, TaskVaultRow)>,
+    library: Vec<(Uuid, LibraryPath, LibraryPath)>,
+}
+
+struct ProjectVaultChanges {
+    tasks: Vec<(Uuid, AppliedTaskFileUpdate)>,
+    library: Vec<(Uuid, LibraryMove)>,
+}
+
+async fn project_vault_sources(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Uuid,
+) -> Result<ProjectVaultSources, AppError> {
+    let project_storage_name: String =
+        sqlx::query_scalar("SELECT storage_name FROM projects WHERE workspace_id = $1 AND id = $2")
+            .bind(workspace_id)
+            .bind(project_id)
+            .fetch_optional(&mut **transaction)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut tasks = Vec::with_capacity(task_ids.len());
+    for task_id in task_ids {
+        tasks.push((
+            task_id,
+            task_vault_row(transaction, workspace_id, task_id, true).await?,
+        ));
+    }
+    let roots: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT id, storage_name FROM documents
+        WHERE workspace_id = $1 AND project_id = $2 AND parent_id IS NULL
+        ORDER BY id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let library = roots
+        .into_iter()
+        .map(|(document_id, storage_name)| {
+            let source =
+                LibraryPath::parse_scoped(Some(&project_storage_name), [storage_name.as_str()])
+                    .map_err(AppError::internal)?;
+            let destination =
+                LibraryPath::parse([storage_name.as_str()]).map_err(AppError::internal)?;
+            Ok((document_id, source, destination))
+        })
+        .collect::<Result<_, AppError>>()?;
+    Ok(ProjectVaultSources { tasks, library })
+}
+
+async fn apply_project_vault_changes(
+    state: &AppState,
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    sources: ProjectVaultSources,
+) -> Result<ProjectVaultChanges, AppError> {
+    let mut changes = ProjectVaultChanges {
+        tasks: Vec::with_capacity(sources.tasks.len()),
+        library: Vec::with_capacity(sources.library.len()),
+    };
+    for (task_id, source) in sources.tasks {
+        let target = match task_vault_row(transaction, workspace_id, task_id, true).await {
+            Ok(target) => target,
+            Err(error) => {
+                rollback_project_vault_changes(state, workspace_id, &changes).await;
+                return Err(error);
+            }
+        };
+        match apply_task_file_update(state, workspace_id, task_id, &source, &target).await {
+            Ok(change) => changes.tasks.push((task_id, change)),
+            Err(error) => {
+                rollback_project_vault_changes(state, workspace_id, &changes).await;
+                return Err(error);
+            }
+        }
+    }
+    for (document_id, source, destination) in sources.library {
+        match state
+            .vault
+            .move_library_tree(workspace_id, document_id, &source, &destination)
+            .await
+        {
+            Ok(Some(change)) => changes.library.push((document_id, change)),
+            Ok(None) => {}
+            Err(error) => {
+                rollback_project_vault_changes(state, workspace_id, &changes).await;
+                return Err(AppError::internal(error));
+            }
+        }
+    }
+    Ok(changes)
+}
+
+async fn rollback_project_vault_changes(
+    state: &AppState,
+    workspace_id: Uuid,
+    changes: &ProjectVaultChanges,
+) {
+    for (document_id, change) in changes.library.iter().rev() {
+        if let Err(error) = state.vault.rollback_library_move(change).await {
+            warn!(%document_id, %error, "failed to roll back Project Wiki move");
+        }
+    }
+    for (task_id, change) in changes.tasks.iter().rev() {
+        rollback_task_file_update(state, workspace_id, *task_id, change).await;
+    }
+}
+
+async fn finish_project_vault_changes(state: &AppState, changes: &ProjectVaultChanges) {
+    for (document_id, change) in &changes.library {
+        if let Err(error) = state.vault.finish_library_move(change).await {
+            warn!(%document_id, %error, "failed to finish Project Wiki move cleanup");
+        }
+    }
+    for (task_id, change) in &changes.tasks {
+        finish_task_file_update(state, *task_id, change).await;
+    }
 }
 
 async fn move_documents_to_workspace(

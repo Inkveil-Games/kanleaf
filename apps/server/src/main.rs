@@ -6,6 +6,7 @@ use kanleaf_server::{
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
     router,
+    workspace::migrate_workspace_vaults,
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::signal;
@@ -39,6 +40,9 @@ async fn main() -> anyhow::Result<()> {
     migrate_legacy_library(&state)
         .await
         .context("failed to migrate legacy Pages into the Library vault")?;
+    migrate_workspace_vaults(&state)
+        .await
+        .context("failed to migrate legacy Workspace vaults")?;
 
     let listener = tokio::net::TcpListener::bind(config.bind_address)
         .await

@@ -58,7 +58,7 @@ const note: WorkspaceDocument = {
   parent_id: null,
   title: 'Architecture notes',
   storage_name: 'architecture_notes',
-  library_path: 'Library/architecture_notes.md',
+  library_path: 'Wiki/architecture_notes.md',
   position: 0,
   can_edit: true,
   archived_at: null,

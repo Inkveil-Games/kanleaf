@@ -442,13 +442,14 @@ async fn leaving_removal_and_workspace_deletion_keep_active_workspace_valid(pool
         ))
         .await
         .unwrap();
-    let task_id = response_json(task).await["id"].as_str().unwrap().to_owned();
+    let task = response_json(task).await;
+    let task_storage_name = task["storage_name"].as_str().unwrap();
     let task_path = data_dir
         .path()
         .join("vaults")
         .join(deleted_workspace.to_string())
-        .join("Tasks")
-        .join(format!("{task_id}.md"));
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
     assert!(task_path.exists());
 
     let wrong_confirmation = app
@@ -551,13 +552,14 @@ async fn failed_database_deletion_restores_the_workspace_vault(pool: PgPool) {
         ))
         .await
         .unwrap();
-    let task_id = response_json(task).await["id"].as_str().unwrap().to_owned();
+    let task = response_json(task).await;
+    let task_storage_name = task["storage_name"].as_str().unwrap();
     let task_path = data_dir
         .path()
         .join("vaults")
         .join(workspace_id.to_string())
-        .join("Tasks")
-        .join(format!("{task_id}.md"));
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
 
     sqlx::query(
         r#"

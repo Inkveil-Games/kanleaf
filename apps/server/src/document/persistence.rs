@@ -49,7 +49,10 @@ pub(super) async fn find_authorized_document(
         )
         SELECT documents.id, documents.workspace_id, documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
-               'Library/' || resolved_path.relative_path || '.md' AS library_path,
+               CASE
+                   WHEN documents.project_id IS NULL THEN 'Wiki/'
+                   ELSE 'Projects/' || projects.storage_name || '/Wiki/'
+               END || resolved_path.relative_path || '.md' AS library_path,
                documents.position,
                CASE
                    WHEN documents.project_id IS NULL THEN workspace_memberships.role <> 'guest'
@@ -158,7 +161,7 @@ pub(super) async fn library_path(
     workspace_id: Uuid,
     document_id: Uuid,
 ) -> Result<LibraryPath, AppError> {
-    let segments: Vec<String> = sqlx::query_scalar(
+    let (segments, project_storage_name): (Vec<String>, Option<String>) = sqlx::query_as(
         r#"
         WITH RECURSIVE ancestors AS (
             SELECT id, parent_id, storage_name, ARRAY[storage_name]::text[] AS segments
@@ -171,7 +174,14 @@ pub(super) async fn library_path(
             JOIN ancestors AS child ON child.parent_id = parent.id
             WHERE parent.workspace_id = $1
         )
-        SELECT segments FROM ancestors WHERE parent_id IS NULL
+        SELECT ancestors.segments, projects.storage_name
+        FROM ancestors
+        JOIN documents AS target
+          ON target.workspace_id = $1 AND target.id = $2
+        LEFT JOIN projects
+          ON projects.workspace_id = target.workspace_id
+         AND projects.id = target.project_id
+        WHERE ancestors.parent_id IS NULL
         "#,
     )
     .bind(workspace_id)
@@ -179,7 +189,11 @@ pub(super) async fn library_path(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))?;
-    LibraryPath::parse(segments.iter().map(String::as_str)).map_err(|_| {
+    LibraryPath::parse_scoped(
+        project_storage_name.as_deref(),
+        segments.iter().map(String::as_str),
+    )
+    .map_err(|_| {
         AppError::Validation("The Library path exceeds the supported depth or length".to_owned())
     })
 }

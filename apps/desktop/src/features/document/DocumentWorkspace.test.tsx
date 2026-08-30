@@ -50,7 +50,7 @@ function document(
     parent_id: null,
     title,
     storage_name: id,
-    library_path: `Library/${id}.md`,
+    library_path: `Wiki/${id}.md`,
     position: 0,
     can_edit: true,
     archived_at: null,
@@ -183,7 +183,7 @@ describe('DocumentWorkspace', () => {
       name: 'Workspace Library',
     });
     expect(await screen.findByText('Editor root')).toBeInTheDocument();
-    expect(screen.getByText('Library/root.md')).toBeInTheDocument();
+    expect(screen.getByText('Wiki/root.md')).toBeInTheDocument();
     tree.focus();
     fireEvent.keyDown(tree, { key: 'ArrowDown' });
     expect(await screen.findByText('Editor child')).toBeInTheDocument();

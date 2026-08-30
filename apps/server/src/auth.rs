@@ -181,9 +181,9 @@ async fn register_user(
     sqlx::query(
         r#"
         INSERT INTO workspaces (
-            id, name, default_inbox_state_id, default_task_type_id
+            id, name, default_inbox_state_id, default_task_type_id, vault_layout_version
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, 2)
         "#,
     )
     .bind(workspace_id)

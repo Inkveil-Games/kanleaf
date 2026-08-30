@@ -1,3 +1,4 @@
+mod frontmatter;
 mod model;
 mod planning;
 mod query_engine;
@@ -30,7 +31,7 @@ use crate::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
         validate_task_type_assignment,
     },
-    vault::VaultError,
+    vault::{TaskPath, VaultError},
     workspace::{require_workspace_member, workspace_role},
 };
 
@@ -170,6 +171,69 @@ struct CurrentTask {
     due_date: Option<NaiveDate>,
     estimate: Option<i32>,
     parent_id: Option<Uuid>,
+}
+
+#[derive(FromRow)]
+pub(crate) struct TaskVaultRow {
+    kanleaf_id: Uuid,
+    task_number: i64,
+    title: String,
+    storage_name: String,
+    project_name: Option<String>,
+    project_identifier: Option<String>,
+    project_storage_name: Option<String>,
+    state: String,
+    task_type: String,
+    priority: String,
+    assignees: Vec<String>,
+    labels: Vec<String>,
+    cycle: Option<String>,
+    modules: Vec<String>,
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
+    estimate: Option<i32>,
+    parent_number: Option<i64>,
+    parent_project_identifier: Option<String>,
+}
+
+impl TaskVaultRow {
+    pub(crate) fn path(&self) -> Result<TaskPath, AppError> {
+        TaskPath::parse(self.project_storage_name.as_deref(), &self.storage_name)
+            .map_err(AppError::internal)
+    }
+
+    fn properties(&self) -> frontmatter::TaskProperties {
+        frontmatter::TaskProperties {
+            kanleaf_id: self.kanleaf_id,
+            reference: model::task_reference(self.project_identifier.as_deref(), self.task_number),
+            title: self.title.clone(),
+            project: self.project_name.clone(),
+            state: self.state.clone(),
+            task_type: self.task_type.clone(),
+            priority: (self.priority != "none").then(|| title_case(&self.priority)),
+            assignees: self.assignees.clone(),
+            labels: self.labels.clone(),
+            cycle: self.cycle.clone(),
+            modules: self.modules.clone(),
+            start_date: self.start_date,
+            due_date: self.due_date,
+            estimate: self.estimate,
+            parent: self.parent_number.map(|number| {
+                model::task_reference(self.parent_project_identifier.as_deref(), number)
+            }),
+        }
+    }
+
+    pub(crate) fn source_with_body(&self, body: &str) -> String {
+        frontmatter::render_new(&self.properties(), body)
+    }
+}
+
+pub(crate) struct AppliedTaskFileUpdate {
+    source_path: TaskPath,
+    original_content: Option<String>,
+    written_revision: String,
+    movement: Option<crate::vault::TaskMove>,
 }
 
 #[derive(Deserialize)]
@@ -377,12 +441,24 @@ pub(crate) async fn create(
     )
     .await?;
 
+    let vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
+    let task_path = vault_row.path()?;
+    let source = frontmatter::render_new(&vault_row.properties(), "");
     state
         .vault
-        .create_task_document(workspace_id, task_id)
+        .create_task_document(workspace_id, &task_path, &source)
         .await
         .map_err(AppError::internal)?;
-    transaction.commit().await?;
+    if let Err(error) = transaction.commit().await {
+        if let Err(cleanup_error) = state
+            .vault
+            .remove_unattached_task_file(workspace_id, &task_path)
+            .await
+        {
+            warn!(task_id = %task_id, %cleanup_error, "failed to clean up unattached Task document");
+        }
+        return Err(error.into());
+    }
     let task = find_task(&state.pool, workspace_id, task_id).await?;
     Ok((StatusCode::CREATED, Json(task)))
 }
@@ -448,6 +524,7 @@ pub(crate) async fn update(
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    let source_vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(
         &state.pool,
         auth.user.id,
@@ -788,7 +865,20 @@ pub(crate) async fn update(
         )
         .await?;
     }
-    transaction.commit().await?;
+    let target_vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
+    let file_update = apply_task_file_update(
+        &state,
+        workspace_id,
+        task_id,
+        &source_vault_row,
+        &target_vault_row,
+    )
+    .await?;
+    if let Err(error) = transaction.commit().await {
+        rollback_task_file_update(&state, workspace_id, task_id, &file_update).await;
+        return Err(error.into());
+    }
+    finish_task_file_update(&state, task_id, &file_update).await;
     Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
@@ -867,9 +957,12 @@ pub(crate) async fn delete_permanently(
         ));
     }
 
+    let task_path = task_vault_row(&mut transaction, workspace_id, task_id, true)
+        .await?
+        .path()?;
     let trash = state
         .vault
-        .trash_task(workspace_id, task_id)
+        .trash_task(workspace_id, task_id, &task_path)
         .await
         .map_err(AppError::internal)?;
     let deletion = async {
@@ -1007,6 +1100,7 @@ pub(crate) async fn bulk_update(
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
     }
 
+    let mut vault_sources = Vec::with_capacity(task_ids.len());
     for task_id in &task_ids {
         let (current_project, task_type_id): (Option<Uuid>, Uuid) = sqlx::query_as(
             r#"
@@ -1020,6 +1114,10 @@ pub(crate) async fn bulk_update(
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+        vault_sources.push((
+            *task_id,
+            task_vault_row(&mut transaction, workspace_id, *task_id, false).await?,
+        ));
         authorize_task_location(
             &state.pool,
             auth.user.id,
@@ -1116,7 +1214,28 @@ pub(crate) async fn bulk_update(
         )
         .await?;
     }
-    transaction.commit().await?;
+    let mut file_updates = Vec::with_capacity(vault_sources.len());
+    for (task_id, source) in vault_sources {
+        let target = match task_vault_row(&mut transaction, workspace_id, task_id, false).await {
+            Ok(target) => target,
+            Err(error) => {
+                rollback_task_file_updates(&state, workspace_id, &file_updates).await;
+                return Err(error);
+            }
+        };
+        match apply_task_file_update(&state, workspace_id, task_id, &source, &target).await {
+            Ok(update) => file_updates.push((task_id, update)),
+            Err(error) => {
+                rollback_task_file_updates(&state, workspace_id, &file_updates).await;
+                return Err(error);
+            }
+        }
+    }
+    if let Err(error) = transaction.commit().await {
+        rollback_task_file_updates(&state, workspace_id, &file_updates).await;
+        return Err(error.into());
+    }
+    finish_task_file_updates(&state, &file_updates).await;
     let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
     hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
     Ok(Json(tasks))
@@ -1274,14 +1393,20 @@ pub(crate) async fn read_document(
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
 
+    let task_path = task_vault_row(&mut transaction, workspace_id, task_id, false)
+        .await?
+        .path()?;
     let document = state
         .vault
-        .read_task_document(workspace_id, task_id)
+        .read_task_document(workspace_id, &task_path)
         .await
         .map_err(AppError::internal)?;
+    let content = frontmatter::body(&document.content)
+        .map_err(map_frontmatter_error)?
+        .to_owned();
     transaction.commit().await?;
     Ok(Json(DocumentResponse {
-        content: document.content,
+        content,
         revision: document.revision,
     }))
 }
@@ -1306,14 +1431,24 @@ pub(crate) async fn write_document(
     // The row lock serializes Kanleaf saves; the revision also catches edits made
     // directly in the vault between reads.
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
+    let task_path = task_vault_row(&mut transaction, workspace_id, task_id, false)
+        .await?
+        .path()?;
+    let current = state
+        .vault
+        .read_task_document(workspace_id, &task_path)
+        .await
+        .map_err(AppError::internal)?;
+    if current.revision != request.base_revision {
+        return Err(AppError::Conflict(
+            "The Markdown document changed after it was opened".to_owned(),
+        ));
+    }
+    let source = frontmatter::replace_body(&current.content, &request.content)
+        .map_err(map_frontmatter_error)?;
     let revision = state
         .vault
-        .write_task_document(
-            workspace_id,
-            task_id,
-            &request.content,
-            &request.base_revision,
-        )
+        .write_task_document(workspace_id, &task_path, &source, &request.base_revision)
         .await
         .map_err(map_vault_write_error)?;
     record_activity(
@@ -1352,6 +1487,207 @@ pub(crate) fn map_vault_write_error(error: VaultError) -> AppError {
         }
         error => AppError::internal(error),
     }
+}
+
+fn map_frontmatter_error(_: frontmatter::FrontmatterError) -> AppError {
+    AppError::Conflict(
+        "The Task properties in this Markdown file cannot be updated safely".to_owned(),
+    )
+}
+
+pub(crate) async fn apply_task_file_update(
+    state: &AppState,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    source: &TaskVaultRow,
+    target: &TaskVaultRow,
+) -> Result<AppliedTaskFileUpdate, AppError> {
+    let source_path = source.path()?;
+    let target_path = target.path()?;
+    let current = state
+        .vault
+        .read_task_document(workspace_id, &source_path)
+        .await
+        .map_err(AppError::internal)?;
+    let patched = frontmatter::patch(&current.content, &target.properties())
+        .map_err(map_frontmatter_error)?;
+    let (original_content, written_revision) = if patched == current.content {
+        (None, current.revision)
+    } else {
+        let revision = state
+            .vault
+            .write_task_document(workspace_id, &source_path, &patched, &current.revision)
+            .await
+            .map_err(map_vault_write_error)?;
+        (Some(current.content), revision)
+    };
+
+    let movement = match state
+        .vault
+        .move_task(workspace_id, task_id, &source_path, &target_path)
+        .await
+    {
+        Ok(movement) => movement,
+        Err(error) => {
+            if let Some(original) = &original_content
+                && let Err(rollback_error) = state
+                    .vault
+                    .write_task_document(workspace_id, &source_path, original, &written_revision)
+                    .await
+            {
+                warn!(task_id = %task_id, %rollback_error, "failed to restore Task properties after a move failure");
+            }
+            return Err(AppError::internal(error));
+        }
+    };
+    Ok(AppliedTaskFileUpdate {
+        source_path,
+        original_content,
+        written_revision,
+        movement,
+    })
+}
+
+pub(crate) async fn rollback_task_file_update(
+    state: &AppState,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    update: &AppliedTaskFileUpdate,
+) {
+    if let Some(movement) = &update.movement
+        && let Err(error) = state.vault.rollback_task_move(movement).await
+    {
+        warn!(task_id = %task_id, %error, "failed to roll back Task vault move");
+        return;
+    }
+    if let Some(original) = &update.original_content
+        && let Err(error) = state
+            .vault
+            .write_task_document(
+                workspace_id,
+                &update.source_path,
+                original,
+                &update.written_revision,
+            )
+            .await
+    {
+        warn!(task_id = %task_id, %error, "failed to roll back Task property projection");
+    }
+}
+
+pub(crate) async fn finish_task_file_update(
+    state: &AppState,
+    task_id: Uuid,
+    update: &AppliedTaskFileUpdate,
+) {
+    if let Some(movement) = &update.movement
+        && let Err(error) = state.vault.finish_task_move(movement).await
+    {
+        warn!(task_id = %task_id, %error, "failed to finish Task vault move cleanup");
+    }
+}
+
+async fn rollback_task_file_updates(
+    state: &AppState,
+    workspace_id: Uuid,
+    updates: &[(Uuid, AppliedTaskFileUpdate)],
+) {
+    for (task_id, update) in updates.iter().rev() {
+        rollback_task_file_update(state, workspace_id, *task_id, update).await;
+    }
+}
+
+async fn finish_task_file_updates(state: &AppState, updates: &[(Uuid, AppliedTaskFileUpdate)]) {
+    for (task_id, update) in updates {
+        finish_task_file_update(state, *task_id, update).await;
+    }
+}
+
+pub(crate) async fn task_vault_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    include_archived: bool,
+) -> Result<TaskVaultRow, AppError> {
+    sqlx::query_as::<_, TaskVaultRow>(
+        r#"
+        SELECT tasks.id AS kanleaf_id, tasks.task_number, tasks.title,
+               tasks.storage_name, projects.name AS project_name,
+               projects.identifier AS project_identifier,
+               projects.storage_name AS project_storage_name,
+               states.name AS state, task_types.name AS task_type, tasks.priority,
+               ARRAY(
+                   SELECT users.email
+                   FROM task_assignees
+                   JOIN users ON users.id = task_assignees.user_id
+                   WHERE task_assignees.workspace_id = tasks.workspace_id
+                     AND task_assignees.task_id = tasks.id
+                   ORDER BY lower(users.email), users.id
+               ) AS assignees,
+               ARRAY(
+                   SELECT labels.name
+                   FROM task_label_assignments AS assignments
+                   JOIN task_labels AS labels
+                     ON labels.workspace_id = assignments.workspace_id
+                    AND labels.id = assignments.label_id
+                   WHERE assignments.workspace_id = tasks.workspace_id
+                     AND assignments.task_id = tasks.id
+                   ORDER BY lower(labels.name), labels.id
+               ) AS labels,
+               (
+                   SELECT cycles.name
+                   FROM task_cycle_assignments AS assignments
+                   JOIN project_cycles AS cycles
+                     ON cycles.workspace_id = assignments.workspace_id
+                    AND cycles.project_id = assignments.project_id
+                    AND cycles.id = assignments.cycle_id
+                   WHERE assignments.workspace_id = tasks.workspace_id
+                     AND assignments.task_id = tasks.id
+               ) AS cycle,
+               ARRAY(
+                   SELECT modules.name
+                   FROM task_module_assignments AS assignments
+                   JOIN project_modules AS modules
+                     ON modules.workspace_id = assignments.workspace_id
+                    AND modules.project_id = assignments.project_id
+                    AND modules.id = assignments.module_id
+                   WHERE assignments.workspace_id = tasks.workspace_id
+                     AND assignments.task_id = tasks.id
+                   ORDER BY lower(modules.name), modules.id
+               ) AS modules,
+               tasks.start_date, tasks.due_date, tasks.estimate,
+               parent.task_number AS parent_number,
+               parent_project.identifier AS parent_project_identifier
+        FROM tasks
+        JOIN task_states AS states
+          ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
+        JOIN task_types
+          ON task_types.workspace_id = tasks.workspace_id
+         AND task_types.id = tasks.task_type_id
+        LEFT JOIN projects
+          ON projects.workspace_id = tasks.workspace_id AND projects.id = tasks.project_id
+        LEFT JOIN tasks AS parent
+          ON parent.workspace_id = tasks.workspace_id AND parent.id = tasks.parent_id
+        LEFT JOIN projects AS parent_project
+          ON parent_project.workspace_id = parent.workspace_id
+         AND parent_project.id = parent.project_id
+        WHERE tasks.workspace_id = $1 AND tasks.id = $2
+          AND ($3 OR tasks.archived_at IS NULL)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .bind(include_archived)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))
+}
+
+fn title_case(value: &str) -> String {
+    let mut characters = value.chars();
+    characters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(characters).collect()
+    })
 }
 
 async fn authorize_task_location(

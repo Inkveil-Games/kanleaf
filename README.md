@@ -65,10 +65,12 @@ metadata         *.md files
 
 The server is the authorization boundary. PostgreSQL stores users, sessions,
 memberships, workspaces, projects, task metadata, and document-tree metadata.
-Task Markdown stays at `vaults/<workspace-id>/Tasks/<task-id>.md`. Library notes
-use companion paths such as `Library/getting_started.md` and
-`Library/getting_started/installation.md`. A title rename does not rename or
-rewrite its file; reparenting moves the note and its complete companion subtree.
+Workspace Inbox Markdown stays under `Todo/`; each Project has independent
+`Projects/<stable-name>/Todo/` and `Wiki/` roots, while Workspace Library notes
+live under the top-level `Wiki/`. Task files contain Obsidian-compatible YAML
+properties plus source-faithful Markdown bodies. Stable storage names keep Task
+and Project renames from breaking paths; Wiki reparenting moves the note and its
+complete companion subtree.
 See
 [docs/architecture.md](docs/architecture.md) for the full boundary and data
 model.

@@ -65,12 +65,18 @@ enum LibraryOperationManifest {
     Move {
         workspace_id: Uuid,
         document_id: Uuid,
+        #[serde(default)]
+        source_project: Option<String>,
         source: Vec<String>,
+        #[serde(default)]
+        destination_project: Option<String>,
         destination: Vec<String>,
     },
     Delete {
         workspace_id: Uuid,
         document_id: Uuid,
+        #[serde(default)]
+        project: Option<String>,
         path: Vec<String>,
         trash_id: Uuid,
     },
@@ -109,7 +115,9 @@ impl Vault {
             .write_operation_manifest(&LibraryOperationManifest::Move {
                 workspace_id,
                 document_id,
+                source_project: source.project_storage_name().map(str::to_owned),
                 source: source.storage_segments(),
+                destination_project: destination.project_storage_name().map(str::to_owned),
                 destination: destination.storage_segments(),
             })
             .await?;
@@ -133,7 +141,7 @@ impl Vault {
             destination_file,
             source_directory,
             destination_directory,
-            library_root: self.workspace_directory(workspace_id).join("Library"),
+            library_root: self.workspace_directory(workspace_id),
             manifest,
             moved_directory,
         }))
@@ -178,6 +186,7 @@ impl Vault {
             .write_operation_manifest(&LibraryOperationManifest::Delete {
                 workspace_id,
                 document_id,
+                project: path.project_storage_name().map(str::to_owned),
                 path: path.storage_segments(),
                 trash_id,
             })
@@ -203,7 +212,7 @@ impl Vault {
             workspace_id,
             original_file,
             original_directory,
-            library_root: self.workspace_directory(workspace_id).join("Library"),
+            library_root: self.workspace_directory(workspace_id),
             trash_root,
             manifest,
             moved_directory,
@@ -252,7 +261,7 @@ impl Vault {
         Ok(LegacyLibraryMove {
             source_file,
             destination_file,
-            library_root: self.workspace_directory(workspace_id).join("Library"),
+            library_root: self.workspace_directory(workspace_id),
             manifest,
         })
     }
@@ -319,6 +328,11 @@ impl Vault {
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
+            if entry.file_name().to_str().is_some_and(|name| {
+                name.ends_with(".task.json") || name.ends_with(".workspace.json")
+            }) {
+                continue;
+            }
             let bytes = fs::read(entry.path()).await?;
             let manifest: LibraryOperationManifest = serde_json::from_slice(&bytes)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -360,9 +374,7 @@ impl Vault {
             reconcile_optional_directory(&source_directory, &destination_directory, false).await?;
         }
         remove_file_if_present(&operation.manifest).await?;
-        let library_root = self
-            .workspace_directory(operation.workspace_id)
-            .join("Library");
+        let library_root = self.workspace_directory(operation.workspace_id);
         let obsolete_parent = if keep_destination {
             source_file.parent()
         } else {
@@ -397,9 +409,7 @@ impl Vault {
             remove_directory_if_present(&trash_root).await?;
         } else {
             remove_directory_if_present(&trash_root).await?;
-            let library_root = self
-                .workspace_directory(operation.workspace_id)
-                .join("Library");
+            let library_root = self.workspace_directory(operation.workspace_id);
             remove_empty_ancestors(original_file.parent(), &library_root).await?;
         }
         remove_file_if_present(&operation.manifest).await?;
@@ -455,26 +465,29 @@ impl PendingLibraryOperation {
             LibraryOperationManifest::Move {
                 workspace_id,
                 document_id,
+                source_project,
                 source,
+                destination_project,
                 destination,
             } => (
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Move {
-                    source: parse_segments(&source)?,
-                    destination: parse_segments(&destination)?,
+                    source: parse_segments(source_project.as_deref(), &source)?,
+                    destination: parse_segments(destination_project.as_deref(), &destination)?,
                 },
             ),
             LibraryOperationManifest::Delete {
                 workspace_id,
                 document_id,
+                project,
                 path,
                 trash_id,
             } => (
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Delete {
-                    path: parse_segments(&path)?,
+                    path: parse_segments(project.as_deref(), &path)?,
                     trash_id,
                 },
             ),
@@ -486,7 +499,7 @@ impl PendingLibraryOperation {
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Legacy {
-                    destination: parse_segments(&destination)?,
+                    destination: parse_segments(None, &destination)?,
                 },
             ),
         };
@@ -499,8 +512,11 @@ impl PendingLibraryOperation {
     }
 }
 
-fn parse_segments(segments: &[String]) -> Result<LibraryPath, VaultError> {
-    LibraryPath::parse(segments.iter().map(String::as_str))
+fn parse_segments(
+    project_storage_name: Option<&str>,
+    segments: &[String],
+) -> Result<LibraryPath, VaultError> {
+    LibraryPath::parse_scoped(project_storage_name, segments.iter().map(String::as_str))
 }
 
 async fn ensure_absent(path: &PathBuf) -> Result<(), VaultError> {

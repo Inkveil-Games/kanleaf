@@ -1,5 +1,8 @@
 mod invitation;
 mod membership;
+mod vault_migration;
+
+pub use vault_migration::migrate_workspace_vaults;
 
 use anyhow::anyhow;
 use axum::{
@@ -218,9 +221,10 @@ async fn create(
     let workspace = sqlx::query_as::<_, WorkspaceResponse>(
         r#"
         INSERT INTO workspaces (
-            id, name, accent, default_inbox_state_id, default_task_type_id
+            id, name, accent, default_inbox_state_id, default_task_type_id,
+            vault_layout_version
         )
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5, 2)
         RETURNING id, name, accent, 'owner'::text AS role, created_at, updated_at
         "#,
     )

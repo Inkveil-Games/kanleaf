@@ -7,7 +7,9 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, domain::VaultStorageName, router};
+use kanleaf_server::{
+    AppState, domain::VaultStorageName, router, workspace::migrate_workspace_vaults,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -163,13 +165,24 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     assert_eq!(task["task_type"]["name"], "Task");
     assert_eq!(task["priority"], "high");
 
-    let document_path = data_dir
+    let project_storage_name: String =
+        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let task_storage_name = task["storage_name"].as_str().unwrap();
+    let project_document_path = data_dir
         .path()
         .join("vaults")
         .join(workspace_id.to_string())
-        .join("Tasks")
-        .join(format!("{task_id}.md"));
-    assert_eq!(fs::read_to_string(&document_path).unwrap(), "");
+        .join("Projects")
+        .join(project_storage_name)
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
+    let created_source = fs::read_to_string(&project_document_path).unwrap();
+    assert!(created_source.contains(&format!("Kanleaf ID: {task_id}\n")));
+    assert!(created_source.contains("Project:\n  - Kanleaf\n"));
 
     let project_tasks = app
         .clone()
@@ -203,6 +216,14 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     let updated = response_json(updated).await;
     assert_eq!(updated["project_id"], Value::Null);
     assert_eq!(updated["state"]["state_group"], "done");
+    let document_path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
+    assert!(document_path.exists());
+    assert!(!project_document_path.exists());
 
     let inbox_search = app
         .clone()
@@ -267,7 +288,10 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .await
         .unwrap();
     assert_eq!(response_json(document).await["content"], markdown);
-    assert_eq!(fs::read_to_string(&document_path).unwrap(), markdown);
+    let source = fs::read_to_string(&document_path).unwrap();
+    assert!(source.contains("Title: Finish Markdown persistence\n"));
+    assert!(source.contains("State:\n  - Done\n"));
+    assert!(source.ends_with(markdown));
 
     let archived = app
         .clone()
@@ -289,13 +313,17 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .await
         .unwrap();
     assert!(response_json(inbox).await.as_array().unwrap().is_empty());
-    assert_eq!(fs::read_to_string(document_path).unwrap(), markdown);
+    assert!(
+        fs::read_to_string(document_path)
+            .unwrap()
+            .ends_with(markdown)
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
 async fn task_search_treats_sql_wildcards_as_text(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
-    let app = test_app(pool, &data_dir);
+    let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
     create_task(
         &app,
@@ -388,7 +416,7 @@ async fn task_and_document_access_isolated_by_workspace(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
-    let app = test_app(pool, &data_dir);
+    let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
     let project_id = create_project(&app, &token, workspace_id, "Temporary").await;
     let task = create_task(
@@ -398,6 +426,21 @@ async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
         json!({"title": "Keep me", "project_id": project_id}),
     )
     .await;
+    let project_storage_name: String =
+        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let task_storage_name = task["storage_name"].as_str().unwrap();
+    let project_path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Projects")
+        .join(project_storage_name)
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
 
     let archived = app
         .clone()
@@ -422,6 +465,15 @@ async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
     assert_eq!(inbox.as_array().unwrap().len(), 1);
     assert_eq!(inbox[0]["id"], task["id"]);
     assert_eq!(inbox[0]["project_id"], Value::Null);
+    let inbox_path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{task_storage_name}.md"));
+    let source = fs::read_to_string(inbox_path).unwrap();
+    assert!(source.contains("Project: []\n"));
+    assert!(!project_path.exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -447,4 +499,108 @@ async fn task_creation_rolls_back_when_the_vault_cannot_create_a_document(pool: 
         .await
         .unwrap();
     assert_eq!(task_count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn legacy_workspace_tasks_migrate_to_portable_project_paths(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let project_id = create_project(&app, &token, workspace_id, "Migrated project").await;
+    let task = create_task(
+        &app,
+        &token,
+        workspace_id,
+        json!({"title": "Legacy Task", "project_id": project_id}),
+    )
+    .await;
+    let document = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents"),
+            json!({"title": "Architecture", "project_id": project_id}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(document.status(), StatusCode::CREATED);
+    let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
+    let project_storage_name: String =
+        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let workspace = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string());
+    fs::remove_dir_all(workspace.join("Projects")).unwrap();
+    fs::create_dir_all(workspace.join("Tasks")).unwrap();
+    fs::write(
+        workspace.join("Tasks").join(format!("{task_id}.md")),
+        "# Legacy body\n\nKeep [[links]].\n",
+    )
+    .unwrap();
+    fs::create_dir_all(workspace.join("Library")).unwrap();
+    fs::write(
+        workspace.join("Library/architecture.md"),
+        "# Legacy project Wiki\n",
+    )
+    .unwrap();
+    sqlx::query("UPDATE workspaces SET vault_layout_version = 0 WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    migrate_workspace_vaults(&state).await.unwrap();
+    migrate_workspace_vaults(&state).await.unwrap();
+
+    let version: i16 =
+        sqlx::query_scalar("SELECT vault_layout_version FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(version, 2);
+    let source = fs::read_to_string(
+        workspace
+            .join("Projects")
+            .join(&project_storage_name)
+            .join("Todo")
+            .join(format!("{}.md", task["storage_name"].as_str().unwrap())),
+    )
+    .unwrap();
+    assert!(source.contains(&format!("Kanleaf ID: {task_id}\n")));
+    assert!(source.contains("Project:\n  - Migrated project\n"));
+    assert!(source.ends_with("# Legacy body\n\nKeep [[links]].\n"));
+    assert_eq!(
+        fs::read_to_string(
+            workspace
+                .join("Projects")
+                .join(&project_storage_name)
+                .join("Wiki/architecture.md")
+        )
+        .unwrap(),
+        "# Legacy project Wiki\n"
+    );
+    assert!(
+        fs::read_dir(data_dir.path().join("vaults"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{workspace_id}.legacy-")))
+    );
 }
