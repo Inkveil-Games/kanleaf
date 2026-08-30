@@ -123,7 +123,6 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
-  const [tab, setTab] = useState<'details' | 'activity'>('details');
 
   async function saveTitle() {
     const nextTitle = title.trim();
@@ -154,6 +153,29 @@ function SelectedTaskDetail({
       event.currentTarget.blur();
     }
   }
+
+  const documentContext = (
+    <>
+      <TaskProperties
+        task={task}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={labels}
+        cycles={cycles}
+        modules={modules}
+        assigneeCandidates={assigneeCandidates}
+        taskCandidates={taskCandidates}
+        canEdit={canEdit}
+        onPatch={onPatch}
+      />
+      {error && (
+        <p className="detail-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
 
   return (
     <section className="detail-pane" aria-label="Task detail">
@@ -219,90 +241,39 @@ function SelectedTaskDetail({
           onKeyDown={titleKeyDown}
         />
 
-        <div
-          className="detail-tabs"
-          role="tablist"
-          aria-label="Task detail sections"
-        >
-          <button
-            id={`task-${task.id}-details-tab`}
-            type="button"
-            role="tab"
-            aria-controls={`task-${task.id}-details-panel`}
-            aria-selected={tab === 'details'}
-            onClick={() => setTab('details')}
-          >
-            Details
-          </button>
-          <button
-            id={`task-${task.id}-activity-tab`}
-            type="button"
-            role="tab"
-            aria-controls={`task-${task.id}-activity-panel`}
-            aria-selected={tab === 'activity'}
-            onClick={() => setTab('activity')}
-          >
-            Activity
-          </button>
-        </div>
-
-        {/* Keep the editor mounted so Activity cannot discard its local buffer. */}
-        <div
-          id={`task-${task.id}-details-panel`}
-          className="task-details-section"
-          role="tabpanel"
-          aria-labelledby={`task-${task.id}-details-tab`}
-          hidden={tab !== 'details'}
-        >
-          <div className="task-editor-surface">
-            <TaskProperties
-              task={task}
-              projects={projects}
-              states={states}
-              taskTypes={taskTypes}
-              labels={labels}
-              cycles={cycles}
-              modules={modules}
-              assigneeCandidates={assigneeCandidates}
-              taskCandidates={taskCandidates}
-              canEdit={canEdit}
-              onPatch={onPatch}
-            />
-            {error && (
-              <p className="detail-error" role="alert">
-                {error}
-              </p>
-            )}
-
-            <Suspense
-              fallback={
-                <section className="task-document">
-                  <div className="document-state">Loading editor…</div>
-                </section>
-              }
+        <Suspense
+          fallback={
+            <section
+              className="task-document task-document-contextual"
+              aria-label="Markdown document"
             >
-              <MarkdownDocument
-                serverUrl={serverUrl}
-                token={token}
-                workspaceId={workspaceId}
-                target={{ kind: 'task', id: task.id }}
-                readOnly={!canEdit}
-              />
-            </Suspense>
-          </div>
+              <header className="document-toolbar document-toolbar-pending">
+                <span>Markdown</span>
+                <span className="save-indicator" role="status">
+                  Loading…
+                </span>
+              </header>
+              <div className="document-state">Loading editor…</div>
+            </section>
+          }
+        >
+          <MarkdownDocument
+            serverUrl={serverUrl}
+            token={token}
+            workspaceId={workspaceId}
+            target={{ kind: 'task', id: task.id }}
+            readOnly={!canEdit}
+            documentContext={documentContext}
+          />
+        </Suspense>
 
-          <section
-            className="task-secondary-details"
-            aria-labelledby="task-links-title"
-          >
-            <header>
-              <div>
-                <p className="pane-eyebrow">Structure</p>
-                <h2 id="task-links-title">Subtasks and relations</h2>
-              </div>
-            </header>
+        <section className="task-secondary-details" aria-label="Task structure">
+          <details className="task-structure-disclosure">
+            <summary>
+              <span>Subtasks</span>
+              <span>{task.subtasks.length}</span>
+            </summary>
             <div className="task-link-section">
-              <h3>Subtasks</h3>
               {task.subtasks.length === 0 ? (
                 <p>No subtasks.</p>
               ) : (
@@ -318,8 +289,13 @@ function SelectedTaskDetail({
                 ))
               )}
             </div>
+          </details>
+          <details className="task-structure-disclosure">
+            <summary>
+              <span>Relations</span>
+              <span>{task.relations.length}</span>
+            </summary>
             <div className="task-link-section">
-              <h3>Relations</h3>
               {task.relations.map((relation) => (
                 <div className="task-relation-row" key={relation.task.id}>
                   <button
@@ -404,24 +380,17 @@ function SelectedTaskDetail({
                 </form>
               )}
             </div>
-          </section>
-        </div>
-        {tab === 'activity' && (
-          <div
-            id={`task-${task.id}-activity-panel`}
-            role="tabpanel"
-            aria-labelledby={`task-${task.id}-activity-tab`}
-          >
-            <TaskActivity
-              context={{ serverUrl, token }}
-              workspaceId={workspaceId}
-              taskId={task.id}
-              currentUserId={currentUserId}
-              canComment={canComment}
-              canModerate={canModerate}
-            />
-          </div>
-        )}
+          </details>
+        </section>
+
+        <TaskActivity
+          context={{ serverUrl, token }}
+          workspaceId={workspaceId}
+          taskId={task.id}
+          currentUserId={currentUserId}
+          canComment={canComment}
+          canModerate={canModerate}
+        />
       </div>
     </section>
   );

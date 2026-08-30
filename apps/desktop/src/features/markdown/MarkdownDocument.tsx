@@ -33,6 +33,7 @@ interface MarkdownDocumentProps {
   workspaceId: string;
   target: MarkdownTarget;
   readOnly?: boolean;
+  documentContext?: ReactNode;
 }
 
 const MODE_STORAGE_KEY = 'kanleaf.markdown-mode';
@@ -51,7 +52,13 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
 
   if (document.isPending) {
     return (
-      <DocumentFrame>
+      <DocumentFrame contextual={Boolean(props.documentContext)}>
+        <header className="document-toolbar document-toolbar-pending">
+          <span>Markdown</span>
+          <span className="save-indicator" role="status">
+            Loading…
+          </span>
+        </header>
         <div className="document-state" aria-live="polite">
           Loading document…
         </div>
@@ -60,7 +67,11 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
   }
   if (document.error) {
     return (
-      <DocumentFrame>
+      <DocumentFrame contextual={Boolean(props.documentContext)}>
+        <header className="document-toolbar document-toolbar-pending">
+          <span>Markdown</span>
+          <span className="save-indicator">Unavailable</span>
+        </header>
         <div className="document-state" role="alert">
           <p>{errorMessage(document.error)}</p>
           <button type="button" onClick={() => void document.refetch()}>
@@ -94,6 +105,7 @@ function LoadedMarkdownDocument({
   workspaceId,
   target,
   readOnly = false,
+  documentContext,
 }: LoadedMarkdownDocumentProps) {
   const targetKind = target.kind;
   const targetId = target.id;
@@ -256,7 +268,7 @@ function LoadedMarkdownDocument({
   }
 
   return (
-    <DocumentFrame>
+    <DocumentFrame contextual={Boolean(documentContext)}>
       <header className="document-toolbar">
         <div className="document-modes" aria-label="Document view">
           <ModeButton
@@ -312,6 +324,10 @@ function LoadedMarkdownDocument({
           </div>
         )}
       </header>
+
+      {documentContext && (
+        <div className="document-context">{documentContext}</div>
+      )}
 
       {(saveState === 'conflict' || saveState === 'error') && (
         <div className="document-conflict" role="alert">
@@ -389,9 +405,18 @@ function ModeButton({ label, active, icon, onClick }: ModeButtonProps) {
   );
 }
 
-function DocumentFrame({ children }: { children: ReactNode }) {
+function DocumentFrame({
+  children,
+  contextual = false,
+}: {
+  children: ReactNode;
+  contextual?: boolean;
+}) {
   return (
-    <section className="task-document" aria-labelledby="document-heading">
+    <section
+      className={`task-document${contextual ? ' task-document-contextual' : ''}`}
+      aria-labelledby="document-heading"
+    >
       <h2 id="document-heading" className="sr-only">
         Markdown document
       </h2>

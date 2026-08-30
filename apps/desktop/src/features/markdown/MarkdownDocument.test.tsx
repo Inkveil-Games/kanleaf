@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentSaveCoordinator } from './DocumentSaveCoordinator';
 import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
@@ -24,7 +24,11 @@ vi.mock('@uiw/react-codemirror', () => ({
   ),
 }));
 
-function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
+function renderDocument(
+  fetchMock: ReturnType<typeof vi.fn>,
+  readOnly = false,
+  documentContext?: ReactNode,
+) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -38,6 +42,7 @@ function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
           workspaceId="workspace-1"
           target={{ kind: 'task', id: 'task-1' }}
           readOnly={readOnly}
+          documentContext={documentContext}
         />
         <TransitionControl />
       </DocumentSaveCoordinator>
@@ -48,6 +53,31 @@ function renderDocument(fetchMock: ReturnType<typeof vi.fn>, readOnly = false) {
 describe('MarkdownDocument', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('keeps the view controls above document context and Markdown', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ content: '# Shell body', revision: 'a'.repeat(64) }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    renderDocument(
+      fetchMock,
+      false,
+      <div aria-label="Task properties">Task properties</div>,
+    );
+
+    const editor = await screen.findByLabelText('Markdown source');
+    const toolbar = screen
+      .getByRole('button', { name: 'Live' })
+      .closest('header');
+    const context = screen.getByLabelText('Task properties');
+
+    expect(toolbar).toAppearBefore(context);
+    expect(context).toAppearBefore(editor);
   });
 
   it('previews the current source and saves it explicitly', async () => {

@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type {
@@ -18,7 +19,13 @@ import type {
 import { TaskDetailPane } from './TaskDetailPane';
 
 vi.mock('../markdown/MarkdownDocument', () => ({
-  MarkdownDocument: () => <div>Markdown editor</div>,
+  MarkdownDocument: ({ documentContext }: { documentContext?: ReactNode }) => (
+    <div>
+      <div>Editor shell header</div>
+      {documentContext}
+      <div>Markdown editor</div>
+    </div>
+  ),
 }));
 
 vi.mock('../collaboration/TaskActivity', () => ({
@@ -176,6 +183,7 @@ describe('TaskDetailPane', () => {
       />,
     );
 
+    await screen.findByRole('combobox', { name: 'State' });
     chooseSelectOption('State', 'In Review');
     chooseSelectOption('Task type', 'Bug');
     chooseSelectOption('Priority', 'High');
@@ -210,11 +218,19 @@ describe('TaskDetailPane', () => {
       });
     });
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
-    expect(screen.getByText('Task activity feed')).toBeInTheDocument();
-    expect(screen.getByText('Markdown editor').closest('[hidden]')).toHaveClass(
-      'task-details-section',
-    );
+    const editor = screen.getByText('Markdown editor');
+    const activity = screen.getByText('Task activity feed');
+    expect(
+      screen.queryByRole('tab', { name: 'Details' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Activity' }),
+    ).not.toBeInTheDocument();
+    expect(editor).toAppearBefore(activity);
+    const subtasks = screen.getByText('Subtasks').closest('details');
+    expect(subtasks).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Subtasks'));
+    expect(subtasks).toHaveAttribute('open');
   });
 
   it('renders Project Viewer task metadata without edit actions', () => {

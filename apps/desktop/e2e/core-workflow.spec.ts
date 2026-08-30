@@ -663,7 +663,6 @@ test('delivers collaboration activity through the notification inbox', async ({
   await expect(page.getByLabel('Task title')).toHaveValue(
     'Collaborate securely',
   );
-  await page.getByRole('tab', { name: 'Activity' }).click();
   await expect(
     page.locator('.activity-comment .markdown-preview strong'),
   ).toHaveText('authorization boundary');
