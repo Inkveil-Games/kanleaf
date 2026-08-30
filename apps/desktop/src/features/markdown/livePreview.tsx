@@ -425,9 +425,10 @@ class ListMarkerWidget extends WidgetType {
 
   toDOM() {
     const marker = document.createElement('span');
-    marker.className = 'cm-live-list-marker';
+    const ordered = /^\d/.test(this.source);
+    marker.className = `cm-live-list-marker cm-live-list-marker-${ordered ? 'ordered' : 'unordered'}`;
     marker.ariaHidden = 'true';
-    marker.textContent = /^\d/.test(this.source) ? this.source : '•';
+    marker.textContent = ordered ? this.source : '';
     return marker;
   }
 }

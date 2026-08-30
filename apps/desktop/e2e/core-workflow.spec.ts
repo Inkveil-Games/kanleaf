@@ -55,6 +55,7 @@ async function textGeometry(locator: Locator, text: string) {
         const elementRect = element.getBoundingClientRect();
         return {
           top: textRect.top,
+          left: textRect.left,
           height: textRect.height,
           boxBottom: elementRect.bottom,
           textBottom: textRect.bottom,
@@ -313,6 +314,7 @@ let source_is_markdown = true;
       readingBlock.top - readingRhythm[0].top,
       0,
     );
+    expect(liveBlock.left).toBeCloseTo(readingBlock.left, 0);
   }
   expect(liveRhythm[0].boxBottom - liveRhythm[0].textBottom).toBeCloseTo(
     readingRhythm[0].boxBottom - readingRhythm[0].textBottom,

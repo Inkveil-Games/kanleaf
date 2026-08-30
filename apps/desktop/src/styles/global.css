@@ -4761,7 +4761,7 @@ button.document-tree-toggle:hover {
 
 .document-live .cm-line.cm-live-blockquote {
   position: relative;
-  padding-left: 1em;
+  padding-left: calc(1em + 3px);
 }
 
 .document-live .cm-line.cm-live-blockquote::before {
@@ -4786,8 +4786,18 @@ button.document-tree-toggle:hover {
 .cm-live-list-marker {
   display: inline-block;
   min-width: 1.55em;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   text-align: center;
+}
+
+.cm-live-list-marker-unordered::before {
+  display: inline-block;
+  width: 0.36em;
+  height: 0.36em;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 0.08em;
+  content: '';
 }
 
 .cm-live-task-marker {
