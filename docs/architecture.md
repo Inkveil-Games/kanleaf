@@ -87,8 +87,10 @@ User ──< Session
   access/filter metadata and never becomes a physical vault folder.
 - Task comments store Markdown collaboration records in PostgreSQL, including
   one reply level, structured mentions, immutable prior revisions, and
-  tombstone deletion. Activity is a separate append-only product feed, not an
-  event-sourcing or compliance-audit mechanism.
+  tombstone deletion. Activity is a compact product feed, not an event-sourcing
+  or compliance-audit mechanism. Immediately consecutive events with the same
+  Task, actor, type, and payload coalesce within a rolling one-minute window;
+  comments and different events break that sequence.
 - Subscriptions drive in-app notifications for comments and selected Task
   changes. Assignment, mention, reply, and invitation delivery remains enabled;
   each user may mute routine comment or metadata notifications. Only read state

@@ -143,6 +143,181 @@ async fn project_task(
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn equivalent_consecutive_activity_is_coalesced(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "activity-owner@example.com").await;
+    let (member_token, member_id, _) = register(&app, "activity-member@example.com").await;
+    add_workspace_member(&pool, workspace_id, member_id, "member").await;
+    let (project_id, task_id) = project_task(&app, &owner_token, workspace_id, &[]).await;
+    add_project_member(&pool, workspace_id, project_id, member_id, "contributor").await;
+    let task_uri = format!("/api/workspaces/{workspace_id}/tasks/{task_id}");
+
+    for title in ["First title", "Second title"] {
+        assert_eq!(
+            send(
+                &app,
+                "PATCH",
+                &task_uri,
+                Some(json!({"title": title})),
+                &owner_token,
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+    }
+    let activity_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM task_activity WHERE task_id = $1 AND event_type = 'task_updated' ORDER BY created_at, id",
+    )
+    .bind(task_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(activity_ids.len(), 1);
+    let first_activity_id = activity_ids[0];
+
+    sqlx::query(
+        "UPDATE task_activity SET created_at = now() - interval '2 minutes' WHERE task_id = $1 AND id <> $2",
+    )
+    .bind(task_id)
+    .bind(first_activity_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE task_activity SET created_at = now() - interval '50 seconds' WHERE id = $1",
+    )
+    .bind(first_activity_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"title": "Third title"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT created_at > now() - interval '5 seconds' FROM task_activity WHERE id = $1",
+        )
+        .bind(first_activity_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+
+    create(
+        &app,
+        &owner_token,
+        &format!("{task_uri}/comments"),
+        json!({"body": "This comment ends the activity chain"}),
+    )
+    .await;
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"title": "Fourth title"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+
+    sqlx::query(
+        r#"
+        UPDATE task_activity
+        SET created_at = now() - interval '61 seconds'
+        WHERE id = (
+            SELECT id FROM task_activity
+            WHERE task_id = $1 AND event_type = 'task_updated'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        )
+        "#,
+    )
+    .bind(task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"title": "Fifth title"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"priority": "high"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"title": "Sixth title"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &task_uri,
+            Some(json!({"title": "Member title"})),
+            &member_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+
+    let rows: Vec<(Uuid, Option<Uuid>, Value)> = sqlx::query_as(
+        r#"
+        SELECT id, actor_id, data
+        FROM task_activity
+        WHERE task_id = $1 AND event_type = 'task_updated'
+        ORDER BY created_at, id
+        "#,
+    )
+    .bind(task_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 6);
+    assert!(rows.iter().any(|row| row.0 == first_activity_id));
+    assert_eq!(rows.last().unwrap().1, Some(member_id));
+    assert_eq!(rows.last().unwrap().2, json!({"fields": ["title"]}));
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn comments_enforce_roles_reply_depth_revisions_and_tombstones(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);

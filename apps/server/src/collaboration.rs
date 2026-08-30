@@ -250,6 +250,13 @@ async fn create_comment(
     let mention_ids = unique_mentions(&request.mention_ids)?;
     let project_id = authorize_task(&state.pool, auth.user.id, workspace_id, task_id, true).await?;
     let mut transaction = state.pool.begin().await?;
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&mut *transaction)
+    .await?;
     if let Some(parent_id) = request.parent_id {
         let parent: Option<Option<Uuid>> = sqlx::query_scalar(
             "SELECT parent_id FROM task_comments WHERE workspace_id = $1 AND task_id = $2 AND id = $3 AND deleted_at IS NULL FOR SHARE",
@@ -670,28 +677,50 @@ pub(crate) async fn record_activity(
     event_type: &str,
     data: Value,
 ) -> Result<(), AppError> {
-    if event_type == "document_updated" {
-        let duplicate: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM task_activity
-                WHERE workspace_id = $1 AND task_id = $2 AND actor_id = $3
-                  AND event_type = 'document_updated'
-                  AND created_at > now() - interval '5 minutes'
-            )
-            "#,
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    let coalesced = sqlx::query(
+        r#"
+        WITH latest AS (
+            SELECT id, actor_id, event_type, data, created_at
+            FROM task_activity
+            WHERE workspace_id = $1 AND task_id = $2
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            FOR UPDATE
         )
-        .bind(workspace_id)
-        .bind(task_id)
-        .bind(actor_id)
-        .fetch_one(&mut **transaction)
-        .await?;
-        if duplicate {
-            return Ok(());
-        }
+        UPDATE task_activity AS activity
+        SET created_at = statement_timestamp()
+        FROM latest
+        WHERE activity.id = latest.id
+          AND latest.actor_id = $3
+          AND latest.event_type = $4
+          AND latest.data = $5
+          AND latest.created_at > statement_timestamp() - interval '1 minute'
+          AND NOT EXISTS (
+              SELECT 1 FROM task_comments AS comment
+              WHERE comment.workspace_id = $1 AND comment.task_id = $2
+                AND comment.created_at >= latest.created_at
+          )
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .bind(actor_id)
+    .bind(event_type)
+    .bind(SqlJson(data.clone()))
+    .execute(&mut **transaction)
+    .await?;
+    if coalesced.rows_affected() == 1 {
+        return Ok(());
     }
     sqlx::query(
-        "INSERT INTO task_activity (id, workspace_id, task_id, actor_id, event_type, data) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO task_activity (id, workspace_id, task_id, actor_id, event_type, data, created_at) VALUES ($1, $2, $3, $4, $5, $6, statement_timestamp())",
     )
     .bind(Uuid::new_v4())
     .bind(workspace_id)
