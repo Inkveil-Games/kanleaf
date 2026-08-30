@@ -17,7 +17,35 @@ let faithful = true;
 <script>window.unsafeLivePreview = true</script>
 `;
 
-describe('MarkdownSourceEditor Live Preview', () => {
+const themedSource = `# Calm source
+
+> A **strong** [reference](https://kanleaf.example.com) with \`inline code\`.
+
+\`\`\`typescript
+const ready: boolean = true;
+\`\`\`
+`;
+
+describe('MarkdownSourceEditor', () => {
+  it('highlights Markdown and fenced code with the Kanleaf syntax theme', async () => {
+    const { container } = render(
+      <MarkdownSourceEditor value={themedSource} onChange={vi.fn()} />,
+    );
+    const highlightedText = (className: string) =>
+      Array.from(container.querySelectorAll(className))
+        .map((element) => element.textContent)
+        .join('');
+
+    expect(highlightedText('.cm-syntax-heading')).toContain('Calm source');
+    expect(highlightedText('.cm-syntax-link')).toContain('reference');
+    expect(highlightedText('.cm-syntax-strong')).toContain('strong');
+    expect(highlightedText('.cm-syntax-code')).toContain('inline code');
+    await waitFor(() =>
+      expect(highlightedText('.cm-syntax-keyword')).toContain('const'),
+    );
+    expect(highlightedText('.cm-syntax-type')).toContain('boolean');
+  });
+
   it('renders inactive blocks and reveals their exact source on pointer entry', async () => {
     const { container } = render(
       <MarkdownSourceEditor value={source} onChange={vi.fn()} livePreview />,

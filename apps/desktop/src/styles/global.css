@@ -4634,7 +4634,76 @@ button.document-tree-toggle:hover {
 }
 
 .markdown-editor .cm-activeLine {
-  background: transparent;
+  background: var(--color-editor-active-line);
+}
+
+.markdown-editor .cm-matchingBracket {
+  outline: 1px solid var(--color-focus);
+  background: var(--color-selection);
+}
+
+.markdown-editor .cm-syntax-markup,
+.markdown-editor .cm-syntax-quote {
+  color: var(--color-syntax-markup);
+}
+
+.markdown-editor .cm-syntax-heading {
+  color: var(--color-syntax-heading);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.markdown-editor .cm-syntax-link,
+.markdown-editor .cm-syntax-function {
+  color: var(--color-syntax-link);
+  text-decoration: none;
+}
+
+.markdown-editor .cm-syntax-code {
+  color: var(--color-syntax-code);
+}
+
+.markdown-editor .cm-syntax-number {
+  color: var(--color-syntax-number);
+}
+
+.markdown-editor .cm-syntax-keyword {
+  color: var(--color-syntax-keyword);
+}
+
+.markdown-editor .cm-syntax-type,
+.markdown-editor .cm-syntax-property {
+  color: var(--color-syntax-type);
+}
+
+.markdown-editor .cm-syntax-string {
+  color: var(--color-syntax-string);
+}
+
+.markdown-editor .cm-syntax-comment {
+  color: var(--color-syntax-comment);
+  font-style: italic;
+}
+
+.markdown-editor .cm-syntax-operator {
+  color: var(--color-syntax-operator);
+}
+
+.markdown-editor .cm-syntax-strong {
+  font-weight: 680;
+}
+
+.markdown-editor .cm-syntax-emphasis {
+  font-style: italic;
+}
+
+.markdown-editor .cm-syntax-strikethrough {
+  text-decoration: line-through;
+}
+
+.markdown-editor .cm-syntax-invalid {
+  color: var(--color-danger);
+  font-weight: 620;
 }
 
 .document-live .cm-editor,
@@ -4662,15 +4731,11 @@ button.document-tree-toggle:hover {
 
 .cm-live-heading-1 {
   margin-top: 0.75em;
-  padding-bottom: 0.22em;
-  border-bottom: 1px solid var(--color-border);
   font-size: 1.65rem;
 }
 
 .cm-live-heading-2 {
   margin-top: 0.65em;
-  padding-bottom: 0.18em;
-  border-bottom: 1px solid var(--color-border);
   font-size: 1.3rem;
 }
 
@@ -4700,9 +4765,7 @@ button.document-tree-toggle:hover {
 
 .cm-live-link {
   color: var(--color-accent);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .cm-live-inline-code {
