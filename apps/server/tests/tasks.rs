@@ -8,7 +8,8 @@ use axum::{
 };
 use http::HeaderValue;
 use kanleaf_server::{
-    AppState, domain::VaultStorageName, router, workspace::migrate_workspace_vaults,
+    AppState, domain::VaultStorageName, router, task::recover_projection_jobs,
+    workspace::migrate_workspace_vaults,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -184,6 +185,21 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     assert!(created_source.contains(&format!("Kanleaf ID: {task_id}\n")));
     assert!(created_source.contains("Project:\n  - Kanleaf\n"));
 
+    let renamed_project = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
+            json!({"name": "Kanleaf Core", "identifier": "CORE"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(renamed_project.status(), StatusCode::OK);
+    let renamed_source = fs::read_to_string(&project_document_path).unwrap();
+    assert!(renamed_source.contains("Reference: CORE-1\n"));
+    assert!(renamed_source.contains("Project:\n  - Kanleaf Core\n"));
+
     let project_tasks = app
         .clone()
         .oneshot(empty_request(
@@ -249,10 +265,13 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         ))
         .await
         .unwrap();
-    let base_revision = response_json(opened).await["revision"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let opened = response_json(opened).await;
+    assert_eq!(opened["projection"]["status"], "saved");
+    assert_eq!(
+        opened["projection"]["metadata_version"],
+        opened["projection"]["projected_metadata_version"]
+    );
+    let base_revision = opened["revision"].as_str().unwrap().to_owned();
     let saved = app
         .clone()
         .oneshot(json_request(
@@ -318,6 +337,184 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
             .unwrap()
             .ends_with(markdown)
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn conflicting_external_properties_are_preserved_and_retry_after_repair(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "projection@example.com").await;
+    let task = create_task(
+        &app,
+        &token,
+        workspace_id,
+        json!({"title": "Original title"}),
+    )
+    .await;
+    let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
+    let path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+    let valid_source = fs::read_to_string(&path).unwrap().replacen(
+        "---\n\n",
+        "Custom property:\n  nested: keep-me\n---\n\n",
+        1,
+    );
+    let foreign_id = Uuid::new_v4();
+    let conflicting_source = valid_source.replacen(
+        &format!("Kanleaf ID: {task_id}"),
+        &format!("Kanleaf ID: {foreign_id}"),
+        1,
+    );
+    fs::write(&path, &conflicting_source).unwrap();
+
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+            json!({"title": "Canonical title"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(response_json(updated).await["title"], "Canonical title");
+    assert_eq!(fs::read_to_string(&path).unwrap(), conflicting_source);
+
+    let document = app
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/document"),
+            &token,
+        ))
+        .await
+        .unwrap();
+    let document = response_json(document).await;
+    assert_eq!(document["projection"]["status"], "error");
+    assert_eq!(
+        document["projection"]["message"],
+        "Task properties could not be saved; the Markdown body is unchanged"
+    );
+    let pending: (i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT tasks.metadata_version, tasks.projected_metadata_version,
+               jobs.metadata_version, count(*) OVER ()
+        FROM tasks
+        JOIN task_projection_jobs AS jobs
+          ON jobs.workspace_id = tasks.workspace_id AND jobs.task_id = tasks.id
+        WHERE tasks.workspace_id = $1 AND tasks.id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(pending.0 > pending.1);
+    assert_eq!(pending.0, pending.2);
+    assert_eq!(pending.3, 1);
+
+    fs::write(&path, valid_source).unwrap();
+    recover_projection_jobs(&state).await.unwrap();
+    let repaired = fs::read_to_string(&path).unwrap();
+    assert!(repaired.contains("Title: Canonical title\n"));
+    assert!(repaired.contains("Custom property:\n  nested: keep-me\n"));
+    let job_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM task_projection_jobs WHERE workspace_id = $1 AND task_id = $2",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(job_count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn metadata_update_survives_temporary_vault_failure(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "storage-retry@example.com").await;
+    let task = create_task(
+        &app,
+        &token,
+        workspace_id,
+        json!({"title": "Retry projection"}),
+    )
+    .await;
+    let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
+    let path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+    let unavailable_path = path.with_extension("md.unavailable");
+    fs::rename(&path, &unavailable_path).unwrap();
+
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+            json!({"priority": "urgent"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(response_json(updated).await["priority"], "urgent");
+    let error: Option<String> = sqlx::query_scalar(
+        "SELECT projection_error FROM tasks WHERE workspace_id = $1 AND id = $2",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(error.as_deref(), Some("storage_unavailable"));
+
+    fs::rename(&unavailable_path, &path).unwrap();
+    recover_projection_jobs(&state).await.unwrap();
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("Priority:\n  - Urgent\n")
+    );
+    let versions: (i64, i64, Option<String>) = sqlx::query_as(
+        r#"
+        SELECT metadata_version, projected_metadata_version, projection_error
+        FROM tasks WHERE workspace_id = $1 AND id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(versions.0, versions.1);
+    assert!(versions.2.is_none());
 }
 
 #[sqlx::test(migrations = "./migrations")]

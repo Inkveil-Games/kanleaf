@@ -1,7 +1,14 @@
 mod frontmatter;
 mod model;
 mod planning;
+mod projection;
 mod query_engine;
+
+pub(crate) use projection::{
+    ProjectionHealth, enqueue as enqueue_projection, health as projection_health,
+    initialize as initialize_projection, project_many, project_now,
+};
+pub use projection::{recover_projection_jobs, spawn_projection_worker};
 
 use std::collections::HashSet;
 
@@ -251,6 +258,7 @@ pub(crate) struct DocumentRequest {
 pub(crate) struct DocumentResponse {
     content: String,
     revision: String,
+    projection: ProjectionHealth,
 }
 
 pub(crate) async fn list(
@@ -404,6 +412,7 @@ pub(crate) async fn create(
     .bind(task_number * 1024)
     .execute(&mut *transaction)
     .await?;
+    initialize_projection(&mut transaction, workspace_id, task_id).await?;
     replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
     replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
     replace_cycle(
@@ -459,6 +468,7 @@ pub(crate) async fn create(
         }
         return Err(error.into());
     }
+    project_now(&state, workspace_id, task_id).await;
     let task = find_task(&state.pool, workspace_id, task_id).await?;
     Ok((StatusCode::CREATED, Json(task)))
 }
@@ -679,28 +689,28 @@ pub(crate) async fn update(
         }
         target_parent = None;
     }
+    let mut dependent_task_ids = Vec::new();
     if project_changed {
-        let incompatible_children: bool = sqlx::query_scalar(
+        let incompatible_children: Vec<Uuid> = sqlx::query_scalar(
             r#"
-            SELECT EXISTS(
-                SELECT 1 FROM tasks
-                WHERE workspace_id = $1 AND parent_id = $2
-                  AND project_id IS DISTINCT FROM $3
-                  AND archived_at IS NULL
-            )
+            SELECT id FROM tasks
+            WHERE workspace_id = $1 AND parent_id = $2
+              AND project_id IS DISTINCT FROM $3
+              AND archived_at IS NULL
+            ORDER BY id
             "#,
         )
         .bind(workspace_id)
         .bind(task_id)
         .bind(target_project)
-        .fetch_one(&mut *transaction)
+        .fetch_all(&mut *transaction)
         .await?;
-        if incompatible_children && !request.cleanup_invalid {
+        if !incompatible_children.is_empty() && !request.cleanup_invalid {
             return Err(AppError::Validation(
                 "Move the subtasks too or allow cleanup before moving this Task".to_owned(),
             ));
         }
-        if incompatible_children {
+        if !incompatible_children.is_empty() {
             sqlx::query(
                 "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
             )
@@ -708,6 +718,7 @@ pub(crate) async fn update(
             .bind(task_id)
             .execute(&mut *transaction)
             .await?;
+            dependent_task_ids = incompatible_children;
         }
     }
 
@@ -865,20 +876,36 @@ pub(crate) async fn update(
         )
         .await?;
     }
-    let target_vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
-    let file_update = apply_task_file_update(
-        &state,
-        workspace_id,
-        task_id,
-        &source_vault_row,
-        &target_vault_row,
-    )
-    .await?;
+    let mut projection_task_ids = Vec::with_capacity(dependent_task_ids.len() + 1);
+    projection_task_ids.push(task_id);
+    projection_task_ids.extend(dependent_task_ids);
+    enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
+    let file_update = if project_changed {
+        let target_vault_row =
+            task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
+        Some(
+            apply_task_file_update(
+                &state,
+                workspace_id,
+                task_id,
+                &source_vault_row,
+                &target_vault_row,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     if let Err(error) = transaction.commit().await {
-        rollback_task_file_update(&state, workspace_id, task_id, &file_update).await;
+        if let Some(file_update) = &file_update {
+            rollback_task_file_update(&state, workspace_id, task_id, file_update).await;
+        }
         return Err(error.into());
     }
-    finish_task_file_update(&state, task_id, &file_update).await;
+    if let Some(file_update) = &file_update {
+        finish_task_file_update(&state, task_id, file_update).await;
+    }
+    project_many(&state, workspace_id, &projection_task_ids).await;
     Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
@@ -901,6 +928,13 @@ pub(crate) async fn archive(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task not found".to_owned()));
     }
+    let child_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND parent_id = $2 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     sqlx::query(
         "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
     )
@@ -935,7 +969,12 @@ pub(crate) async fn archive(
         true,
     )
     .await?;
+    let mut projection_task_ids = Vec::with_capacity(child_ids.len() + 1);
+    projection_task_ids.push(task_id);
+    projection_task_ids.extend(child_ids);
+    enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &projection_task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -960,6 +999,13 @@ pub(crate) async fn delete_permanently(
     let task_path = task_vault_row(&mut transaction, workspace_id, task_id, true)
         .await?
         .path()?;
+    let child_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND parent_id = $2 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     let trash = state
         .vault
         .trash_task(workspace_id, task_id, &task_path)
@@ -978,6 +1024,7 @@ pub(crate) async fn delete_permanently(
             .bind(task_id)
             .execute(&mut *transaction)
             .await?;
+        enqueue_projection(&mut transaction, workspace_id, &child_ids).await?;
         transaction.commit().await
     }
     .await;
@@ -998,6 +1045,7 @@ pub(crate) async fn delete_permanently(
         // safer than reporting a failure that could make clients retry the delete.
         warn!(task_id = %task_id, %error, "failed to purge deleted Task document");
     }
+    project_many(&state, workspace_id, &child_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1101,6 +1149,7 @@ pub(crate) async fn bulk_update(
     }
 
     let mut vault_sources = Vec::with_capacity(task_ids.len());
+    let mut dependent_task_ids = Vec::new();
     for task_id in &task_ids {
         let (current_project, task_type_id): (Option<Uuid>, Uuid) = sqlx::query_as(
             r#"
@@ -1157,15 +1206,17 @@ pub(crate) async fn bulk_update(
                 }
                 Err(error) => return Err(error),
             }
-            cleanup_or_reject_move(
-                &mut transaction,
-                workspace_id,
-                *task_id,
-                target_project,
-                &task_ids,
-                request.cleanup_invalid,
-            )
-            .await?;
+            dependent_task_ids.extend(
+                cleanup_or_reject_move(
+                    &mut transaction,
+                    workspace_id,
+                    *task_id,
+                    target_project,
+                    &task_ids,
+                    request.cleanup_invalid,
+                )
+                .await?,
+            );
         }
         sqlx::query(
             r#"
@@ -1214,20 +1265,27 @@ pub(crate) async fn bulk_update(
         )
         .await?;
     }
+    let mut projection_task_ids = Vec::with_capacity(task_ids.len() + dependent_task_ids.len());
+    projection_task_ids.extend(task_ids.iter().copied());
+    projection_task_ids.extend(dependent_task_ids);
+    enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
     let mut file_updates = Vec::with_capacity(vault_sources.len());
-    for (task_id, source) in vault_sources {
-        let target = match task_vault_row(&mut transaction, workspace_id, task_id, false).await {
-            Ok(target) => target,
-            Err(error) => {
-                rollback_task_file_updates(&state, workspace_id, &file_updates).await;
-                return Err(error);
-            }
-        };
-        match apply_task_file_update(&state, workspace_id, task_id, &source, &target).await {
-            Ok(update) => file_updates.push((task_id, update)),
-            Err(error) => {
-                rollback_task_file_updates(&state, workspace_id, &file_updates).await;
-                return Err(error);
+    if request.project_id.is_some() {
+        for (task_id, source) in vault_sources {
+            let target = match task_vault_row(&mut transaction, workspace_id, task_id, false).await
+            {
+                Ok(target) => target,
+                Err(error) => {
+                    rollback_task_file_updates(&state, workspace_id, &file_updates).await;
+                    return Err(error);
+                }
+            };
+            match apply_task_file_update(&state, workspace_id, task_id, &source, &target).await {
+                Ok(update) => file_updates.push((task_id, update)),
+                Err(error) => {
+                    rollback_task_file_updates(&state, workspace_id, &file_updates).await;
+                    return Err(error);
+                }
             }
         }
     }
@@ -1236,6 +1294,7 @@ pub(crate) async fn bulk_update(
         return Err(error.into());
     }
     finish_task_file_updates(&state, &file_updates).await;
+    project_many(&state, workspace_id, &projection_task_ids).await;
     let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
     hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
     Ok(Json(tasks))
@@ -1405,9 +1464,11 @@ pub(crate) async fn read_document(
         .map_err(map_frontmatter_error)?
         .to_owned();
     transaction.commit().await?;
+    let projection = projection_health(&state, workspace_id, task_id).await?;
     Ok(Json(DocumentResponse {
         content,
         revision: document.revision,
+        projection,
     }))
 }
 
@@ -1461,9 +1522,11 @@ pub(crate) async fn write_document(
     )
     .await?;
     transaction.commit().await?;
+    let projection = projection_health(&state, workspace_id, task_id).await?;
     Ok(Json(DocumentResponse {
         content: request.content,
         revision,
+        projection,
     }))
 }
 
@@ -2097,7 +2160,7 @@ async fn cleanup_or_reject_move(
     target_project: Option<Uuid>,
     moving_task_ids: &[Uuid],
     cleanup: bool,
-) -> Result<(), AppError> {
+) -> Result<Vec<Uuid>, AppError> {
     let current_assignees = task_assignee_ids(transaction, workspace_id, task_id).await?;
     let valid = valid_assignees(
         transaction,
@@ -2122,22 +2185,21 @@ async fn cleanup_or_reject_move(
     let parent_invalid = parent.is_some_and(|(parent_id, parent_project)| {
         parent_project != target_project && !moving_task_ids.contains(&parent_id)
     });
-    let child_invalid: bool = sqlx::query_scalar(
+    let invalid_child_ids: Vec<Uuid> = sqlx::query_scalar(
         r#"
-        SELECT EXISTS(
-            SELECT 1 FROM tasks
-            WHERE workspace_id = $1 AND parent_id = $2
-              AND project_id IS DISTINCT FROM $3
-              AND NOT (id = ANY($4))
-              AND archived_at IS NULL
-        )
+        SELECT id FROM tasks
+        WHERE workspace_id = $1 AND parent_id = $2
+          AND project_id IS DISTINCT FROM $3
+          AND NOT (id = ANY($4))
+          AND archived_at IS NULL
+        ORDER BY id
         "#,
     )
     .bind(workspace_id)
     .bind(task_id)
     .bind(target_project)
     .bind(moving_task_ids)
-    .fetch_one(&mut **transaction)
+    .fetch_all(&mut **transaction)
     .await?;
     let has_planning_links: bool = sqlx::query_scalar(
         r#"
@@ -2156,7 +2218,7 @@ async fn cleanup_or_reject_move(
     .await?;
     if valid.len() != current_assignees.len()
         || parent_invalid
-        || child_invalid
+        || !invalid_child_ids.is_empty()
         || has_planning_links
     {
         if !cleanup {
@@ -2176,7 +2238,7 @@ async fn cleanup_or_reject_move(
             .execute(&mut **transaction)
             .await?;
         }
-        if child_invalid {
+        if !invalid_child_ids.is_empty() {
             sqlx::query(
                 "UPDATE tasks SET parent_id = NULL, updated_at = now() WHERE workspace_id = $1 AND parent_id = $2",
             )
@@ -2190,7 +2252,7 @@ async fn cleanup_or_reject_move(
             delete_module_assignments(transaction, workspace_id, task_id).await?;
         }
     }
-    Ok(())
+    Ok(invalid_child_ids)
 }
 
 pub(super) fn search_pattern(value: &str) -> Result<String, AppError> {

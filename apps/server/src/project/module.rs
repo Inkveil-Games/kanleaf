@@ -15,6 +15,7 @@ use crate::{
     domain::{ProjectDescription, ResourceName},
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_admin, require_project_editor},
+    task::{enqueue_projection, project_many},
 };
 
 use super::planning::{PlanningFeature, lock_feature, require_feature, validate_lead};
@@ -246,6 +247,22 @@ async fn update(
         PlanningFeature::Modules,
     )
     .await?;
+    let task_ids = if name.is_some() {
+        sqlx::query_scalar(
+            r#"
+            SELECT task_id FROM task_module_assignments
+            WHERE workspace_id = $1 AND project_id = $2 AND module_id = $3
+            ORDER BY task_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(module_id)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
     let current: (Option<Uuid>, Option<NaiveDate>, Option<NaiveDate>) = sqlx::query_as(
         r#"
         SELECT lead_user_id, start_date, due_date FROM project_modules
@@ -287,7 +304,9 @@ async fn update(
     .execute(&mut *transaction)
     .await;
     map_unique_result(result)?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(
         find_module(&state.pool, workspace_id, project_id, module_id).await?,
     ))
@@ -308,6 +327,18 @@ async fn archive(
         PlanningFeature::Modules,
     )
     .await?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT task_id FROM task_module_assignments
+        WHERE workspace_id = $1 AND project_id = $2 AND module_id = $3
+        ORDER BY task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(module_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     sqlx::query(
         "DELETE FROM task_module_assignments WHERE workspace_id = $1 AND project_id = $2 AND module_id = $3",
     )
@@ -327,7 +358,9 @@ async fn archive(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Module not found".to_owned()));
     }
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

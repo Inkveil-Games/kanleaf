@@ -26,8 +26,8 @@ use crate::{
     },
     error::{AppError, is_unique_violation},
     task::{
-        AppliedTaskFileUpdate, TaskVaultRow, apply_task_file_update, finish_task_file_update,
-        rollback_task_file_update, task_vault_row,
+        AppliedTaskFileUpdate, TaskVaultRow, apply_task_file_update, enqueue_projection,
+        finish_task_file_update, project_many, rollback_task_file_update, task_vault_row,
     },
     task_config::{validate_state_assignment, validate_task_type_assignment},
     vault::{LibraryMove, LibraryPath},
@@ -317,6 +317,7 @@ async fn update(
         .map(ProjectDescription::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let projects_task_metadata = name.is_some() || identifier.is_some();
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
 
     let mut transaction = state.pool.begin().await?;
@@ -427,7 +428,20 @@ async fn update(
             .await?;
         }
     }
+    let task_ids = if projects_task_metadata {
+        sqlx::query_scalar(
+            "SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2 ORDER BY id",
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(
         select_project(&state.pool, auth.user.id, workspace_id, project_id).await?,
     ))
@@ -455,6 +469,12 @@ async fn archive(
     }
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
     move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
+    let task_ids = vault_sources
+        .tasks
+        .iter()
+        .map(|(task_id, _)| *task_id)
+        .collect::<Vec<_>>();
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     let vault_changes =
         apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
     if let Err(error) = transaction.commit().await {
@@ -462,6 +482,7 @@ async fn archive(
         return Err(error.into());
     }
     finish_project_vault_changes(&state, &vault_changes).await;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -493,6 +514,12 @@ async fn delete_project(
     let vault_sources = project_vault_sources(&mut transaction, workspace_id, project_id).await?;
     move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
     move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
+    let task_ids = vault_sources
+        .tasks
+        .iter()
+        .map(|(task_id, _)| *task_id)
+        .collect::<Vec<_>>();
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     let vault_changes =
         apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
     sqlx::query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2")
@@ -505,6 +532,7 @@ async fn delete_project(
         return Err(error.into());
     }
     finish_project_vault_changes(&state, &vault_changes).await;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

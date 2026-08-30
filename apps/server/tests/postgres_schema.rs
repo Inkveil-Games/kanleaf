@@ -260,6 +260,32 @@ async fn portable_vault_identity_migration_backfills_existing_rows(pool: PgPool)
             .execute(&pool)
             .await;
     assert!(unsupported_layout.is_err());
+
+    sqlx::raw_sql(include_str!("../migrations/0013_vault_projection.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let projection: (i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT tasks.metadata_version, tasks.projected_metadata_version,
+               jobs.metadata_version
+        FROM tasks
+        JOIN task_projection_jobs AS jobs
+          ON jobs.workspace_id = tasks.workspace_id AND jobs.task_id = tasks.id
+        WHERE tasks.id = $1
+        "#,
+    )
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(projection, (1, 0, 1));
+    let invalid_projection =
+        sqlx::query("UPDATE tasks SET projected_metadata_version = 2 WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+    assert!(invalid_projection.is_err());
 }
 
 #[sqlx::test(migrations = false)]

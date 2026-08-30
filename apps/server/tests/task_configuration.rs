@@ -1,6 +1,6 @@
 #![cfg(feature = "postgres-tests")]
 
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 use axum::{
     body::{Body, to_bytes},
@@ -314,9 +314,17 @@ async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
         json!({"name": "Bug", "icon": "bug", "color": "#DC2626", "description": "Defect"}),
     )
     .await;
+    let backend = create_resource(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/labels"),
+        json!({"name": "Backend", "color": "#22A06B"}),
+    )
+    .await;
     let ready_id = ready["id"].as_str().unwrap();
     let queued_id = queued["id"].as_str().unwrap();
     let bug_id = bug["id"].as_str().unwrap();
+    let backend_id = backend["id"].as_str().unwrap();
 
     let task = create_resource(
         &app,
@@ -326,7 +334,8 @@ async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
             "title": "Fix crash",
             "state_id": ready_id,
             "task_type_id": bug_id,
-            "priority": "urgent"
+            "priority": "urgent",
+            "label_ids": [backend_id]
         }),
     )
     .await;
@@ -334,6 +343,38 @@ async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
     assert_eq!(task["state"]["name"], "Ready");
     assert_eq!(task["task_type"]["name"], "Bug");
     assert_eq!(task["priority"], "urgent");
+    let task_path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+
+    for (uri, body) in [
+        (
+            format!("/api/workspaces/{workspace_id}/states/{ready_id}"),
+            json!({"name": "Ready for QA"}),
+        ),
+        (
+            format!("/api/workspaces/{workspace_id}/task-types/{bug_id}"),
+            json!({"name": "Defect"}),
+        ),
+        (
+            format!("/api/workspaces/{workspace_id}/labels/{backend_id}"),
+            json!({"name": "Server"}),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("PATCH", &uri, Some(body), &token))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let renamed_source = fs::read_to_string(&task_path).unwrap();
+    assert!(renamed_source.contains("State:\n  - Ready for QA\n"));
+    assert!(renamed_source.contains("Type:\n  - Defect\n"));
+    assert!(renamed_source.contains("Labels:\n  - Server\n"));
 
     let missing_replacement = app
         .clone()
@@ -409,6 +450,9 @@ async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
     let updated_task = response_json(updated_task).await;
     assert_eq!(updated_task["state"]["id"], queued_id);
     assert_eq!(updated_task["task_type"]["id"], protected_type_id);
+    let replaced_source = fs::read_to_string(task_path).unwrap();
+    assert!(replaced_source.contains("State:\n  - Queued\n"));
+    assert!(replaced_source.contains("Type:\n  - Task\n"));
 
     let other_data_dir = TempDir::new().unwrap();
     let other_app = test_app(pool, &other_data_dir);

@@ -9,7 +9,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::{AppState, auth::AuthenticatedUser, error::AppError};
+use crate::{
+    AppState,
+    auth::AuthenticatedUser,
+    error::AppError,
+    task::{enqueue_projection, project_many},
+};
 
 use super::{
     AssignableWorkspaceRole, WorkspaceRole, require_workspace_admin, require_workspace_member,
@@ -97,7 +102,30 @@ async fn update(
             "Transfer ownership before changing the Owner role".to_owned(),
         ));
     }
-    if current == WorkspaceRole::Admin && !request.role.is_admin() {
+    let clears_project_assignees = current == WorkspaceRole::Admin && !request.role.is_admin();
+    let clears_inbox_assignees = request.role == AssignableWorkspaceRole::Guest;
+    let task_ids: Vec<Uuid> = if clears_project_assignees || clears_inbox_assignees {
+        sqlx::query_scalar(
+            r#"
+            SELECT assignees.task_id
+            FROM task_assignees AS assignees
+            JOIN tasks ON tasks.id = assignees.task_id
+            WHERE assignees.workspace_id = $1 AND assignees.user_id = $2
+              AND (($3 AND tasks.project_id IS NOT NULL)
+                   OR ($4 AND tasks.project_id IS NULL))
+            ORDER BY assignees.task_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .bind(clears_project_assignees)
+        .bind(clears_inbox_assignees)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
+    if clears_project_assignees {
         clear_project_references(&mut transaction, workspace_id, user_id).await?;
         sqlx::query(
             r#"
@@ -115,7 +143,7 @@ async fn update(
         .execute(&mut *transaction)
         .await?;
     }
-    if request.role == AssignableWorkspaceRole::Guest {
+    if clears_inbox_assignees {
         sqlx::query(
             r#"
             DELETE FROM task_assignees
@@ -151,7 +179,9 @@ async fn update(
     .bind(user_id)
     .execute(&mut *transaction)
     .await?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
 
     Ok(Json(
         select_member(&state.pool, workspace_id, user_id).await?,
@@ -178,6 +208,13 @@ async fn remove(
             "The Workspace Owner cannot be removed".to_owned(),
         ));
     }
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT task_id FROM task_assignees WHERE workspace_id = $1 AND user_id = $2 ORDER BY task_id",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     clear_project_references(&mut transaction, workspace_id, user_id).await?;
     sqlx::query("DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2")
         .bind(workspace_id)
@@ -185,7 +222,9 @@ async fn remove(
         .execute(&mut *transaction)
         .await?;
     select_active_workspace_after_departure(&mut transaction, user_id, workspace_id).await?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -212,6 +251,13 @@ async fn leave(
             "Join or create another Workspace before leaving this one".to_owned(),
         ));
     }
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT task_id FROM task_assignees WHERE workspace_id = $1 AND user_id = $2 ORDER BY task_id",
+    )
+    .bind(workspace_id)
+    .bind(auth.user.id)
+    .fetch_all(&mut *transaction)
+    .await?;
 
     clear_project_references(&mut transaction, workspace_id, auth.user.id).await?;
     sqlx::query("DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2")
@@ -220,7 +266,9 @@ async fn leave(
         .execute(&mut *transaction)
         .await?;
     select_active_workspace_after_departure(&mut transaction, auth.user.id, workspace_id).await?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

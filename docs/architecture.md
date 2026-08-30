@@ -181,7 +181,17 @@ Task files contain canonical Obsidian-compatible YAML properties followed by the
 user's source-faithful Markdown body. Structured metadata remains canonical in
 PostgreSQL; Kanleaf patches only its owned property keys and preserves unknown
 properties, comments, body formatting, and whitespace. Task document endpoints
-expose only the body, while their SHA-256 revision covers the complete file.
+expose only the body and projection health, while their SHA-256 revision covers
+the complete file.
+
+Every structured metadata mutation increments a per-Task version and coalesces
+one projection job in the same PostgreSQL transaction. After commit, the
+request attempts the atomic YAML patch immediately. A bounded Tokio worker
+retries temporary failures, and startup drains jobs left by a crash before the
+HTTP listener is opened. Vocabulary, Project, Cycle, Module, hierarchy, and
+membership changes fan out through the same queue. A failed metadata-only
+projection does not roll back canonical PostgreSQL state or overwrite invalid
+external YAML; the stored health state makes that divergence explicit.
 
 Later Task or Project title edits do not rename files. A Task scope change moves
 its stable basename between `Todo` roots. Wiki reparenting or scope changes move

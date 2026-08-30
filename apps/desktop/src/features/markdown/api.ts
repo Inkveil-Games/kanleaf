@@ -15,6 +15,12 @@ export interface MarkdownTarget {
 export interface MarkdownContent {
   content: string;
   revision: string;
+  projection?: {
+    status: 'saved' | 'pending' | 'error';
+    metadata_version: number;
+    projected_metadata_version: number;
+    message: string | null;
+  };
 }
 
 export function readMarkdownDocument(context: DocumentContext) {

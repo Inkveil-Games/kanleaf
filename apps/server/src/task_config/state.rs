@@ -17,6 +17,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{HexColor, ResourceName, TaskStateGroup},
     error::{AppError, is_unique_violation},
+    task::{enqueue_projection, project_many},
     workspace::require_workspace_admin,
 };
 
@@ -235,7 +236,20 @@ pub(super) async fn update(
         }
         Err(error) => return Err(error.into()),
     };
+    let task_ids = if name.is_some() {
+        sqlx::query_scalar(
+            "SELECT id FROM tasks WHERE workspace_id = $1 AND state_id = $2 ORDER BY id",
+        )
+        .bind(workspace_id)
+        .bind(state_id)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(updated))
 }
 
@@ -322,6 +336,13 @@ pub(super) async fn remove(
             "This state is in use; provide an active replacement state".to_owned(),
         ));
     }
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE workspace_id = $1 AND state_id = $2 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .bind(state_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     if let Some(replacement_id) = query.replacement_id {
         if replacement_id == state_id {
             return Err(AppError::Validation(
@@ -373,7 +394,9 @@ pub(super) async fn remove(
         .bind(workspace_id)
         .execute(&mut *transaction)
         .await?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

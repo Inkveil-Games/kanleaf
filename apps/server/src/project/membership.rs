@@ -14,6 +14,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{ProjectRole, ProjectVisibility},
     error::{AppError, is_unique_violation},
+    task::{enqueue_projection, project_many},
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -192,6 +193,21 @@ async fn remove(
     let mut transaction = state.pool.begin().await?;
     lock_project(&mut transaction, workspace_id, project_id).await?;
     reject_lead_change(&mut transaction, workspace_id, project_id, user_id, true).await?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT assignees.task_id
+        FROM task_assignees AS assignees
+        JOIN tasks ON tasks.id = assignees.task_id
+        WHERE assignees.workspace_id = $1 AND assignees.user_id = $2
+          AND tasks.project_id = $3
+        ORDER BY assignees.task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .bind(project_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     sqlx::query(
         r#"
         UPDATE projects SET default_assignee_id = NULL, updated_at = now()
@@ -230,7 +246,9 @@ async fn remove(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Project member not found".to_owned()));
     }
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

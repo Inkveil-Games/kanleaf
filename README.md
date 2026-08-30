@@ -39,6 +39,8 @@ Markdown document.
 - Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
 - SHA-256 revision checks that preserve local Markdown when an external editor
   changes the vault file
+- Durable metadata projection jobs that preserve custom YAML and retry after
+  temporary vault failures
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
 - Build-time server configuration for local, LAN, or HTTPS deployments

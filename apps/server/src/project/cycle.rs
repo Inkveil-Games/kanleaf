@@ -15,6 +15,7 @@ use crate::{
     domain::{ProjectDescription, ResourceName},
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_admin, require_project_editor},
+    task::{enqueue_projection, project_many},
 };
 
 use super::planning::{PlanningFeature, lock_feature, require_feature};
@@ -342,7 +343,25 @@ async fn update(
     .execute(&mut *transaction)
     .await;
     map_unique_result(result, "Cycle name is already in use")?;
+    let task_ids = if name.is_some() {
+        sqlx::query_scalar(
+            r#"
+            SELECT task_id FROM task_cycle_assignments
+            WHERE workspace_id = $1 AND project_id = $2 AND cycle_id = $3
+            ORDER BY task_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(cycle_id)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(
         find_cycle(&state.pool, workspace_id, project_id, cycle_id).await?,
     ))
@@ -384,6 +403,24 @@ async fn complete(
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Active Cycle not found".to_owned()))?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT assignments.task_id
+        FROM task_cycle_assignments AS assignments
+        JOIN tasks ON tasks.id = assignments.task_id
+        JOIN task_states AS states ON states.id = tasks.state_id
+        WHERE assignments.workspace_id = $1
+          AND assignments.project_id = $2
+          AND assignments.cycle_id = $3
+          AND states.state_group NOT IN ('done', 'canceled')
+        ORDER BY assignments.task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(cycle_id)
+    .fetch_all(&mut *transaction)
+    .await?;
 
     if let Some(target_id) = request.transfer_cycle_id {
         let target_start_date: NaiveDate = sqlx::query_scalar(
@@ -451,7 +488,9 @@ async fn complete(
     .bind(cycle_id)
     .execute(&mut *transaction)
     .await?;
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(
         find_cycle(&state.pool, workspace_id, project_id, cycle_id).await?,
     ))
@@ -472,6 +511,18 @@ async fn archive(
         PlanningFeature::Cycles,
     )
     .await?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT task_id FROM task_cycle_assignments
+        WHERE workspace_id = $1 AND project_id = $2 AND cycle_id = $3
+        ORDER BY task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(cycle_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     sqlx::query(
         "DELETE FROM task_cycle_assignments WHERE workspace_id = $1 AND project_id = $2 AND cycle_id = $3",
     )
@@ -491,7 +542,9 @@ async fn archive(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Cycle not found".to_owned()));
     }
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

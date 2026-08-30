@@ -6,6 +6,7 @@ use kanleaf_server::{
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
     router,
+    task::{recover_projection_jobs, spawn_projection_worker},
     workspace::migrate_workspace_vaults,
 };
 use sqlx::postgres::PgPoolOptions;
@@ -43,11 +44,15 @@ async fn main() -> anyhow::Result<()> {
     migrate_workspace_vaults(&state)
         .await
         .context("failed to migrate legacy Workspace vaults")?;
+    recover_projection_jobs(&state)
+        .await
+        .context("failed to recover pending Task property projections")?;
 
     let listener = tokio::net::TcpListener::bind(config.bind_address)
         .await
         .context("failed to bind server address")?;
     let address = listener.local_addr()?;
+    spawn_projection_worker(state.clone());
     let app = router(state, config.cors_origins);
 
     info!(%address, "Kanleaf server listening");

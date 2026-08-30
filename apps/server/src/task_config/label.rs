@@ -12,6 +12,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{ConfigurationDescription, HexColor, ResourceName},
     error::{AppError, is_unique_violation},
+    task::{enqueue_projection, project_many},
     workspace::require_workspace_admin,
 };
 
@@ -133,6 +134,7 @@ pub(super) async fn update(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
+    let mut transaction = state.pool.begin().await?;
     let updated = sqlx::query_as::<_, TaskLabelResponse>(
         r#"
         UPDATE task_labels
@@ -156,16 +158,37 @@ pub(super) async fn update(
     .bind(request.archived)
     .bind(label_id)
     .bind(workspace_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *transaction)
     .await;
-    match updated {
-        Ok(Some(updated)) => Ok(Json(updated)),
-        Ok(None) => Err(AppError::NotFound("Task label not found".to_owned())),
-        Err(error) if is_unique_violation(&error) => Err(AppError::Conflict(
-            "An active label already uses this name".to_owned(),
-        )),
-        Err(error) => Err(error.into()),
-    }
+    let updated = match updated {
+        Ok(Some(updated)) => updated,
+        Ok(None) => return Err(AppError::NotFound("Task label not found".to_owned())),
+        Err(error) if is_unique_violation(&error) => {
+            return Err(AppError::Conflict(
+                "An active label already uses this name".to_owned(),
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let task_ids = if name.is_some() {
+        sqlx::query_scalar(
+            r#"
+            SELECT task_id FROM task_label_assignments
+            WHERE workspace_id = $1 AND label_id = $2
+            ORDER BY task_id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(label_id)
+        .fetch_all(&mut *transaction)
+        .await?
+    } else {
+        Vec::new()
+    };
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
+    transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
+    Ok(Json(updated))
 }
 
 pub(super) async fn remove(
@@ -175,13 +198,28 @@ pub(super) async fn remove(
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, label_id)) = path.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    let task_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT task_id FROM task_label_assignments
+        WHERE workspace_id = $1 AND label_id = $2
+        ORDER BY task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(label_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     let result = sqlx::query("DELETE FROM task_labels WHERE id = $1 AND workspace_id = $2")
         .bind(label_id)
         .bind(workspace_id)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Task label not found".to_owned()));
     }
+    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
+    transaction.commit().await?;
+    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }

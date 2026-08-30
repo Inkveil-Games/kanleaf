@@ -1,6 +1,6 @@
 #![cfg(feature = "postgres-tests")]
 
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 use axum::{
     Router,
@@ -257,6 +257,41 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         }),
     )
     .await;
+
+    let renamed_cycle = send(
+        &app,
+        "PATCH",
+        &format!("{cycles_uri}/{current_id}"),
+        Some(json!({"name": "Sprint One"})),
+        &contributor_token,
+    )
+    .await;
+    assert_eq!(renamed_cycle.status(), StatusCode::OK);
+    let renamed_module = send(
+        &app,
+        "PATCH",
+        &format!("{modules_uri}/{backend_id}"),
+        Some(json!({"name": "Backend Core"})),
+        &contributor_token,
+    )
+    .await;
+    assert_eq!(renamed_module.status(), StatusCode::OK);
+    let task_source = fs::read_to_string(
+        data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string())
+            .join("Projects")
+            .join(project["storage_name"].as_str().unwrap())
+            .join("Todo")
+            .join(format!(
+                "{}.md",
+                incomplete["storage_name"].as_str().unwrap()
+            )),
+    )
+    .unwrap();
+    assert!(task_source.contains("Cycle:\n  - Sprint One\n"));
+    assert!(task_source.contains("Modules:\n  - Backend Core\n  - Interface\n"));
 
     let complete = send(
         &app,
