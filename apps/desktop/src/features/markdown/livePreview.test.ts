@@ -60,6 +60,21 @@ describe('activeLogicalBlockRanges', () => {
     ]);
   });
 
+  it('keeps a cursor at the visual end of a line in that line block', () => {
+    const listSource = '- [x] Parent item';
+    const listEnd = fixture.indexOf(listSource) + listSource.length;
+    const [listItem] = activeLogicalBlockRanges(stateAt(listEnd));
+    expect(fixture.slice(listItem.from, listItem.to)).toBe(listSource);
+
+    const firstParagraphLine = 'First **paragraph** spans';
+    const paragraphLineEnd =
+      fixture.indexOf(firstParagraphLine) + firstParagraphLine.length;
+    const [paragraph] = activeLogicalBlockRanges(stateAt(paragraphLineEnd));
+    expect(fixture.slice(paragraph.from, paragraph.to)).toBe(
+      'First **paragraph** spans\ntwo source lines.',
+    );
+  });
+
   it('supports multiple selections without merging unrelated blocks', () => {
     const heading = fixture.indexOf('Architecture');
     const code = fixture.indexOf('source =');

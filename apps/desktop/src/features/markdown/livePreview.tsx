@@ -306,7 +306,8 @@ function logicalBlockAt(
   state: EditorState,
   position: number,
 ): SourceRange | null {
-  const direction = position === state.doc.length ? -1 : 1;
+  const line = state.doc.lineAt(position);
+  const direction = position > line.from && position === line.to ? -1 : 1;
   let node: MarkdownNode | null = syntaxTree(state).resolveInner(
     position,
     direction,
@@ -322,7 +323,6 @@ function logicalBlockAt(
     node = node.parent;
   }
   if (listItem) {
-    const line = state.doc.lineAt(position);
     return { from: line.from, to: line.to };
   }
   return leaf ? { from: leaf.from, to: leaf.to } : null;

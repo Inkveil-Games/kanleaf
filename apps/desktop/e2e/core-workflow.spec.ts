@@ -178,6 +178,13 @@ let source_is_markdown = true;
   );
   await pageSource.fill(pageMarkdown);
   await pageSource.press('Control+Home');
+  const liveTodoLine = page
+    .locator('.library-document-editor .cm-line')
+    .filter({ hasText: 'Ship Live Preview' });
+  await liveTodoLine.click();
+  await expect(liveTodoLine).toHaveClass(/cm-live-source-line/);
+  await expect(liveTodoLine).toContainText('- [ ] Ship Live Preview');
+  await pageSource.press('Control+Home');
   const liveHeading = page.locator(
     '.library-document-editor .cm-live-heading-1',
   );
