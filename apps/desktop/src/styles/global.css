@@ -3624,6 +3624,11 @@ kbd {
   content: '';
 }
 
+.activity-feed
+  > :is(.activity-event, .activity-comment):has(+ .activity-comment)::after {
+  bottom: calc(-1 * var(--activity-feed-gap) - 18px);
+}
+
 .activity-event p {
   margin: 0;
 }
@@ -3662,13 +3667,10 @@ kbd {
 .activity-comment::before {
   position: absolute;
   z-index: 1;
-  top: 14px;
-  left: -27px;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--color-accent);
-  border-radius: 50%;
-  background: var(--color-surface);
+  top: 18px;
+  left: -23px;
+  width: 23px;
+  border-top: 1px dashed var(--color-border);
   content: '';
 }
 
@@ -3677,7 +3679,8 @@ kbd {
 }
 
 .activity-comment-reply::before {
-  left: -51px;
+  left: -47px;
+  width: 47px;
 }
 
 .activity-feed > .activity-comment-reply:not(:last-child)::after {
