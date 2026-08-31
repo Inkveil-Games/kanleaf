@@ -57,36 +57,40 @@ function AccessPolicyForm({
   initialPolicy: HostAccessPolicy;
 }) {
   const queryClient = useQueryClient();
-  const initialDraft = draftPolicy(initialPolicy, hostEmail);
-  const [baseline, setBaseline] = useState(initialDraft);
-  const [restricted, setRestricted] = useState(initialDraft.restricted);
-  const [allowedEmails, setAllowedEmails] = useState(
-    initialDraft.allowed_emails,
-  );
+  const serverPolicy = draftPolicy(initialPolicy, hostEmail);
+  const [policyDraft, setPolicyDraft] = useState<PolicyDraft | null>(null);
+  const policy = policyDraft?.policy ?? serverPolicy;
+  const restricted = policy.restricted;
+  const allowedEmails = policy.allowed_emails;
   const [emailDraft, setEmailDraft] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [state, setState] = useState<ActionState>({ status: 'idle' });
   const saving = state.status === 'saving';
-  const dirty =
-    restricted !== baseline.restricted ||
-    !sameEmailSet(allowedEmails, baseline.allowed_emails);
+  const policyDirty = Boolean(
+    policyDraft && !samePolicy(policyDraft.policy, policyDraft.baseline),
+  );
+  const dirty = policyDirty || emailDraft.trim().length > 0;
+
+  function stagePolicy(nextPolicy: HostAccessPolicy) {
+    setPolicyDraft((current) => {
+      const baseline = current?.baseline ?? serverPolicy;
+      return samePolicy(nextPolicy, baseline)
+        ? null
+        : { baseline, policy: nextPolicy };
+    });
+  }
 
   function addEmail() {
-    const parsed = normalizeDraftEmail(emailDraft);
+    const parsed = validateNewEmail(emailDraft, hostEmail, allowedEmails);
     if ('error' in parsed) {
       setEmailError(parsed.error);
       return;
     }
-    if (parsed.email === hostEmail.trim().toLowerCase()) {
-      setEmailError('The Host account is already always allowed');
-      return;
-    }
-    if (allowedEmails.includes(parsed.email)) {
-      setEmailError('This email is already approved');
-      return;
-    }
 
-    setAllowedEmails((current) => [...current, parsed.email]);
+    stagePolicy({
+      restricted,
+      allowed_emails: [...allowedEmails, parsed.email],
+    });
     setEmailDraft('');
     setEmailError(null);
     setState({ status: 'idle' });
@@ -99,15 +103,15 @@ function AccessPolicyForm({
   }
 
   function removeEmail(email: string) {
-    setAllowedEmails((current) =>
-      current.filter((candidate) => candidate !== email),
-    );
+    stagePolicy({
+      restricted,
+      allowed_emails: allowedEmails.filter((candidate) => candidate !== email),
+    });
     setState({ status: 'idle' });
   }
 
   function discard() {
-    setRestricted(baseline.restricted);
-    setAllowedEmails(baseline.allowed_emails);
+    setPolicyDraft(null);
     setEmailDraft('');
     setEmailError(null);
     setState({ status: 'idle' });
@@ -116,6 +120,17 @@ function AccessPolicyForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!dirty || saving) return;
+
+    let nextAllowedEmails = allowedEmails;
+    if (emailDraft.trim()) {
+      const parsed = validateNewEmail(emailDraft, hostEmail, allowedEmails);
+      if ('error' in parsed) {
+        setEmailError(parsed.error);
+        return;
+      }
+      nextAllowedEmails = [...allowedEmails, parsed.email];
+    }
+
     if (
       restricted &&
       !window.confirm(
@@ -125,15 +140,15 @@ function AccessPolicyForm({
       return;
     }
 
-    const draft = { restricted, allowed_emails: allowedEmails };
+    const draft = { restricted, allowed_emails: nextAllowedEmails };
+    stagePolicy(draft);
+    setEmailDraft('');
+    setEmailError(null);
     setState({ status: 'saving' });
     try {
       const saved = await updateHostAccess(context, draft);
-      const savedDraft = draftPolicy(saved, hostEmail);
       queryClient.setQueryData(accessQueryKey(context), saved);
-      setBaseline(savedDraft);
-      setRestricted(savedDraft.restricted);
-      setAllowedEmails(savedDraft.allowed_emails);
+      setPolicyDraft(null);
       setEmailDraft('');
       setEmailError(null);
       setState({ status: 'saved', message: 'Access policy saved' });
@@ -177,7 +192,10 @@ function AccessPolicyForm({
               checked={restricted}
               disabled={saving}
               onChange={(event) => {
-                setRestricted(event.target.checked);
+                stagePolicy({
+                  restricted: event.target.checked,
+                  allowed_emails: allowedEmails,
+                });
                 setState({ status: 'idle' });
               }}
             />
@@ -222,6 +240,7 @@ function AccessPolicyForm({
               onChange={(event) => {
                 setEmailDraft(event.target.value);
                 setEmailError(null);
+                setState({ status: 'idle' });
               }}
               onKeyDown={addEmailOnEnter}
             />
@@ -346,6 +365,11 @@ function AccessPolicySkeleton() {
   );
 }
 
+interface PolicyDraft {
+  baseline: HostAccessPolicy;
+  policy: HostAccessPolicy;
+}
+
 function draftPolicy(
   policy: HostAccessPolicy,
   hostEmail: string,
@@ -376,11 +400,34 @@ function normalizeDraftEmail(
   return { email } as const;
 }
 
+function validateNewEmail(
+  value: string,
+  hostEmail: string,
+  allowedEmails: string[],
+): { email: string } | { error: string } {
+  const parsed = normalizeDraftEmail(value);
+  if ('error' in parsed) return parsed;
+  if (parsed.email === hostEmail.trim().toLowerCase()) {
+    return { error: 'The Host account is already always allowed' };
+  }
+  if (allowedEmails.includes(parsed.email)) {
+    return { error: 'This email is already approved' };
+  }
+  return parsed;
+}
+
 function sameEmailSet(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((email, index) => email === sortedRight[index]);
+}
+
+function samePolicy(left: HostAccessPolicy, right: HostAccessPolicy) {
+  return (
+    left.restricted === right.restricted &&
+    sameEmailSet(left.allowed_emails, right.allowed_emails)
+  );
 }
 
 function accessQueryKey(context: ApiContext) {

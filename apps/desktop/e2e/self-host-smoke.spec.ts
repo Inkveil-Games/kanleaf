@@ -174,6 +174,15 @@ test('manages Restricted access through the Host Console', async ({
     await expect(removedLogin.json()).resolves.toMatchObject({
       error: { code: 'access_restricted' },
     });
+
+    await page.setViewportSize({ width: 700, height: 900 });
+    await page.getByRole('button', { name: 'Switch account' }).click();
+    const accountMenu = page.getByRole('menu');
+    await expect(accountMenu).toBeVisible();
+    const menuBounds = await accountMenu.boundingBox();
+    if (!menuBounds) throw new Error('Account menu has no layout bounds');
+    expect(menuBounds.y).toBeGreaterThanOrEqual(0);
+    expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(900);
   } finally {
     const restored = await replaceAccessPolicy(
       request,

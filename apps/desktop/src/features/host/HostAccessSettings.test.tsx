@@ -72,6 +72,52 @@ describe('HostAccessSettings', () => {
     expect(updateHostAccess).not.toHaveBeenCalled();
   });
 
+  it('includes a valid pending email when the policy is saved', async () => {
+    vi.mocked(updateHostAccess).mockResolvedValue({
+      restricted: false,
+      allowed_emails: [
+        'pending@example.com',
+        'prepared@example.com',
+        'remove-me@example.com',
+      ],
+    });
+    renderSettings();
+
+    const input = await screen.findByRole('textbox', {
+      name: 'Email address',
+    });
+    fireEvent.change(input, { target: { value: ' PENDING@Example.COM ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
+
+    await waitFor(() =>
+      expect(updateHostAccess).toHaveBeenCalledWith(context, {
+        restricted: false,
+        allowed_emails: [
+          'prepared@example.com',
+          'remove-me@example.com',
+          'pending@example.com',
+        ],
+      }),
+    );
+    expect(input).toHaveValue('');
+  });
+
+  it('does not save an invalid pending email', async () => {
+    renderSettings();
+
+    const input = await screen.findByRole('textbox', {
+      name: 'Email address',
+    });
+    fireEvent.change(input, { target: { value: 'not-an-email' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a valid email address',
+    );
+    expect(input).toHaveValue('not-an-email');
+    expect(updateHostAccess).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['', /enter an email address/i],
     ['not-an-email', /enter a valid email address/i],
@@ -205,6 +251,36 @@ describe('HostAccessSettings', () => {
       await screen.findByRole('checkbox', { name: /Restricted access/ }),
     ).not.toBeChecked();
   });
+
+  it('reconciles a pristine cached policy with its background refresh', async () => {
+    const client = testQueryClient();
+    client.setQueryData(['host-access', context.serverUrl, context.token], {
+      restricted: false,
+      allowed_emails: ['cached@example.com'],
+    });
+    vi.mocked(getHostAccess).mockResolvedValue({
+      restricted: false,
+      allowed_emails: ['fresh@example.com'],
+    });
+    vi.mocked(updateHostAccess).mockResolvedValue({
+      restricted: false,
+      allowed_emails: ['fresh@example.com', 'new@example.com'],
+    });
+    renderSettings(client);
+
+    expect(screen.getByText('cached@example.com')).toBeInTheDocument();
+    expect(await screen.findByText('fresh@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('cached@example.com')).not.toBeInTheDocument();
+    addEmail('new@example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
+
+    await waitFor(() =>
+      expect(updateHostAccess).toHaveBeenCalledWith(context, {
+        restricted: false,
+        allowed_emails: ['fresh@example.com', 'new@example.com'],
+      }),
+    );
+  });
 });
 
 function addEmail(email: string) {
@@ -214,10 +290,13 @@ function addEmail(email: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Add email' }));
 }
 
-function renderSettings() {
-  const client = new QueryClient({
+function testQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+}
+
+function renderSettings(client = testQueryClient()) {
   return render(
     <QueryClientProvider client={client}>
       <HostAccessSettings context={context} hostEmail={hostEmail} />
