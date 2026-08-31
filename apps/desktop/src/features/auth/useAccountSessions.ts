@@ -212,17 +212,23 @@ export function useAccountSessions(
   const discardInvalidSession = useCallback(
     async (invalidToken: string) => {
       const current = sessionsRef.current;
+      const retainedActive = activeAccount(current);
+      const legacyToken = readLegacySessionToken();
+      const invalidIsActive =
+        retainedActive?.token === invalidToken || legacyToken === invalidToken;
       const invalid = current.accounts.find(
         (account) => account.token === invalidToken,
       );
       if (invalid) persist(removeAccountSession(current, invalid.user_id));
-      if (readLegacySessionToken() === invalidToken) {
+      if (legacyToken === invalidToken) {
         writeLegacySessionToken(null);
       }
-      await clearAccountQueries();
-      setToken((activeToken) =>
-        activeToken === invalidToken ? null : activeToken,
-      );
+      if (invalidIsActive) {
+        await clearAccountQueries();
+        setToken((activeToken) =>
+          activeToken === invalidToken ? null : activeToken,
+        );
+      }
     },
     [clearAccountQueries, persist],
   );

@@ -22,6 +22,7 @@ describe('AddAccountDialog', () => {
         id: 'user-2',
         email: 'second@example.com',
         display_name: 'Second',
+        is_host: false,
         theme: 'system' as const,
         timezone: 'UTC',
         week_start: 'monday' as const,

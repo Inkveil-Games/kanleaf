@@ -5157,12 +5157,26 @@ button.document-tree-toggle:hover {
 }
 
 .settings-navigation {
+  display: grid;
   min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-canvas);
+}
+
+.settings-navigation-body {
   min-height: 0;
   padding: var(--space-3);
   overflow: auto;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-canvas);
+  scrollbar-width: thin;
+}
+
+.settings-navigation-footer {
+  min-width: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--color-border);
 }
 
 .settings-navigation-header {
@@ -5269,6 +5283,112 @@ button.document-tree-toggle:hover {
   min-height: 0;
   overflow: auto;
   scrollbar-width: thin;
+}
+
+.host-console {
+  width: 100vw;
+  min-width: 0;
+  height: 100vh;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
+.host-console .settings-pane {
+  width: 100%;
+  height: 100%;
+  grid-column: auto;
+}
+
+.host-settings-article {
+  width: min(100%, 900px);
+}
+
+.host-workspace-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.host-workspace-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.host-workspace-table th,
+.host-workspace-table td {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.host-workspace-table th:first-child,
+.host-workspace-table td:first-child {
+  width: 44%;
+  padding-left: 0;
+}
+
+.host-workspace-table th:last-child,
+.host-workspace-table td:last-child {
+  padding-right: 0;
+}
+
+.host-workspace-table thead th {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.host-workspace-table tbody th {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 610;
+}
+
+.host-owner-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.host-owner-copy strong {
+  font-size: var(--font-size-sm);
+  font-weight: 610;
+}
+
+.host-owner-copy small {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+
+.host-table-skeleton {
+  display: block;
+  width: min(75%, 240px);
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+
+.host-table-skeleton-owner {
+  width: min(90%, 320px);
+}
+
+.host-policy-control {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.host-policy-state {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 610;
 }
 
 .settings-article {

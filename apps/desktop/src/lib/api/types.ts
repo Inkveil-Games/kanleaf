@@ -8,6 +8,7 @@ export interface User {
   id: string;
   email: string;
   display_name: string;
+  is_host: boolean;
   theme: 'system' | 'light' | 'dark';
   timezone: string;
   week_start: 'monday' | 'sunday';

@@ -195,34 +195,41 @@ export function WorkspaceSettingsShell({
   );
 }
 
-function SettingsFrame({
+export function SettingsFrame({
   label,
   navigation,
   children,
   onClose,
+  footer,
 }: {
   label: string;
   navigation: ReactNode;
   children: ReactNode;
   onClose: () => void;
+  footer?: ReactNode;
 }) {
   return (
     <section className="settings-pane" aria-label={label}>
       <aside className="settings-navigation">
-        <div className="settings-navigation-header">
-          <button className="settings-back" type="button" onClick={onClose}>
-            <ArrowLeft aria-hidden="true" size={15} /> Back to Workspace
-          </button>
-          <strong>{label}</strong>
+        <div className="settings-navigation-body">
+          <div className="settings-navigation-header">
+            <button className="settings-back" type="button" onClick={onClose}>
+              <ArrowLeft aria-hidden="true" size={15} /> Back to Workspace
+            </button>
+            <strong>{label}</strong>
+          </div>
+          <nav aria-label={`${label} sections`}>{navigation}</nav>
         </div>
-        <nav aria-label={`${label} sections`}>{navigation}</nav>
+        {footer ? (
+          <div className="settings-navigation-footer">{footer}</div>
+        ) : null}
       </aside>
       <div className="settings-content">{children}</div>
     </section>
   );
 }
 
-function SettingsGroup({
+export function SettingsGroup({
   label,
   children,
 }: {
@@ -237,7 +244,7 @@ function SettingsGroup({
   );
 }
 
-function SettingsLink({
+export function SettingsLink({
   active,
   icon,
   label,

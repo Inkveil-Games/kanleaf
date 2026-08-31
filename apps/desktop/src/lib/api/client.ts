@@ -9,6 +9,19 @@ interface ApiRequestOptions extends RequestInit {
   token?: string | null;
 }
 
+type UnauthorizedListener = (token: string) => void;
+
+const unauthorizedListeners = new Set<UnauthorizedListener>();
+
+export function subscribeToUnauthorizedRequests(
+  listener: UnauthorizedListener,
+) {
+  unauthorizedListeners.add(listener);
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -42,6 +55,7 @@ export async function apiRequest<T>(
     ...options,
     headers,
   });
+  if (response.status === 401 && token) notifyUnauthorized(token);
   if (response.status === 204) {
     if (!response.ok) {
       throw new ApiError(response.status, 'request_failed', 'Request failed');
@@ -70,6 +84,7 @@ export async function apiDownload(
   const response = await fetch(`${serverUrl}${path}`, {
     headers: { authorization: `Bearer ${token}` },
   });
+  if (response.status === 401) notifyUnauthorized(token);
   if (!response.ok) {
     const payload = (await readJson(response)) as ErrorEnvelope;
     throw new ApiError(
@@ -82,6 +97,10 @@ export async function apiDownload(
     blob: await response.blob(),
     fileName: attachmentFileName(response.headers.get('content-disposition')),
   };
+}
+
+function notifyUnauthorized(token: string) {
+  for (const listener of unauthorizedListeners) listener(token);
 }
 
 function attachmentFileName(disposition: string | null) {

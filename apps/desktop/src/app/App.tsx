@@ -5,9 +5,15 @@ import { AccountChooser } from '../features/auth/AccountChooser';
 import { AddAccountDialog } from '../features/auth/AddAccountDialog';
 import { AuthScreen } from '../features/auth/AuthScreen';
 import { useAccountSessions } from '../features/auth/useAccountSessions';
+import { applyTheme } from '../features/account/theme';
+import { HostConsole } from '../features/host/HostConsole';
 import { useDocumentSaveCoordinator } from '../features/markdown/documentSaveCoordinatorContext';
 import { WorkspaceShell } from '../features/workspace/WorkspaceShell';
-import { ApiError, apiRequest } from '../lib/api/client';
+import {
+  ApiError,
+  apiRequest,
+  subscribeToUnauthorizedRequests,
+} from '../lib/api/client';
 import type { SessionResponse } from '../lib/api/types';
 import {
   checkServerHealth,
@@ -24,6 +30,7 @@ export function App() {
 }
 
 function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
+  const [pathname, navigate] = usePathname();
   const { flushDocumentSaves } = useDocumentSaveCoordinator();
   const {
     sessions: retainedSessions,
@@ -53,6 +60,12 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
   });
 
   useEffect(() => {
+    return subscribeToUnauthorizedRequests((unauthorizedToken) => {
+      window.setTimeout(() => void discardInvalidSession(unauthorizedToken));
+    });
+  }, [discardInvalidSession]);
+
+  useEffect(() => {
     if (session.error instanceof ApiError && session.error.status === 401) {
       const timeout = window.setTimeout(() => {
         if (token) void discardInvalidSession(token);
@@ -66,6 +79,12 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
       synchronizeValidatedSession(token, session.data);
     }
   }, [session.data, synchronizeValidatedSession, token]);
+
+  useEffect(() => {
+    if (!session.data) return;
+    applyTheme(session.data.user.theme);
+    return () => applyTheme('system');
+  }, [session.data]);
 
   if (health.isPending) {
     return <AppLoading message="Connecting to your server…" />;
@@ -127,24 +146,47 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
     );
   }
 
+  const accountProps = {
+    accountSessions: retainedSessions.accounts,
+    accountTransitioning: transitioning,
+    accountError,
+    onSwitchAccount: (userId: string) => void switchAccount(userId),
+    onAddAccount: () => {
+      clearAccountError();
+      setAddingAccount(true);
+    },
+    onDismissAccountError: clearAccountError,
+    onSignOut: () => void signOutCurrent(),
+  };
+  const isHostPath = pathname === '/host';
+  const surface = isHostPath ? (
+    session.data.user.is_host ? (
+      <HostConsole
+        key={session.data.user.id}
+        context={{ serverUrl, token }}
+        user={session.data.user}
+        {...accountProps}
+        onClose={() => navigate('/')}
+      />
+    ) : (
+      <HostAccessRequired onBack={() => navigate('/')} />
+    )
+  ) : (
+    <WorkspaceShell
+      key={session.data.user.id}
+      serverUrl={serverUrl}
+      token={token}
+      user={session.data.user}
+      {...accountProps}
+      onOpenHostConsole={
+        session.data.user.is_host ? () => navigate('/host') : undefined
+      }
+    />
+  );
+
   return (
     <>
-      <WorkspaceShell
-        key={session.data.user.id}
-        serverUrl={serverUrl}
-        token={token}
-        user={session.data.user}
-        accountSessions={retainedSessions.accounts}
-        accountTransitioning={transitioning}
-        accountError={accountError}
-        onSwitchAccount={(userId) => void switchAccount(userId)}
-        onAddAccount={() => {
-          clearAccountError();
-          setAddingAccount(true);
-        }}
-        onDismissAccountError={clearAccountError}
-        onSignOut={() => void signOutCurrent()}
-      />
+      {surface}
       {addingAccount && (
         <AddAccountDialog
           serverUrl={serverUrl}
@@ -157,6 +199,27 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
       )}
     </>
   );
+}
+
+function usePathname(): [string, (pathname: string) => void] {
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    function updatePathname() {
+      setPathname(window.location.pathname);
+    }
+    window.addEventListener('popstate', updatePathname);
+    return () => window.removeEventListener('popstate', updatePathname);
+  }, []);
+
+  function navigate(nextPathname: string) {
+    if (window.location.pathname !== nextPathname) {
+      window.history.pushState(null, '', nextPathname);
+    }
+    setPathname(nextPathname);
+  }
+
+  return [pathname, navigate];
 }
 
 function readServerConfiguration(): {
@@ -215,6 +278,21 @@ function ConnectionFailure({ serverUrl, onRetry }: ConnectionFailureProps) {
       </div>
       <button className="primary-button" type="button" onClick={onRetry}>
         Try again
+      </button>
+    </main>
+  );
+}
+
+function HostAccessRequired({ onBack }: { onBack: () => void }) {
+  return (
+    <main className="status-page">
+      <Wordmark quiet />
+      <div className="form-heading">
+        <h1>Host access required</h1>
+        <p>Sign in with the Host account configured for this Kanleaf server.</p>
+      </div>
+      <button className="secondary-button" type="button" onClick={onBack}>
+        Back to Workspace
       </button>
     </main>
   );

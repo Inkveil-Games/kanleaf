@@ -71,6 +71,24 @@ describe('useAccountSessions', () => {
     expect(result.current.error).toBe('Session expired');
   });
 
+  it('discards an invalid inactive token without clearing active queries', async () => {
+    retainAccounts(account('user-1'), account('user-2'));
+    const { result, queryClient } = renderAccountSessions(
+      vi.fn().mockResolvedValue(undefined),
+    );
+    queryClient.setQueryData(['tasks', 'workspace-1'], ['private task']);
+
+    await act(() => result.current.discardInvalidSession('user-2-token'));
+
+    expect(result.current.token).toBe('user-1-token');
+    expect(
+      result.current.sessions.accounts.map(({ user_id }) => user_id),
+    ).toEqual(['user-1']);
+    expect(queryClient.getQueryData(['tasks', 'workspace-1'])).toEqual([
+      'private task',
+    ]);
+  });
+
   it('retains a newly authenticated account when Markdown blocks switching', async () => {
     retainAccounts(account('user-1'));
     const { result } = renderAccountSessions(
@@ -231,6 +249,7 @@ function user(userId: string): User {
     id: userId,
     email: `${userId}@example.com`,
     display_name: `Account ${userId}`,
+    is_host: false,
     theme: 'system',
     timezone: 'UTC',
     week_start: 'monday',

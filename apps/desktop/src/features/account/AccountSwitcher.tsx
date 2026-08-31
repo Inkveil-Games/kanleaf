@@ -1,4 +1,12 @@
-import { Check, ChevronUp, LogOut, Settings, UserPlus, X } from 'lucide-react';
+import {
+  Check,
+  ChevronUp,
+  LogOut,
+  ServerCog,
+  Settings,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import type { AccountSession } from '../auth/accountSessionStore';
 
@@ -9,7 +17,8 @@ interface AccountSwitcherProps {
   error: string | null;
   onSwitchAccount: (userId: string) => void;
   onAddAccount: () => void;
-  onOpenAccountSettings: () => void;
+  onOpenAccountSettings?: () => void;
+  onOpenHostConsole?: () => void;
   onSignOutCurrent: () => void;
   onDismissError: () => void;
 }
@@ -22,6 +31,7 @@ export function AccountSwitcher({
   onSwitchAccount,
   onAddAccount,
   onOpenAccountSettings,
+  onOpenHostConsole,
   onSignOutCurrent,
   onDismissError,
 }: AccountSwitcherProps) {
@@ -99,9 +109,16 @@ export function AccountSwitcher({
       <button role="menuitem" type="button" onClick={onAddAccount}>
         <UserPlus aria-hidden="true" size={14} /> Add another account
       </button>
-      <button role="menuitem" type="button" onClick={onOpenAccountSettings}>
-        <Settings aria-hidden="true" size={14} /> Settings
-      </button>
+      {onOpenHostConsole ? (
+        <button role="menuitem" type="button" onClick={onOpenHostConsole}>
+          <ServerCog aria-hidden="true" size={14} /> Host Console
+        </button>
+      ) : null}
+      {onOpenAccountSettings ? (
+        <button role="menuitem" type="button" onClick={onOpenAccountSettings}>
+          <Settings aria-hidden="true" size={14} /> Settings
+        </button>
+      ) : null}
       <div className="account-switcher-divider" />
       <button role="menuitem" type="button" onClick={onSignOutCurrent}>
         <LogOut aria-hidden="true" size={14} /> Sign out this account

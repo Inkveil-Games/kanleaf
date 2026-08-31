@@ -77,6 +77,44 @@ describe('AccountSwitcher', () => {
     );
     expect(onDismissError).toHaveBeenCalledOnce();
   });
+
+  it('shows Host Console only when the Host action is available', () => {
+    const onOpenHostConsole = vi.fn();
+    const { rerender } = render(
+      <AccountSwitcher
+        accounts={[account('user-1')]}
+        activeUserId="user-1"
+        transitioning={false}
+        error={null}
+        onSwitchAccount={vi.fn()}
+        onAddAccount={vi.fn()}
+        onOpenHostConsole={onOpenHostConsole}
+        onSignOutCurrent={vi.fn()}
+        onDismissError={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Host Console' }));
+    expect(onOpenHostConsole).toHaveBeenCalledOnce();
+
+    rerender(
+      <AccountSwitcher
+        accounts={[account('user-1')]}
+        activeUserId="user-1"
+        transitioning={false}
+        error={null}
+        onSwitchAccount={vi.fn()}
+        onAddAccount={vi.fn()}
+        onSignOutCurrent={vi.fn()}
+        onDismissError={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
+    expect(
+      screen.queryByRole('menuitem', { name: 'Host Console' }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 function account(userId: string): AccountSession {

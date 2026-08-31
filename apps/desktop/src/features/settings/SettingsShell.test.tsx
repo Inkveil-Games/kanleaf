@@ -95,6 +95,7 @@ const user: User = {
   id: 'user-1',
   email: 'person@example.com',
   display_name: 'Person Example',
+  is_host: false,
   theme: 'system',
   timezone: 'UTC',
   week_start: 'monday',

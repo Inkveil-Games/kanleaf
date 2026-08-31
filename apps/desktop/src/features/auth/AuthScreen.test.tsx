@@ -15,6 +15,7 @@ describe('AuthScreen', () => {
         id: 'user-id',
         email: 'person@example.com',
         display_name: 'Person',
+        is_host: false,
         theme: 'system',
         timezone: 'UTC',
         week_start: 'monday',

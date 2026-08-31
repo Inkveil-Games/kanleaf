@@ -11,7 +11,6 @@ import { Wordmark } from '../../components/ui/Wordmark';
 import { AccountSwitcher } from '../account/AccountSwitcher';
 import type { AccountSettingsSection } from '../account/AccountSettings';
 import type { AccountSession } from '../auth/accountSessionStore';
-import { applyTheme } from '../account/theme';
 import { CommandPalette } from '../command/CommandPalette';
 import type { WorkspaceDocument } from '../document/types';
 import { ProjectOverview } from '../project/ProjectOverview';
@@ -91,6 +90,7 @@ interface WorkspaceShellProps {
   accountError: string | null;
   onSwitchAccount: (userId: string) => void;
   onAddAccount: () => void;
+  onOpenHostConsole?: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
 }
@@ -104,6 +104,7 @@ export function WorkspaceShell({
   accountError,
   onSwitchAccount,
   onAddAccount,
+  onOpenHostConsole,
   onDismissAccountError,
   onSignOut,
 }: WorkspaceShellProps) {
@@ -137,11 +138,6 @@ export function WorkspaceShell({
     useState<WorkspaceSettingsSection>('general');
   const paneLayout = useWorkspacePaneLayout();
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
-
-  useEffect(() => {
-    applyTheme(user.theme);
-    return () => applyTheme('system');
-  }, [user.theme]);
 
   useEffect(() => {
     function openCommands(event: KeyboardEvent) {
@@ -935,6 +931,7 @@ export function WorkspaceShell({
             onSwitchAccount={onSwitchAccount}
             onAddAccount={onAddAccount}
             onOpenAccountSettings={() => openAccountSettings('profile')}
+            onOpenHostConsole={onOpenHostConsole}
             onSignOutCurrent={onSignOut}
             onDismissError={onDismissAccountError}
           />
