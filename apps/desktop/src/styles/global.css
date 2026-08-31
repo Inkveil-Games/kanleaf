@@ -320,7 +320,7 @@ select {
 
 .primary-button {
   min-height: 40px;
-  color: #ffffff;
+  color: var(--color-surface);
   background: var(--color-accent-strong);
 }
 

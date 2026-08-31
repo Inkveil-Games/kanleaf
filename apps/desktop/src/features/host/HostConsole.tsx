@@ -43,7 +43,6 @@ export function HostConsole({
 
   return (
     <main className="host-console">
-      <h1 className="sr-only">Host Console</h1>
       <SettingsFrame
         label="Host Console"
         onClose={onClose}

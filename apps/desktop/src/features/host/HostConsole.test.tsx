@@ -32,7 +32,7 @@ describe('HostConsole', () => {
     renderConsole({ onClose });
 
     expect(
-      screen.getByRole('heading', { name: 'Host Console' }),
+      screen.getByRole('region', { name: 'Host Console' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Workspace list')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Access' }));
