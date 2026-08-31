@@ -58,6 +58,10 @@ User ──< Session
 - A membership is the workspace tenant and authorization boundary. Fixed
   Workspace roles are Owner, Admin, Member, and Guest; a partial unique index
   plus transfer transactions keep one Owner.
+- A singleton instance settings row stores whether access is Open or
+  Restricted. A separate normalized exact-email table stores approved
+  addresses before or after account creation. This deployment policy is not
+  Workspace configuration and never enters portable projections or exports.
 - A user has an optional active workspace and may belong to many workspaces.
 - A project belongs to exactly one workspace. Owner/Admin access is implicit;
   other access uses explicit fixed-role Project memberships. Private projects
@@ -117,6 +121,22 @@ atomically creates a user, Personal workspace, owner membership, active
 workspace, and session. Login returns a random 32-byte base64url bearer token.
 Only its SHA-256 digest is stored in PostgreSQL, so a database read does not
 reveal usable sessions.
+
+An optional normalized `KANLEAF_HOST_EMAIL` identifies one deployment Host.
+The derived `is_host` response flag is never stored as an account role. Host
+API handlers authorize that identity again on the server and may cross only
+the explicitly defined Workspace name/Owner metadata boundary; Host status
+does not grant Workspace membership or access to Tasks, Library documents,
+Markdown vaults, or filesystem paths.
+
+Instance access is Open by default. In Restricted mode, registration, valid
+credential login, and bearer-session extraction require either an approved
+exact normalized email or the configured Host email. Policy replacement locks
+the singleton settings row, replaces the approved list, and revokes sessions
+for newly disallowed users in one transaction. Invalid credentials remain a
+generic authentication failure, while an otherwise valid but disallowed
+registration or login receives the dedicated `access_restricted` response.
+Workspace invitations do not bypass this instance policy.
 
 Account profile and display preferences are server-synchronized. Timezone
 updates are validated against the IANA database before persistence. Password
@@ -300,6 +320,8 @@ The desktop app is feature-oriented:
   layouts;
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
   notification inbox, and account notification preferences;
+- `features/host` owns the deployment Host's metadata-only Workspace list and
+  instance access policy surface;
 - `features/document` owns the Workspace Library and Project-filtered Library
   trees, hierarchy, ordering, scope moves, and archive interaction;
 - `features/markdown` owns the shared Task/Library source editor, Live Preview,
@@ -337,11 +359,18 @@ Account and Workspace settings are separate floating windows, and task detail
 remains a pane rather than a modal. Task detail switches between structured
 Details and chronological Activity without losing its pane context. The top-bar
 inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
+Host Console is a full-page Settings surface at `/host`; a small History API
+boundary keeps direct loads and browser Back/Forward navigation working without
+adding a routing dependency.
 
 ## Deployment
 
 The server reads deployment configuration from environment variables, runs
 checked-in migrations on startup, and handles SIGINT/SIGTERM gracefully.
+`KANLEAF_HOST_EMAIL` is optional: blank leaves Host Console disabled, a valid
+value is normalized into application state, and an invalid non-empty value
+fails startup. Access policy changes themselves are PostgreSQL state and need
+no container restart.
 Without `KANLEAF_WEB_DIR` it remains an API-only process. When that variable
 points to a validated Vite build, Axum serves static assets and SPA navigation
 outside `/api`; unknown API routes remain structured JSON 404 responses.

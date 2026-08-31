@@ -29,6 +29,7 @@ services:
       DATABASE_URL: postgres://kanleaf:${POSTGRES_PASSWORD}@postgres:5432/kanleaf
       KANLEAF_DATA_DIR: /data
       KANLEAF_BIND_ADDRESS: 0.0.0.0:3000
+      KANLEAF_HOST_EMAIL: ${KANLEAF_HOST_EMAIL:-}
       KANLEAF_CORS_ORIGINS: ${KANLEAF_CORS_ORIGINS:-tauri://localhost,http://tauri.localhost}
       KANLEAF_SESSION_TTL_DAYS: ${KANLEAF_SESSION_TTL_DAYS:-30}
       RUST_LOG: ${RUST_LOG:-kanleaf_server=info,tower_http=info}

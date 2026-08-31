@@ -68,20 +68,26 @@ manually, first run `pnpm build:self-host`, then set
 
 ## Configuration
 
-| Variable                   | Development default          | Purpose                                 |
-| -------------------------- | ---------------------------- | --------------------------------------- |
-| `DATABASE_URL`             | required                     | PostgreSQL connection URL               |
-| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace    |
-| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                      |
-| `KANLEAF_WEB_DIR`          | unset                        | Optional production browser build root     |
-| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins              |
-| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days          |
-| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                           |
-| `VITE_KANLEAF_SERVER_URL`  | required                     | Absolute URL or reserved `same-origin`      |
+| Variable                   | Development default          | Purpose                                   |
+| -------------------------- | ---------------------------- | ----------------------------------------- |
+| `DATABASE_URL`             | required                     | PostgreSQL connection URL                 |
+| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace   |
+| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                     |
+| `KANLEAF_WEB_DIR`          | unset                        | Optional production browser build root    |
+| `KANLEAF_HOST_EMAIL`       | unset                        | Optional normalized Host Console identity |
+| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins             |
+| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days         |
+| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                          |
+| `VITE_KANLEAF_SERVER_URL`  | required                     | Absolute URL or reserved `same-origin`    |
 
 Deployment/server configuration belongs in environment variables. Application
 entities belong in PostgreSQL, client-local preferences in local storage, and
 Markdown documents in the vault.
+
+Set `KANLEAF_HOST_EMAIL` to an account email to exercise Host Console at
+`/host`. A missing or blank value disables that surface without changing normal
+authentication; an invalid non-empty value fails server startup. The database
+policy remains Open until the Host explicitly enables Restricted access.
 
 Each Workspace vault also contains server-projected `.kanleaf` JSON. These
 files are portable snapshots, not deployment configuration and not a second
@@ -122,7 +128,9 @@ Install the pinned browser once, then run the real-service E2E suite. Playwright
 starts Axum and Vite itself, uses a temporary vault, and cleans it up afterward.
 The suite covers durable Task and Library Markdown, Live Preview block/source
 transitions, portable Library trees, collaboration notifications, read state,
-and cross-workspace Task/activity/document isolation.
+and cross-workspace Task/activity/document isolation. The self-host suite also
+loads `/host` through Axum's SPA fallback and verifies the complete Restricted
+access lifecycle against the compiled same-origin client.
 
 ```bash
 pnpm --filter @kanleaf/desktop exec playwright install chromium
@@ -155,6 +163,7 @@ local deployment configuration in that directory.
 ```bash
 cd infra/self-host
 cp .env.example .env
+# Optionally set KANLEAF_HOST_EMAIL to the deployment Host account.
 docker compose up -d --build
 docker compose ps
 docker compose logs -f kanleaf
@@ -167,6 +176,38 @@ a deployment that uses a published image without rebuilding local source:
 docker compose pull kanleaf
 docker compose up -d --no-build
 ```
+
+An existing Pi whose systemd timer runs only those image pull/recreate commands
+must refresh the tracked Compose file once for Host Console. Keep the existing
+ignored `.env`; replacing it from the example can lose the deployed database
+password, data directory, port, and image selection.
+
+```bash
+cd /path/to/kanleaf
+git switch dev
+git pull --ff-only origin dev
+
+cd infra/self-host
+# Add KANLEAF_HOST_EMAIL=<host@example.com> to the existing .env.
+docker compose config --quiet
+docker compose pull kanleaf
+docker compose up -d --no-build --force-recreate kanleaf
+docker compose ps
+```
+
+No timer unit reload is required. Its existing working directory now contains
+the Compose mapping, so later image-only updates retain the Host environment.
+If the new image arrives before this checkout refresh, Kanleaf still starts in
+Open mode with Host Console disabled.
+
+Restricted access uses exact normalized emails for registration, valid login,
+and active sessions. Workspace invitations do not bypass the list, so approve
+an invitee before they create or use an account. The Host email is always
+eligible, but Kanleaf does not verify email ownership; bootstrap that account on
+a trusted LAN. Removing `KANLEAF_HOST_EMAIL` later disables administration but
+does not disable stored allowlist enforcement. Rolling back to a binary from
+before Host Console ignores the policy tables and reopens access, so do not use
+such an image as a security-preserving rollback while restriction is enabled.
 
 The browser client and API share that origin and port. Plain HTTP is suitable
 only for a trusted LAN because passwords and bearer sessions are not encrypted;
@@ -182,6 +223,8 @@ configuration, or percent-encode URL-reserved characters.
   `/api/health` is unreachable from the desktop machine.
 - Browser CORS failures require the exact Vite origin in
   `KANLEAF_CORS_ORIGINS`; do not use a wildcard with bearer sessions.
+- A missing Host Console entry means `KANLEAF_HOST_EMAIL` is blank, was not
+  passed into the container, or does not match the signed-in account.
 - A server startup failure before listening usually identifies PostgreSQL,
   migration, bind-address, or data-directory context in its error chain.
 - Linux Tauri build failures generally indicate missing WebKitGTK/system

@@ -15,6 +15,8 @@ Markdown document.
 - Explicit switching between multiple retained accounts on the configured server
 - Multiple workspaces with personal workspace creation and switching
 - Workspace profile, member roles, invitations, ownership, and lifecycle tools
+- A deployment-scoped Host Console with Workspace Owner visibility and optional
+  exact-email access restrictions
 - Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, My Work, projects, task search, readable references, and bulk updates
@@ -147,7 +149,8 @@ From `infra/self-host`:
 
 ```bash
 cp .env.example .env
-# Set a strong POSTGRES_PASSWORD and review the data directory.
+# Set a strong POSTGRES_PASSWORD, review the data directory, and optionally set
+# KANLEAF_HOST_EMAIL to the account that will administer this deployment.
 docker compose pull kanleaf
 docker compose up -d --no-build
 docker compose ps
@@ -164,6 +167,36 @@ The default host data root is `/srv/kanleaf`, containing `postgres/` and
 variants, so the same Compose deployment works on x86-64 hosts and a 64-bit
 Raspberry Pi 5. Use a release tag in `KANLEAF_IMAGE` when one is available, or
 run `docker compose build kanleaf` to build the checked-out source locally.
+
+`KANLEAF_HOST_EMAIL` is optional. When set, sign in or register with that exact
+email and open `/host` to view Workspace Owners or enable Restricted access.
+Open access remains the default. Restricted access permits only the configured
+Host and approved exact emails to register, sign in, or keep active sessions;
+Workspace invitations do not bypass it. Because Kanleaf does not verify email
+ownership yet, create the Host account on a trusted network before exposing the
+deployment.
+
+An existing Pi deployment whose timer only pulls the published image needs one
+manual checkout refresh for the new Compose environment mapping. Do not copy
+`.env.example` over the existing ignored `.env`:
+
+```bash
+cd /path/to/kanleaf
+git switch dev
+git pull --ff-only origin dev
+
+cd infra/self-host
+# Edit the existing .env and add KANLEAF_HOST_EMAIL=<host@example.com>.
+docker compose config --quiet
+docker compose pull kanleaf
+docker compose up -d --no-build --force-recreate kanleaf
+docker compose ps
+```
+
+The existing image timer can handle later application updates without another
+timer change. Rolling back to a Kanleaf binary from before Host Console while
+Restricted access is enabled reopens access because that binary does not know
+the instance policy; use a Host Console-capable image for rollback.
 
 The deployment exposes port 3000 and intentionally does not bundle a reverse
 proxy or TLS manager. Plain HTTP exposes passwords and bearer sessions to the
