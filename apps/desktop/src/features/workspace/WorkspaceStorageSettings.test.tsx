@@ -62,7 +62,7 @@ describe('WorkspaceStorageSettings', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(exportReady, 202))
       .mockResolvedValueOnce(
-        new Response(new Blob(['zip']), {
+        new Response(new TextEncoder().encode('zip'), {
           headers: {
             'content-type': 'application/zip',
             'content-disposition':
