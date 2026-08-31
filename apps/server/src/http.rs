@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{
     Json, Router,
     extract::DefaultBodyLimit,
-    http::{HeaderName, HeaderValue, Method, header},
+    http::{HeaderName, HeaderValue, Method, StatusCode, header},
     middleware,
     response::Response,
     routing::{any, get},
@@ -73,7 +73,9 @@ pub fn router_with_web_client(
         .nest_service("/assets", ServeDir::new(web_dir.join("assets")))
         .layer(middleware::map_response(cache_asset_response));
     let index = ServeFile::new(web_dir.join("index.html"));
-    let web_files = ServeDir::new(web_dir).fallback(index);
+    let web_files = Router::new()
+        .fallback_service(ServeDir::new(web_dir).fallback(index))
+        .layer(middleware::map_response(revalidate_web_response));
 
     router(state, allowed_origins)
         .merge(assets)
@@ -90,6 +92,15 @@ async fn cache_asset_response(mut response: Response) -> Response {
             header::CACHE_CONTROL,
             HeaderValue::from_static(IMMUTABLE_ASSET_CACHE),
         );
+    }
+    response
+}
+
+async fn revalidate_web_response(mut response: Response) -> Response {
+    if response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED {
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     }
     response
 }
@@ -197,14 +208,19 @@ mod tests {
 
         let spa_response = app
             .clone()
-            .oneshot(
-                Request::get("/workspace/project")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::get("/host").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(spa_response.status(), StatusCode::OK);
+        assert_eq!(
+            spa_response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "no-cache"
+        );
+        let last_modified = spa_response
+            .headers()
+            .get(header::LAST_MODIFIED)
+            .unwrap()
+            .clone();
         assert!(
             String::from_utf8(
                 to_bytes(spa_response.into_body(), 4096)
@@ -214,6 +230,25 @@ mod tests {
             )
             .unwrap()
             .contains("Kanleaf browser client")
+        );
+
+        let not_modified_response = app
+            .clone()
+            .oneshot(
+                Request::get("/host")
+                    .header(header::IF_MODIFIED_SINCE, last_modified)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(not_modified_response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(
+            not_modified_response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .unwrap(),
+            "no-cache"
         );
 
         let asset_response = app
