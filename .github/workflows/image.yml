@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Publish server image
+    name: Publish self-host image
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read

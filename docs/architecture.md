@@ -11,7 +11,7 @@ Kanleaf v0.1 is a small monorepo with two runtime applications:
 root Cargo and pnpm workspaces contain only packages that exist today.
 
 ```text
-Desktop UI
+React UI (Tauri or browser)
    │ bearer-authenticated JSON
    ▼
 HTTP handlers ──► domain validation
@@ -308,11 +308,14 @@ The desktop app is feature-oriented:
 
 TanStack Query owns remote cache state. Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
-authentication. Local storage contains the bearer-token account registry and
-device preferences, never passwords; the registry is versioned and isolated by
-normalized server URL. Identity transitions first flush pending Markdown,
-validate the selected session, and clear account-scoped query data before
-committing the new identity. CodeMirror is lazy-loaded when a document opens.
+authentication. Tauri and development builds use an absolute HTTP/HTTPS URL;
+the published browser build uses the reserved `same-origin` value, resolved to
+the page origin at runtime. Local storage contains the bearer-token account
+registry and device preferences, never passwords; the registry is versioned
+and isolated by normalized server URL. Identity transitions first flush
+pending Markdown, validate the selected session, and clear account-scoped query
+data before committing the new identity. CodeMirror is lazy-loaded when a
+document opens.
 Live Preview is a CodeMirror state field over the GFM syntax tree: the active
 logical block stays raw, inactive inline syntax receives decorations, and
 multiline tables, fences, rules, and HTML blocks use atomic replacement
@@ -338,10 +341,19 @@ inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
 ## Deployment
 
 The server reads deployment configuration from environment variables, runs
-checked-in migrations on startup, and handles SIGINT/SIGTERM gracefully. The
-self-host image briefly starts as root to set ownership on a mounted vault, then
-executes the server as the unprivileged `kanleaf` user. Compose persists only
-PostgreSQL data and vault files under the selected host data root.
+checked-in migrations on startup, and handles SIGINT/SIGTERM gracefully.
+Without `KANLEAF_WEB_DIR` it remains an API-only process. When that variable
+points to a validated Vite build, Axum serves static assets and SPA navigation
+outside `/api`; unknown API routes remain structured JSON 404 responses.
+
+The self-host image builds the React client with
+`VITE_KANLEAF_SERVER_URL=same-origin`, copies only its production assets into
+the Rust runtime image, and configures `KANLEAF_WEB_DIR=/usr/share/kanleaf`.
+Node and pnpm are build-stage tools and are absent at runtime. The image briefly
+starts as root to set ownership on a mounted vault, then executes the server as
+the unprivileged `kanleaf` user. Compose exposes one application service and
+port and persists only PostgreSQL data and vault files under the selected host
+data root.
 
 ## Deferred intentionally
 

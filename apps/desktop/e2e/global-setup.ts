@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { serverAddress, serverUrl } from './environment';
 
+interface ServerOptions {
+  webDir?: string;
+  corsOrigins?: string;
+}
+
 export default async function globalSetup() {
+  return startKanleafServer();
+}
+
+export async function startKanleafServer(options: ServerOptions = {}) {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required for Playwright E2E tests');
@@ -12,15 +21,18 @@ export default async function globalSetup() {
 
   const repositoryRoot = resolve(import.meta.dirname, '../../..');
   const dataDir = await mkdtemp(join(tmpdir(), 'kanleaf-e2e-'));
+  const serverEnv = { ...process.env };
+  delete serverEnv.KANLEAF_WEB_DIR;
+  if (options.webDir) serverEnv.KANLEAF_WEB_DIR = options.webDir;
   const server = spawn('cargo', ['run', '--locked', '-p', 'kanleaf-server'], {
     cwd: repositoryRoot,
     detached: process.platform !== 'win32',
     env: {
-      ...process.env,
+      ...serverEnv,
       DATABASE_URL: databaseUrl,
       KANLEAF_DATA_DIR: dataDir,
       KANLEAF_BIND_ADDRESS: serverAddress,
-      KANLEAF_CORS_ORIGINS: 'http://127.0.0.1:1421',
+      KANLEAF_CORS_ORIGINS: options.corsOrigins ?? 'http://127.0.0.1:1421',
       RUST_LOG: 'kanleaf_server=warn',
     },
     stdio: ['ignore', 'ignore', 'pipe'],

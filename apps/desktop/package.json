@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc -b && vite build",
+    "build:self-host": "VITE_KANLEAF_SERVER_URL=same-origin pnpm build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
@@ -13,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "e2e:self-host": "pnpm build:self-host && playwright test --config playwright.self-host.config.ts",
     "tauri": "tauri"
   },
   "dependencies": {

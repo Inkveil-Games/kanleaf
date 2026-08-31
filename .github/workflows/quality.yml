@@ -95,3 +95,4 @@ jobs:
       - run: pnpm --filter @kanleaf/desktop exec playwright install --with-deps chromium
       - run: cargo build --locked -p kanleaf-server
       - run: pnpm test:e2e
+      - run: pnpm test:e2e:self-host

@@ -10,11 +10,13 @@
     "dev": "pnpm --filter @kanleaf/desktop dev",
     "tauri": "pnpm --filter @kanleaf/desktop tauri",
     "build": "pnpm --filter @kanleaf/desktop build",
+    "build:self-host": "pnpm --filter @kanleaf/desktop build:self-host",
     "typecheck": "pnpm --filter @kanleaf/desktop typecheck",
     "lint": "pnpm --filter @kanleaf/desktop lint",
     "format": "pnpm --filter @kanleaf/desktop format",
     "format:check": "pnpm --filter @kanleaf/desktop format:check",
     "test": "pnpm --filter @kanleaf/desktop test",
-    "test:e2e": "pnpm --filter @kanleaf/desktop e2e"
+    "test:e2e": "pnpm --filter @kanleaf/desktop e2e",
+    "test:e2e:self-host": "pnpm --filter @kanleaf/desktop e2e:self-host"
   }
 }

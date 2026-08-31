@@ -58,19 +58,26 @@ pnpm tauri dev
 For browser-only UI work, use `pnpm dev` instead. It serves the existing desktop
 frontend at `http://127.0.0.1:1420` without creating another project directory.
 The browser and Tauri clients automatically verify and use the server configured
-by `VITE_KANLEAF_SERVER_URL`. Restart the client after changing it.
+by `VITE_KANLEAF_SERVER_URL`. Use a complete HTTP/HTTPS URL for these workflows
+and restart the client after changing it. The reserved `same-origin` value is
+for the production client bundled into the self-host image.
+
+`cargo run` remains API-only by default. To exercise Axum static serving
+manually, first run `pnpm build:self-host`, then set
+`KANLEAF_WEB_DIR=apps/desktop/dist` before starting the server.
 
 ## Configuration
 
 | Variable                   | Development default          | Purpose                                 |
 | -------------------------- | ---------------------------- | --------------------------------------- |
 | `DATABASE_URL`             | required                     | PostgreSQL connection URL               |
-| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace |
-| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                   |
-| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins           |
-| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days       |
-| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                        |
-| `VITE_KANLEAF_SERVER_URL`  | required                     | Server URL embedded into the client     |
+| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace    |
+| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                      |
+| `KANLEAF_WEB_DIR`          | unset                        | Optional production browser build root     |
+| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins              |
+| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days          |
+| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                           |
+| `VITE_KANLEAF_SERVER_URL`  | required                     | Absolute URL or reserved `same-origin`      |
 
 Deployment/server configuration belongs in environment variables. Application
 entities belong in PostgreSQL, client-local preferences in local storage, and
@@ -121,12 +128,14 @@ and cross-workspace Task/activity/document isolation.
 pnpm --filter @kanleaf/desktop exec playwright install chromium
 DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf \
   pnpm test:e2e
+DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf \
+  pnpm test:e2e:self-host
 ```
 
 ## Self-host image verification
 
-From the repository root, this builds the server image without modifying source
-or starting services:
+From the repository root, this builds the combined server and browser-client
+image without modifying source or starting services:
 
 ```bash
 docker build -f apps/server/Dockerfile -t kanleaf:0.1.0 .
@@ -137,7 +146,8 @@ Pushes to `dev` and `main` publish a multi-architecture server manifest to
 The branch tags are intended for continuous self-host testing, `main` also
 publishes `latest`, and immutable `sha-*` tags remain available for rollback.
 Both `linux/amd64` and `linux/arm64` are built, covering common x86-64 servers
-and 64-bit Raspberry Pi 5 installations.
+and 64-bit Raspberry Pi 5 installations. The runtime image contains the Axum
+binary and compiled web assets, but not Node or pnpm.
 
 For the full stack, change to `infra/self-host`; copying `.env.example` creates
 local deployment configuration in that directory.
@@ -149,6 +159,19 @@ docker compose up -d --build
 docker compose ps
 docker compose logs -f kanleaf
 ```
+
+Open `http://<server-address>:3000/` after the application is healthy. To update
+a deployment that uses a published image without rebuilding local source:
+
+```bash
+docker compose pull kanleaf
+docker compose up -d --no-build
+```
+
+The browser client and API share that origin and port. Plain HTTP is suitable
+only for a trusted LAN because passwords and bearer sessions are not encrypted;
+do not expose the port directly to the Internet. Use an HTTPS reverse proxy for
+remote access.
 
 Use an alphanumeric PostgreSQL password in the provided URL-based Compose
 configuration, or percent-encode URL-reserved characters.

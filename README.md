@@ -1,8 +1,8 @@
 # Kanleaf
 
-Kanleaf is a self-hosted desktop project and task manager built around a simple
-idea: structured work belongs in a database, while Task notes and Library notes should
-remain normal Markdown files.
+Kanleaf is a self-hosted project and task manager with desktop and browser
+clients, built around a simple idea: structured work belongs in a database,
+while Task notes and Library notes should remain normal Markdown files.
 
 Kanleaf v0.1 provides a focused three-pane desktop workflow rather than a web
 dashboard. Workspaces and projects live in the navigation pane, task
@@ -51,8 +51,9 @@ Markdown document.
   remap stable IDs, preserve Markdown, and deliberately drop access grants
 - PostgreSQL-backed structured data and normal, Obsidian-compatible Markdown
   trees
-- Build-time server configuration for local, LAN, or HTTPS deployments
-- AMD64/ARM64 server images, Docker Compose self-hosting, and a Tauri v2 shell
+- Build-time server configuration for local, LAN, or HTTPS Tauri deployments
+- A same-origin browser client in the AMD64/ARM64 self-host image
+- Docker Compose self-hosting and a Tauri v2 shell
 
 Account and Workspace settings have separate focused windows, while Project
 settings use their own project-scoped window. Workspace and account switching
@@ -148,9 +149,14 @@ From `infra/self-host`:
 cp .env.example .env
 # Set a strong POSTGRES_PASSWORD and review the data directory.
 docker compose pull kanleaf
-docker compose up -d
+docker compose up -d --no-build
 docker compose ps
 ```
+
+Once the container is healthy, open `http://<pi-address>:3000/`. The same
+origin serves both the production browser client and `/api`; no separate web
+service or frontend port is required. Existing Tauri clients continue to use
+the absolute `VITE_KANLEAF_SERVER_URL` embedded at build time.
 
 The default host data root is `/srv/kanleaf`, containing `postgres/` and
 `vaults/`. The default `dev` image at
@@ -160,8 +166,9 @@ Raspberry Pi 5. Use a release tag in `KANLEAF_IMAGE` when one is available, or
 run `docker compose build kanleaf` to build the checked-out source locally.
 
 The deployment exposes port 3000 and intentionally does not bundle a reverse
-proxy or TLS manager. Put the server behind the HTTPS setup appropriate for
-your environment when exposing it beyond a trusted network.
+proxy or TLS manager. Plain HTTP exposes passwords and bearer sessions to the
+network, so use it only on a trusted LAN. Do not port-forward it to the
+Internet; put Kanleaf behind the HTTPS setup appropriate for your environment.
 
 ## License
 
