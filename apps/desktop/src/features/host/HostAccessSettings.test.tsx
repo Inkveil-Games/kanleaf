@@ -14,52 +14,148 @@ const context = {
   token: 'host-token',
 };
 
+const hostEmail = 'host@example.com';
+
 describe('HostAccessSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getHostAccess).mockResolvedValue({
       restricted: false,
-      allowed_emails: ['prepared@example.com'],
+      allowed_emails: ['prepared@example.com', 'remove-me@example.com'],
     });
   });
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('confirms and saves a canonical Restricted policy', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.mocked(updateHostAccess).mockResolvedValue({
+  it('renders the Host account and each approved email as its own row', async () => {
+    renderSettings();
+
+    expect(await screen.findByText(hostEmail)).toBeInTheDocument();
+    expect(screen.getByText('Always allowed')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Remove prepared@example.com' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Remove remove-me@example.com' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: `Remove ${hostEmail}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('stages a normalized email without saving', async () => {
+    renderSettings();
+
+    const input = await screen.findByRole('textbox', {
+      name: 'Email address',
+    });
+    fireEvent.change(input, {
+      target: { value: '  NEW.Person@Example.COM  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add email' }));
+
+    expect(input).toHaveValue('');
+    expect(screen.getByText('new.person@example.com')).toBeInTheDocument();
+    expect(updateHostAccess).not.toHaveBeenCalled();
+  });
+
+  it('adds an email with Enter', async () => {
+    renderSettings();
+
+    const input = await screen.findByRole('textbox', {
+      name: 'Email address',
+    });
+    fireEvent.change(input, { target: { value: 'enter@example.com' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(screen.getByText('enter@example.com')).toBeInTheDocument();
+    expect(updateHostAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['', /enter an email address/i],
+    ['not-an-email', /enter a valid email address/i],
+    [' PREPARED@example.com ', /already (?:approved|added)/i],
+  ])(
+    'shows accessible feedback instead of adding %j',
+    async (value, message) => {
+      renderSettings();
+
+      const input = await screen.findByRole('textbox', {
+        name: 'Email address',
+      });
+      fireEvent.change(input, { target: { value } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add email' }));
+
+      expect(screen.getByRole('alert')).toHaveTextContent(message);
+      expect(updateHostAccess).not.toHaveBeenCalled();
+    },
+  );
+
+  it('stages removal without saving', async () => {
+    renderSettings();
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Remove prepared@example.com',
+      }),
+    );
+
+    expect(screen.queryByText('prepared@example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('remove-me@example.com')).toBeInTheDocument();
+    expect(updateHostAccess).not.toHaveBeenCalled();
+  });
+
+  it('discards changes and restores the initial Restricted policy', async () => {
+    vi.mocked(getHostAccess).mockResolvedValue({
       restricted: true,
-      allowed_emails: ['first@example.com', 'second@example.com'],
+      allowed_emails: ['prepared@example.com'],
     });
     renderSettings();
 
     const restricted = await screen.findByRole('checkbox', {
       name: /Restricted access/,
     });
-    const emails = screen.getByRole('textbox', { name: 'Approved emails' });
-    expect(restricted).not.toBeChecked();
-    expect(emails).toHaveValue('prepared@example.com');
-
     fireEvent.click(restricted);
+    addEmail('added@example.com');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove prepared@example.com' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+    expect(restricted).toBeChecked();
     expect(screen.getByText('Restricted')).toBeInTheDocument();
-    fireEvent.change(emails, {
-      target: {
-        value: '  SECOND@example.com  \n\nfirst@example.com\n',
-      },
+    expect(screen.getByText('prepared@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('added@example.com')).not.toBeInTheDocument();
+    expect(updateHostAccess).not.toHaveBeenCalled();
+  });
+
+  it('saves the full draft and reconciles the canonical response', async () => {
+    vi.mocked(updateHostAccess).mockResolvedValue({
+      restricted: false,
+      allowed_emails: ['canonical@example.com', 'prepared@example.com'],
     });
+    renderSettings();
+
+    await screen.findByText('prepared@example.com');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove remove-me@example.com' }),
+    );
+    addEmail('  STAGED@Example.COM ');
     fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
 
-    expect(window.confirm).toHaveBeenCalledOnce();
     await waitFor(() =>
       expect(updateHostAccess).toHaveBeenCalledWith(context, {
-        restricted: true,
-        allowed_emails: ['SECOND@example.com', 'first@example.com'],
+        restricted: false,
+        allowed_emails: ['prepared@example.com', 'staged@example.com'],
       }),
     );
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Access policy saved',
     );
-    expect(emails).toHaveValue('first@example.com\nsecond@example.com');
+    expect(screen.getByText('canonical@example.com')).toBeInTheDocument();
+    expect(screen.getByText('prepared@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('staged@example.com')).not.toBeInTheDocument();
   });
 
   it('does not save when Restricted confirmation is cancelled', async () => {
@@ -74,22 +170,25 @@ describe('HostAccessSettings', () => {
     expect(updateHostAccess).not.toHaveBeenCalled();
   });
 
-  it('preserves the draft after a failed save', async () => {
+  it('preserves added and removed emails after a failed save', async () => {
     vi.mocked(updateHostAccess).mockRejectedValue(
-      new Error('One email is invalid'),
+      new Error('Policy unavailable'),
     );
     renderSettings();
 
-    const emails = await screen.findByRole('textbox', {
-      name: 'Approved emails',
-    });
-    fireEvent.change(emails, { target: { value: 'not-an-email' } });
+    await screen.findByText('prepared@example.com');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove prepared@example.com' }),
+    );
+    addEmail('added@example.com');
     fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'One email is invalid',
+      'Policy unavailable',
     );
-    expect(emails).toHaveValue('not-an-email');
+    expect(screen.queryByText('prepared@example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('remove-me@example.com')).toBeInTheDocument();
+    expect(screen.getByText('added@example.com')).toBeInTheDocument();
   });
 
   it('retries a failed policy load', async () => {
@@ -108,13 +207,20 @@ describe('HostAccessSettings', () => {
   });
 });
 
+function addEmail(email: string) {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), {
+    target: { value: email },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add email' }));
+}
+
 function renderSettings() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <HostAccessSettings context={context} />
+      <HostAccessSettings context={context} hostEmail={hostEmail} />
     </QueryClientProvider>,
   );
 }

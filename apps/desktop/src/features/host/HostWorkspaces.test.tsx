@@ -45,6 +45,7 @@ describe('HostWorkspaces', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Quang Tran')).toBeInTheDocument();
     expect(screen.getByText('quang@example.com')).toBeInTheDocument();
+    expect(screen.getByText('1 workspace')).toBeInTheDocument();
   });
 
   it('renders loading and empty states', async () => {

@@ -35,7 +35,18 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
           <p>Workspaces will appear here after accounts are created.</p>
         </div>
       ) : (
-        <WorkspaceTable workspaces={workspaces.data} />
+        <>
+          <div className="host-workspace-summary">
+            <strong className="host-workspace-summary-count">
+              {workspaces.data.length}{' '}
+              {workspaces.data.length === 1 ? 'workspace' : 'workspaces'}
+            </strong>
+            <span className="host-workspace-summary-note">
+              Owner metadata only
+            </span>
+          </div>
+          <WorkspaceTable workspaces={workspaces.data} />
+        </>
       )}
     </SettingsArticle>
   );

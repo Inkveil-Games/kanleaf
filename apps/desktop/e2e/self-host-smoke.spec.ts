@@ -115,16 +115,17 @@ test('manages Restricted access through the Host Console', async ({
         .filter({ hasText: existingEmail })
         .first(),
     ).toContainText('Personal');
-
     await page.getByRole('button', { name: 'Access', exact: true }).click();
     const restrictedAccess = page.getByLabel('Restricted access');
-    const approvedEmails = page.getByLabel('Approved emails');
+    const approvedEmailInput = page.getByRole('textbox', {
+      name: 'Email address',
+    });
     await expect(restrictedAccess).not.toBeChecked();
-    await approvedEmails.fill(approvedEmail);
+    await approvedEmailInput.fill(approvedEmail);
+    await page.getByRole('button', { name: 'Add email' }).click();
     await restrictedAccess.check();
     await saveAccessPolicy(page);
     await expect(restrictedAccess).toBeChecked();
-
     const revokedExisting = await request.get('/api/session', {
       headers: {
         authorization: `Bearer ${existingAccount.token}`,
@@ -158,7 +159,7 @@ test('manages Restricted access through the Host Console', async ({
     });
     expect(approvedSession.status()).toBe(200);
 
-    await approvedEmails.fill('');
+    await page.getByRole('button', { name: `Remove ${approvedEmail}` }).click();
     await saveAccessPolicy(page);
 
     const revokedApproved = await request.get('/api/session', {

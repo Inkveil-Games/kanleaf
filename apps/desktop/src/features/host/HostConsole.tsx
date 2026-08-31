@@ -78,7 +78,7 @@ export function HostConsole({
         {section === 'workspaces' ? (
           <HostWorkspaces context={context} />
         ) : (
-          <HostAccessSettings context={context} />
+          <HostAccessSettings context={context} hostEmail={user.email} />
         )}
       </SettingsFrame>
     </main>
