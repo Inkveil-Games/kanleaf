@@ -2,12 +2,16 @@ import { apiRequest } from '../api/client';
 import type { HealthResponse } from '../api/types';
 
 const SERVER_URL_ENV = 'VITE_KANLEAF_SERVER_URL';
+const SAME_ORIGIN_SERVER_URL = 'same-origin';
 const HEALTH_TIMEOUT_MS = 8_000;
 
 export function readConfiguredServerUrl(): string {
   const value = import.meta.env.VITE_KANLEAF_SERVER_URL;
   if (!value) {
     throw new Error(`Set ${SERVER_URL_ENV} in the repository root .env file`);
+  }
+  if (value === SAME_ORIGIN_SERVER_URL) {
+    return normalizeServerUrl(window.location.origin);
   }
   return normalizeServerUrl(value);
 }

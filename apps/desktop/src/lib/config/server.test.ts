@@ -1,5 +1,23 @@
-import { describe, expect, it } from 'vitest';
-import { normalizeServerUrl } from './server';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { normalizeServerUrl, readConfiguredServerUrl } from './server';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe('readConfiguredServerUrl', () => {
+  it('resolves the explicit same-origin web build configuration', () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'same-origin');
+
+    expect(readConfiguredServerUrl()).toBe(window.location.origin);
+  });
+
+  it('keeps absolute deployment URLs normalized', () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com/base/');
+
+    expect(readConfiguredServerUrl()).toBe('https://kanleaf.example.com/base');
+  });
+});
 
 describe('normalizeServerUrl', () => {
   it('accepts HTTP and HTTPS servers and removes a trailing slash', () => {
