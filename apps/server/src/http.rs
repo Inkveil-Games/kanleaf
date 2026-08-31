@@ -16,7 +16,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{AppState, account, auth, collaboration, error::AppError, portability, workspace};
+use crate::{
+    AppState, account, auth, collaboration, error::AppError, host, portability, workspace,
+};
 
 static REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 const IMMUTABLE_ASSET_CACHE: &str = "public, max-age=31536000, immutable";
@@ -44,6 +46,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .route("/api/health", get(health))
         .nest("/api/auth", auth::routes())
         .route("/api/session", get(auth::session))
+        .merge(host::routes())
         .merge(account::routes())
         .merge(collaboration::routes())
         .merge(portability::routes())
