@@ -10,7 +10,7 @@ use kanleaf_server::{
         recover_workspace_operations, spawn_config_projection_worker, spawn_export_cleanup_worker,
         spawn_import_cleanup_worker,
     },
-    router,
+    router, router_with_web_client,
     task::{recover_projection_jobs, spawn_projection_worker},
     workspace::migrate_workspace_vaults,
 };
@@ -73,7 +73,10 @@ async fn main() -> anyhow::Result<()> {
     spawn_config_projection_worker(state.clone());
     spawn_export_cleanup_worker(state.clone());
     spawn_import_cleanup_worker(state.clone());
-    let app = router(state, config.cors_origins);
+    let app = match config.web_dir {
+        Some(web_dir) => router_with_web_client(state, config.cors_origins, web_dir),
+        None => router(state, config.cors_origins),
+    };
 
     info!(%address, "Kanleaf server listening");
     axum::serve(listener, app)

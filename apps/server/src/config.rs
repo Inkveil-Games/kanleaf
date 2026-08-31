@@ -1,5 +1,6 @@
 use std::{
     env,
+    ffi::OsString,
     net::{AddrParseError, SocketAddr},
     path::PathBuf,
     time::Duration,
@@ -20,6 +21,7 @@ pub struct Config {
     pub bind_address: SocketAddr,
     pub cors_origins: Vec<HeaderValue>,
     pub session_ttl: Duration,
+    pub web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -34,6 +36,8 @@ pub enum ConfigError {
     EmptyCorsOrigins,
     #[error("KANLEAF_SESSION_TTL_DAYS must be a positive whole number")]
     InvalidSessionTtl,
+    #[error("KANLEAF_WEB_DIR must be a directory containing a readable index.html")]
+    InvalidWebDir,
 }
 
 impl Config {
@@ -53,6 +57,7 @@ impl Config {
             &env::var("KANLEAF_SESSION_TTL_DAYS")
                 .unwrap_or_else(|_| DEFAULT_SESSION_TTL_DAYS.to_owned()),
         )?;
+        let web_dir = parse_web_dir(env::var_os("KANLEAF_WEB_DIR"))?;
 
         Ok(Self {
             database_url,
@@ -60,6 +65,7 @@ impl Config {
             bind_address,
             cors_origins,
             session_ttl,
+            web_dir,
         })
     }
 }
@@ -98,11 +104,30 @@ fn parse_session_ttl(value: &str) -> Result<Duration, ConfigError> {
     Ok(Duration::from_secs(seconds))
 }
 
+fn parse_web_dir(value: Option<OsString>) -> Result<Option<PathBuf>, ConfigError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_empty() {
+        return Err(ConfigError::InvalidWebDir);
+    }
+
+    let path = PathBuf::from(value);
+    let index = path.join("index.html");
+    if !path.is_dir() || !index.is_file() || std::fs::File::open(index).is_err() {
+        return Err(ConfigError::InvalidWebDir);
+    }
+
+    Ok(Some(path))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{ffi::OsString, fs, time::Duration};
 
-    use super::{parse_bind_address, parse_cors_origins, parse_session_ttl};
+    use tempfile::TempDir;
+
+    use super::{parse_bind_address, parse_cors_origins, parse_session_ttl, parse_web_dir};
 
     #[test]
     fn parses_server_configuration_values() {
@@ -124,5 +149,26 @@ mod tests {
         assert!(parse_cors_origins(" , ").is_err());
         assert!(parse_session_ttl("0").is_err());
         assert!(parse_session_ttl("many").is_err());
+    }
+
+    #[test]
+    fn accepts_an_optional_web_directory_with_an_index() {
+        assert_eq!(parse_web_dir(None).unwrap(), None);
+
+        let web_dir = TempDir::new().unwrap();
+        fs::write(web_dir.path().join("index.html"), "<main>Kanleaf</main>").unwrap();
+
+        assert_eq!(
+            parse_web_dir(Some(web_dir.path().as_os_str().to_owned())).unwrap(),
+            Some(web_dir.path().to_owned())
+        );
+    }
+
+    #[test]
+    fn rejects_empty_or_incomplete_web_directories() {
+        assert!(parse_web_dir(Some(OsString::new())).is_err());
+
+        let web_dir = TempDir::new().unwrap();
+        assert!(parse_web_dir(Some(web_dir.path().as_os_str().to_owned())).is_err());
     }
 }

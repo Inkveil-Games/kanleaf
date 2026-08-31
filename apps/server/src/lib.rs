@@ -15,5 +15,5 @@ pub mod task_config;
 pub mod vault;
 pub mod workspace;
 
-pub use http::router;
+pub use http::{router, router_with_web_client};
 pub use state::AppState;
