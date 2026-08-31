@@ -130,7 +130,7 @@ async fn update_profile(
         .execute(&state.pool)
         .await?;
 
-    Ok(Json(select_user_response(&state.pool, auth.user.id).await?))
+    Ok(Json(select_user_response(&state, auth.user.id).await?))
 }
 
 async fn update_preferences(
@@ -156,7 +156,7 @@ async fn update_preferences(
     .execute(&state.pool)
     .await?;
 
-    Ok(Json(select_user_response(&state.pool, auth.user.id).await?))
+    Ok(Json(select_user_response(&state, auth.user.id).await?))
 }
 
 async fn change_password(

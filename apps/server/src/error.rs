@@ -12,6 +12,8 @@ pub enum AppError {
     Unauthorized,
     #[error("you do not have access to this resource")]
     Forbidden,
+    #[error("access to this Kanleaf host is restricted")]
+    AccessRestricted,
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
@@ -89,6 +91,12 @@ impl IntoResponse for AppError {
                 StatusCode::FORBIDDEN,
                 "forbidden",
                 "You do not have access to this resource".to_owned(),
+            ),
+            Self::AccessRestricted => (
+                StatusCode::FORBIDDEN,
+                "access_restricted",
+                "Access to this Kanleaf host is restricted. Contact the host administrator."
+                    .to_owned(),
             ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
             Self::Conflict(message) => (StatusCode::CONFLICT, "conflict", message),

@@ -42,7 +42,8 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to clean expired Workspace operations")?;
 
-    let state = AppState::new(pool, config.data_dir, config.session_ttl);
+    let state =
+        AppState::new(pool, config.data_dir, config.session_ttl).with_host_email(config.host_email);
     recover_export_operations(&state)
         .await
         .context("failed to recover Workspace export operations")?;

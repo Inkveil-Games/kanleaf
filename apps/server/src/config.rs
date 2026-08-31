@@ -9,6 +9,8 @@ use std::{
 use http::HeaderValue;
 use thiserror::Error;
 
+use crate::domain::NormalizedEmail;
+
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:3000";
 const DEFAULT_CORS_ORIGINS: &str =
     "http://127.0.0.1:1420,http://localhost:1420,tauri://localhost,http://tauri.localhost";
@@ -22,6 +24,7 @@ pub struct Config {
     pub cors_origins: Vec<HeaderValue>,
     pub session_ttl: Duration,
     pub web_dir: Option<PathBuf>,
+    pub host_email: Option<NormalizedEmail>,
 }
 
 #[derive(Debug, Error)]
@@ -38,6 +41,8 @@ pub enum ConfigError {
     InvalidSessionTtl,
     #[error("KANLEAF_WEB_DIR must be a directory containing a readable index.html")]
     InvalidWebDir,
+    #[error("KANLEAF_HOST_EMAIL must be a valid email address")]
+    InvalidHostEmail,
 }
 
 impl Config {
@@ -58,6 +63,7 @@ impl Config {
                 .unwrap_or_else(|_| DEFAULT_SESSION_TTL_DAYS.to_owned()),
         )?;
         let web_dir = parse_web_dir(env::var_os("KANLEAF_WEB_DIR"))?;
+        let host_email = parse_host_email(env::var_os("KANLEAF_HOST_EMAIL"))?;
 
         Ok(Self {
             database_url,
@@ -66,6 +72,7 @@ impl Config {
             cors_origins,
             session_ttl,
             web_dir,
+            host_email,
         })
     }
 }
@@ -121,13 +128,31 @@ fn parse_web_dir(value: Option<OsString>) -> Result<Option<PathBuf>, ConfigError
     Ok(Some(path))
 }
 
+fn parse_host_email(value: Option<OsString>) -> Result<Option<NormalizedEmail>, ConfigError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value
+        .into_string()
+        .map_err(|_| ConfigError::InvalidHostEmail)?;
+    if value.trim().is_empty() {
+        return Ok(None);
+    }
+
+    NormalizedEmail::new(&value)
+        .map(Some)
+        .map_err(|_| ConfigError::InvalidHostEmail)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{ffi::OsString, fs, time::Duration};
 
     use tempfile::TempDir;
 
-    use super::{parse_bind_address, parse_cors_origins, parse_session_ttl, parse_web_dir};
+    use super::{
+        parse_bind_address, parse_cors_origins, parse_host_email, parse_session_ttl, parse_web_dir,
+    };
 
     #[test]
     fn parses_server_configuration_values() {
@@ -170,5 +195,21 @@ mod tests {
 
         let web_dir = TempDir::new().unwrap();
         assert!(parse_web_dir(Some(web_dir.path().as_os_str().to_owned())).is_err());
+    }
+
+    #[test]
+    fn parses_an_optional_normalized_host_email() {
+        assert_eq!(parse_host_email(None).unwrap(), None);
+        assert_eq!(parse_host_email(Some(OsString::from("   "))).unwrap(), None);
+
+        let email = parse_host_email(Some(OsString::from(" Host@Example.COM ")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(email.as_str(), "host@example.com");
+    }
+
+    #[test]
+    fn rejects_an_invalid_non_empty_host_email() {
+        assert!(parse_host_email(Some(OsString::from("not-an-email"))).is_err());
     }
 }

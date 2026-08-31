@@ -44,6 +44,7 @@ struct LoginRequest {
 pub struct UserResponse {
     pub id: Uuid,
     pub email: String,
+    pub is_host: bool,
     pub display_name: String,
     pub theme: String,
     pub timezone: String,
@@ -157,8 +158,10 @@ async fn register_user(
     let session_id = Uuid::new_v4();
     let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
+    let is_host = state.is_host_email(email.as_str());
 
     let mut transaction = state.pool.begin().await?;
+    require_email_access(&mut transaction, state, email.as_str()).await?;
     let insert_user = sqlx::query(
         "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)",
     )
@@ -223,6 +226,7 @@ async fn register_user(
         user: UserResponse {
             id: user_id,
             email: email.as_str().to_owned(),
+            is_host,
             display_name,
             theme: "system".to_owned(),
             timezone: "UTC".to_owned(),
@@ -257,10 +261,12 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
         return Err(AppError::Unauthorized);
     }
 
+    let is_host = state.is_host_email(&user.email);
     let session_id = Uuid::new_v4();
     let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
     let mut transaction = state.pool.begin().await?;
+    require_email_access(&mut transaction, state, &user.email).await?;
     insert_session(
         &mut transaction,
         session_id,
@@ -277,6 +283,7 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
         user: UserResponse {
             id: user.id,
             email: user.email,
+            is_host,
             display_name: user.display_name,
             theme: user.theme,
             timezone: user.timezone,
@@ -304,6 +311,32 @@ async fn insert_session(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+async fn require_email_access(
+    transaction: &mut Transaction<'_, Postgres>,
+    state: &AppState,
+    email: &str,
+) -> Result<(), AppError> {
+    let restricted: bool = sqlx::query_scalar(
+        "SELECT restricted_access FROM instance_settings WHERE id = 1 FOR SHARE",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !restricted || state.is_host_email(email) {
+        return Ok(());
+    }
+
+    let allowed: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instance_allowed_emails WHERE email = $1)")
+            .bind(email)
+            .fetch_one(&mut **transaction)
+            .await?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::AccessRestricted)
+    }
 }
 
 impl FromRequestParts<AppState> for AuthenticatedUser {
@@ -340,13 +373,25 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                 users.active_workspace_id
             FROM sessions
             JOIN users ON users.id = sessions.user_id
+            CROSS JOIN instance_settings
             WHERE sessions.token_hash = $1 AND sessions.expires_at > now()
+              AND (
+                    NOT instance_settings.restricted_access
+                    OR users.email = $2
+                    OR EXISTS (
+                        SELECT 1
+                        FROM instance_allowed_emails
+                        WHERE instance_allowed_emails.email = users.email
+                    )
+                  )
             "#,
         )
         .bind(token_hash.as_slice())
+        .bind(state.host_email().map(NormalizedEmail::as_str))
         .fetch_optional(&state.pool)
         .await?
         .ok_or(AppError::Unauthorized)?;
+        let is_host = state.is_host_email(&session.email);
 
         Ok(Self {
             session_id: session.session_id,
@@ -354,6 +399,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             user: UserResponse {
                 id: session.user_id,
                 email: session.email,
+                is_host,
                 display_name: session.display_name,
                 theme: session.theme,
                 timezone: session.timezone,
@@ -366,19 +412,20 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 }
 
 pub(crate) async fn select_user_response(
-    pool: &sqlx::PgPool,
+    state: &AppState,
     user_id: Uuid,
 ) -> Result<UserResponse, AppError> {
     Ok(sqlx::query_as::<_, UserResponse>(
         r#"
-        SELECT id, email, display_name, theme, timezone, week_start, date_format,
-               active_workspace_id
+        SELECT id, email, COALESCE(email = $2, false) AS is_host, display_name,
+               theme, timezone, week_start, date_format, active_workspace_id
         FROM users
         WHERE id = $1
         "#,
     )
     .bind(user_id)
-    .fetch_one(pool)
+    .bind(state.host_email().map(NormalizedEmail::as_str))
+    .fetch_one(&state.pool)
     .await?)
 }
 

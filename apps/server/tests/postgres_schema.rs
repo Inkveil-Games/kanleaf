@@ -5,6 +5,37 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "./migrations")]
+async fn instance_access_defaults_open_and_constrains_allowed_emails(pool: PgPool) {
+    let settings: (i16, bool) =
+        sqlx::query_as("SELECT id, restricted_access FROM instance_settings")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(settings, (1, false));
+
+    let second_settings = sqlx::query("INSERT INTO instance_settings (id) VALUES (2)")
+        .execute(&pool)
+        .await;
+    assert!(second_settings.is_err());
+
+    sqlx::query("INSERT INTO instance_allowed_emails (email) VALUES ($1)")
+        .bind("member@example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let unnormalized = sqlx::query("INSERT INTO instance_allowed_emails (email) VALUES ($1)")
+        .bind(" Member@Example.com ")
+        .execute(&pool)
+        .await;
+    assert!(unnormalized.is_err());
+    let duplicate = sqlx::query("INSERT INTO instance_allowed_emails (email) VALUES ($1)")
+        .bind("member@example.com")
+        .execute(&pool)
+        .await;
+    assert!(duplicate.is_err());
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool) {
     let first_workspace = Uuid::new_v4();
     let second_workspace = Uuid::new_v4();
