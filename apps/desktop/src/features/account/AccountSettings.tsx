@@ -31,10 +31,10 @@ import {
   updatePreferences,
   updateProfile,
 } from './api';
+import type { AccountSettingsSection } from './settingsSections';
 import { applyTheme } from './theme';
 
-export type AccountSettingsSection =
-  'profile' | 'preferences' | 'security' | 'invitations' | 'notifications';
+export type { AccountSettingsSection } from './settingsSections';
 
 interface AccountSettingsProps {
   context: ApiContext;

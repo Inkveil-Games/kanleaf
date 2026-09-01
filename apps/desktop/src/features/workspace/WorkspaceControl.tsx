@@ -11,8 +11,8 @@ import {
 import { useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
 import { InlineNameForm } from './InlineNameForm';
+import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace } from './types';
-import type { WorkspaceSettingsSection } from './WorkspaceSettings';
 
 interface WorkspaceControlProps {
   userEmail: string;

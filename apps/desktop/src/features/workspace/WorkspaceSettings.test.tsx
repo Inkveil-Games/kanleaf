@@ -2,11 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
+import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace, WorkspaceMember } from './types';
-import {
-  WorkspaceSettings,
-  type WorkspaceSettingsSection,
-} from './WorkspaceSettings';
+import { WorkspaceSettings } from './WorkspaceSettings';
 
 const context = {
   serverUrl: 'https://kanleaf.example.com',

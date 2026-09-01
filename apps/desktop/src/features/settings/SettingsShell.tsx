@@ -15,16 +15,12 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { User } from '../../lib/api/types';
-import {
-  AccountSettings,
-  type AccountSettingsSection,
-} from '../account/AccountSettings';
+import { AccountSettings } from '../account/AccountSettings';
+import type { AccountSettingsSection } from '../account/settingsSections';
 import type { ApiContext } from '../workspace/api';
-import {
-  WorkspaceSettings,
-  type WorkspaceSettingsSection,
-} from '../workspace/WorkspaceSettings';
+import type { WorkspaceSettingsSection } from '../workspace/settingsSections';
 import type { Workspace } from '../workspace/types';
+import { WorkspaceSettings } from '../workspace/WorkspaceSettings';
 
 interface AccountSettingsShellProps {
   context: ApiContext;

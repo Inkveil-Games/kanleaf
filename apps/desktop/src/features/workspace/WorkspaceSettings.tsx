@@ -1,10 +1,7 @@
 import { Trash2, UserMinus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { SettingsArticle } from '../settings/SettingsArticle';
-import {
-  TaskConfigurationSettings,
-  type TaskConfigurationSection,
-} from '../task-config/TaskConfigurationSettings';
+import { TaskConfigurationSettings } from '../task-config/TaskConfigurationSettings';
 import {
   ActionMessage,
   FormActions,
@@ -18,18 +15,13 @@ import {
   type ApiContext,
 } from './api';
 import { canManageWorkspace } from './permissions';
+import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace, WorkspaceAccent } from './types';
 import { WorkspaceInvitationSettings } from './WorkspaceInvitationSettings';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
 
-export type WorkspaceSettingsSection =
-  | 'general'
-  | 'members'
-  | 'invitations'
-  | 'storage'
-  | TaskConfigurationSection
-  | 'danger';
+export type { WorkspaceSettingsSection } from './settingsSections';
 
 interface WorkspaceSettingsProps {
   context: ApiContext;
