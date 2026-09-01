@@ -159,6 +159,7 @@ function renderSettings(
         section={section}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
+        onProjectsChanged={vi.fn()}
         onRemoveWorkspace={onRemoveWorkspace}
       />
     </QueryClientProvider>,

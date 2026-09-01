@@ -15,7 +15,7 @@ import {
   type InitialEntry,
 } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Workspace } from './types';
+import type { Project, Task, Workspace } from './types';
 import type { WorkspaceReplacementLocation } from './workspaceLocation';
 import { WorkspaceRouteScreen } from './WorkspaceRouteScreen';
 import {
@@ -25,10 +25,16 @@ import {
 
 const mocks = vi.hoisted(() => ({
   listWorkspaces: vi.fn(),
+  listProjects: vi.fn(),
+  getTask: vi.fn(),
+  getTaskByNumber: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
   listWorkspaces: mocks.listWorkspaces,
+  listProjects: mocks.listProjects,
+  getTask: mocks.getTask,
+  getTaskByNumber: mocks.getTaskByNumber,
 }));
 
 vi.mock('./WorkspaceShell', () => ({
@@ -123,9 +129,71 @@ const workspaces = [
   },
 ] as const;
 
+const projects: Project[] = [
+  {
+    id: 'project-1',
+    workspace_id: 'workspace-1',
+    name: 'Project One',
+    identifier: 'project-one',
+    description: '',
+    icon: 'folder',
+    lead_user_id: null,
+    visibility: 'private',
+    default_assignee_id: null,
+    default_state_id: 'state-1',
+    default_task_type_id: 'type-1',
+    cycles_enabled: true,
+    modules_enabled: true,
+    pages_enabled: true,
+    views_enabled: true,
+    enabled_task_type_ids: ['type-1'],
+    effective_role: 'admin',
+    can_join: false,
+    archived_at: null,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  },
+  {
+    id: 'project-2',
+    workspace_id: 'workspace-1',
+    name: 'Project Two',
+    identifier: 'project-two',
+    description: '',
+    icon: 'target',
+    lead_user_id: null,
+    visibility: 'private',
+    default_assignee_id: null,
+    default_state_id: 'state-1',
+    default_task_type_id: 'type-1',
+    cycles_enabled: true,
+    modules_enabled: true,
+    pages_enabled: true,
+    views_enabled: true,
+    enabled_task_type_ids: ['type-1'],
+    effective_role: 'admin',
+    can_join: false,
+    archived_at: null,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+  },
+];
+
+const task = {
+  id: 'task-1',
+  workspace_id: 'workspace-1',
+  project_id: 'project-1',
+  task_number: 42,
+} as Task;
+
 beforeEach(() => {
   mocks.listWorkspaces.mockReset();
+  mocks.listProjects.mockReset();
+  mocks.getTask.mockReset();
+  mocks.getTaskByNumber.mockReset();
   mocks.listWorkspaces.mockResolvedValue(workspaces);
+  mocks.listProjects.mockResolvedValue(projects);
+  mocks.getTask.mockResolvedValue(task);
+  mocks.getTaskByNumber.mockResolvedValue(task);
 });
 
 describe('workspaceLocationPath', () => {
@@ -138,7 +206,7 @@ describe('workspaceLocationPath', () => {
         viewId: 'view-1',
         taskId: 'task-1',
       },
-      '/kanleaf-core/views/view-1?task=task-1',
+      '/w/kanleaf-core/views/view-1?task=task-1',
     ],
     [
       {
@@ -147,7 +215,7 @@ describe('workspaceLocationPath', () => {
         section: 'security',
         returnTo: null,
       },
-      '/kanleaf-core/settings/account/security',
+      '/w/kanleaf-core/settings/account/security',
     ],
     [
       {
@@ -156,7 +224,7 @@ describe('workspaceLocationPath', () => {
         section: 'task-types',
         returnTo: null,
       },
-      '/kanleaf-core/settings/workspace/task-types',
+      '/w/kanleaf-core/settings/workspace/task-types',
     ],
     [
       {
@@ -166,7 +234,7 @@ describe('workspaceLocationPath', () => {
         section: 'features',
         returnTo: null,
       },
-      '/kanleaf-core/projects/project-1/settings/features',
+      '/w/kanleaf-core/p/project-1/settings/features',
     ],
   ] as const)('serializes a typed location', (location, expected) => {
     expect(workspaceLocationPath(location, 'kanleaf-core')).toBe(expected);
@@ -426,9 +494,9 @@ describe('workspaceLocationFromRoute', () => {
 describe('WorkspaceRouteScreen', () => {
   it('resolves the public identifier before exposing the UUID location', async () => {
     renderRouteScreen(
-      '/kanleaf-core/my-work?task=task-1',
+      '/w/kanleaf-core/my-work?task=42',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     expect(await workspaceLocationOutput()).toHaveTextContent(
@@ -443,13 +511,61 @@ describe('WorkspaceRouteScreen', () => {
     ).toHaveTextContent('true');
   });
 
+  it('upgrades a legacy Task UUID query to its public number', async () => {
+    const legacyTaskId = 'c1bb77a2-56ca-4acd-95f7-3f030389fe17';
+    mocks.getTask.mockResolvedValueOnce({ ...task, id: legacyTaskId });
+    mocks.getTaskByNumber.mockResolvedValueOnce({
+      ...task,
+      id: legacyTaskId,
+    });
+
+    renderRouteScreen(
+      `/w/kanleaf-core/p/project-one/work-items?task=${legacyTaskId}`,
+      'project-work-items',
+      '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/p/project-one/work-items?task=42',
+      ),
+    );
+    expect(mocks.getTask).toHaveBeenCalledWith(
+      { serverUrl: 'https://kanleaf.example.com', token: 'token' },
+      'workspace-1',
+      legacyTaskId,
+    );
+    expect(await workspaceLocationOutput()).toHaveTextContent(
+      `"taskId":"${legacyTaskId}"`,
+    );
+  });
+
+  it('moves a Task opened under the wrong Project to its owning Project route', async () => {
+    mocks.getTaskByNumber.mockResolvedValueOnce({
+      ...task,
+      project_id: 'project-2',
+    });
+
+    renderRouteScreen(
+      '/w/kanleaf-core/p/project-one/work-items?task=42',
+      'project-work-items',
+      '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/p/project-two/work-items?task=42',
+      ),
+    );
+  });
+
   it('does not mount the scoped shell before Workspace access settles', () => {
     mocks.listWorkspaces.mockReturnValue(new Promise(() => undefined));
 
     renderRouteScreen(
-      '/kanleaf-core/my-work',
+      '/w/kanleaf-core/my-work',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     expect(
@@ -467,9 +583,9 @@ describe('WorkspaceRouteScreen', () => {
     );
 
     renderRouteScreen(
-      '/kanleaf-core/my-work',
+      '/w/kanleaf-core/my-work',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
       [],
       workspaces,
     );
@@ -488,11 +604,11 @@ describe('WorkspaceRouteScreen', () => {
   it('reads the route and validated Settings return target as UUID locations', async () => {
     renderRouteScreen(
       {
-        pathname: '/kanleaf-core/settings/account/security',
-        state: { returnTo: '/kanleaf-core/my-work?task=task-1' },
+        pathname: '/w/kanleaf-core/settings/account/security',
+        state: { returnTo: '/w/kanleaf-core/my-work?task=42' },
       },
       'account-settings',
-      '/:workspaceIdentifier/settings/account/:section',
+      '/w/:workspaceIdentifier/settings/account/:section',
     );
 
     expect(await workspaceLocationOutput()).toHaveTextContent(
@@ -512,13 +628,13 @@ describe('WorkspaceRouteScreen', () => {
   it('rejects an external Settings return target', async () => {
     renderRouteScreen(
       {
-        pathname: '/kanleaf-core/settings/account/security',
+        pathname: '/w/kanleaf-core/settings/account/security',
         state: {
-          returnTo: 'https://malicious.example/kanleaf-core/my-work',
+          returnTo: 'https://malicious.example/w/kanleaf-core/my-work',
         },
       },
       'account-settings',
-      '/:workspaceIdentifier/settings/account/:section',
+      '/w/:workspaceIdentifier/settings/account/:section',
     );
 
     expect(await workspaceLocationOutput()).toHaveTextContent(
@@ -528,9 +644,9 @@ describe('WorkspaceRouteScreen', () => {
 
   it('serializes UUID navigation and Settings state with public identifiers', async () => {
     renderRouteScreen(
-      '/kanleaf-core/my-work?task=task-1',
+      '/w/kanleaf-core/my-work?task=42',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     fireEvent.click(
@@ -538,35 +654,37 @@ describe('WorkspaceRouteScreen', () => {
     );
 
     expect(browserLocationOutput()).toHaveTextContent(
-      '/kanleaf-core/settings/account/profile',
+      '/w/kanleaf-core/settings/account/profile',
     );
     expect(routerStateOutput()).toHaveTextContent(
       JSON.stringify({
-        returnTo: '/kanleaf-core/my-work?task=task-1',
+        returnTo: '/w/kanleaf-core/my-work?task=42',
       }),
     );
   });
 
   it('maps navigation for another Workspace UUID to that Workspace identifier', async () => {
     renderRouteScreen(
-      '/kanleaf-core/my-work',
+      '/w/kanleaf-core/my-work',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     fireEvent.click(
       await screen.findByRole('button', { name: 'Open second Workspace' }),
     );
 
-    expect(browserLocationOutput()).toHaveTextContent('/another-team/my-work');
+    expect(browserLocationOutput()).toHaveTextContent(
+      '/w/another-team/my-work',
+    );
     expect(browserLocationOutput()).not.toHaveTextContent('workspace-2');
   });
 
   it('never falls back to a UUID URL when the navigation target is absent', async () => {
     renderRouteScreen(
-      '/kanleaf-core/my-work',
+      '/w/kanleaf-core/my-work',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     fireEvent.click(
@@ -580,12 +698,12 @@ describe('WorkspaceRouteScreen', () => {
   it('does not add a duplicate entry when asked to navigate to the current location', async () => {
     renderRouteScreen(
       {
-        pathname: '/kanleaf-core/views/view-1',
-        search: '?task=task-1',
+        pathname: '/w/kanleaf-core/views/view-1',
+        search: '?task=42',
       },
       'workspace-view',
-      '/:workspaceIdentifier/views/:viewId',
-      ['/kanleaf-core/my-work'],
+      '/w/:workspaceIdentifier/views/:viewId',
+      ['/w/kanleaf-core/my-work'],
     );
 
     fireEvent.click(
@@ -593,21 +711,23 @@ describe('WorkspaceRouteScreen', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
 
-    expect(browserLocationOutput()).toHaveTextContent('/kanleaf-core/my-work');
+    expect(browserLocationOutput()).toHaveTextContent(
+      '/w/kanleaf-core/my-work',
+    );
   });
 
   it.each(['?task=', '?task=first&task=second', '?filter=unsupported'])(
     'replaces the noncanonical search %s',
     async (search) => {
       renderRouteScreen(
-        `/kanleaf-core/my-work${search}`,
+        `/w/kanleaf-core/my-work${search}`,
         'my-work',
-        '/:workspaceIdentifier/my-work',
+        '/w/:workspaceIdentifier/my-work',
       );
 
       await waitFor(() =>
         expect(browserLocationOutput()).toHaveTextContent(
-          /^\/kanleaf-core\/my-work$/,
+          /^\/w\/kanleaf-core\/my-work$/,
         ),
       );
     },
@@ -615,9 +735,9 @@ describe('WorkspaceRouteScreen', () => {
 
   it('replaces an unknown identifier only after access settles', async () => {
     renderRouteScreen(
-      '/unknown-team/my-work?task=task-1',
+      '/w/unknown-team/my-work?task=42',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     await waitFor(() =>
@@ -630,15 +750,17 @@ describe('WorkspaceRouteScreen', () => {
       .mockRejectedValueOnce(new Error('Workspace access failed'))
       .mockResolvedValueOnce(workspaces);
     renderRouteScreen(
-      '/kanleaf-core/my-work',
+      '/w/kanleaf-core/my-work',
       'my-work',
-      '/:workspaceIdentifier/my-work',
+      '/w/:workspaceIdentifier/my-work',
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Workspace access failed',
     );
-    expect(browserLocationOutput()).toHaveTextContent('/kanleaf-core/my-work');
+    expect(browserLocationOutput()).toHaveTextContent(
+      '/w/kanleaf-core/my-work',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await workspaceLocationOutput()).toHaveTextContent(
@@ -702,7 +824,7 @@ function renderRouteScreen(
             }
           />
           <Route
-            path="/:workspaceIdentifier/settings/account/:section"
+            path="/w/:workspaceIdentifier/settings/account/:section"
             element={
               <WorkspaceRouteScreen
                 routeKind="account-settings"
@@ -711,7 +833,7 @@ function renderRouteScreen(
             }
           />
           <Route
-            path="/:workspaceIdentifier/my-work"
+            path="/w/:workspaceIdentifier/my-work"
             element={<output>My Work fallback</output>}
           />
         </Routes>

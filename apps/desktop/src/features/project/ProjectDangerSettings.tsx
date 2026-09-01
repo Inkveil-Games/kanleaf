@@ -28,7 +28,9 @@ export function ProjectDangerSettings({
 
   async function archive() {
     if (
-      !window.confirm(`Archive ${project.name}? Its tasks will move to Inbox.`)
+      !window.confirm(
+        `Archive ${project.name}? Its tasks, documents, and settings will stay intact.`,
+      )
     )
       return;
     setState({ status: 'saving' });
@@ -61,8 +63,8 @@ export function ProjectDangerSettings({
         <div>
           <h2>Archive Project</h2>
           <p>
-            Tasks move to Inbox. The Project and its settings stop appearing in
-            navigation.
+            Hide this Project from navigation while keeping its tasks,
+            documents, settings, and Markdown ready to restore.
           </p>
         </div>
         <button
@@ -79,7 +81,10 @@ export function ProjectDangerSettings({
       >
         <div>
           <h2>Delete Project permanently</h2>
-          <p>Tasks move to Inbox. This Project cannot be recovered.</p>
+          <p>
+            Removes every Project Task, document, view, planning record,
+            membership, setting, and Markdown file. This cannot be recovered.
+          </p>
         </div>
         <label className="settings-field">
           <span>Type {project.identifier} to confirm</span>

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Project } from '../workspace/types';
+import { ProjectIconGlyph } from './ProjectIconGlyph';
 
 interface ProjectOverviewProps {
   project: Project;
@@ -39,10 +40,14 @@ export function ProjectOverview({
 
   return (
     <section className="project-surface" aria-labelledby="project-heading">
+      <div className="project-overview-cover" aria-hidden="true">
+        <span />
+        <span />
+      </div>
       <header className="project-overview-header">
         <div className="project-identity">
           <span className="project-mark" aria-hidden="true">
-            {project.identifier.slice(0, 2)}
+            <ProjectIconGlyph name={project.icon} size={24} strokeWidth={1.8} />
           </span>
           <div>
             <p className="pane-eyebrow">{project.identifier}</p>
@@ -88,7 +93,7 @@ export function ProjectOverview({
           {project.description ||
             (accessible
               ? 'Add a concise description in Project settings.'
-              : 'This Open Project is available to Workspace Members.')}
+              : 'This Public Project is available to Workspace Members.')}
         </p>
 
         <dl className="project-facts">
@@ -99,7 +104,7 @@ export function ProjectOverview({
               <Eye aria-hidden="true" size={15} />
             )}
             <dt>Visibility</dt>
-            <dd>{project.visibility === 'private' ? 'Private' : 'Open'}</dd>
+            <dd>{project.visibility === 'private' ? 'Private' : 'Public'}</dd>
           </div>
           <div>
             <Gauge aria-hidden="true" size={15} />

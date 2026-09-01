@@ -49,6 +49,7 @@ export interface Project {
   name: string;
   identifier: string;
   description: string;
+  icon: string;
   lead_user_id: string | null;
   visibility: ProjectVisibility;
   default_assignee_id: string | null;
@@ -66,8 +67,17 @@ export interface Project {
   updated_at: string;
 }
 
-export type ProjectVisibility = 'private' | 'open';
+export type ProjectVisibility = 'private' | 'public';
 export type ProjectRole = 'admin' | 'contributor' | 'commenter' | 'viewer';
+
+export interface ProjectCreateInput {
+  name: string;
+  identifier: string;
+  description: string;
+  icon: string;
+  lead_user_id: string;
+  visibility: ProjectVisibility;
+}
 
 export interface ProjectMember {
   user_id: string;
@@ -81,7 +91,6 @@ export interface ProjectMember {
 
 export interface ProjectPatch {
   name?: string;
-  identifier?: string;
   description?: string;
   lead_user_id?: string | null;
   visibility?: ProjectVisibility;

@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 export interface SelectOption {
   value: string;
   label: string;
+  description?: string;
   disabled?: boolean;
 }
 
@@ -53,10 +54,18 @@ export function Select({
     if (!open || !triggerRef.current) return;
 
     const rect = triggerRef.current.getBoundingClientRect();
+    const root =
+      triggerRef.current.closest<HTMLElement>('dialog') ?? document.body;
+    const rootRect = root.getBoundingClientRect();
+    const constrainToRoot = root !== document.body && rootRect.height > 0;
     const edge = 8;
     const gap = 4;
-    const spaceBelow = window.innerHeight - rect.bottom - edge - gap;
-    const spaceAbove = rect.top - edge - gap;
+    const boundaryTop = constrainToRoot ? Math.max(0, rootRect.top) : 0;
+    const boundaryBottom = constrainToRoot
+      ? Math.min(window.innerHeight, rootRect.bottom)
+      : window.innerHeight;
+    const spaceBelow = boundaryBottom - rect.bottom - edge - gap;
+    const spaceAbove = rect.top - boundaryTop - edge - gap;
     const placeAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
     const available = Math.max(96, placeAbove ? spaceAbove : spaceBelow);
     const width = Math.min(
@@ -64,7 +73,7 @@ export function Select({
       window.innerWidth - edge * 2,
     );
 
-    setPortalRoot(triggerRef.current.closest('dialog') ?? document.body);
+    setPortalRoot(root);
     setPosition({
       ...(placeAbove
         ? { bottom: window.innerHeight - rect.top + gap }
@@ -210,23 +219,35 @@ export function Select({
             }}
             onKeyDown={moveOptionFocus}
           >
-            {options.map((option) => (
-              <button
-                key={option.value}
-                className="select-option"
-                type="button"
-                role="option"
-                aria-selected={option.value === value}
-                aria-disabled={option.disabled || undefined}
-                disabled={option.disabled}
-                onClick={() => choose(option)}
-              >
-                <span>{option.label}</span>
-                {option.value === value && (
-                  <Check aria-hidden="true" size={14} />
-                )}
-              </button>
-            ))}
+            {options.map((option, index) => {
+              const descriptionId = option.description
+                ? `${listboxId}-option-${index}-description`
+                : undefined;
+              return (
+                <button
+                  key={option.value}
+                  className="select-option"
+                  type="button"
+                  role="option"
+                  aria-label={option.label}
+                  aria-selected={option.value === value}
+                  aria-disabled={option.disabled || undefined}
+                  aria-describedby={descriptionId}
+                  disabled={option.disabled}
+                  onClick={() => choose(option)}
+                >
+                  <span className="select-option-copy">
+                    <span>{option.label}</span>
+                    {option.description ? (
+                      <small id={descriptionId}>{option.description}</small>
+                    ) : null}
+                  </span>
+                  {option.value === value && (
+                    <Check aria-hidden="true" size={14} />
+                  )}
+                </button>
+              );
+            })}
           </div>,
           portalRoot,
         )}

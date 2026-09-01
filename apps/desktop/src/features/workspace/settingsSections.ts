@@ -4,6 +4,7 @@ export const workspaceSettingsSections = [
   'states',
   'labels',
   'task-types',
+  'projects',
   'invitations',
   'storage',
   'danger',

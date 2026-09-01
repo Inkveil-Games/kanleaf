@@ -38,7 +38,7 @@ describe('Workspace content path parsing', () => {
     const path = workspaceContentPath(location, 'kanleaf-core');
 
     expect(path).toBe(
-      '/kanleaf-core/projects/project%2Fone/views/view-1?task=task+one',
+      '/w/kanleaf-core/p/project%2Fone/views/view-1?task=task+one',
     );
     expect(parseWorkspaceContentPath(path, resolveWorkspaceId)).toEqual(
       location,
@@ -47,7 +47,7 @@ describe('Workspace content path parsing', () => {
 
   it.each([
     [
-      '/workspace-1/my-work?task=task-1',
+      '/w/workspace-1/my-work?task=task-1',
       {
         kind: 'my-work',
         workspaceId: 'workspace-1',
@@ -55,15 +55,15 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/inbox',
+      '/w/workspace-1/inbox',
       { kind: 'inbox', workspaceId: 'workspace-1', taskId: null },
     ],
     [
-      '/workspace-1/tasks',
+      '/w/workspace-1/tasks',
       { kind: 'all-tasks', workspaceId: 'workspace-1', taskId: null },
     ],
     [
-      '/workspace-1/views/view-1?task=task-1',
+      '/w/workspace-1/views/view-1?task=task-1',
       {
         kind: 'workspace-view',
         workspaceId: 'workspace-1',
@@ -72,7 +72,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/library',
+      '/w/workspace-1/library',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
@@ -80,7 +80,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/library/document-1',
+      '/w/workspace-1/library/document-1',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
@@ -88,7 +88,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1',
+      '/w/workspace-1/p/project-1',
       {
         kind: 'project-overview',
         workspaceId: 'workspace-1',
@@ -96,7 +96,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/work-items?task=task-1',
+      '/w/workspace-1/p/project-1/work-items?task=task-1',
       {
         kind: 'project-work-items',
         workspaceId: 'workspace-1',
@@ -105,7 +105,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/cycles/cycle-1',
+      '/w/workspace-1/p/project-1/cycles/cycle-1',
       {
         kind: 'project-cycles',
         workspaceId: 'workspace-1',
@@ -114,7 +114,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/modules',
+      '/w/workspace-1/p/project-1/modules',
       {
         kind: 'project-modules',
         workspaceId: 'workspace-1',
@@ -123,7 +123,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/library/document-1',
+      '/w/workspace-1/p/project-1/library/document-1',
       {
         kind: 'project-library',
         workspaceId: 'workspace-1',
@@ -132,7 +132,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/views',
+      '/w/workspace-1/p/project-1/views',
       {
         kind: 'project-views',
         workspaceId: 'workspace-1',
@@ -140,7 +140,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/workspace-1/projects/project-1/views/view-1',
+      '/w/workspace-1/p/project-1/views/view-1',
       {
         kind: 'project-view',
         workspaceId: 'workspace-1',
@@ -150,7 +150,7 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/kanleaf-core/my-work?task=task+one',
+      '/w/kanleaf-core/my-work?task=task+one',
       {
         kind: 'my-work',
         workspaceId: 'workspace one',
@@ -168,20 +168,20 @@ describe('Workspace content path parsing', () => {
     '//example.com/workspace-1/my-work',
     '/host',
     '/missing/my-work',
-    '/w/workspace-1/my-work',
-    '/workspace-1',
-    '/workspace-1/my-work/',
-    '/workspace-1/settings/account/profile',
-    '/workspace-1/projects/project-1/settings/general',
-    '/workspace-1/library?task=task-1',
-    '/workspace-1/my-work?filter=open',
-    '/workspace-1/my-work?task=one&task=two',
-    '/workspace-1/my-work?task=',
-    '/workspace-1/my-work#section',
-    '/%E0%A4%A/my-work',
-    '/workspace+one/my-work',
-    '/workspace-1/library/..',
-    '/workspace-1/projects/../work-items',
+    '/workspace-1/my-work',
+    '/w/workspace-1',
+    '/w/workspace-1/my-work/',
+    '/w/workspace-1/settings/account/profile',
+    '/w/workspace-1/p/project-1/settings/general',
+    '/w/workspace-1/library?task=task-1',
+    '/w/workspace-1/my-work?filter=open',
+    '/w/workspace-1/my-work?task=one&task=two',
+    '/w/workspace-1/my-work?task=',
+    '/w/workspace-1/my-work#section',
+    '/w/%E0%A4%A/my-work',
+    '/w/workspace+one/my-work',
+    '/w/workspace-1/library/..',
+    '/w/workspace-1/p/../work-items',
   ])('rejects unsafe or non-canonical return target %s', (path) => {
     expect(parseWorkspaceContentPath(path, resolveWorkspaceId)).toBeNull();
   });
@@ -566,7 +566,7 @@ describe('Project access reconciliation', () => {
   it('keeps a discoverable unjoined Open Project at Overview', () => {
     const openProject = {
       ...project,
-      visibility: 'open' as const,
+      visibility: 'public' as const,
       effective_role: null,
       can_join: true,
     };
@@ -594,7 +594,7 @@ describe('Project access reconciliation', () => {
           status: 'resolved',
           value: {
             ...project,
-            visibility: 'open',
+            visibility: 'public',
             effective_role: null,
             can_join: true,
           },

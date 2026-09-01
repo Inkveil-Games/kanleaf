@@ -13,38 +13,42 @@ export const routePatterns = {
   setupWorkspace: '/setup/workspace',
   setupInvite: '/setup/invite',
   setupWildcard: '/setup/*',
-  legacyWorkspace: '/w/:workspaceUuid',
-  legacyWorkspaceWildcard: '/w/:workspaceUuid/*',
-  workspace: '/:workspaceIdentifier',
-  workspaceMyWork: '/:workspaceIdentifier/my-work',
-  workspaceInbox: '/:workspaceIdentifier/inbox',
-  workspaceTasks: '/:workspaceIdentifier/tasks',
-  workspaceView: '/:workspaceIdentifier/views/:viewId',
-  workspaceLibrary: '/:workspaceIdentifier/library',
-  workspaceDocument: '/:workspaceIdentifier/library/:documentId',
-  project: '/:workspaceIdentifier/projects/:projectId',
-  projectWorkItems: '/:workspaceIdentifier/projects/:projectId/work-items',
-  projectCycles: '/:workspaceIdentifier/projects/:projectId/cycles',
-  projectCycle: '/:workspaceIdentifier/projects/:projectId/cycles/:cycleId',
-  projectModules: '/:workspaceIdentifier/projects/:projectId/modules',
-  projectModule: '/:workspaceIdentifier/projects/:projectId/modules/:moduleId',
-  projectLibrary: '/:workspaceIdentifier/projects/:projectId/library',
+  legacyWorkspace: '/:legacyWorkspaceIdentifier',
+  legacyWorkspaceWildcard: '/:legacyWorkspaceIdentifier/*',
+  legacyProject: '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId',
+  legacyProjectWildcard:
+    '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId/*',
+  workspace: '/w/:workspaceIdentifier',
+  workspaceMyWork: '/w/:workspaceIdentifier/my-work',
+  workspaceInbox: '/w/:workspaceIdentifier/inbox',
+  workspaceTasks: '/w/:workspaceIdentifier/tasks',
+  workspaceView: '/w/:workspaceIdentifier/views/:viewId',
+  workspaceLibrary: '/w/:workspaceIdentifier/library',
+  workspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
+  project: '/w/:workspaceIdentifier/p/:projectIdentifier',
+  projectWorkItems: '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
+  projectCycles: '/w/:workspaceIdentifier/p/:projectIdentifier/cycles',
+  projectCycle: '/w/:workspaceIdentifier/p/:projectIdentifier/cycles/:cycleId',
+  projectModules: '/w/:workspaceIdentifier/p/:projectIdentifier/modules',
+  projectModule:
+    '/w/:workspaceIdentifier/p/:projectIdentifier/modules/:moduleId',
+  projectLibrary: '/w/:workspaceIdentifier/p/:projectIdentifier/library',
   projectDocument:
-    '/:workspaceIdentifier/projects/:projectId/library/:documentId',
-  projectViews: '/:workspaceIdentifier/projects/:projectId/views',
-  projectView: '/:workspaceIdentifier/projects/:projectId/views/:viewId',
-  accountSettings: '/:workspaceIdentifier/settings/account/:section',
-  workspaceSettings: '/:workspaceIdentifier/settings/workspace/:section',
+    '/w/:workspaceIdentifier/p/:projectIdentifier/library/:documentId',
+  projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
+  projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
+  accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
+  workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
   projectSettings:
-    '/:workspaceIdentifier/projects/:projectId/settings/:section',
+    '/w/:workspaceIdentifier/p/:projectIdentifier/settings/:section',
 } as const;
 
 function workspacePath(workspaceIdentifier: string) {
-  return `/${segment(workspaceIdentifier)}`;
+  return `/w/${segment(workspaceIdentifier)}`;
 }
 
-function projectPath(workspaceIdentifier: string, projectId: string) {
-  return `${workspacePath(workspaceIdentifier)}/projects/${segment(projectId)}`;
+function projectPath(workspaceIdentifier: string, projectIdentifier: string) {
+  return `${workspacePath(workspaceIdentifier)}/p/${segment(projectIdentifier)}`;
 }
 
 export const routePaths = {

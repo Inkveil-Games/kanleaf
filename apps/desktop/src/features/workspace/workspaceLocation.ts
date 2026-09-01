@@ -81,6 +81,9 @@ export type WorkspaceLocation =
 export function parseWorkspaceContentPath(
   value: string,
   resolveWorkspaceId: (workspaceIdentifier: string) => string | null,
+  resolveProjectId: (projectIdentifier: string) => string | null = (value) =>
+    value,
+  resolveTaskId: (taskNumber: string) => string | null = (value) => value,
 ): WorkspaceContentLocation | null {
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('#')) {
     return null;
@@ -117,7 +120,8 @@ export function parseWorkspaceContentPath(
     return null;
   }
 
-  const workspaceIdentifier = segments[0];
+  if (segments[0] !== 'w') return null;
+  const workspaceIdentifier = segments[1];
   const workspaceId = workspaceIdentifier
     ? resolveWorkspaceId(workspaceIdentifier)
     : null;
@@ -125,24 +129,55 @@ export function parseWorkspaceContentPath(
     return null;
   }
 
-  const location = contentLocationFromSegments(segments, workspaceId);
-  const taskId = taskValues[0] ?? null;
-  if (!location || (taskId !== null && !hasTask(location))) {
+  const publicLocation = contentLocationFromSegments(
+    segments.slice(2),
+    workspaceIdentifier,
+  );
+  const publicTaskNumber = taskValues[0] ?? null;
+  if (
+    !publicLocation ||
+    (publicTaskNumber !== null && !hasTask(publicLocation))
+  ) {
     return null;
   }
 
-  const withSelection = hasTask(location) ? { ...location, taskId } : location;
-  const canonical = workspaceContentPath(withSelection, workspaceIdentifier);
-  return canonical === value ? withSelection : null;
+  const publicSelection = hasTask(publicLocation)
+    ? { ...publicLocation, taskId: publicTaskNumber }
+    : publicLocation;
+  if (workspaceContentPath(publicSelection, workspaceIdentifier) !== value) {
+    return null;
+  }
+
+  const projectIdentifier =
+    'projectId' in publicSelection ? publicSelection.projectId : null;
+  const projectId = projectIdentifier
+    ? resolveProjectId(projectIdentifier)
+    : null;
+  if (projectIdentifier && !projectId) return null;
+  const taskId = publicTaskNumber ? resolveTaskId(publicTaskNumber) : null;
+  if (publicTaskNumber && !taskId) return null;
+  return {
+    ...publicSelection,
+    workspaceId,
+    ...(projectId ? { projectId } : {}),
+    ...(hasTask(publicSelection) ? { taskId } : {}),
+  };
 }
 
 export function workspaceContentPath(
   location: WorkspaceContentLocation,
   workspaceIdentifier: string,
+  resolveProjectIdentifier: (projectId: string) => string | null = (value) =>
+    value,
+  resolveTaskNumber: (taskId: string) => string | null = (value) => value,
 ) {
-  const path = contentPathWithoutTask(location, workspaceIdentifier);
+  const path = contentPathWithoutTask(
+    location,
+    workspaceIdentifier,
+    resolveProjectIdentifier,
+  );
   return hasTask(location) && location.taskId
-    ? withTask(path, location.taskId)
+    ? withTask(path, resolveTaskNumber(location.taskId) ?? location.taskId)
     : path;
 }
 
@@ -262,7 +297,7 @@ export function reconcileWorkspaceLocation(
     const projectOverview = overview(location.workspaceId, routedProjectId);
     if (project.value.effective_role === null) {
       const discoverable =
-        project.value.visibility === 'open' && project.value.can_join;
+        project.value.visibility === 'public' && project.value.can_join;
       if (!discoverable) {
         return {
           status: 'replace',
@@ -696,9 +731,9 @@ function contentLocationFromSegments(
   segments: string[],
   workspaceId: string,
 ): WorkspaceContentLocation | null {
-  const [, area, projectId, surface, resourceId] = segments;
+  const [area, projectId, surface, resourceId] = segments;
 
-  if (segments.length === 2) {
+  if (segments.length === 1) {
     if (area === 'my-work' || area === 'inbox') {
       return { kind: area, workspaceId, taskId: null };
     }
@@ -711,7 +746,7 @@ function contentLocationFromSegments(
     return null;
   }
 
-  if (segments.length === 3 && area !== 'projects' && projectId) {
+  if (segments.length === 2 && area !== 'p' && projectId) {
     if (area === 'views') {
       return {
         kind: 'workspace-view',
@@ -730,13 +765,13 @@ function contentLocationFromSegments(
     return null;
   }
 
-  if (area !== 'projects' || !projectId) {
+  if (area !== 'p' || !projectId) {
     return null;
   }
-  if (segments.length === 3) {
+  if (segments.length === 2) {
     return { kind: 'project-overview', workspaceId, projectId };
   }
-  if (segments.length === 4) {
+  if (segments.length === 3) {
     switch (surface) {
       case 'work-items':
         return {
@@ -772,7 +807,7 @@ function contentLocationFromSegments(
         return null;
     }
   }
-  if (segments.length !== 5 || !resourceId) {
+  if (segments.length !== 4 || !resourceId) {
     return null;
   }
 
@@ -814,7 +849,10 @@ function contentLocationFromSegments(
 function contentPathWithoutTask(
   location: WorkspaceContentLocation,
   workspaceIdentifier: string,
+  resolveProjectIdentifier: (projectId: string) => string | null,
 ): string {
+  const publicProjectId = (projectId: string) =>
+    resolveProjectIdentifier(projectId) ?? projectId;
   switch (location.kind) {
     case 'my-work':
       return routePaths.workspaceMyWork(workspaceIdentifier);
@@ -829,42 +867,57 @@ function contentPathWithoutTask(
         ? routePaths.workspaceDocument(workspaceIdentifier, location.documentId)
         : routePaths.workspaceLibrary(workspaceIdentifier);
     case 'project-overview':
-      return routePaths.project(workspaceIdentifier, location.projectId);
+      return routePaths.project(
+        workspaceIdentifier,
+        publicProjectId(location.projectId),
+      );
     case 'project-work-items':
       return routePaths.projectWorkItems(
         workspaceIdentifier,
-        location.projectId,
+        publicProjectId(location.projectId),
       );
     case 'project-cycles':
       return location.cycleId
         ? routePaths.projectCycle(
             workspaceIdentifier,
-            location.projectId,
+            publicProjectId(location.projectId),
             location.cycleId,
           )
-        : routePaths.projectCycles(workspaceIdentifier, location.projectId);
+        : routePaths.projectCycles(
+            workspaceIdentifier,
+            publicProjectId(location.projectId),
+          );
     case 'project-modules':
       return location.moduleId
         ? routePaths.projectModule(
             workspaceIdentifier,
-            location.projectId,
+            publicProjectId(location.projectId),
             location.moduleId,
           )
-        : routePaths.projectModules(workspaceIdentifier, location.projectId);
+        : routePaths.projectModules(
+            workspaceIdentifier,
+            publicProjectId(location.projectId),
+          );
     case 'project-library':
       return location.documentId
         ? routePaths.projectDocument(
             workspaceIdentifier,
-            location.projectId,
+            publicProjectId(location.projectId),
             location.documentId,
           )
-        : routePaths.projectLibrary(workspaceIdentifier, location.projectId);
+        : routePaths.projectLibrary(
+            workspaceIdentifier,
+            publicProjectId(location.projectId),
+          );
     case 'project-views':
-      return routePaths.projectViews(workspaceIdentifier, location.projectId);
+      return routePaths.projectViews(
+        workspaceIdentifier,
+        publicProjectId(location.projectId),
+      );
     case 'project-view':
       return routePaths.projectView(
         workspaceIdentifier,
-        location.projectId,
+        publicProjectId(location.projectId),
         location.viewId,
       );
   }

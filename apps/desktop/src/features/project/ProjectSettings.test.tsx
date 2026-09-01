@@ -23,6 +23,7 @@ const project: Project = {
   workspace_id: workspace.id,
   name: 'Kanleaf Core',
   identifier: 'KAN',
+  icon: 'folder',
   description: '',
   lead_user_id: null,
   visibility: 'private',
@@ -140,7 +141,7 @@ describe('ProjectSettings', () => {
         return response({
           ...project,
           description: 'Focused Core delivery.',
-          visibility: 'open',
+          visibility: 'public',
         });
       }
       if (url.endsWith('/projects/project-1/members')) {
@@ -165,7 +166,7 @@ describe('ProjectSettings', () => {
     });
     chooseSelectOption(
       'Visibility',
-      'Open — Workspace Members can discover and join',
+      'Public — Workspace Members can discover and join',
     );
     fireEvent.click(
       screen.getByRole('button', { name: 'Save general settings' }),

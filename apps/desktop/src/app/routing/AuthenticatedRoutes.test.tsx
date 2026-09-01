@@ -17,10 +17,14 @@ vi.mock('../../features/host/HostConsole', () => ({
 
 const mocks = vi.hoisted(() => ({
   listWorkspaces: vi.fn(),
+  listProjects: vi.fn(),
+  getTaskByNumber: vi.fn(),
 }));
 
 vi.mock('../../features/workspace/api', () => ({
   listWorkspaces: mocks.listWorkspaces,
+  listProjects: mocks.listProjects,
+  getTaskByNumber: mocks.getTaskByNumber,
 }));
 
 const workspaces = [
@@ -37,7 +41,22 @@ const workspaces = [
 
 beforeEach(() => {
   mocks.listWorkspaces.mockReset();
+  mocks.listProjects.mockReset();
+  mocks.getTaskByNumber.mockReset();
   mocks.listWorkspaces.mockResolvedValue(workspaces);
+  mocks.listProjects.mockResolvedValue([
+    {
+      id: 'project-1',
+      workspace_id: 'workspace-1',
+      identifier: 'project-one',
+    },
+  ]);
+  mocks.getTaskByNumber.mockResolvedValue({
+    id: 'task-1',
+    workspace_id: 'workspace-1',
+    project_id: 'project-1',
+    task_number: 42,
+  });
 });
 
 describe('AuthenticatedRoutes Workspace tree', () => {
@@ -74,7 +93,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
   it.each([
     ['/', null],
     [
-      '/kanleaf-core/my-work?task=task-1',
+      '/w/kanleaf-core/my-work?task=42',
       {
         kind: 'my-work',
         workspaceId: 'workspace-1',
@@ -82,15 +101,15 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/inbox',
+      '/w/kanleaf-core/inbox',
       { kind: 'inbox', workspaceId: 'workspace-1', taskId: null },
     ],
     [
-      '/kanleaf-core/tasks',
+      '/w/kanleaf-core/tasks',
       { kind: 'all-tasks', workspaceId: 'workspace-1', taskId: null },
     ],
     [
-      '/kanleaf-core/views/view-1',
+      '/w/kanleaf-core/views/view-1',
       {
         kind: 'workspace-view',
         workspaceId: 'workspace-1',
@@ -99,7 +118,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/library',
+      '/w/kanleaf-core/library',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
@@ -107,7 +126,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/library/document-1',
+      '/w/kanleaf-core/library/document-1',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
@@ -115,7 +134,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1',
+      '/w/kanleaf-core/p/project-one',
       {
         kind: 'project-overview',
         workspaceId: 'workspace-1',
@@ -123,7 +142,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/work-items?task=task-1',
+      '/w/kanleaf-core/p/project-one/work-items?task=42',
       {
         kind: 'project-work-items',
         workspaceId: 'workspace-1',
@@ -132,7 +151,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/cycles',
+      '/w/kanleaf-core/p/project-one/cycles',
       {
         kind: 'project-cycles',
         workspaceId: 'workspace-1',
@@ -141,7 +160,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/cycles/cycle-1',
+      '/w/kanleaf-core/p/project-one/cycles/cycle-1',
       {
         kind: 'project-cycles',
         workspaceId: 'workspace-1',
@@ -150,7 +169,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/modules',
+      '/w/kanleaf-core/p/project-one/modules',
       {
         kind: 'project-modules',
         workspaceId: 'workspace-1',
@@ -159,7 +178,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/modules/module-1',
+      '/w/kanleaf-core/p/project-one/modules/module-1',
       {
         kind: 'project-modules',
         workspaceId: 'workspace-1',
@@ -168,7 +187,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/library',
+      '/w/kanleaf-core/p/project-one/library',
       {
         kind: 'project-library',
         workspaceId: 'workspace-1',
@@ -177,7 +196,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/library/document-1',
+      '/w/kanleaf-core/p/project-one/library/document-1',
       {
         kind: 'project-library',
         workspaceId: 'workspace-1',
@@ -186,7 +205,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/views',
+      '/w/kanleaf-core/p/project-one/views',
       {
         kind: 'project-views',
         workspaceId: 'workspace-1',
@@ -194,7 +213,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/views/view-1',
+      '/w/kanleaf-core/p/project-one/views/view-1',
       {
         kind: 'project-view',
         workspaceId: 'workspace-1',
@@ -204,7 +223,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/settings/account/security',
+      '/w/kanleaf-core/settings/account/security',
       {
         kind: 'account-settings',
         workspaceId: 'workspace-1',
@@ -213,7 +232,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/settings/workspace/members',
+      '/w/kanleaf-core/settings/workspace/members',
       {
         kind: 'workspace-settings',
         workspaceId: 'workspace-1',
@@ -222,7 +241,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/kanleaf-core/projects/project-1/settings/features',
+      '/w/kanleaf-core/p/project-one/settings/features',
       {
         kind: 'project-settings',
         workspaceId: 'workspace-1',
@@ -243,8 +262,8 @@ describe('AuthenticatedRoutes Workspace tree', () => {
   );
 
   it.each([
-    ['/kanleaf-core', '/kanleaf-core/my-work'],
-    ['/kanleaf-core/not-a-route', '/kanleaf-core/my-work'],
+    ['/kanleaf-core', '/w/kanleaf-core/my-work'],
+    ['/kanleaf-core/not-a-route', '/w/kanleaf-core/my-work'],
     ['/not-a-route', '/'],
   ])('replaces %s with %s', async (path, expected) => {
     renderAuthenticatedRoutes(path);
@@ -255,13 +274,11 @@ describe('AuthenticatedRoutes Workspace tree', () => {
   });
 
   it('redirects a legacy UUID URL through membership and preserves suffix, query, and hash', async () => {
-    renderAuthenticatedRoutes(
-      '/w/workspace-1/my-work?task=task-1#selected-task',
-    );
+    renderAuthenticatedRoutes('/w/workspace-1/my-work?task=42#selected-task');
 
     await waitFor(() =>
       expect(browserLocationOutput()).toHaveTextContent(
-        '/kanleaf-core/my-work?task=task-1#selected-task',
+        '/w/kanleaf-core/my-work?task=42#selected-task',
       ),
     );
   });
@@ -271,31 +288,61 @@ describe('AuthenticatedRoutes Workspace tree', () => {
 
     await waitFor(() =>
       expect(browserLocationOutput()).toHaveTextContent(
-        '/kanleaf-core/my-work',
+        '/w/kanleaf-core/my-work',
       ),
     );
   });
 
   it('preserves encoded legacy path segments while replacing the prefix', async () => {
     renderAuthenticatedRoutes(
-      '/w/workspace-1/views/view%2Fone?task=task-1#details',
+      '/w/workspace-1/views/view%2Fone?task=42#details',
     );
 
     await waitFor(() =>
       expect(browserLocationOutput()).toHaveTextContent(
-        '/kanleaf-core/views/view%2Fone?task=task-1#details',
+        '/w/kanleaf-core/views/view%2Fone?task=42#details',
       ),
     );
     expect(await workspaceLocationOutput()).toHaveTextContent(
       '"viewId":"view/one"',
     );
     expect(browserLocationOutput()).toHaveTextContent(
-      '/kanleaf-core/views/view%2Fone?task=task-1#details',
+      '/w/kanleaf-core/views/view%2Fone?task=42#details',
     );
   });
 
+  it.each([
+    [
+      '/kanleaf-core/projects/project-1/work-items?task=42#details',
+      '/w/kanleaf-core/p/project-one/work-items?task=42#details',
+    ],
+    [
+      '/w/workspace-1/projects/project-1/library/document-1#note',
+      '/w/kanleaf-core/p/project-one/library/document-1#note',
+    ],
+  ])('upgrades the legacy Project URL %s', async (path, expected) => {
+    renderAuthenticatedRoutes(path);
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(expected),
+    );
+  });
+
+  it('does not disclose an unavailable Project from a legacy URL', async () => {
+    renderAuthenticatedRoutes(
+      '/kanleaf-core/projects/missing-project/work-items?task=42',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/my-work',
+      ),
+    );
+    expect(browserLocationOutput()).not.toHaveTextContent('missing-project');
+  });
+
   it('does not disclose an unauthorized legacy Workspace UUID', async () => {
-    renderAuthenticatedRoutes('/w/missing-workspace/tasks?task=task-1#task');
+    renderAuthenticatedRoutes('/w/missing-workspace/tasks?task=42#task');
 
     await waitFor(() =>
       expect(browserLocationOutput()).toHaveTextContent(/^\/$/),

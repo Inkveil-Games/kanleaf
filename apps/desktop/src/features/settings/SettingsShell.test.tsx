@@ -46,6 +46,7 @@ describe('settings shells', () => {
         onClose={vi.fn()}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
+        onProjectsChanged={vi.fn()}
         onRemoveWorkspace={vi.fn()}
       />,
     );
@@ -72,6 +73,7 @@ describe('settings shells', () => {
         onClose={vi.fn()}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
+        onProjectsChanged={vi.fn()}
         onRemoveWorkspace={vi.fn()}
       />,
     );

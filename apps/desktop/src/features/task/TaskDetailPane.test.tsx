@@ -84,6 +84,7 @@ const projects: Project[] = [
     workspace_id: 'workspace-1',
     name: 'Kanleaf',
     identifier: 'KAN',
+    icon: 'folder',
     description: '',
     lead_user_id: null,
     visibility: 'private',

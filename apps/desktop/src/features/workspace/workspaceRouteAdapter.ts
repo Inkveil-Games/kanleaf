@@ -30,6 +30,9 @@ export type WorkspaceRouteKind =
 export function workspaceLocationPath(
   location: WorkspaceReplacementLocation,
   workspaceIdentifier: string,
+  resolveProjectIdentifier: (projectId: string) => string | null = (value) =>
+    value,
+  resolveTaskNumber: (taskId: string) => string | null = (value) => value,
 ): string {
   switch (location.kind) {
     case 'root':
@@ -53,11 +56,16 @@ export function workspaceLocationPath(
       }
       return routePaths.projectSettings(
         workspaceIdentifier,
-        location.projectId,
+        resolveProjectIdentifier(location.projectId) ?? location.projectId,
         location.section,
       );
     default:
-      return workspaceContentPath(location, workspaceIdentifier);
+      return workspaceContentPath(
+        location,
+        workspaceIdentifier,
+        resolveProjectIdentifier,
+        resolveTaskNumber,
+      );
   }
 }
 

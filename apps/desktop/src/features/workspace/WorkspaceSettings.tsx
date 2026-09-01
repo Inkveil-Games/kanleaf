@@ -20,6 +20,7 @@ import type { Workspace, WorkspaceAccent } from './types';
 import { WorkspaceInvitationSettings } from './WorkspaceInvitationSettings';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
+import { ArchivedProjectsSettings } from '../project/ArchivedProjectsSettings';
 
 export type { WorkspaceSettingsSection } from './settingsSections';
 
@@ -31,6 +32,7 @@ interface WorkspaceSettingsProps {
   section: WorkspaceSettingsSection;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
+  onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
 }
 
@@ -42,6 +44,7 @@ export function WorkspaceSettings({
   section,
   onWorkspaceUpdated,
   onConfigurationUpdated,
+  onProjectsChanged,
   onRemoveWorkspace,
 }: WorkspaceSettingsProps) {
   if (section === 'general') {
@@ -88,6 +91,15 @@ export function WorkspaceSettings({
         context={context}
         workspace={workspace}
         onConfigurationUpdated={onConfigurationUpdated}
+      />
+    );
+  }
+  if (section === 'projects') {
+    return (
+      <ArchivedProjectsSettings
+        context={context}
+        workspace={workspace}
+        onProjectsChanged={onProjectsChanged}
       />
     );
   }

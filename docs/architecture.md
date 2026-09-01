@@ -69,9 +69,11 @@ User ──< Session
   keeps retired identifiers unavailable after deletion, and the top-level route
   names `api`, `assets`, `host`, `setup`, and `w` stay reserved; the Workspace
   UUID remains the database, API authorization, and vault identity.
-- A project belongs to exactly one workspace. Owner/Admin access is implicit;
-  other access uses explicit fixed-role Project memberships. Private projects
-  are non-disclosing, while Open projects are discoverable and joinable only by
+- A project belongs to exactly one workspace. Its immutable lowercase public
+  identifier is unique among active and archived Projects in that Workspace;
+  permanent deletion frees it for reuse. Owner/Admin access is implicit; other
+  access uses explicit fixed-role Project memberships. Private projects are
+  non-disclosing, while Public projects are discoverable and joinable only by
   Workspace Members.
 - States and task types are workspace vocabulary. Each workspace starts with
   one state per semantic group and a protected `Task` type; projects select
@@ -79,8 +81,8 @@ User ──< Session
 - A task belongs to one workspace and optionally one project, with required
   state and type references guarded by composite workspace foreign keys.
 - Each task receives a monotonic workspace number under a workspace row lock.
-  Human references use the current project identifier plus that number, while
-  the UUID remains the permanent database and vault identity.
+  Human references use that number as `#<number>` without reuse, while the UUID
+  remains the permanent database and vault identity.
 - Assignees must be eligible for the current Inbox or Project, labels remain
   workspace-scoped, and parent Tasks must share the same collection. Canonical
   relation rows prevent duplicate edges and preserve directional blocking.
@@ -107,11 +109,12 @@ User ──< Session
   each user may mute routine comment or metadata notifications. Only read state
   and preferences are stored—there is no queue or realtime delivery service.
 - Inbox is represented by `tasks.project_id IS NULL`.
-- Project and task archives are timestamps; archiving a project moves its
-  active tasks to Inbox and its Library trees to Workspace scope in the same
-  transaction. A Project move either rejects
-  incompatible type, assignment, and hierarchy data or removes it only when
-  the client explicitly requests cleanup.
+- Project and Task archives are timestamps. Archiving a Project is reversible:
+  it retains Tasks, documents, Views, planning data, memberships, configuration,
+  storage names, and Markdown in place while removing the Project from active
+  queries. A Project move either rejects incompatible type, assignment, and
+  hierarchy data or removes it only when the client explicitly requests
+  cleanup.
 - Composite foreign keys prevent projects and tasks from referencing another
   workspace's configuration. Configuration edits and assignments coordinate on
   the workspace row so archiving cannot race a new task assignment. Check
@@ -310,6 +313,14 @@ purged only after its record becomes unreachable. A purge failure is logged and
 leaves internal trash for operator cleanup instead of encouraging an unsafe
 client retry.
 
+Permanent Project deletion stages the complete Project vault below the persisted
+`vaults/.trash` tree before deleting its relational footprint. A database failure
+restores the staged directory; after commit, request handling or startup recovery
+finishes the purge. Project-owned Tasks, documents, Views, planning records,
+memberships, configuration, and Markdown are removed together. Cross-Project
+hierarchy pointers are cleared and projected before their surviving Task records
+return to a steady state.
+
 Confirmed Workspace deletion first records a durable manifest and renames its
 typed UUID vault beneath `vaults/.trash`, on the same persisted mount. A
 database failure or an interrupted pre-commit operation restores that directory;
@@ -374,13 +385,16 @@ can prove access or absence. Loading and transient API failures retain the URL.
 TanStack Query remains the sole owner of remote cache state; routes do not use
 loaders or duplicate API state.
 
-Workspace browser routes use the immutable public identifier (`/<identifier>`),
-then resolve it through the authenticated Workspace list to the UUID required by
-API and authorization boundaries. Compatibility routes under `/w/<uuid>`
-redirect only when that account can resolve the Workspace and preserve the
-remaining path, query, and hash. The server-owned account setup stage similarly
-owns `/setup/account`, `/setup/workspace`, and `/setup/invite`; a refresh cannot
-skip or rewind those steps through client-only state.
+Workspace browser routes use `/w/<workspace-id>`. Project routes continue with
+`/p/<project-id>`, and an open Task detail uses its Workspace number in
+`?task=<number>`. The route boundary resolves those public identities through
+authorized Workspace, Project, and Task reads before exposing UUID-only typed
+locations to feature code. Compatibility routes for previous Workspace,
+Project, and Task UUID locations redirect only when that account can resolve
+the resource and preserve the remaining path, query, and hash. The server-owned
+account setup stage similarly owns `/setup/account`, `/setup/workspace`, and
+`/setup/invite`; a refresh cannot skip or rewind those steps through client-only
+state.
 
 Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before

@@ -65,12 +65,13 @@ then create a Workspace or accept an invitation; the configured Host may instead
 continue directly to Host Console. Registration does not silently create a
 Personal Workspace. Account, Workspace, and Project settings use routed overlays,
 so their selected section survives refresh and browser history.
-Canonical Workspace URLs start with the reviewed public ID, for example
-`/kanleaf-core/my-work`, while UUIDs remain internal identities. Workspace
-switching uses the compact top control, account switching remains in the
-navigation footer, and the top bar keeps global search and notifications
-available. Press `/` for collection-local Task search and `C` to create a Task
-when permitted.
+Canonical Workspace URLs use the explicit namespace and reviewed public ID, for
+example `/w/kanleaf-core/my-work`. Project URLs continue with
+`/p/<project-id>`, and open Task details use their short Workspace number, such
+as `?task=42`; UUIDs remain internal identities. Workspace switching uses the
+compact top control, account switching remains in the navigation footer, and
+the top bar keeps global search and notifications available. Press `/` for
+collection-local Task search and `C` to create a Task when permitted.
 
 ## Architecture at a glance
 

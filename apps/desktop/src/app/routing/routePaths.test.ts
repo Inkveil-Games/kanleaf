@@ -29,36 +29,53 @@ describe('routePatterns', () => {
       setupWorkspace: '/setup/workspace',
       setupInvite: '/setup/invite',
       setupWildcard: '/setup/*',
-      legacyWorkspace: '/w/:workspaceUuid',
-      legacyWorkspaceWildcard: '/w/:workspaceUuid/*',
-      workspace: '/:workspaceIdentifier',
-      workspaceMyWork: '/:workspaceIdentifier/my-work',
-      workspaceInbox: '/:workspaceIdentifier/inbox',
-      workspaceTasks: '/:workspaceIdentifier/tasks',
-      workspaceView: '/:workspaceIdentifier/views/:viewId',
-      workspaceLibrary: '/:workspaceIdentifier/library',
-      workspaceDocument: '/:workspaceIdentifier/library/:documentId',
-      project: '/:workspaceIdentifier/projects/:projectId',
-      projectWorkItems: '/:workspaceIdentifier/projects/:projectId/work-items',
-      projectCycles: '/:workspaceIdentifier/projects/:projectId/cycles',
-      projectCycle: '/:workspaceIdentifier/projects/:projectId/cycles/:cycleId',
-      projectModules: '/:workspaceIdentifier/projects/:projectId/modules',
+      legacyWorkspace: '/:legacyWorkspaceIdentifier',
+      legacyWorkspaceWildcard: '/:legacyWorkspaceIdentifier/*',
+      legacyProject: '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId',
+      legacyProjectWildcard:
+        '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId/*',
+      workspace: '/w/:workspaceIdentifier',
+      workspaceMyWork: '/w/:workspaceIdentifier/my-work',
+      workspaceInbox: '/w/:workspaceIdentifier/inbox',
+      workspaceTasks: '/w/:workspaceIdentifier/tasks',
+      workspaceView: '/w/:workspaceIdentifier/views/:viewId',
+      workspaceLibrary: '/w/:workspaceIdentifier/library',
+      workspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
+      project: '/w/:workspaceIdentifier/p/:projectIdentifier',
+      projectWorkItems:
+        '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
+      projectCycles: '/w/:workspaceIdentifier/p/:projectIdentifier/cycles',
+      projectCycle:
+        '/w/:workspaceIdentifier/p/:projectIdentifier/cycles/:cycleId',
+      projectModules: '/w/:workspaceIdentifier/p/:projectIdentifier/modules',
       projectModule:
-        '/:workspaceIdentifier/projects/:projectId/modules/:moduleId',
-      projectLibrary: '/:workspaceIdentifier/projects/:projectId/library',
+        '/w/:workspaceIdentifier/p/:projectIdentifier/modules/:moduleId',
+      projectLibrary: '/w/:workspaceIdentifier/p/:projectIdentifier/library',
       projectDocument:
-        '/:workspaceIdentifier/projects/:projectId/library/:documentId',
-      projectViews: '/:workspaceIdentifier/projects/:projectId/views',
-      projectView: '/:workspaceIdentifier/projects/:projectId/views/:viewId',
-      accountSettings: '/:workspaceIdentifier/settings/account/:section',
-      workspaceSettings: '/:workspaceIdentifier/settings/workspace/:section',
+        '/w/:workspaceIdentifier/p/:projectIdentifier/library/:documentId',
+      projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
+      projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
+      accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
+      workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
       projectSettings:
-        '/:workspaceIdentifier/projects/:projectId/settings/:section',
+        '/w/:workspaceIdentifier/p/:projectIdentifier/settings/:section',
     });
   });
 });
 
 describe('routePaths', () => {
+  it('uses compact Workspace, Project, and numeric Task locators', () => {
+    expect(routePaths.workspaceMyWork('kanleaf-core')).toBe(
+      '/w/kanleaf-core/my-work',
+    );
+    expect(routePaths.projectWorkItems('kanleaf-core', 'desktop')).toBe(
+      '/w/kanleaf-core/p/desktop/work-items',
+    );
+    expect(withTask('/w/kanleaf-core/p/desktop/work-items', '42')).toBe(
+      '/w/kanleaf-core/p/desktop/work-items?task=42',
+    );
+  });
+
   it.each<{
     label: string;
     actual: () => string;
@@ -89,107 +106,107 @@ describe('routePaths', () => {
     {
       label: 'Workspace index',
       actual: () => routePaths.workspace('workspace-id'),
-      expected: '/workspace-id',
+      expected: '/w/workspace-id',
     },
     {
       label: 'My Work',
       actual: () => routePaths.workspaceMyWork('workspace-id'),
-      expected: '/workspace-id/my-work',
+      expected: '/w/workspace-id/my-work',
     },
     {
       label: 'Inbox',
       actual: () => routePaths.workspaceInbox('workspace-id'),
-      expected: '/workspace-id/inbox',
+      expected: '/w/workspace-id/inbox',
     },
     {
       label: 'All Tasks',
       actual: () => routePaths.workspaceTasks('workspace-id'),
-      expected: '/workspace-id/tasks',
+      expected: '/w/workspace-id/tasks',
     },
     {
       label: 'Workspace Saved View',
       actual: () => routePaths.workspaceView('workspace-id', 'view-id'),
-      expected: '/workspace-id/views/view-id',
+      expected: '/w/workspace-id/views/view-id',
     },
     {
       label: 'Workspace Library',
       actual: () => routePaths.workspaceLibrary('workspace-id'),
-      expected: '/workspace-id/library',
+      expected: '/w/workspace-id/library',
     },
     {
       label: 'Workspace Library note',
       actual: () => routePaths.workspaceDocument('workspace-id', 'document-id'),
-      expected: '/workspace-id/library/document-id',
+      expected: '/w/workspace-id/library/document-id',
     },
     {
       label: 'Project Overview',
       actual: () => routePaths.project('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id',
+      expected: '/w/workspace-id/p/project-id',
     },
     {
       label: 'Project work items',
       actual: () => routePaths.projectWorkItems('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id/work-items',
+      expected: '/w/workspace-id/p/project-id/work-items',
     },
     {
       label: 'Project Cycles',
       actual: () => routePaths.projectCycles('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id/cycles',
+      expected: '/w/workspace-id/p/project-id/cycles',
     },
     {
       label: 'selected Cycle',
       actual: () =>
         routePaths.projectCycle('workspace-id', 'project-id', 'cycle-id'),
-      expected: '/workspace-id/projects/project-id/cycles/cycle-id',
+      expected: '/w/workspace-id/p/project-id/cycles/cycle-id',
     },
     {
       label: 'Project Modules',
       actual: () => routePaths.projectModules('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id/modules',
+      expected: '/w/workspace-id/p/project-id/modules',
     },
     {
       label: 'selected Module',
       actual: () =>
         routePaths.projectModule('workspace-id', 'project-id', 'module-id'),
-      expected: '/workspace-id/projects/project-id/modules/module-id',
+      expected: '/w/workspace-id/p/project-id/modules/module-id',
     },
     {
       label: 'Project Library',
       actual: () => routePaths.projectLibrary('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id/library',
+      expected: '/w/workspace-id/p/project-id/library',
     },
     {
       label: 'Project Library note',
       actual: () =>
         routePaths.projectDocument('workspace-id', 'project-id', 'document-id'),
-      expected: '/workspace-id/projects/project-id/library/document-id',
+      expected: '/w/workspace-id/p/project-id/library/document-id',
     },
     {
       label: 'Project Saved Views',
       actual: () => routePaths.projectViews('workspace-id', 'project-id'),
-      expected: '/workspace-id/projects/project-id/views',
+      expected: '/w/workspace-id/p/project-id/views',
     },
     {
       label: 'selected Project Saved View',
       actual: () =>
         routePaths.projectView('workspace-id', 'project-id', 'view-id'),
-      expected: '/workspace-id/projects/project-id/views/view-id',
+      expected: '/w/workspace-id/p/project-id/views/view-id',
     },
     {
       label: 'Account Settings',
       actual: () => routePaths.accountSettings('workspace-id', 'security'),
-      expected: '/workspace-id/settings/account/security',
+      expected: '/w/workspace-id/settings/account/security',
     },
     {
       label: 'Workspace Settings',
       actual: () => routePaths.workspaceSettings('workspace-id', 'task-types'),
-      expected: '/workspace-id/settings/workspace/task-types',
+      expected: '/w/workspace-id/settings/workspace/task-types',
     },
     {
       label: 'Project Settings',
       actual: () =>
         routePaths.projectSettings('workspace-id', 'project-id', 'defaults'),
-      expected: '/workspace-id/projects/project-id/settings/defaults',
+      expected: '/w/workspace-id/p/project-id/settings/defaults',
     },
   ])('builds the canonical $label path', ({ actual, expected }) => {
     expect(actual()).toBe(expected);
@@ -203,7 +220,7 @@ describe('routePaths', () => {
         'document%2Fid',
       ),
     ).toBe(
-      '/workspace%2Fwith%20space/projects/project%3F%23/library/document%252Fid',
+      '/w/workspace%2Fwith%20space/p/project%3F%23/library/document%252Fid',
     );
   });
 
@@ -224,14 +241,14 @@ describe('routePaths', () => {
     const project: ProjectSettingsSection = 'features';
 
     expect(routePaths.accountSettings('workspace-id', account)).toBe(
-      '/workspace-id/settings/account/notifications',
+      '/w/workspace-id/settings/account/notifications',
     );
     expect(routePaths.workspaceSettings('workspace-id', workspace)).toBe(
-      '/workspace-id/settings/workspace/storage',
+      '/w/workspace-id/settings/workspace/storage',
     );
     expect(
       routePaths.projectSettings('workspace-id', 'project-id', project),
-    ).toBe('/workspace-id/projects/project-id/settings/features');
+    ).toBe('/w/workspace-id/p/project-id/settings/features');
   });
 });
 

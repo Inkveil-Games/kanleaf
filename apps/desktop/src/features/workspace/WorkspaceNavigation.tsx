@@ -3,7 +3,6 @@ import {
   Bookmark,
   BookOpenText,
   CalendarRange,
-  Folder,
   Inbox,
   LayoutPanelTop,
   ListTodo,
@@ -11,13 +10,22 @@ import {
   Plus,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { CreateProjectDialog } from '../project/create/CreateProjectDialog';
+import { ProjectIconGlyph } from '../project/ProjectIconGlyph';
 import type { SavedView } from '../view/types';
-import { InlineNameForm } from './InlineNameForm';
-import type { Collection, Project, Workspace } from './types';
+import type {
+  Collection,
+  Project,
+  ProjectCreateInput,
+  Workspace,
+} from './types';
+import type { ApiContext } from './api';
 
 interface WorkspaceNavigationProps {
   accountSwitcher: ReactNode;
+  context: ApiContext;
   workspace: Workspace;
+  currentUser: { id: string; displayName: string };
   projects: Project[];
   workspaceViews: SavedView[];
   projectViews: SavedView[];
@@ -25,7 +33,7 @@ interface WorkspaceNavigationProps {
   surface: WorkspaceSurface;
   activeProjectId: string | null;
   activeViewId: string | null;
-  onCreateProject: (name: string) => Promise<void>;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project>;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
@@ -39,7 +47,9 @@ export type WorkspaceSurface =
 
 export function WorkspaceNavigation({
   accountSwitcher,
+  context,
   workspace,
+  currentUser,
   projects,
   workspaceViews,
   projectViews,
@@ -136,17 +146,6 @@ export function WorkspaceNavigation({
               </button>
             )}
           </div>
-          {canUseContent && composingProject && (
-            <InlineNameForm
-              label="Project name"
-              submitLabel="Create project"
-              onCancel={() => setComposingProject(false)}
-              onSubmit={async (name) => {
-                await onCreateProject(name);
-                setComposingProject(false);
-              }}
-            />
-          )}
           {projects.length === 0 && !composingProject ? (
             <button
               className="nav-empty-action"
@@ -171,7 +170,13 @@ export function WorkspaceNavigation({
                     <div className="project-nav-row">
                       <NavButton
                         active={active && surface === 'project-overview'}
-                        icon={<Folder aria-hidden="true" size={15} />}
+                        icon={
+                          <ProjectIconGlyph
+                            name={project.icon}
+                            aria-hidden="true"
+                            size={15}
+                          />
+                        }
                         label={project.name}
                         suffix={project.can_join ? 'Open' : undefined}
                         onClick={() => onOpenProjectOverview(project.id)}
@@ -269,6 +274,16 @@ export function WorkspaceNavigation({
           )}
         </section>
       </nav>
+
+      {composingProject ? (
+        <CreateProjectDialog
+          workspace={workspace}
+          context={context}
+          currentUser={currentUser}
+          onCreate={onCreateProject}
+          onClose={() => setComposingProject(false)}
+        />
+      ) : null}
 
       <div className="navigation-footer">{accountSwitcher}</div>
     </aside>

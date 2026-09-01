@@ -22,7 +22,6 @@ export function ProjectGeneralSettings({
   onUpdated,
 }: ProjectGeneralSettingsProps) {
   const [name, setName] = useState(project.name);
-  const [identifier, setIdentifier] = useState(project.identifier);
   const [description, setDescription] = useState(project.description);
   const [visibility, setVisibility] = useState(project.visibility);
   const [leadUserId, setLeadUserId] = useState(project.lead_user_id ?? '');
@@ -38,7 +37,6 @@ export function ProjectGeneralSettings({
         project.id,
         {
           name,
-          identifier,
           description,
           visibility,
           lead_user_id: leadUserId || null,
@@ -68,16 +66,11 @@ export function ProjectGeneralSettings({
           />
         </label>
         <label className="settings-field">
-          <span>Identifier</span>
-          <input
-            required
-            maxLength={12}
-            value={identifier}
-            onChange={(event) =>
-              setIdentifier(event.target.value.toUpperCase())
-            }
-          />
-          <small>Short stable code used to recognize this Project.</small>
+          <span>Project ID</span>
+          <input readOnly value={project.identifier} />
+          <small>
+            This stable ID is used in Project links and cannot change.
+          </small>
         </label>
         <label className="settings-field">
           <span>Description</span>
@@ -96,8 +89,8 @@ export function ProjectGeneralSettings({
             options={[
               { value: 'private', label: 'Private — members only' },
               {
-                value: 'open',
-                label: 'Open — Workspace Members can discover and join',
+                value: 'public',
+                label: 'Public — Workspace Members can discover and join',
               },
             ]}
             onValueChange={(value) =>

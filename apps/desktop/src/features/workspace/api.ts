@@ -4,6 +4,7 @@ import type {
   Collection,
   IssuedWorkspaceInvitation,
   Project,
+  ProjectCreateInput,
   ProjectCycle,
   ProjectCyclePatch,
   ProjectMember,
@@ -241,10 +242,18 @@ export function listProjects(context: ApiContext, workspaceId: string) {
   );
 }
 
+export function listArchivedProjects(context: ApiContext, workspaceId: string) {
+  return apiRequest<Project[]>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/archived`,
+    { token: context.token },
+  );
+}
+
 export function createProject(
   context: ApiContext,
   workspaceId: string,
-  name: string,
+  input: ProjectCreateInput,
 ) {
   return apiRequest<Project>(
     context.serverUrl,
@@ -252,7 +261,7 @@ export function createProject(
     {
       method: 'POST',
       token: context.token,
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(input),
     },
   );
 }
@@ -283,6 +292,18 @@ export function archiveProject(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/projects/${projectId}`,
     { method: 'DELETE', token: context.token },
+  );
+}
+
+export function restoreProject(
+  context: ApiContext,
+  workspaceId: string,
+  projectId: string,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/projects/${projectId}/restore`,
+    { method: 'POST', token: context.token },
   );
 }
 
@@ -527,6 +548,18 @@ export function getTask(
   return apiRequest<Task>(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/tasks/${taskId}`,
+    { token: context.token },
+  );
+}
+
+export function getTaskByNumber(
+  context: ApiContext,
+  workspaceId: string,
+  taskNumber: number,
+) {
+  return apiRequest<Task>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/tasks/by-number/${taskNumber}`,
     { token: context.token },
   );
 }

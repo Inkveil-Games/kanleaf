@@ -114,8 +114,8 @@ test('restores a Workspace route through refresh and browser history', async ({
 }) => {
   const host = await registerOrLogin(request, hostE2eEmail);
   expect(host.user.is_host).toBe(true);
-  const inboxPath = `/${host.workspace.identifier}/inbox`;
-  const myWorkPath = `/${host.workspace.identifier}/my-work`;
+  const inboxPath = `/w/${host.workspace.identifier}/inbox`;
+  const myWorkPath = `/w/${host.workspace.identifier}/my-work`;
   const taskResponse = await request.post(
     `/api/workspaces/${host.workspace.id}/tasks`,
     {
@@ -124,7 +124,10 @@ test('restores a Workspace route through refresh and browser history', async ({
     },
   );
   expect(taskResponse.status()).toBe(201);
-  const task = (await taskResponse.json()) as { id: string };
+  const task = (await taskResponse.json()) as {
+    id: string;
+    task_number: number;
+  };
   await page.addInitScript(
     (token) => localStorage.setItem('kanleaf.session-token', token),
     host.token,
@@ -154,8 +157,11 @@ test('restores a Workspace route through refresh and browser history', async ({
   await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
   await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
 
+  await page.goto(`/${host.workspace.identifier}/inbox`);
+  await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
+
   const legacyPath = `/w/${host.workspace.id}/inbox?task=${task.id}#reload`;
-  const canonicalLegacyPath = `${inboxPath}?task=${task.id}#reload`;
+  const canonicalLegacyPath = `${inboxPath}?task=${task.task_number}#reload`;
   await page.goto(legacyPath);
   await expect(page).toHaveURL(`${serverUrl}${canonicalLegacyPath}`);
   await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();

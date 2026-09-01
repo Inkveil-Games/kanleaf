@@ -111,6 +111,26 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
           />
         }
       />
+      <Route
+        path={routePatterns.legacyProject}
+        element={
+          <LegacyWorkspaceRedirect
+            underWorkspaceRoot
+            serverUrl={props.serverUrl}
+            token={props.token}
+          />
+        }
+      />
+      <Route
+        path={routePatterns.legacyProjectWildcard}
+        element={
+          <LegacyWorkspaceRedirect
+            underWorkspaceRoot
+            serverUrl={props.serverUrl}
+            token={props.token}
+          />
+        }
+      />
       <Route path={routePatterns.root} element={workspaceScreen('root')} />
       <Route
         path={routePatterns.workspace}
@@ -193,7 +213,7 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         element={workspaceScreen('project-settings')}
       />
       <Route
-        path="/:workspaceIdentifier/*"
+        path="/w/:workspaceIdentifier/*"
         element={<WorkspaceCanonicalRedirect />}
       />
       <Route path="*" element={<Navigate replace to={routePaths.root()} />} />

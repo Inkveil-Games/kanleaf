@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Archive,
+  ArchiveRestore,
   Bell,
   KeyRound,
   Mail,
@@ -99,6 +100,7 @@ interface WorkspaceSettingsShellProps {
   onClose: () => void;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
+  onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
 }
 
@@ -112,6 +114,7 @@ export function WorkspaceSettingsShell({
   onClose,
   onWorkspaceUpdated,
   onConfigurationUpdated,
+  onProjectsChanged,
   onRemoveWorkspace,
 }: WorkspaceSettingsShellProps) {
   const canManageWorkspace =
@@ -153,6 +156,14 @@ export function WorkspaceSettingsShell({
             label="Task types"
             onClick={() => onSectionChange('task-types')}
           />
+          {workspace.role !== 'guest' && (
+            <SettingsLink
+              active={section === 'projects'}
+              icon={<ArchiveRestore aria-hidden="true" size={15} />}
+              label="Archived Projects"
+              onClick={() => onSectionChange('projects')}
+            />
+          )}
           {canManageWorkspace && (
             <>
               <SettingsLink
@@ -188,6 +199,7 @@ export function WorkspaceSettingsShell({
         section={section}
         onWorkspaceUpdated={onWorkspaceUpdated}
         onConfigurationUpdated={onConfigurationUpdated}
+        onProjectsChanged={onProjectsChanged}
         onRemoveWorkspace={onRemoveWorkspace}
       />
     </SettingsFrame>

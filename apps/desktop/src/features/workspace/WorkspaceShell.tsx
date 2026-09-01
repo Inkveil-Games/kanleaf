@@ -77,6 +77,7 @@ import {
 import type {
   Collection,
   Project,
+  ProjectCreateInput,
   Task,
   TaskBulkPatch,
   TaskPatch,
@@ -188,6 +189,7 @@ export function WorkspaceShell({
   const activationGeneration = useRef(0);
   const activationQueue = useRef<Promise<void>>(Promise.resolve());
   const pendingWorkspaceIntents = useRef(0);
+  const workspaceIntentOrigin = useRef<string | null>(null);
   const [activationRetry, setActivationRetry] = useState(0);
   const [directActivationError, setDirectActivationError] = useState<{
     attempt: string;
@@ -250,6 +252,9 @@ export function WorkspaceShell({
     workspaces.data?.[0]?.id ??
     null;
   const activeWorkspace = workspaces.data?.find(({ id }) => id === workspaceId);
+  const knownActiveWorkspaceId =
+    queryClient.getQueryData<SessionResponse>(['session', serverUrl, token])
+      ?.user.active_workspace_id ?? user.active_workspace_id;
   const hasContentAccess = Boolean(
     activeWorkspace && activeWorkspace.role !== 'guest',
   );
@@ -277,11 +282,13 @@ export function WorkspaceShell({
     queryKey: ['projects', workspaceId],
     queryFn: () => listProjects(context, workspaceId!),
     enabled: hasSettledWorkspaceAccess,
+    staleTime: 15_000,
   });
   const routedProject = projects.data?.find(({ id }) => id === routedProjectId);
   const projectAccessSettled = Boolean(
     hasSettledWorkspaceAccess &&
-    projects.isFetchedAfterMount &&
+    (workspaceAccessVerified || projects.isFetchedAfterMount) &&
+    projects.data !== undefined &&
     !projects.error,
   );
   const canResolveRoutedView =
@@ -586,11 +593,12 @@ export function WorkspaceShell({
 
     const attempt = `${user.id}:${activeWorkspace.id}`;
     if (activationAttempt.current === attempt) return;
+    if (workspaceIntentOrigin.current === activeWorkspace.id) return;
     activationAttempt.current = attempt;
     const generation = ++activationGeneration.current;
     setDirectActivationError(null);
     const needsActivation =
-      user.active_workspace_id !== activeWorkspace.id ||
+      knownActiveWorkspaceId !== activeWorkspace.id ||
       pendingWorkspaceIntents.current > 0;
     if (!needsActivation) return;
 
@@ -613,6 +621,7 @@ export function WorkspaceShell({
     context,
     enqueueWorkspaceIntent,
     location,
+    knownActiveWorkspaceId,
     syncActiveWorkspace,
     user.active_workspace_id,
     user.id,
@@ -660,6 +669,7 @@ export function WorkspaceShell({
     setActionError(null);
     setDirectActivationError(null);
     if (nextWorkspaceId === workspaceId && !repairsPendingIntent) return;
+    workspaceIntentOrigin.current = workspaceId;
     try {
       const result = await enqueueWorkspaceIntent(generation, async () => {
         await flushDocumentSaves();
@@ -667,6 +677,7 @@ export function WorkspaceShell({
       });
       if (!result.latest) return;
       activationAttempt.current = `${user.id}:${nextWorkspaceId}`;
+      syncActiveWorkspace(nextWorkspaceId);
       if (nextWorkspaceId !== workspaceId) {
         onNavigate({
           kind: 'my-work',
@@ -674,9 +685,10 @@ export function WorkspaceShell({
           taskId: null,
         });
       }
-      syncActiveWorkspace(nextWorkspaceId);
+      clearWorkspaceIntentOrigin(workspaceId);
     } catch (caught) {
       if (activationGeneration.current !== generation) return;
+      workspaceIntentOrigin.current = null;
       setActionError(errorMessage(caught));
     }
   }
@@ -688,6 +700,7 @@ export function WorkspaceShell({
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
+    workspaceIntentOrigin.current = workspaceId;
     try {
       const result = await enqueueWorkspaceIntent(generation, async () => {
         await flushDocumentSaves();
@@ -707,6 +720,7 @@ export function WorkspaceShell({
       return result.value;
     } catch (caught) {
       if (activationGeneration.current === generation) {
+        workspaceIntentOrigin.current = null;
         setActionError(errorMessage(caught));
       }
       throw caught;
@@ -715,12 +729,13 @@ export function WorkspaceShell({
 
   function finishWorkspaceCreation(workspace: Workspace) {
     activationAttempt.current = `${user.id}:${workspace.id}`;
+    syncActiveWorkspace(workspace.id);
     onNavigate({
       kind: 'my-work',
       workspaceId: workspace.id,
       taskId: null,
     });
-    syncActiveWorkspace(workspace.id);
+    clearWorkspaceIntentOrigin(workspaceId);
   }
 
   async function finishRecoveryWorkspace(workspace: Workspace) {
@@ -738,6 +753,7 @@ export function WorkspaceShell({
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
+    workspaceIntentOrigin.current = workspaceId;
     try {
       const result = await enqueueWorkspaceIntent(generation, async () => {
         await flushDocumentSaves();
@@ -757,27 +773,29 @@ export function WorkspaceShell({
         return result.value;
       }
       activationAttempt.current = `${user.id}:${importedWorkspaceId}`;
+      syncActiveWorkspace(importedWorkspaceId);
       onNavigate({
         kind: 'my-work',
         workspaceId: importedWorkspaceId,
         taskId: null,
       });
-      syncActiveWorkspace(importedWorkspaceId);
+      clearWorkspaceIntentOrigin(workspaceId);
       await queryClient.invalidateQueries({ queryKey: ['session'] });
       return result.value;
     } catch (caught) {
       if (activationGeneration.current !== generation) return null;
+      workspaceIntentOrigin.current = null;
       setActionError(errorMessage(caught));
       throw caught;
     }
   }
 
-  async function addProject(name: string) {
-    if (!workspaceId) return;
+  async function addProject(input: ProjectCreateInput): Promise<Project> {
+    if (!workspaceId) throw new Error('Choose a Workspace first.');
     setActionError(null);
     try {
       await flushDocumentSaves();
-      const project = await createProject(context, workspaceId, name);
+      const project = await createProject(context, workspaceId, input);
       await queryClient.invalidateQueries({
         queryKey: ['projects', workspaceId],
       });
@@ -786,6 +804,7 @@ export function WorkspaceShell({
         workspaceId,
         projectId: project.id,
       });
+      return project;
     } catch (caught) {
       setActionError(errorMessage(caught));
       throw caught;
@@ -1072,6 +1091,7 @@ export function WorkspaceShell({
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
+    workspaceIntentOrigin.current = workspaceId;
     try {
       const changesWorkspace = notificationWorkspaceId !== workspaceId;
       const result = await enqueueWorkspaceIntent(generation, async () => {
@@ -1089,6 +1109,7 @@ export function WorkspaceShell({
       if (!result.latest || !result.value) return;
       if (changesWorkspace || repairsPendingIntent) {
         activationAttempt.current = `${user.id}:${notificationWorkspaceId}`;
+        syncActiveWorkspace(notificationWorkspaceId);
       }
       onNavigate(
         result.value.project_id
@@ -1104,11 +1125,10 @@ export function WorkspaceShell({
               taskId,
             },
       );
-      if (changesWorkspace || repairsPendingIntent) {
-        syncActiveWorkspace(notificationWorkspaceId);
-      }
+      clearWorkspaceIntentOrigin(workspaceId);
     } catch (caught) {
       if (activationGeneration.current !== generation) return;
+      workspaceIntentOrigin.current = null;
       setActionError(errorMessage(caught));
     }
   }
@@ -1270,6 +1290,7 @@ export function WorkspaceShell({
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
+    workspaceIntentOrigin.current = workspaceId;
     const result = await enqueueWorkspaceIntent(generation, async () => {
       await flushDocumentSaves();
       await remove();
@@ -1287,14 +1308,23 @@ export function WorkspaceShell({
     if (nextWorkspace) {
       activationAttempt.current = `${user.id}:${nextWorkspace.id}`;
     }
+    syncActiveWorkspace(nextWorkspace?.id ?? null);
     onNavigate(
       nextWorkspace
         ? { kind: 'my-work', workspaceId: nextWorkspace.id, taskId: null }
         : { kind: 'root' },
       { replace: true },
     );
-    syncActiveWorkspace(nextWorkspace?.id ?? null);
+    clearWorkspaceIntentOrigin(workspaceId);
     await queryClient.invalidateQueries({ queryKey: ['session'] });
+  }
+
+  function clearWorkspaceIntentOrigin(origin: string | null) {
+    window.setTimeout(() => {
+      if (workspaceIntentOrigin.current === origin) {
+        workspaceIntentOrigin.current = null;
+      }
+    });
   }
 
   const selectDocument = useCallback(
@@ -1627,6 +1657,7 @@ export function WorkspaceShell({
         />
       )}
       <WorkspaceNavigation
+        context={context}
         accountSwitcher={
           <AccountSwitcher
             accounts={accountSessions}
@@ -1650,6 +1681,7 @@ export function WorkspaceShell({
           />
         }
         workspace={activeWorkspace}
+        currentUser={{ id: user.id, displayName: user.display_name }}
         projects={projects.data ?? []}
         workspaceViews={workspaceViews.data ?? []}
         projectViews={projectViews.data ?? []}
@@ -1903,6 +1935,11 @@ export function WorkspaceShell({
               onClose={closeSettings}
               onWorkspaceUpdated={refreshWorkspace}
               onConfigurationUpdated={refreshTaskConfiguration}
+              onProjectsChanged={async () => {
+                await queryClient.invalidateQueries({
+                  queryKey: ['projects', workspaceId],
+                });
+              }}
               onRemoveWorkspace={removeWorkspaceIntent}
             />
           </SettingsDialog>
@@ -2030,7 +2067,10 @@ function settingsSectionResolution(
     value: canManage
       ? workspaceSettingsSections
       : workspaceSettingsSections.filter(
-          (section) => section !== 'invitations' && section !== 'storage',
+          (section) =>
+            section !== 'invitations' &&
+            section !== 'storage' &&
+            (workspaceRole !== 'guest' || section !== 'projects'),
         ),
   };
 }

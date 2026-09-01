@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   deleteTask: vi.fn(),
   getSavedView: vi.fn(),
   getTask: vi.fn(),
+  getTaskByNumber: vi.fn(),
   getTaskConfiguration: vi.fn(),
   listProjectCycles: vi.fn(),
   listProjectMembers: vi.fn(),
@@ -61,6 +62,7 @@ vi.mock('./api', () => ({
   createWorkspace: mocks.createWorkspace,
   deleteTask: mocks.deleteTask,
   getTask: mocks.getTask,
+  getTaskByNumber: mocks.getTaskByNumber,
   joinProject: vi.fn(),
   listProjectCycles: mocks.listProjectCycles,
   listProjectMembers: mocks.listProjectMembers,
@@ -470,7 +472,7 @@ const task: Task = {
   workspace_id: 'workspace-1',
   project_id: null,
   task_number: 1,
-  reference: 'KAN-1',
+  reference: '#1',
   title: 'Routing task',
   state: { id: 'state-1', name: 'Todo', color: '#888', state_group: 'todo' },
   task_type: { id: 'type-1', name: 'Task', icon: 'check', color: '#888' },
@@ -509,7 +511,8 @@ const disabledViewsProject: Project = {
   id: 'project-1',
   workspace_id: 'workspace-1',
   name: 'Disabled Views',
-  identifier: 'VIEW',
+  identifier: 'project-1',
+  icon: 'folder',
   description: '',
   lead_user_id: null,
   visibility: 'private',
@@ -532,7 +535,7 @@ const enabledViewsProject: Project = {
   ...disabledViewsProject,
   id: 'project-2',
   name: 'Enabled Views',
-  identifier: 'OPEN',
+  identifier: 'project-2',
   views_enabled: true,
 };
 
@@ -545,6 +548,7 @@ beforeEach(() => {
     workspace_id: 'workspace-4',
   });
   mocks.archiveTask.mockResolvedValue(undefined);
+  mocks.getTaskByNumber.mockResolvedValue(task);
   mocks.createSavedView.mockResolvedValue({
     ...savedView,
     id: 'view-created',
@@ -617,7 +621,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/my-work',
+        '/w/workspace-1/my-work',
       ),
     );
 
@@ -633,7 +637,7 @@ describe('WorkspaceShell routing integration', () => {
   it('activates a directly loaded Workspace without changing its route', async () => {
     const flushDocumentSaves = vi.fn().mockResolvedValue(undefined);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/my-work'],
+      initialEntries: ['/w/workspace-2/my-work'],
       flushDocumentSaves,
     });
 
@@ -644,7 +648,7 @@ describe('WorkspaceShell routing integration', () => {
       ),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-2/my-work',
+      '/w/workspace-2/my-work',
     );
     expect(
       queryClient.getQueryData<{ user: User }>([
@@ -664,7 +668,7 @@ describe('WorkspaceShell routing integration', () => {
     async (_acceptanceKind, buttonName) => {
       const flushDocumentSaves = vi.fn().mockResolvedValue(undefined);
       renderWorkspaceRoutes({
-        initialEntries: ['/workspace-1/settings/account/invitations'],
+        initialEntries: ['/w/workspace-1/settings/account/invitations'],
         flushDocumentSaves,
       });
 
@@ -694,7 +698,7 @@ describe('WorkspaceShell routing integration', () => {
       }),
     );
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/my-work'],
+      initialEntries: ['/w/workspace-2/my-work'],
       seededWorkspaces: workspaces,
     });
 
@@ -702,7 +706,7 @@ describe('WorkspaceShell routing integration', () => {
     await act(async () => rejectRefresh(new Error('Workspace refresh failed')));
     expect(mocks.activateWorkspace).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-2/my-work',
+      '/w/workspace-2/my-work',
     );
   });
 
@@ -714,7 +718,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/my-work',
+        '/w/workspace-1/my-work',
       ),
     );
     await waitFor(() =>
@@ -763,7 +767,7 @@ describe('WorkspaceShell routing integration', () => {
       new Error('Activation failed'),
     );
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
       flushDocumentSaves,
     });
 
@@ -775,14 +779,14 @@ describe('WorkspaceShell routing integration', () => {
       'Activation failed',
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/my-work',
+      '/w/workspace-1/my-work',
     );
     expect(flushDocumentSaves).toHaveBeenCalledOnce();
   });
 
   it('commits a successful Workspace switch to one route, activation, and session identity', async () => {
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -791,7 +795,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-2/my-work',
+        '/w/workspace-2/my-work',
       ),
     );
     expect(mocks.activateWorkspace).toHaveBeenCalledOnce();
@@ -822,7 +826,7 @@ describe('WorkspaceShell routing integration', () => {
           : workspaceFour.promise,
       );
       const { queryClient } = renderWorkspaceRoutes({
-        initialEntries: ['/workspace-1/my-work'],
+        initialEntries: ['/w/workspace-1/my-work'],
       });
 
       fireEvent.click(
@@ -863,7 +867,7 @@ describe('WorkspaceShell routing integration', () => {
 
       await waitFor(() =>
         expect(screen.getByLabelText('Current location')).toHaveTextContent(
-          '/workspace-4/my-work',
+          '/w/workspace-4/my-work',
         ),
       );
       expect(
@@ -885,7 +889,7 @@ describe('WorkspaceShell routing integration', () => {
         : workspaceOne.promise,
     );
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -921,7 +925,7 @@ describe('WorkspaceShell routing integration', () => {
       ).toBe('workspace-1'),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/my-work',
+      '/w/workspace-1/my-work',
     );
   });
 
@@ -933,7 +937,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce(workspaces)
       .mockResolvedValue([...workspaces, createdWorkspace]);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -985,7 +989,7 @@ describe('WorkspaceShell routing integration', () => {
         : importedWorkspace.promise,
     );
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -1027,7 +1031,7 @@ describe('WorkspaceShell routing integration', () => {
       ).toBe('workspace-4'),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-4/my-work',
+      '/w/workspace-4/my-work',
     );
   });
 
@@ -1043,7 +1047,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce(workspaces)
       .mockResolvedValue([workspaces[1], workspaces[2]]);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/settings/workspace/danger'],
+      initialEntries: ['/w/workspace-1/settings/workspace/danger'],
     });
 
     fireEvent.click(
@@ -1075,12 +1079,12 @@ describe('WorkspaceShell routing integration', () => {
         }),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-2/my-work',
+      '/w/workspace-2/my-work',
     );
     await act(async () => workspaceFour.resolve());
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-4/my-work',
+        '/w/workspace-4/my-work',
       ),
     );
     expect(
@@ -1102,7 +1106,7 @@ describe('WorkspaceShell routing integration', () => {
         : notificationWorkspace.promise,
     );
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -1144,7 +1148,7 @@ describe('WorkspaceShell routing integration', () => {
       ).toBe('workspace-4'),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-4/tasks?task=task-1',
+      '/w/workspace-4/tasks?task=1',
     );
   });
 
@@ -1162,7 +1166,7 @@ describe('WorkspaceShell routing integration', () => {
           : workspaceFour.promise,
       );
       const { queryClient } = renderWorkspaceRoutes({
-        initialEntries: ['/workspace-2/my-work'],
+        initialEntries: ['/w/workspace-2/my-work'],
       });
 
       await waitFor(() =>
@@ -1206,7 +1210,7 @@ describe('WorkspaceShell routing integration', () => {
         ).toBe('workspace-4'),
       );
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-4/my-work',
+        '/w/workspace-4/my-work',
       );
     },
   );
@@ -1216,7 +1220,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockRejectedValueOnce(new Error('Activation failed'))
       .mockResolvedValueOnce(undefined);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/my-work'],
+      initialEntries: ['/w/workspace-2/my-work'],
     });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -1237,7 +1241,7 @@ describe('WorkspaceShell routing integration', () => {
       ).toBe('workspace-2'),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-2/my-work',
+      '/w/workspace-2/my-work',
     );
   });
 
@@ -1247,7 +1251,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce(workspaces)
       .mockResolvedValue([...workspaces, createdWorkspace]);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/my-work'],
+      initialEntries: ['/w/workspace-1/my-work'],
     });
 
     fireEvent.click(
@@ -1274,7 +1278,7 @@ describe('WorkspaceShell routing integration', () => {
 
   it('uses one Settings history entry across section changes and close', async () => {
     renderWorkspaceRoutes({
-      initialEntries: ['/sentinel', '/workspace-1/my-work'],
+      initialEntries: ['/sentinel', '/w/workspace-1/my-work'],
     });
     await screen.findByRole('button', { name: 'Open Workspace Settings' });
     const returnLocationKey = screen.getByLabelText('Location key').textContent;
@@ -1284,11 +1288,11 @@ describe('WorkspaceShell routing integration', () => {
     );
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/settings/workspace/general',
+        '/w/workspace-1/settings/workspace/general',
       ),
     );
     expect(screen.getByLabelText('Router state')).toHaveTextContent(
-      '"returnTo":"/workspace-1/my-work"',
+      '"returnTo":"/w/workspace-1/my-work"',
     );
 
     fireEvent.click(
@@ -1296,14 +1300,14 @@ describe('WorkspaceShell routing integration', () => {
     );
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/settings/workspace/members',
+        '/w/workspace-1/settings/workspace/members',
       ),
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Close Settings' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/my-work',
+        '/w/workspace-1/my-work',
       ),
     );
 
@@ -1328,7 +1332,7 @@ describe('WorkspaceShell routing integration', () => {
   it('routes a Project note selected from the aggregate Library to its Project scope', async () => {
     mocks.listProjects.mockResolvedValue([disabledViewsProject]);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/library'],
+      initialEntries: ['/w/workspace-1/library'],
     });
 
     fireEvent.click(
@@ -1337,7 +1341,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/projects/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library/document-1',
       ),
     );
   });
@@ -1345,7 +1349,7 @@ describe('WorkspaceShell routing integration', () => {
   it('replaces a direct aggregate Library URL with its Project-scoped URL', async () => {
     mocks.listProjects.mockResolvedValue([disabledViewsProject]);
     renderWorkspaceRoutes({
-      initialEntries: ['/sentinel', '/workspace-1/library/document-1'],
+      initialEntries: ['/sentinel', '/w/workspace-1/library/document-1'],
     });
 
     fireEvent.click(
@@ -1356,7 +1360,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/projects/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library/document-1',
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
@@ -1372,7 +1376,7 @@ describe('WorkspaceShell routing integration', () => {
     renderWorkspaceRoutes({
       initialEntries: [
         '/sentinel',
-        '/workspace-1/projects/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library/document-1',
       ],
     });
 
@@ -1382,7 +1386,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/library/document-1',
+        '/w/workspace-1/library/document-1',
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
@@ -1396,24 +1400,24 @@ describe('WorkspaceShell routing integration', () => {
   it.each([
     {
       name: 'document',
-      settingsPath: '/workspace-1/settings/workspace/general',
-      returnTo: '/workspace-1/library/document-1',
+      settingsPath: '/w/workspace-1/settings/workspace/general',
+      returnTo: '/w/workspace-1/library/document-1',
       invalidation: 'Invalidate document background',
-      expectedReturnTo: '/workspace-1/library',
+      expectedReturnTo: '/w/workspace-1/library',
     },
     {
       name: 'cycle',
-      settingsPath: '/workspace-1/projects/project-1/settings/general',
-      returnTo: '/workspace-1/projects/project-1/cycles/cycle-1',
+      settingsPath: '/w/workspace-1/p/project-1/settings/general',
+      returnTo: '/w/workspace-1/p/project-1/cycles/cycle-1',
       invalidation: 'Invalidate cycle background',
-      expectedReturnTo: '/workspace-1/projects/project-1/cycles',
+      expectedReturnTo: '/w/workspace-1/p/project-1/cycles',
     },
     {
       name: 'module',
-      settingsPath: '/workspace-1/projects/project-1/settings/general',
-      returnTo: '/workspace-1/projects/project-1/modules/module-1',
+      settingsPath: '/w/workspace-1/p/project-1/settings/general',
+      returnTo: '/w/workspace-1/p/project-1/modules/module-1',
       invalidation: 'Invalidate module background',
-      expectedReturnTo: '/workspace-1/projects/project-1/modules',
+      expectedReturnTo: '/w/workspace-1/p/project-1/modules',
     },
   ])(
     'keeps Settings open when its $name background disappears',
@@ -1447,13 +1451,13 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Workspace[]>();
     mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/my-work'],
+      initialEntries: ['/w/workspace-2/my-work'],
       seededWorkspaces: [workspaces[0]],
     });
 
     await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledOnce());
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-2\/my-work$/,
+      /^\/w\/workspace-2\/my-work$/,
     );
 
     await act(async () => {
@@ -1463,7 +1467,7 @@ describe('WorkspaceShell routing integration', () => {
       'Workspace refresh failed',
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-2\/my-work$/,
+      /^\/w\/workspace-2\/my-work$/,
     );
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
@@ -1472,7 +1476,7 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Workspace[]>();
     mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/tasks'],
+      initialEntries: ['/w/workspace-2/tasks'],
       seededWorkspaces: workspaces,
     });
 
@@ -1486,7 +1490,7 @@ describe('WorkspaceShell routing integration', () => {
     );
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-2/tasks',
+      '/w/workspace-2/tasks',
     );
   });
 
@@ -1494,14 +1498,14 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Project[]>();
     mocks.listProjects.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-1'],
+      initialEntries: ['/w/workspace-1/p/project-1'],
       seededWorkspaces: [workspaces[0]],
       seededProjects: [],
     });
 
     await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledOnce());
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-1\/projects\/project-1$/,
+      /^\/w\/workspace-1\/p\/project-1$/,
     );
 
     await act(async () => {
@@ -1511,7 +1515,7 @@ describe('WorkspaceShell routing integration', () => {
       'Project refresh failed',
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-1\/projects\/project-1$/,
+      /^\/w\/workspace-1\/p\/project-1$/,
     );
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
@@ -1520,13 +1524,13 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Workspace[]>();
     mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-2/my-work'],
+      initialEntries: ['/w/workspace-2/my-work'],
       seededWorkspaces: [workspaces[0]],
     });
 
     await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledOnce());
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-2\/my-work$/,
+      /^\/w\/workspace-2\/my-work$/,
     );
 
     await act(async () => {
@@ -1534,7 +1538,7 @@ describe('WorkspaceShell routing integration', () => {
     });
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/my-work$/,
+        /^\/w\/workspace-1\/my-work$/,
       ),
     );
   });
@@ -1543,17 +1547,17 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Project[]>();
     mocks.listProjects.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2'],
+      initialEntries: ['/w/workspace-1/p/project-2'],
       seededWorkspaces: [workspaces[0]],
       seededProjects: [enabledViewsProject],
     });
 
     await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledOnce());
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      /^\/workspace-1\/projects\/project-2$/,
+      /^\/w\/workspace-1\/p\/project-2$/,
     );
     expect(
-      screen.getByRole('button', { name: 'Open all tasks' }),
+      await screen.findByRole('button', { name: 'Open all tasks' }),
     ).toBeVisible();
 
     await act(async () => {
@@ -1568,7 +1572,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockReturnValueOnce(workspaceRefresh.promise);
     mocks.listProjects.mockResolvedValue([enabledViewsProject]);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2/library'],
+      initialEntries: ['/w/workspace-1/p/project-2/library'],
     });
 
     await waitFor(() =>
@@ -1594,7 +1598,7 @@ describe('WorkspaceShell routing integration', () => {
     const refresh = deferred<Workspace[]>();
     mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/settings/workspace/members'],
+      initialEntries: ['/w/workspace-1/settings/workspace/members'],
       seededWorkspaces: [workspaces[0]],
     });
 
@@ -1624,7 +1628,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce(workspaces)
       .mockReturnValueOnce(refresh.promise);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/settings/workspace/general'],
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
     });
 
     fireEvent.click(
@@ -1653,7 +1657,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce(workspaces)
       .mockReturnValueOnce(refresh.promise);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/settings/workspace/general'],
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
     });
 
     await screen.findByRole('region', { name: 'Workspace Settings' });
@@ -1682,7 +1686,7 @@ describe('WorkspaceShell routing integration', () => {
       .mockResolvedValueOnce([enabledViewsProject])
       .mockReturnValueOnce(refresh.promise);
     const { queryClient } = renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2/library'],
+      initialEntries: ['/w/workspace-1/p/project-2/library'],
     });
 
     await waitFor(() =>
@@ -1706,10 +1710,12 @@ describe('WorkspaceShell routing integration', () => {
   it('does not request Project child data from cached access before authorization settles', async () => {
     const refresh = deferred<Project[]>();
     mocks.listProjects.mockReturnValueOnce(refresh.promise);
+    mocks.getTaskByNumber.mockResolvedValueOnce({
+      ...task,
+      project_id: enabledViewsProject.id,
+    });
     renderWorkspaceRoutes({
-      initialEntries: [
-        '/workspace-1/projects/project-2/work-items?task=task-1',
-      ],
+      initialEntries: ['/w/workspace-1/p/project-2/work-items?task=1'],
       seededWorkspaces: [workspaces[0]],
       seededProjects: [enabledViewsProject],
     });
@@ -1728,7 +1734,7 @@ describe('WorkspaceShell routing integration', () => {
   it('does not request Task-list planning data from Project Overview', async () => {
     mocks.listProjects.mockResolvedValueOnce([enabledViewsProject]);
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2'],
+      initialEntries: ['/w/workspace-1/p/project-2'],
     });
 
     await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledOnce());
@@ -1744,7 +1750,7 @@ describe('WorkspaceShell routing integration', () => {
       new Error('Project refresh failed'),
     );
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2/views/view-1'],
+      initialEntries: ['/w/workspace-1/p/project-2/views/view-1'],
       seededWorkspaces: [workspaces[0]],
       seededProjects: [enabledViewsProject],
     });
@@ -1757,47 +1763,42 @@ describe('WorkspaceShell routing integration', () => {
   });
 
   it('pushes a Task selection and strips it with replace when closing', async () => {
-    renderWorkspaceRoutes({ initialEntries: ['/workspace-1/tasks'] });
+    renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/tasks'] });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open Task' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/tasks?task=task-1',
+        '/w/workspace-1/tasks?task=1',
       ),
     );
 
     fireEvent.click(await screen.findByRole('button', { name: 'Close Task' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/tasks',
+        '/w/workspace-1/tasks',
       ),
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/workspace-1/tasks',
+        '/w/workspace-1/tasks',
       ),
     );
   });
 
-  it('removes only a malformed Task identity and reports that it is unavailable', async () => {
-    mocks.getTask.mockRejectedValueOnce(
-      new ApiError(422, 'validation_error', 'Resource ID is invalid'),
-    );
-
+  it('strips a malformed public Task number without issuing a lookup', async () => {
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/tasks?task=not-a-uuid'],
+      initialEntries: ['/w/workspace-1/tasks?task=not-a-uuid'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/tasks$/,
+        /^\/w\/workspace-1\/tasks$/,
       ),
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'That Task is unavailable or you no longer have access.',
-    );
+    expect(mocks.getTaskByNumber).not.toHaveBeenCalled();
+    expect(mocks.getTask).not.toHaveBeenCalled();
   });
 
   it('retains a document route when the deliberate navigation save fails', async () => {
@@ -1805,7 +1806,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/library/document-1'],
+      initialEntries: ['/w/workspace-1/library/document-1'],
       flushDocumentSaves,
     });
 
@@ -1817,7 +1818,7 @@ describe('WorkspaceShell routing integration', () => {
       'Document save failed',
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/library/document-1',
+      '/w/workspace-1/library/document-1',
     );
     expect(flushDocumentSaves).toHaveBeenCalledOnce();
   });
@@ -1827,7 +1828,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/tasks?task=task-1'],
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
       flushDocumentSaves,
     });
 
@@ -1840,7 +1841,7 @@ describe('WorkspaceShell routing integration', () => {
     );
     expect(mocks.archiveTask).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/tasks?task=task-1',
+      '/w/workspace-1/tasks?task=1',
     );
     expect(screen.getByRole('button', { name: 'Archive Task' })).toBeVisible();
   });
@@ -1850,7 +1851,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/tasks'],
+      initialEntries: ['/w/workspace-1/tasks'],
       flushDocumentSaves,
     });
 
@@ -1861,7 +1862,7 @@ describe('WorkspaceShell routing integration', () => {
     );
     expect(mocks.createTask).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/tasks',
+      '/w/workspace-1/tasks',
     );
   });
 
@@ -1870,7 +1871,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/tasks'],
+      initialEntries: ['/w/workspace-1/tasks'],
       flushDocumentSaves,
     });
 
@@ -1883,7 +1884,7 @@ describe('WorkspaceShell routing integration', () => {
     );
     expect(mocks.createSavedView).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/tasks',
+      '/w/workspace-1/tasks',
     );
   });
 
@@ -1892,7 +1893,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/tasks?task=task-1'],
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
       flushDocumentSaves,
     });
 
@@ -1901,7 +1902,7 @@ describe('WorkspaceShell routing integration', () => {
     await waitFor(() => expect(flushDocumentSaves).toHaveBeenCalledOnce());
     expect(mocks.deleteTask).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/tasks?task=task-1',
+      '/w/workspace-1/tasks?task=1',
     );
     expect(screen.getByRole('button', { name: 'Delete Task' })).toBeVisible();
   });
@@ -1912,7 +1913,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/views/view-1?task=task-1'],
+      initialEntries: ['/w/workspace-1/views/view-1?task=1'],
       flushDocumentSaves,
     });
 
@@ -1923,7 +1924,7 @@ describe('WorkspaceShell routing integration', () => {
     await waitFor(() => expect(flushDocumentSaves).toHaveBeenCalledOnce());
     expect(mocks.deleteSavedView).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/workspace-1/views/view-1?task=task-1',
+      '/w/workspace-1/views/view-1?task=1',
     );
   });
 
@@ -1938,12 +1939,12 @@ describe('WorkspaceShell routing integration', () => {
     );
 
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-1/views/view-1'],
+      initialEntries: ['/w/workspace-1/p/project-1/views/view-1'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/projects\/project-1$/,
+        /^\/w\/workspace-1\/p\/project-1$/,
       ),
     );
   });
@@ -1955,12 +1956,12 @@ describe('WorkspaceShell routing integration', () => {
     );
 
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2/views/not-a-uuid'],
+      initialEntries: ['/w/workspace-1/p/project-2/views/not-a-uuid'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/projects\/project-2\/views$/,
+        /^\/w\/workspace-1\/p\/project-2\/views$/,
       ),
     );
   });
@@ -1969,12 +1970,12 @@ describe('WorkspaceShell routing integration', () => {
     mocks.listProjects.mockResolvedValueOnce([]);
 
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-1/views/view-1'],
+      initialEntries: ['/w/workspace-1/p/project-1/views/view-1'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/my-work$/,
+        /^\/w\/workspace-1\/my-work$/,
       ),
     );
     expect(mocks.getSavedView).not.toHaveBeenCalled();
@@ -1984,19 +1985,19 @@ describe('WorkspaceShell routing integration', () => {
     mocks.listProjects.mockResolvedValueOnce([
       {
         ...enabledViewsProject,
-        visibility: 'open',
+        visibility: 'public',
         effective_role: null,
         can_join: true,
       },
     ]);
 
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-2/views/view-1'],
+      initialEntries: ['/w/workspace-1/p/project-2/views/view-1'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/projects\/project-2$/,
+        /^\/w\/workspace-1\/p\/project-2$/,
       ),
     );
     expect(mocks.getSavedView).not.toHaveBeenCalled();
@@ -2017,12 +2018,12 @@ describe('WorkspaceShell routing integration', () => {
     });
 
     renderWorkspaceRoutes({
-      initialEntries: ['/workspace-1/projects/project-1/views/view-1'],
+      initialEntries: ['/w/workspace-1/p/project-1/views/view-1'],
     });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/workspace-1\/projects\/project-2\/views\/view-1$/,
+        /^\/w\/workspace-1\/p\/project-2\/views\/view-1$/,
       ),
     );
   });
@@ -2085,19 +2086,19 @@ function renderWorkspaceRoutes({
             element={<WorkspaceRouteScreen routeKind="root" {...shellProps} />}
           />
           <Route
-            path="/:workspaceIdentifier/my-work"
+            path="/w/:workspaceIdentifier/my-work"
             element={
               <WorkspaceRouteScreen routeKind="my-work" {...shellProps} />
             }
           />
           <Route
-            path="/:workspaceIdentifier/tasks"
+            path="/w/:workspaceIdentifier/tasks"
             element={
               <WorkspaceRouteScreen routeKind="all-tasks" {...shellProps} />
             }
           />
           <Route
-            path="/:workspaceIdentifier/views/:viewId"
+            path="/w/:workspaceIdentifier/views/:viewId"
             element={
               <WorkspaceRouteScreen
                 routeKind="workspace-view"
@@ -2106,7 +2107,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/settings/workspace/:section"
+            path="/w/:workspaceIdentifier/settings/workspace/:section"
             element={
               <WorkspaceRouteScreen
                 routeKind="workspace-settings"
@@ -2115,7 +2116,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/settings/account/:section"
+            path="/w/:workspaceIdentifier/settings/account/:section"
             element={
               <WorkspaceRouteScreen
                 routeKind="account-settings"
@@ -2124,7 +2125,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-overview"
@@ -2133,7 +2134,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/work-items"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/work-items"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-work-items"
@@ -2142,7 +2143,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/settings/:section"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/settings/:section"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-settings"
@@ -2151,7 +2152,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/cycles"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/cycles"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-cycles"
@@ -2160,7 +2161,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/cycles/:cycleId"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/cycles/:cycleId"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-cycles"
@@ -2169,7 +2170,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/modules"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/modules"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-modules"
@@ -2178,7 +2179,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/modules/:moduleId"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/modules/:moduleId"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-modules"
@@ -2187,7 +2188,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/library"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/library"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-library"
@@ -2196,7 +2197,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/library/:documentId"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/library/:documentId"
             element={
               <WorkspaceRouteScreen
                 routeKind="project-library"
@@ -2205,19 +2206,19 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/views"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/views"
             element={
               <WorkspaceRouteScreen routeKind="project-views" {...shellProps} />
             }
           />
           <Route
-            path="/:workspaceIdentifier/projects/:projectId/views/:viewId"
+            path="/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId"
             element={
               <WorkspaceRouteScreen routeKind="project-view" {...shellProps} />
             }
           />
           <Route
-            path="/:workspaceIdentifier/library"
+            path="/w/:workspaceIdentifier/library"
             element={
               <WorkspaceRouteScreen
                 routeKind="workspace-library"
@@ -2226,7 +2227,7 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
-            path="/:workspaceIdentifier/library/:documentId"
+            path="/w/:workspaceIdentifier/library/:documentId"
             element={
               <WorkspaceRouteScreen
                 routeKind="workspace-library"
@@ -2258,7 +2259,7 @@ function LocationProbe() {
       <button type="button" onClick={() => navigate(-1)}>
         Go back
       </button>
-      <button type="button" onClick={() => navigate('/workspace-4/my-work')}>
+      <button type="button" onClick={() => navigate('/w/workspace-4/my-work')}>
         Open workspace C
       </button>
     </aside>
