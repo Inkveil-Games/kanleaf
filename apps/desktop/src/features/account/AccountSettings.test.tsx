@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { User } from '../../lib/api/types';
+import type { Workspace, WorkspaceInvitation } from '../workspace/types';
 import { AccountSettings } from './AccountSettings';
 
 const user: User = {
@@ -20,11 +21,22 @@ const user: User = {
   week_start: 'monday',
   date_format: 'locale',
   active_workspace_id: 'workspace-1',
+  setup_stage: 'complete',
 };
 
 const context = {
   serverUrl: 'https://kanleaf.example.com',
   token: 'session-token',
+};
+
+const joinedWorkspace: Workspace = {
+  id: 'workspace-2',
+  identifier: 'shared-notes',
+  name: 'Shared Notes',
+  accent: 'sage',
+  role: 'member',
+  created_at: '2026-08-27T01:00:00Z',
+  updated_at: '2026-08-27T01:00:00Z',
 };
 
 describe('AccountSettings', () => {
@@ -89,6 +101,7 @@ describe('AccountSettings', () => {
       id: 'invitation-1',
       workspace_id: 'workspace-2',
       workspace_name: 'Shared Notes',
+      workspace_identifier: 'shared-notes',
       email: user.email,
       role: 'member',
       invited_by_display_name: 'Workspace Owner',
@@ -101,12 +114,17 @@ describe('AccountSettings', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse([invitation]))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(jsonResponse([]));
+      .mockResolvedValueOnce(jsonResponse([joinedWorkspace]));
     vi.stubGlobal('fetch', fetchMock);
-    renderSettings('invitations');
+    const onWorkspaceJoined = vi.fn();
+    renderSettings('invitations', onWorkspaceJoined);
 
     expect(await screen.findByText('Shared Notes')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Accept invitation to Shared Notes (/shared-notes)',
+      }),
+    );
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -117,18 +135,72 @@ describe('AccountSettings', () => {
     expect(
       await screen.findByText('No pending invitations'),
     ).toBeInTheDocument();
+    expect(onWorkspaceJoined).toHaveBeenCalledWith(joinedWorkspace);
+  });
+
+  it('forwards the resolved Workspace after accepting an invitation token', async () => {
+    const invitation: WorkspaceInvitation = {
+      id: 'invitation-1',
+      workspace_id: joinedWorkspace.id,
+      workspace_name: joinedWorkspace.name,
+      workspace_identifier: joinedWorkspace.identifier,
+      email: user.email,
+      role: 'member',
+      invited_by_display_name: 'Workspace Owner',
+      status: 'pending',
+      expires_at: '2026-09-01T01:00:00Z',
+      created_at: '2026-08-27T01:00:00Z',
+      updated_at: '2026-08-27T01:00:00Z',
+    };
+    let invitationReads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith('/api/invitations/accept-token')) {
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith('/api/invitations')) {
+          invitationReads += 1;
+          return jsonResponse(invitationReads === 1 ? [invitation] : []);
+        }
+        if (url.endsWith('/api/workspaces')) {
+          return jsonResponse([joinedWorkspace]);
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const onWorkspaceJoined = vi.fn();
+    renderSettings('invitations', onWorkspaceJoined);
+
+    await screen.findByText('Shared Notes');
+    fireEvent.change(screen.getByLabelText('Invitation token'), {
+      target: { value: 'shared-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept token' }));
+
+    await waitFor(() =>
+      expect(onWorkspaceJoined).toHaveBeenCalledWith(joinedWorkspace),
+    );
   });
 });
 
 function renderSettings(
-  section: 'profile' | 'preferences' | 'security' | 'invitations',
+  section:
+    'profile' | 'preferences' | 'security' | 'invitations' | 'notifications',
+  onWorkspaceJoined = vi.fn(),
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <AccountSettings context={context} initialUser={user} section={section} />
+      <AccountSettings
+        context={context}
+        initialUser={user}
+        section={section}
+        onWorkspaceJoined={onWorkspaceJoined}
+      />
     </QueryClientProvider>,
   );
 }

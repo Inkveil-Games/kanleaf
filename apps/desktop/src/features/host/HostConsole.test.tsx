@@ -24,6 +24,7 @@ const host = {
   week_start: 'monday' as const,
   date_format: 'locale' as const,
   active_workspace_id: 'workspace-1',
+  setup_stage: 'complete' as const,
 };
 
 describe('HostConsole', () => {

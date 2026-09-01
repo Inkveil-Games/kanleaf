@@ -155,6 +155,19 @@ function GeneralSettings({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
+        <div className="settings-field">
+          <label htmlFor={`workspace-identifier-${workspace.id}`}>
+            Workspace ID
+          </label>
+          <input
+            id={`workspace-identifier-${workspace.id}`}
+            readOnly
+            value={workspace.identifier}
+          />
+          <small>
+            Used in Workspace links. This ID cannot be changed after creation.
+          </small>
+        </div>
         <fieldset className="accent-picker" disabled={!canManage}>
           <legend>Accent</legend>
           <div>

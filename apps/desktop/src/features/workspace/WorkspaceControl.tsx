@@ -8,19 +8,23 @@ import {
   Plus,
   Settings,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ContextMenu } from '../../components/ui/ContextMenu';
-import { InlineNameForm } from './InlineNameForm';
+import type { ApiContext } from './api';
 import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace } from './types';
+import { WorkspaceCreateDialog } from './WorkspaceCreateDialog';
+import type { WorkspaceIdentity } from './WorkspaceIdentityForm';
 
 interface WorkspaceControlProps {
+  context: ApiContext;
   userEmail: string;
   workspaces: Workspace[];
   workspaceId: string;
   navigationVisible: boolean;
   onSwitchWorkspace: (workspaceId: string) => Promise<void>;
-  onCreateWorkspace: (name: string) => Promise<void>;
+  onCreateWorkspace: (identity: WorkspaceIdentity) => Promise<Workspace>;
+  onFinishWorkspace: (workspace: Workspace) => void | Promise<void>;
   onOpenWorkspaceSettings: (section: WorkspaceSettingsSection) => void;
   onOpenInvitations: () => void;
   onImportWorkspace: () => void;
@@ -28,19 +32,34 @@ interface WorkspaceControlProps {
 }
 
 export function WorkspaceControl({
+  context,
   userEmail,
   workspaces,
   workspaceId,
   navigationVisible,
   onSwitchWorkspace,
   onCreateWorkspace,
+  onFinishWorkspace,
   onOpenWorkspaceSettings,
   onOpenInvitations,
   onImportWorkspace,
   onToggleNavigation,
 }: WorkspaceControlProps) {
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const workspaceSwitcherRef = useRef<HTMLButtonElement>(null);
+  const restoreWorkspaceSwitcher = useRef(false);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
+
+  useEffect(() => {
+    if (creatingWorkspace || !restoreWorkspaceSwitcher.current) return;
+    restoreWorkspaceSwitcher.current = false;
+    workspaceSwitcherRef.current?.focus();
+  }, [creatingWorkspace]);
+
+  function closeWorkspaceCreation() {
+    restoreWorkspaceSwitcher.current = true;
+    setCreatingWorkspace(false);
+  }
 
   function toggleNavigation() {
     setCreatingWorkspace(false);
@@ -58,6 +77,7 @@ export function WorkspaceControl({
             <ContextMenu
               className="workspace-switcher-menu"
               label="Active workspace"
+              triggerRef={workspaceSwitcherRef}
               trigger={
                 <>
                   <span className="workspace-trigger-mark" aria-hidden="true">
@@ -116,7 +136,9 @@ export function WorkspaceControl({
                         </span>
                         <span className="workspace-menu-workspace-copy">
                           <strong>{candidate.name}</strong>
-                          <small>{candidate.role}</small>
+                          <small>
+                            /{candidate.identifier} · {candidate.role}
+                          </small>
                         </span>
                         {active && <Check aria-hidden="true" size={14} />}
                       </button>
@@ -179,19 +201,17 @@ export function WorkspaceControl({
           )}
         </button>
       </div>
-      {creatingWorkspace && (
-        <div className="workspace-control-composer">
-          <InlineNameForm
-            label="Workspace name"
-            submitLabel="Create workspace"
-            onCancel={() => setCreatingWorkspace(false)}
-            onSubmit={async (name) => {
-              await onCreateWorkspace(name);
-              setCreatingWorkspace(false);
-            }}
-          />
-        </div>
-      )}
+      {creatingWorkspace ? (
+        <WorkspaceCreateDialog
+          context={context}
+          onCreate={onCreateWorkspace}
+          onFinished={async (createdWorkspace) => {
+            await onFinishWorkspace(createdWorkspace);
+            closeWorkspaceCreation();
+          }}
+          onClose={closeWorkspaceCreation}
+        />
+      ) : null}
     </section>
   );
 }

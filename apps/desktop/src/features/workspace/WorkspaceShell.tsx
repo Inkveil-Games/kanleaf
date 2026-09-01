@@ -7,11 +7,11 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type FormEvent,
 } from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
+import { WorkspaceSetupStep } from '../onboarding/WorkspaceSetupStep';
 import {
   accountSettingsSections,
   isAccountSettingsSection,
@@ -81,6 +81,7 @@ import type {
   TaskBulkPatch,
   TaskPatch,
   TaskRelationType,
+  Workspace,
 } from './types';
 import {
   WorkspaceNavigation,
@@ -96,6 +97,7 @@ import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 import { WorkspaceControl } from './WorkspaceControl';
 import { WorkspaceImportDialog } from './WorkspaceImportDialog';
+import type { WorkspaceIdentity } from './WorkspaceIdentityForm';
 import type { WorkspaceImportOperation } from './portabilityApi';
 import {
   reconcileWorkspaceLocation,
@@ -124,6 +126,7 @@ export interface WorkspaceShellProps {
   onDismissAccountError: () => void;
   onSignOut: () => void;
   location: WorkspaceLocation | null;
+  workspaceAccessVerified: boolean;
   onNavigate: (
     location: WorkspaceReplacementLocation,
     options?: { replace?: boolean },
@@ -155,6 +158,7 @@ export function WorkspaceShell({
   onDismissAccountError,
   onSignOut,
   location,
+  workspaceAccessVerified,
   onNavigate,
   flushDocumentSaves,
 }: WorkspaceShellProps) {
@@ -250,7 +254,9 @@ export function WorkspaceShell({
     activeWorkspace && activeWorkspace.role !== 'guest',
   );
   const hasSettledWorkspaceAccess = Boolean(
-    activeWorkspace && workspaces.isFetchedAfterMount && !workspaces.error,
+    activeWorkspace &&
+    (workspaceAccessVerified || workspaces.isFetchedAfterMount) &&
+    !workspaces.error,
   );
   const hasSettledContentAccess = Boolean(
     hasSettledWorkspaceAccess && activeWorkspace?.role !== 'guest',
@@ -675,31 +681,55 @@ export function WorkspaceShell({
     }
   }
 
-  async function addWorkspace(name: string) {
+  async function addWorkspace(
+    identity: WorkspaceIdentity,
+    invalidateMemberships = true,
+  ) {
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
     try {
       const result = await enqueueWorkspaceIntent(generation, async () => {
         await flushDocumentSaves();
-        const workspace = await createWorkspace(context, name);
-        await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        const workspace = await createWorkspace(
+          context,
+          identity.name,
+          identity.identifier,
+        );
+        if (invalidateMemberships) {
+          await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        }
         return workspace;
       });
-      if (!result.latest || !result.value) return;
-      activationAttempt.current = `${user.id}:${result.value.id}`;
-      onNavigate({
-        kind: 'my-work',
-        workspaceId: result.value.id,
-        taskId: null,
-      });
-      syncActiveWorkspace(result.value.id);
+      if (!result.latest || !result.value) {
+        throw new Error('A newer Workspace change took precedence');
+      }
+      return result.value;
     } catch (caught) {
       if (activationGeneration.current === generation) {
         setActionError(errorMessage(caught));
       }
       throw caught;
     }
+  }
+
+  function finishWorkspaceCreation(workspace: Workspace) {
+    activationAttempt.current = `${user.id}:${workspace.id}`;
+    onNavigate({
+      kind: 'my-work',
+      workspaceId: workspace.id,
+      taskId: null,
+    });
+    syncActiveWorkspace(workspace.id);
+  }
+
+  async function finishRecoveryWorkspace(workspace: Workspace) {
+    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    finishWorkspaceCreation(workspace);
+  }
+
+  async function finishWorkspaceJoin(joinedWorkspace: Workspace) {
+    await switchWorkspace(joinedWorkspace.id);
   }
 
   async function applyWorkspaceImportIntent(
@@ -1384,11 +1414,34 @@ export function WorkspaceShell({
       return <WorkspaceOpening />;
     }
     return (
-      <EmptyWorkspace
-        error={actionError}
-        onCreate={addWorkspace}
-        onSignOut={onSignOut}
-      />
+      <main className="workspace-recovery-shell">
+        <aside className="workspace-recovery-rail">
+          <Wordmark />
+          <div>
+            <p className="eyebrow">A durable home for your work</p>
+            <p className="workspace-recovery-title">
+              Keep structured planning and Markdown together.
+            </p>
+            <p>
+              Create a Workspace you own, or join a team that has invited you.
+            </p>
+          </div>
+          <small>You can belong to more than one Workspace.</small>
+        </aside>
+        <section className="workspace-recovery-content">
+          <WorkspaceSetupStep
+            context={context}
+            isHost={Boolean(onOpenHostConsole)}
+            inviteAfterCreate
+            invalidateAfterCreate={false}
+            createWorkspaceAction={(identity) => addWorkspace(identity, false)}
+            onWorkspaceCreated={finishRecoveryWorkspace}
+            onJoined={finishWorkspaceJoin}
+            onHostContinue={() => onOpenHostConsole?.()}
+            onSignOut={onSignOut}
+          />
+        </section>
+      </main>
     );
   }
   const directActivationAttempt = `${user.id}:${activeWorkspace.id}`;
@@ -1541,12 +1594,14 @@ export function WorkspaceShell({
   return (
     <main className={shellClassName} style={shellStyle}>
       <WorkspaceControl
+        context={context}
         userEmail={user.email}
         workspaces={workspaces.data ?? []}
         workspaceId={workspaceId}
         navigationVisible={paneLayout.navigationVisible}
         onSwitchWorkspace={switchWorkspace}
         onCreateWorkspace={addWorkspace}
+        onFinishWorkspace={finishWorkspaceCreation}
         onOpenWorkspaceSettings={openWorkspaceSettings}
         onOpenInvitations={() => openAccountSettings('invitations')}
         onImportWorkspace={() => {
@@ -1819,6 +1874,7 @@ export function WorkspaceShell({
               user={user}
               section={location.section}
               onSectionChange={changeAccountSettingsSection}
+              onWorkspaceJoined={finishWorkspaceJoin}
               onClose={closeSettings}
             />
           </SettingsDialog>
@@ -2070,66 +2126,6 @@ function WorkspaceRouteFailure({
       </div>
       <button className="primary-button" type="button" onClick={onRetry}>
         Try again
-      </button>
-    </main>
-  );
-}
-
-function EmptyWorkspace({
-  error,
-  onCreate,
-  onSignOut,
-}: {
-  error: string | null;
-  onCreate: (name: string) => Promise<void>;
-  onSignOut: () => void;
-}) {
-  const [name, setName] = useState('My Workspace');
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      await onCreate(name);
-    } catch {
-      // The parent renders the API error while this form restores its controls.
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <main className="status-page empty-workspace-page">
-      <Wordmark quiet />
-      <div className="form-heading">
-        <h1>Create a Workspace</h1>
-        <p>You need a Workspace for projects, tasks, and Markdown documents.</p>
-      </div>
-      <form
-        className="empty-workspace-form"
-        onSubmit={(event) => void submit(event)}
-      >
-        <label className="settings-field">
-          <span>Workspace name</span>
-          <input
-            required
-            maxLength={120}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <button className="primary-button" type="submit" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create Workspace'}
-        </button>
-      </form>
-      {error && (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
-      )}
-      <button className="text-button" type="button" onClick={onSignOut}>
-        Sign out
       </button>
     </main>
   );

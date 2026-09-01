@@ -35,6 +35,13 @@ describe('WorkspaceSettings', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows the immutable Workspace ID in General settings', () => {
+    renderSettings(workspace, 'general', owner.user_id);
+
+    expect(screen.getByLabelText('Workspace ID')).toHaveValue('kanleaf-core');
+    expect(screen.getByLabelText('Workspace ID')).toHaveAttribute('readonly');
+  });
+
   it('keeps membership actions read-only for a Workspace Member', async () => {
     vi.stubGlobal(
       'fetch',
@@ -123,6 +130,7 @@ describe('WorkspaceSettings', () => {
 
 const workspace: Workspace = {
   id: 'workspace-1',
+  identifier: 'kanleaf-core',
   name: 'Kanleaf Core',
   accent: 'sage',
   role: 'owner',

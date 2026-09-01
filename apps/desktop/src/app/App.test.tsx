@@ -168,16 +168,19 @@ describe('App', () => {
     );
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation((url: string) =>
-        Promise.resolve(
-          url.endsWith('/api/health')
-            ? healthResponse()
-            : new Response(JSON.stringify(session('user-1')), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-              }),
-        ),
-      ),
+      vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith('/api/health'))
+          return Promise.resolve(healthResponse());
+        const payload = url.endsWith('/api/workspaces')
+          ? [workspace('user-1')]
+          : session('user-1');
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }),
     );
 
     renderApp();
@@ -439,16 +442,18 @@ function retainAccount(userId: string) {
 }
 
 function stubHealthySession(userId: string, isHost: boolean) {
-  const fetchMock = vi.fn().mockImplementation((url: string) =>
-    Promise.resolve(
-      url.endsWith('/api/health')
-        ? healthResponse()
-        : new Response(JSON.stringify(session(userId, isHost)), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
-    ),
-  );
+  const fetchMock = vi.fn().mockImplementation((url: string) => {
+    if (url.endsWith('/api/health')) return Promise.resolve(healthResponse());
+    const payload = url.endsWith('/api/workspaces')
+      ? [workspace(userId)]
+      : session(userId, isHost);
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -495,6 +500,19 @@ function session(userId: string, isHost = false) {
       week_start: 'monday',
       date_format: 'locale',
       active_workspace_id: `${userId}-workspace`,
+      setup_stage: 'complete',
     },
+  };
+}
+
+function workspace(userId: string) {
+  return {
+    id: `${userId}-workspace`,
+    identifier: `${userId}-workspace`,
+    name: `Workspace ${userId}`,
+    accent: 'sage',
+    role: 'owner',
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
   };
 }

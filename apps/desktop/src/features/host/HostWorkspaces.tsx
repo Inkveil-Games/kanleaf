@@ -1,10 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import type { ApiContext } from '../workspace/api';
-import { listHostWorkspaces } from './api';
+import {
+  deleteHostWorkspace,
+  listHostWorkspaces,
+  type HostWorkspace,
+} from './api';
+import { HostWorkspaceDeleteDialog } from './HostWorkspaceDeleteDialog';
 
 export function HostWorkspaces({ context }: { context: ApiContext }) {
+  const queryClient = useQueryClient();
+  const [deleteTarget, setDeleteTarget] = useState<HostWorkspace | null>(null);
+  const [announcement, setAnnouncement] = useState('');
   const workspaces = useQuery({
     queryKey: ['host-workspaces', context.serverUrl, context.token],
     queryFn: () => listHostWorkspaces(context),
@@ -32,7 +42,7 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
       ) : workspaces.data.length === 0 ? (
         <div className="settings-empty">
           <strong>No Workspaces yet</strong>
-          <p>Workspaces will appear here after accounts are created.</p>
+          <p>Workspaces will appear here after someone creates one.</p>
         </div>
       ) : (
         <>
@@ -42,11 +52,45 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
               {workspaces.data.length === 1 ? 'workspace' : 'workspaces'}
             </strong>
             <span className="host-workspace-summary-note">
-              Owner metadata only
+              Owner metadata · lifecycle controls
             </span>
           </div>
-          <WorkspaceTable workspaces={workspaces.data} />
+          <WorkspaceTable
+            workspaces={workspaces.data}
+            onDelete={setDeleteTarget}
+          />
         </>
+      )}
+      {announcement && (
+        <p className="sr-only" role="status">
+          {announcement}
+        </p>
+      )}
+      {deleteTarget && (
+        <HostWorkspaceDeleteDialog
+          workspace={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDelete={async (identifier, password) => {
+            await deleteHostWorkspace(context, deleteTarget.id, {
+              identifier,
+              password,
+            });
+            queryClient.setQueryData<HostWorkspace[]>(
+              ['host-workspaces', context.serverUrl, context.token],
+              (current) =>
+                current?.filter(
+                  (workspace) => workspace.id !== deleteTarget.id,
+                ) ?? [],
+            );
+            setAnnouncement(
+              `${deleteTarget.name} (/${deleteTarget.identifier}) was permanently deleted`,
+            );
+            void queryClient.invalidateQueries({
+              queryKey: ['host-workspaces', context.serverUrl, context.token],
+              refetchType: 'none',
+            });
+          }}
+        />
       )}
     </SettingsArticle>
   );
@@ -55,9 +99,11 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
 function WorkspaceTable({
   workspaces = [],
   loading = false,
+  onDelete,
 }: {
-  workspaces?: Awaited<ReturnType<typeof listHostWorkspaces>>;
+  workspaces?: HostWorkspace[];
   loading?: boolean;
+  onDelete?: (workspace: HostWorkspace) => void;
 }) {
   return (
     <div className="host-workspace-table-wrap">
@@ -67,6 +113,7 @@ function WorkspaceTable({
           <tr>
             <th scope="col">Workspace</th>
             <th scope="col">Owner</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -79,16 +126,34 @@ function WorkspaceTable({
                   <td>
                     <span className="host-table-skeleton host-table-skeleton-owner" />
                   </td>
+                  <td>
+                    <span className="host-table-skeleton host-table-skeleton-action" />
+                  </td>
                 </tr>
               ))
             : workspaces.map((workspace) => (
                 <tr key={workspace.id}>
-                  <th scope="row">{workspace.name}</th>
+                  <th scope="row">
+                    <span className="host-workspace-copy">
+                      <strong>{workspace.name}</strong>
+                      <small>/{workspace.identifier}</small>
+                    </span>
+                  </th>
                   <td>
                     <span className="host-owner-copy">
                       <strong>{workspace.owner.display_name}</strong>
                       <small>{workspace.owner.email}</small>
                     </span>
+                  </td>
+                  <td className="host-workspace-actions">
+                    <button
+                      className="icon-button danger-icon-button"
+                      type="button"
+                      aria-label={`Delete Workspace “${workspace.name}” (/${workspace.identifier})`}
+                      onClick={() => onDelete?.(workspace)}
+                    >
+                      <Trash2 aria-hidden="true" size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}

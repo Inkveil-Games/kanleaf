@@ -10,6 +10,7 @@ import {
 
 const workspace: Workspace = {
   id: 'workspace-1',
+  identifier: 'acme',
   name: 'Acme',
   accent: 'sage',
   role: 'owner',

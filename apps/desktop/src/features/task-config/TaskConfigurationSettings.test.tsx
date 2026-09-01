@@ -153,6 +153,7 @@ function state(
 
 const workspace: Workspace = {
   id: 'workspace-1',
+  identifier: 'kanleaf',
   name: 'Kanleaf',
   accent: 'sage',
   role: 'owner',

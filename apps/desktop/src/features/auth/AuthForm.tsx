@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
+import { PasswordField } from '../../components/ui/PasswordField';
 import { ApiError, apiRequest } from '../../lib/api/client';
 import type { AuthResponse } from '../../lib/api/types';
 
@@ -13,13 +14,27 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [confirmationError, setConfirmationError] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const passwordId = useId();
+  const passwordHintId = useId();
+  const confirmationId = useId();
+  const confirmationErrorId = useId();
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mode === 'register' && password !== passwordConfirmation) {
+      setError(null);
+      setConfirmationError('Passwords do not match');
+      return;
+    }
     setSubmitting(true);
     setError(null);
+    setConfirmationError(null);
     try {
       const response = await apiRequest<AuthResponse>(
         serverUrl,
@@ -44,6 +59,8 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
   function changeMode(nextMode: AuthMode) {
     setMode(nextMode);
     setError(null);
+    setConfirmationError(null);
+    setPasswordConfirmation('');
   }
 
   return (
@@ -52,6 +69,7 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
         <button
           type="button"
           aria-pressed={mode === 'login'}
+          disabled={submitting}
           onClick={() => changeMode('login')}
         >
           Sign in
@@ -59,6 +77,7 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
         <button
           type="button"
           aria-pressed={mode === 'register'}
+          disabled={submitting}
           onClick={() => changeMode('register')}
         >
           New account
@@ -72,7 +91,7 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
         <p>
           {mode === 'login'
             ? 'Use the account stored on this server.'
-            : 'A personal workspace will be created automatically.'}
+            : 'Start with your account details, then create or join a Workspace.'}
         </p>
       </div>
 
@@ -85,23 +104,61 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
           autoComplete="email"
           autoCapitalize="none"
           required
+          disabled={submitting}
         />
       </label>
 
-      <label className="field">
-        <span>Password</span>
-        <input
-          type="password"
+      <div className="field">
+        <label htmlFor={passwordId}>Password</label>
+        <PasswordField
+          id={passwordId}
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={(event) => {
+            setPassword(event.target.value);
+            setConfirmationError(null);
+          }}
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           minLength={10}
           required
+          disabled={submitting}
+          aria-describedby={mode === 'register' ? passwordHintId : undefined}
         />
         {mode === 'register' ? (
-          <small>Use at least 10 characters.</small>
+          <small id={passwordHintId}>Use at least 10 characters.</small>
         ) : null}
-      </label>
+      </div>
+
+      {mode === 'register' ? (
+        <div className="field">
+          <label htmlFor={confirmationId}>Confirm password</label>
+          <PasswordField
+            id={confirmationId}
+            visibilityLabel="password confirmation"
+            value={passwordConfirmation}
+            onChange={(event) => {
+              setPasswordConfirmation(event.target.value);
+              setConfirmationError(null);
+            }}
+            autoComplete="new-password"
+            minLength={10}
+            required
+            disabled={submitting}
+            aria-invalid={confirmationError ? true : undefined}
+            aria-describedby={
+              confirmationError ? confirmationErrorId : undefined
+            }
+          />
+          {confirmationError ? (
+            <small
+              className="field-error"
+              id={confirmationErrorId}
+              role="alert"
+            >
+              {confirmationError}
+            </small>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? (
         <p className="form-error" role="alert">

@@ -20,6 +20,7 @@ describe('settings shells', () => {
         user={user}
         section="profile"
         onSectionChange={onSectionChange}
+        onWorkspaceJoined={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -101,10 +102,12 @@ const user: User = {
   week_start: 'monday',
   date_format: 'locale',
   active_workspace_id: 'workspace-1',
+  setup_stage: 'complete',
 };
 
 const workspace: Workspace = {
   id: 'workspace-1',
+  identifier: 'kanleaf-core',
   name: 'Kanleaf Core',
   accent: 'sage',
   role: 'owner',

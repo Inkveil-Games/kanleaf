@@ -1,27 +1,25 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, RefreshCw } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
-import { Select } from '../../components/ui/Select';
+import { RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
-  FormActions,
+  ActionMessage,
   LoadError,
   type ActionState,
 } from '../settings/SettingsControls';
 import { errorMessage, formatDateTime, titleCase } from '../settings/utils';
 import {
-  createWorkspaceInvitation,
   listWorkspaceInvitations,
   renewWorkspaceInvitation,
   revokeWorkspaceInvitation,
   type ApiContext,
 } from './api';
 import { canManageWorkspace } from './permissions';
-import type {
-  AssignableWorkspaceRole,
-  IssuedWorkspaceInvitation,
-  Workspace,
-} from './types';
+import type { IssuedWorkspaceInvitation, Workspace } from './types';
+import {
+  InvitationComposer,
+  IssuedInvitationToken,
+} from './InvitationComposer';
 
 interface WorkspaceInvitationSettingsProps {
   context: ApiContext;
@@ -38,11 +36,8 @@ export function WorkspaceInvitationSettings({
     queryFn: () => listWorkspaceInvitations(context, workspace.id),
     enabled: canManageWorkspace(workspace),
   });
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState<AssignableWorkspaceRole>('member');
   const [issued, setIssued] = useState<IssuedWorkspaceInvitation | null>(null);
   const [state, setState] = useState<ActionState>({ status: 'idle' });
-  const [copyState, setCopyState] = useState<string | null>(null);
 
   if (!canManageWorkspace(workspace)) {
     return (
@@ -63,25 +58,6 @@ export function WorkspaceInvitationSettings({
     await queryClient.invalidateQueries({
       queryKey: ['workspace-invitations', workspace.id],
     });
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setState({ status: 'saving' });
-    try {
-      const invitation = await createWorkspaceInvitation(
-        context,
-        workspace.id,
-        email,
-        role,
-      );
-      setIssued(invitation);
-      setEmail('');
-      await refresh();
-      setState({ status: 'saved', message: 'Invitation created' });
-    } catch (error) {
-      setState({ status: 'error', message: errorMessage(error) });
-    }
   }
 
   async function renew(invitationId: string) {
@@ -111,80 +87,19 @@ export function WorkspaceInvitationSettings({
     }
   }
 
-  async function copyToken() {
-    if (!issued) return;
-    try {
-      await navigator.clipboard.writeText(issued.token);
-      setCopyState('Copied');
-    } catch {
-      setCopyState('Select and copy the token manually');
-    }
-  }
-
   return (
     <SettingsArticle
       eyebrow="Workspace"
       title="Invitations"
       description="Create a seven-day invitation and share its one-time token manually."
     >
-      <form
-        className="settings-form invite-form"
-        onSubmit={(event) => void submit(event)}
-      >
-        <label className="settings-field">
-          <span>Email</span>
-          <input
-            required
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="settings-field">
-          <span>Role</span>
-          <Select
-            ariaLabel="Invitation role"
-            value={role}
-            options={[
-              { value: 'admin', label: 'Admin' },
-              { value: 'member', label: 'Member' },
-              { value: 'guest', label: 'Guest' },
-            ]}
-            onValueChange={(value) => setRole(value as AssignableWorkspaceRole)}
-          />
-        </label>
-        <FormActions state={state} label="Create invitation" />
-      </form>
-      {issued && (
-        <section
-          className="issued-token"
-          aria-labelledby="issued-token-heading"
-        >
-          <div>
-            <strong id="issued-token-heading">
-              Copy this invitation token now
-            </strong>
-            <small>
-              Kanleaf stores only its hash and cannot show it again.
-            </small>
-          </div>
-          <div className="token-copy-row">
-            <input
-              readOnly
-              value={issued.token}
-              aria-label="Issued invitation token"
-            />
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => void copyToken()}
-            >
-              <Copy aria-hidden="true" size={14} /> Copy
-            </button>
-          </div>
-          {copyState && <small role="status">{copyState}</small>}
-        </section>
-      )}
+      <InvitationComposer
+        context={context}
+        workspaceId={workspace.id}
+        onInvitationCreated={refresh}
+      />
+      {issued ? <IssuedInvitationToken invitation={issued} /> : null}
+      <ActionMessage state={state} />
       <section
         className="settings-section"
         aria-labelledby="invitation-history-heading"

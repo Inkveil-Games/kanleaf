@@ -8,9 +8,13 @@ import {
 } from 'react-router';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { HostConsole, type HostSection } from '../../features/host/HostConsole';
+import { SetupRoutes } from '../../features/onboarding/SetupRoutes';
 import type { User } from '../../lib/api/types';
 import type { AccountSession } from '../../features/auth/accountSessionStore';
-import { WorkspaceRouteScreen } from '../../features/workspace/WorkspaceRouteScreen';
+import {
+  LegacyWorkspaceRedirect,
+  WorkspaceRouteScreen,
+} from '../../features/workspace/WorkspaceRouteScreen';
 import type { WorkspaceRouteKind } from '../../features/workspace/workspaceRouteAdapter';
 import { routePaths, routePatterns } from './routePaths';
 
@@ -25,6 +29,7 @@ interface AuthenticatedRoutesProps {
   onAddAccount: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
+  onSessionChanged: () => Promise<void>;
   flushDocumentSaves: () => Promise<void>;
 }
 
@@ -45,6 +50,17 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
           search: location.search,
           hash: location.hash,
         }}
+      />
+    );
+  }
+
+  if (props.user.setup_stage !== 'complete') {
+    return (
+      <SetupRoutes
+        context={{ serverUrl: props.serverUrl, token: props.token }}
+        user={props.user}
+        onSessionChanged={props.onSessionChanged}
+        onSignOut={props.onSignOut}
       />
     );
   }
@@ -72,6 +88,28 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
       <Route
         path="/host/*"
         element={<Navigate replace to={routePaths.host()} />}
+      />
+      <Route
+        path={routePatterns.setupWildcard}
+        element={<Navigate replace to={routePaths.root()} />}
+      />
+      <Route
+        path={routePatterns.legacyWorkspace}
+        element={
+          <LegacyWorkspaceRedirect
+            serverUrl={props.serverUrl}
+            token={props.token}
+          />
+        }
+      />
+      <Route
+        path={routePatterns.legacyWorkspaceWildcard}
+        element={
+          <LegacyWorkspaceRedirect
+            serverUrl={props.serverUrl}
+            token={props.token}
+          />
+        }
       />
       <Route path={routePatterns.root} element={workspaceScreen('root')} />
       <Route
@@ -155,7 +193,7 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         element={workspaceScreen('project-settings')}
       />
       <Route
-        path="/w/:workspaceId/*"
+        path="/:workspaceIdentifier/*"
         element={<WorkspaceCanonicalRedirect />}
       />
       <Route path="*" element={<Navigate replace to={routePaths.root()} />} />
@@ -209,10 +247,10 @@ function HostRoute({
 }
 
 function WorkspaceCanonicalRedirect() {
-  const { workspaceId } = useParams();
+  const { workspaceIdentifier } = useParams();
 
-  return workspaceId ? (
-    <Navigate replace to={routePaths.workspaceMyWork(workspaceId)} />
+  return workspaceIdentifier ? (
+    <Navigate replace to={routePaths.workspaceMyWork(workspaceIdentifier)} />
   ) : (
     <Navigate replace to={routePaths.root()} />
   );

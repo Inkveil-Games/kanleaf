@@ -67,6 +67,32 @@ async function textGeometry(locator: Locator, text: string) {
   }, text);
 }
 
+async function registerAccountThroughSetup(
+  page: Page,
+  authSurface: Locator,
+  email: string,
+  workspaceName: string,
+  workspaceIdentifier: string,
+) {
+  await authSurface.getByRole('button', { name: 'New account' }).click();
+  await authSurface.getByLabel('Email').fill(email);
+  await authSurface
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await authSurface.getByLabel('Confirm password').fill('playwright-password');
+  await authSurface.getByRole('button', { name: 'Register' }).click();
+
+  await expect(page).toHaveURL(/\/setup\/account$/);
+  await page.getByRole('button', { name: 'Use default preferences' }).click();
+  await expect(page).toHaveURL(/\/setup\/workspace$/);
+  await page.getByLabel('Workspace name').fill(workspaceName);
+  await page.getByLabel('Workspace ID').fill(workspaceIdentifier);
+  await page.getByRole('button', { name: 'Create Workspace' }).click();
+  await expect(page).toHaveURL(/\/setup\/invite$/);
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+}
+
 test('manages structured work and durable Markdown across reloads', async ({
   page,
 }) => {
@@ -90,24 +116,38 @@ test('manages structured work and durable Markdown across reloads', async ({
   ).toBeVisible();
   await page.getByRole('button', { name: 'New account' }).click();
   await page.getByLabel('Email').fill(`e2e-${suffix}@example.com`);
-  await page.locator('input[type="password"]').fill('playwright-password');
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.getByLabel('Confirm password').fill('playwright-password');
   await page.getByRole('button', { name: 'Register' }).click();
 
-  const workspaceSelect = page.getByLabel('Active workspace');
-  await expect(workspaceSelect).toContainText('Personal');
-
-  await workspaceSelect.click();
-  await page.getByRole('menuitem', { name: 'New workspace' }).click();
+  await expect(page).toHaveURL(/\/setup\/account$/);
+  await page.getByLabel('Display name').fill('Kanleaf Tester');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(/\/setup\/workspace$/);
+  await page.getByRole('button', { name: 'Join a Workspace' }).click();
+  await expect(page.getByLabel('Invitation token')).toBeVisible();
+  await page.getByRole('button', { name: 'Create a Workspace' }).click();
   await page.getByLabel('Workspace name').fill('Studio');
-  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(page.getByLabel('Workspace ID')).toHaveValue('studio');
+  const workspaceIdentifier = `studio-${suffix}`;
+  await page.getByLabel('Workspace ID').fill(workspaceIdentifier);
+  await page.getByRole('button', { name: 'Create Workspace' }).click();
+  await expect(page).toHaveURL(/\/setup\/invite$/);
+  await page.getByLabel('Email').fill(`invitee-${suffix}@example.com`);
+  await page.getByRole('button', { name: 'Create invitation' }).click();
+  await expect(page.getByLabel('Issued invitation token')).toBeVisible();
+  await page.getByRole('button', { name: 'Finish setup' }).click();
+
+  const workspaceSelect = page.getByLabel('Active workspace');
   await expect(workspaceSelect).toContainText('Studio');
-  await expect(page).toHaveURL(/\/w\/[^/]+\/my-work$/);
-  const workspaceId = new URL(page.url()).pathname.split('/')[2];
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
   await workspaceSelect.click();
   await page.getByRole('menuitem', { name: 'Settings for Studio' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/settings/workspace/general$`),
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/general$`),
   );
   await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
   await page.getByLabel('Workspace name').fill('Studio Workspace');
@@ -118,7 +158,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Switch account' }).click();
   await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/settings/account/profile$`),
+    new RegExp(`/${workspaceIdentifier}/settings/account/profile$`),
   );
   await expect(
     page.getByRole('region', { name: 'Account settings' }),
@@ -131,7 +171,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     page.getByRole('button', { name: 'Switch account' }),
   ).toContainText('Kanleaf Tester');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await workspaceSelect.click();
   await page
     .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
@@ -143,7 +183,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.setViewportSize({ width: 960, height: 640 });
   await page.getByRole('button', { name: 'States' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/settings/workspace/states$`),
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/states$`),
   );
   await page.getByPlaceholder('State name').fill('Review');
   await chooseSelectOption(page, 'State group', 'In progress');
@@ -151,29 +191,31 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByLabel('Review name')).toBeVisible();
   await page.getByRole('button', { name: 'Task types' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/settings/workspace/task-types$`),
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/task-types$`),
   );
   await page.getByPlaceholder('Type name').fill('Bug');
   await page.getByLabel('Task type icon key').fill('bug');
   await page.getByRole('button', { name: 'Add type' }).click();
   await expect(page.getByLabel('Bug name')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await expect(
     page.getByRole('region', { name: 'Workspace settings' }),
   ).not.toBeVisible();
   await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Kanleaf' })).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/projects/[^/]+$`));
-  const projectId = new URL(page.url()).pathname.split('/')[4];
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/projects/[^/]+$`),
+  );
+  const projectId = new URL(page.url()).pathname.split('/')[3];
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole('button', { name: 'Collapse navigation' }).click();
   await expect(page.locator('.navigation-pane')).not.toBeVisible();
@@ -185,7 +227,9 @@ test('manages structured work and durable Markdown across reloads', async ({
     .getByRole('button', { name: 'Settings' })
     .click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/settings/general$`),
+    new RegExp(
+      `/${workspaceIdentifier}/projects/${projectId}/settings/general$`,
+    ),
   );
   await page.getByLabel('Description').fill('Kanleaf Core delivery project.');
   await chooseSelectOption(
@@ -197,7 +241,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Project details saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Features' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/settings/features$`),
+    new RegExp(
+      `/${workspaceIdentifier}/projects/${projectId}/settings/features$`,
+    ),
   );
   await page
     .locator('.feature-toggle-row')
@@ -208,26 +254,26 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByText('Project features saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Project' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}$`),
   );
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
 
   const projectNavigation = page.locator('.project-subnav');
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/work-items$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/work-items$`),
   );
   await chooseSelectOption(page, 'Layout', 'Board');
   await projectNavigation.getByRole('button', { name: 'Library' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/library$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/library$`),
   );
   await expect(page.locator('.document-detail-pane')).toBeVisible();
   await page.getByRole('button', { name: 'New Library note' }).click();
   await page.getByLabel('Note title').fill('Project handbook');
   await page.getByRole('button', { name: 'Create note' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/library/[^/?]+$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/library/[^/?]+$`),
   );
   const pageMarkdown = `# Project handbook
 
@@ -463,7 +509,7 @@ let source_is_markdown = true;
   await chooseSelectOption(page, 'Layout', 'List');
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/cycles$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/cycles$`),
   );
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
@@ -475,7 +521,7 @@ let source_is_markdown = true;
   ).toBeVisible();
   const cycleUrl = page.url();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/cycles/[^/?]+$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/cycles/[^/?]+$`),
   );
   await page.reload();
   await expect(page).toHaveURL(cycleUrl);
@@ -485,7 +531,7 @@ let source_is_markdown = true;
 
   await projectNavigation.getByRole('button', { name: 'Modules' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/modules$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/modules$`),
   );
   await page.getByRole('button', { name: 'New module' }).click();
   await page.getByLabel('Module name').fill('Core');
@@ -494,7 +540,7 @@ let source_is_markdown = true;
     page.getByRole('heading', { name: 'Core', level: 2 }),
   ).toBeVisible();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/modules/[^/?]+$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/modules/[^/?]+$`),
   );
 
   await page
@@ -507,7 +553,7 @@ let source_is_markdown = true;
   await page.getByRole('button', { name: 'Add' }).click();
   await expect(page).toHaveURL(
     new RegExp(
-      `/w/${workspaceId}/projects/${projectId}/work-items\\?task=[^&]+$`,
+      `/${workspaceIdentifier}/projects/${projectId}/work-items\\?task=[^&]+$`,
     ),
   );
   const taskDetail = page.getByRole('region', { name: 'Task detail' });
@@ -560,7 +606,7 @@ let source_is_markdown = true;
     .filter({ hasText: 'Complete the v0.1 workflow' });
   await taskRow.click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/my-work\\?task=[^&]+$`),
+    new RegExp(`/${workspaceIdentifier}/my-work\\?task=[^&]+$`),
   );
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(page.getByRole('button', { name: 'Close task' })).toContainText(
@@ -595,7 +641,7 @@ Kanleaf keeps **structured work** beside durable notes.
   ).toBeVisible();
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
   await page.getByRole('button', { name: 'Close task' }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await expect(taskRow).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
 
@@ -611,16 +657,18 @@ Kanleaf keeps **structured work** beside durable notes.
     page.getByRole('heading', { name: 'Urgent work' }),
   ).toBeVisible();
   const savedViewUrl = page.url();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/views/[^/?]+$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/views/[^/?]+$`),
+  );
   await page.getByRole('button', { name: 'My Work' }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await page.goBack();
   await expect(page).toHaveURL(savedViewUrl);
   await expect(
     page.getByRole('heading', { name: 'Urgent work' }),
   ).toBeVisible();
   await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
   await page.reload();
   await expect(taskRow).toBeVisible();
@@ -656,7 +704,7 @@ Kanleaf keeps **structured work** beside durable notes.
     .getByRole('button', { name: 'Views', exact: true })
     .click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/views$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/views$`),
   );
   const projectViewsSurface = page.locator('.project-views-surface');
   await expect(
@@ -676,7 +724,7 @@ Kanleaf keeps **structured work** beside durable notes.
   ).toBeVisible();
   const projectViewUrl = page.url();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${workspaceId}/projects/${projectId}/views/[^/?]+$`),
+    new RegExp(`/${workspaceIdentifier}/projects/${projectId}/views/[^/?]+$`),
   );
   await chooseSelectOption(page, 'Layout', 'Board');
   const viewSaved = page.waitForResponse((response) => {
@@ -790,10 +838,13 @@ test('switches retained accounts without crossing account data', async ({
   const firstTask = `First account note ${suffix}`;
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'New account' }).click();
-  await page.getByLabel('Email').fill(firstEmail);
-  await page.locator('input[type="password"]').fill('playwright-password');
-  await page.getByRole('button', { name: 'Register' }).click();
+  await registerAccountThroughSetup(
+    page,
+    page.locator('body'),
+    firstEmail,
+    'First account Workspace',
+    `switch-first-${suffix}`,
+  );
   await page.getByRole('button', { name: 'Inbox' }).click();
   await page.getByRole('button', { name: 'New task' }).click();
   await page.getByLabel('Task title').fill(firstTask);
@@ -806,12 +857,13 @@ test('switches retained accounts without crossing account data', async ({
   const addAccount = page.getByRole('dialog', {
     name: 'Add another account',
   });
-  await addAccount.getByRole('button', { name: 'New account' }).click();
-  await addAccount.getByLabel('Email').fill(secondEmail);
-  await addAccount
-    .locator('input[type="password"]')
-    .fill('playwright-password');
-  await addAccount.getByRole('button', { name: 'Register' }).click();
+  await registerAccountThroughSetup(
+    page,
+    addAccount,
+    secondEmail,
+    'Second account Workspace',
+    `switch-second-${suffix}`,
+  );
 
   const accountTrigger = page.getByRole('button', { name: 'Switch account' });
   await expect(accountTrigger).toContainText(secondEmail);
@@ -843,6 +895,69 @@ test('switches retained accounts without crossing account data', async ({
   await expect(accountTrigger).toContainText(secondEmail);
   await page.getByRole('button', { name: 'Inbox' }).click();
   await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
+});
+
+test('keeps long pending-invitation IDs inside the narrow setup layout', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await register(request, `invite-owner-${suffix}@example.com`);
+  const ownerHeaders = { authorization: `Bearer ${owner.token}` };
+  const identifierSuffix = suffix.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const longIdentifier = `${'a'.repeat(48 - identifierSuffix.length)}${identifierSuffix}`;
+  const workspaceResponse = await request.post(`${serverUrl}/api/workspaces`, {
+    headers: ownerHeaders,
+    data: { name: 'Long identifier Workspace', identifier: longIdentifier },
+  });
+  expect(workspaceResponse.status()).toBe(201);
+  const workspace = (await workspaceResponse.json()) as { id: string };
+
+  const memberEmail = `invite-member-${suffix}@example.com`;
+  const memberResponse = await request.post(`${serverUrl}/api/auth/register`, {
+    data: { email: memberEmail, password: 'playwright-password' },
+  });
+  expect(memberResponse.status()).toBe(201);
+  const member = (await memberResponse.json()) as { token: string };
+  const memberHeaders = { authorization: `Bearer ${member.token}` };
+  const accountSetup = await request.patch(`${serverUrl}/api/account/setup`, {
+    headers: memberHeaders,
+    data: { display_name: 'Invited member' },
+  });
+  expect(accountSetup.status()).toBe(200);
+  const invitation = await request.post(
+    `${serverUrl}/api/workspaces/${workspace.id}/invitations`,
+    {
+      headers: ownerHeaders,
+      data: { email: memberEmail, role: 'member' },
+    },
+  );
+  expect(invitation.status()).toBe(201);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+  await page.getByLabel('Email').fill(memberEmail);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/setup\/workspace$/);
+  await page.getByRole('button', { name: 'Join a Workspace' }).click();
+
+  const metadata = page
+    .locator('.settings-row small')
+    .filter({ hasText: `/${longIdentifier}` });
+  await expect(metadata).toBeVisible();
+  expect(
+    await metadata.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await expect(
+    page.getByRole('button', {
+      name: `Accept invitation to Long identifier Workspace (/${longIdentifier})`,
+    }),
+  ).toBeVisible();
 });
 
 test('prevents a session from reading another workspace', async ({
@@ -950,7 +1065,9 @@ test('delivers collaboration activity through the notification inbox', async ({
     owner.token,
   );
   await page.goto('/');
-  await expect(page.getByLabel('Active workspace')).toContainText('Personal');
+  await expect(page.getByLabel('Active workspace')).toContainText(
+    owner.workspaceName,
+  );
   await expect(page.getByLabel('1 unread')).toBeVisible();
   await page.getByRole('button', { name: 'Notifications' }).click();
   await page
@@ -1008,10 +1125,46 @@ async function register(request: APIRequestContext, email: string) {
   expect(response.status()).toBe(201);
   const payload = (await response.json()) as {
     token: string;
-    user: { active_workspace_id: string };
+    user: { active_workspace_id: null; setup_stage: 'account' };
   };
+  expect(payload.user).toMatchObject({
+    active_workspace_id: null,
+    setup_stage: 'account',
+  });
+  const headers = { authorization: `Bearer ${payload.token}` };
+  const localPart = email.slice(0, email.indexOf('@'));
+  const workspaceIdentifier = localPart
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  const workspaceName = `${localPart} Workspace`;
+
+  const accountSetup = await request.patch(`${serverUrl}/api/account/setup`, {
+    headers,
+    data: { display_name: localPart },
+  });
+  expect(accountSetup.status()).toBe(200);
+  const workspaceResponse = await request.post(`${serverUrl}/api/workspaces`, {
+    headers,
+    data: { name: workspaceName, identifier: workspaceIdentifier },
+  });
+  expect(workspaceResponse.status()).toBe(201);
+  const workspace = (await workspaceResponse.json()) as {
+    id: string;
+    identifier: string;
+    name: string;
+  };
+  const completed = await request.post(
+    `${serverUrl}/api/account/setup/complete`,
+    { headers },
+  );
+  expect(completed.status()).toBe(200);
+
   return {
     token: payload.token,
-    workspaceId: payload.user.active_workspace_id,
+    workspaceId: workspace.id,
+    workspaceIdentifier: workspace.identifier,
+    workspaceName: workspace.name,
   };
 }

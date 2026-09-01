@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workspace } from './types';
 import { WorkspaceControl } from './WorkspaceControl';
 
+HTMLDialogElement.prototype.showModal = function showModal() {
+  this.setAttribute('open', '');
+};
+HTMLDialogElement.prototype.close = function close() {
+  this.removeAttribute('open');
+};
+
+const context = { serverUrl: 'https://kanleaf.example.com', token: 'token' };
+
 const workspaces: Workspace[] = [
   workspace('workspace-1', 'Kanleaf Core'),
   workspace('workspace-2', 'Website'),
@@ -13,12 +22,14 @@ describe('WorkspaceControl', () => {
     const onSwitchWorkspace = vi.fn().mockResolvedValue(undefined);
     render(
       <WorkspaceControl
+        context={context}
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
         navigationVisible
         onSwitchWorkspace={onSwitchWorkspace}
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
+        onFinishWorkspace={vi.fn()}
         onOpenWorkspaceSettings={vi.fn()}
         onOpenInvitations={vi.fn()}
         onImportWorkspace={vi.fn()}
@@ -36,19 +47,23 @@ describe('WorkspaceControl', () => {
 
   it('groups Workspace switching, actions, and the navigation toggle', async () => {
     const onSwitchWorkspace = vi.fn().mockResolvedValue(undefined);
-    const onCreateWorkspace = vi.fn().mockResolvedValue(undefined);
+    const createdWorkspace = workspace('workspace-3', 'Personal notes');
+    const onCreateWorkspace = vi.fn().mockResolvedValue(createdWorkspace);
+    const onFinishWorkspace = vi.fn();
     const onOpenWorkspaceSettings = vi.fn();
     const onOpenInvitations = vi.fn();
     const onImportWorkspace = vi.fn();
     const onToggleNavigation = vi.fn();
     render(
       <WorkspaceControl
+        context={context}
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
         navigationVisible
         onSwitchWorkspace={onSwitchWorkspace}
         onCreateWorkspace={onCreateWorkspace}
+        onFinishWorkspace={onFinishWorkspace}
         onOpenWorkspaceSettings={onOpenWorkspaceSettings}
         onOpenInvitations={onOpenInvitations}
         onImportWorkspace={onImportWorkspace}
@@ -88,10 +103,16 @@ describe('WorkspaceControl', () => {
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Personal notes' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+    expect(screen.getByLabelText('Workspace ID')).toHaveValue('personal-notes');
+    fireEvent.click(screen.getByRole('button', { name: 'Create Workspace' }));
     await waitFor(() =>
-      expect(onCreateWorkspace).toHaveBeenCalledWith('Personal notes'),
+      expect(onCreateWorkspace).toHaveBeenCalledWith({
+        name: 'Personal notes',
+        identifier: 'personal-notes',
+      }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Skip invitations' }));
+    expect(onFinishWorkspace).toHaveBeenCalledWith(createdWorkspace);
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Collapse navigation' }),
@@ -102,12 +123,14 @@ describe('WorkspaceControl', () => {
   it('keeps only the reopen control in the collapsed rail', () => {
     render(
       <WorkspaceControl
+        context={context}
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
         navigationVisible={false}
         onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
+        onFinishWorkspace={vi.fn()}
         onOpenWorkspaceSettings={vi.fn()}
         onOpenInvitations={vi.fn()}
         onImportWorkspace={vi.fn()}
@@ -122,11 +145,80 @@ describe('WorkspaceControl', () => {
       screen.queryByRole('button', { name: 'Active workspace' }),
     ).not.toBeInTheDocument();
   });
+
+  it('restores focus to the stable Workspace switcher after closing creation', async () => {
+    renderControl();
+    const workspaceSwitcher = screen.getByRole('button', {
+      name: 'Active workspace',
+    });
+
+    fireEvent.click(workspaceSwitcher);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Close Workspace creation' }),
+    );
+
+    await waitFor(() => expect(workspaceSwitcher).toHaveFocus());
+  });
+
+  it('restores focus to the stable Workspace switcher after finishing creation', async () => {
+    const createdWorkspace = workspace('workspace-3', 'Personal notes');
+    renderControl({
+      onCreateWorkspace: vi.fn().mockResolvedValue(createdWorkspace),
+      onFinishWorkspace: vi.fn().mockResolvedValue(undefined),
+    });
+    const workspaceSwitcher = screen.getByRole('button', {
+      name: 'Active workspace',
+    });
+
+    fireEvent.click(workspaceSwitcher);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
+    fireEvent.change(screen.getByLabelText('Workspace name'), {
+      target: { value: 'Personal notes' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Workspace' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Skip invitations' }),
+    );
+
+    await waitFor(() => expect(workspaceSwitcher).toHaveFocus());
+  });
 });
+
+function renderControl({
+  onCreateWorkspace = vi
+    .fn()
+    .mockResolvedValue(workspace('workspace-3', 'Personal notes')),
+  onFinishWorkspace = vi.fn(),
+}: {
+  onCreateWorkspace?: (identity: {
+    name: string;
+    identifier: string;
+  }) => Promise<Workspace>;
+  onFinishWorkspace?: (workspace: Workspace) => void | Promise<void>;
+} = {}) {
+  return render(
+    <WorkspaceControl
+      context={context}
+      userEmail="quang@example.com"
+      workspaces={workspaces}
+      workspaceId="workspace-1"
+      navigationVisible
+      onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
+      onCreateWorkspace={onCreateWorkspace}
+      onFinishWorkspace={onFinishWorkspace}
+      onOpenWorkspaceSettings={vi.fn()}
+      onOpenInvitations={vi.fn()}
+      onImportWorkspace={vi.fn()}
+      onToggleNavigation={vi.fn()}
+    />,
+  );
+}
 
 function workspace(id: string, name: string): Workspace {
   return {
     id,
+    identifier: name.toLowerCase().replaceAll(' ', '-'),
     name,
     accent: 'sage',
     role: 'owner',

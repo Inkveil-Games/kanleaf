@@ -255,5 +255,6 @@ function user(userId: string): User {
     week_start: 'monday',
     date_format: 'locale',
     active_workspace_id: `${userId}-workspace`,
+    setup_stage: 'complete',
   };
 }

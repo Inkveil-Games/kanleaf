@@ -1,5 +1,6 @@
 export interface Workspace {
   id: string;
+  identifier: string;
   name: string;
   accent: WorkspaceAccent;
   role: WorkspaceRole;
@@ -28,6 +29,7 @@ export interface WorkspaceInvitation {
   id: string;
   workspace_id: string;
   workspace_name: string;
+  workspace_identifier: string;
   email: string;
   role: AssignableWorkspaceRole;
   invited_by_display_name: string | null;

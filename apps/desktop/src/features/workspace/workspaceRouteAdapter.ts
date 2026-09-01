@@ -29,6 +29,7 @@ export type WorkspaceRouteKind =
 
 export function workspaceLocationPath(
   location: WorkspaceReplacementLocation,
+  workspaceIdentifier: string,
 ): string {
   switch (location.kind) {
     case 'root':
@@ -37,13 +38,13 @@ export function workspaceLocationPath(
       if (!isAccountSettingsSection(location.section)) {
         throw new Error('Invalid Account Settings section');
       }
-      return routePaths.accountSettings(location.workspaceId, location.section);
+      return routePaths.accountSettings(workspaceIdentifier, location.section);
     case 'workspace-settings':
       if (!isWorkspaceSettingsSection(location.section)) {
         throw new Error('Invalid Workspace Settings section');
       }
       return routePaths.workspaceSettings(
-        location.workspaceId,
+        workspaceIdentifier,
         location.section,
       );
     case 'project-settings':
@@ -51,24 +52,27 @@ export function workspaceLocationPath(
         throw new Error('Invalid Project Settings section');
       }
       return routePaths.projectSettings(
-        location.workspaceId,
+        workspaceIdentifier,
         location.projectId,
         location.section,
       );
     default:
-      return workspaceContentPath(location);
+      return workspaceContentPath(location, workspaceIdentifier);
   }
 }
 
 export function workspaceLocationFromRoute(
   kind: WorkspaceRouteKind,
+  workspaceId: string | null,
   params: Readonly<Record<string, string | undefined>>,
   search: string,
   returnTo: WorkspaceContentLocation | null,
 ): WorkspaceLocation | null {
   if (kind === 'root') return null;
 
-  const workspaceId = requiredParameter(params, 'workspaceId');
+  if (!workspaceId) {
+    throw new Error('Missing resolved Workspace ID');
+  }
   const taskId = taskSelection(search);
 
   switch (kind) {

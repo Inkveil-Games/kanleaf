@@ -162,6 +162,10 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
         serverUrl={serverUrl}
         token={token}
         user={session.data.user}
+        onSessionChanged={async () => {
+          const result = await session.refetch();
+          if (result.error) throw result.error;
+        }}
         flushDocumentSaves={flushDocumentSaves}
         {...accountProps}
       />

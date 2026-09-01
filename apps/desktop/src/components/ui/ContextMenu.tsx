@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type RefObject,
   type ReactNode,
 } from 'react';
 
@@ -15,6 +16,7 @@ interface ContextMenuProps {
   placement?: 'down' | 'up';
   className?: string;
   trigger?: ReactNode;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   popoverRole?: 'menu' | 'dialog';
 }
 
@@ -25,6 +27,7 @@ export function ContextMenu({
   placement = 'down',
   className,
   trigger,
+  triggerRef: suppliedTriggerRef,
   popoverRole = 'menu',
 }: ContextMenuProps) {
   const [open, setOpen] = useState(false);
@@ -83,7 +86,10 @@ export function ContextMenu({
       data-open={open ? 'true' : undefined}
     >
       <button
-        ref={triggerRef}
+        ref={(element) => {
+          triggerRef.current = element;
+          if (suppliedTriggerRef) suppliedTriggerRef.current = element;
+        }}
         className="context-menu-trigger"
         type="button"
         aria-label={label}

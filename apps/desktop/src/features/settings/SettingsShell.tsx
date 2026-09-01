@@ -27,6 +27,7 @@ interface AccountSettingsShellProps {
   user: User;
   section: AccountSettingsSection;
   onSectionChange: (section: AccountSettingsSection) => void;
+  onWorkspaceJoined: (workspace: Workspace) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -35,6 +36,7 @@ export function AccountSettingsShell({
   user,
   section,
   onSectionChange,
+  onWorkspaceJoined,
   onClose,
 }: AccountSettingsShellProps) {
   return (
@@ -81,6 +83,7 @@ export function AccountSettingsShell({
         context={context}
         initialUser={user}
         section={section}
+        onWorkspaceJoined={onWorkspaceJoined}
       />
     </SettingsFrame>
   );

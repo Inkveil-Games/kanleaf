@@ -9,19 +9,10 @@ import {
   LoadError,
   type ActionState,
 } from '../settings/SettingsControls';
-import {
-  errorMessage,
-  formatDateTime,
-  monogram,
-  titleCase,
-} from '../settings/utils';
-import {
-  acceptInvitation,
-  acceptInvitationToken,
-  declineInvitation,
-  listPendingInvitations,
-  type ApiContext,
-} from '../workspace/api';
+import { errorMessage, formatDateTime, monogram } from '../settings/utils';
+import type { ApiContext } from '../workspace/api';
+import type { Workspace } from '../workspace/types';
+import { WorkspaceJoinPanel } from '../workspace/WorkspaceJoinPanel';
 import {
   changePassword,
   getAccount,
@@ -40,12 +31,14 @@ interface AccountSettingsProps {
   context: ApiContext;
   initialUser: User;
   section: AccountSettingsSection;
+  onWorkspaceJoined: (workspace: Workspace) => void | Promise<void>;
 }
 
 export function AccountSettings({
   context,
   initialUser,
   section,
+  onWorkspaceJoined,
 }: AccountSettingsProps) {
   const account = useQuery({
     queryKey: ['account', context.serverUrl, context.token],
@@ -65,7 +58,12 @@ export function AccountSettings({
   if (section === 'notifications') {
     return <NotificationSettings context={context} />;
   }
-  return <PendingInvitations context={context} />;
+  return (
+    <PendingInvitations
+      context={context}
+      onWorkspaceJoined={onWorkspaceJoined}
+    />
+  );
 }
 
 function ProfileSettings({
@@ -365,52 +363,14 @@ function SecuritySettings({ context }: { context: ApiContext }) {
   );
 }
 
-function PendingInvitations({ context }: { context: ApiContext }) {
+function PendingInvitations({
+  context,
+  onWorkspaceJoined,
+}: {
+  context: ApiContext;
+  onWorkspaceJoined: (workspace: Workspace) => void | Promise<void>;
+}) {
   const queryClient = useQueryClient();
-  const invitations = useQuery({
-    queryKey: ['pending-invitations', context.serverUrl, context.token],
-    queryFn: () => listPendingInvitations(context),
-  });
-  const [token, setToken] = useState('');
-  const [state, setState] = useState<ActionState>({ status: 'idle' });
-
-  async function refreshWorkspaceData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['pending-invitations'] }),
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
-    ]);
-  }
-
-  async function accept(id: string) {
-    try {
-      await acceptInvitation(context, id);
-      await refreshWorkspaceData();
-    } catch (error) {
-      setState({ status: 'error', message: errorMessage(error) });
-    }
-  }
-
-  async function decline(id: string) {
-    try {
-      await declineInvitation(context, id);
-      await refreshWorkspaceData();
-    } catch (error) {
-      setState({ status: 'error', message: errorMessage(error) });
-    }
-  }
-
-  async function acceptToken(event: FormEvent) {
-    event.preventDefault();
-    setState({ status: 'saving' });
-    try {
-      await acceptInvitationToken(context, token);
-      setToken('');
-      await refreshWorkspaceData();
-      setState({ status: 'saved', message: 'Invitation accepted' });
-    } catch (error) {
-      setState({ status: 'error', message: errorMessage(error) });
-    }
-  }
 
   return (
     <SettingsArticle
@@ -418,64 +378,13 @@ function PendingInvitations({ context }: { context: ApiContext }) {
       title="Invitations"
       description="Workspaces that invited your verified account email."
     >
-      {invitations.isPending ? (
-        <p className="settings-muted">Loading invitations…</p>
-      ) : invitations.error ? (
-        <LoadError
-          error={invitations.error}
-          onRetry={() => invitations.refetch()}
-        />
-      ) : invitations.data.length === 0 ? (
-        <div className="settings-empty">
-          <strong>No pending invitations</strong>
-          <p>You can also accept a manually shared invitation token below.</p>
-        </div>
-      ) : (
-        <div className="settings-rows">
-          {invitations.data.map((invitation) => (
-            <div className="settings-row" key={invitation.id}>
-              <div>
-                <strong>{invitation.workspace_name}</strong>
-                <small>
-                  {titleCase(invitation.role)} · expires{' '}
-                  {formatDateTime(invitation.expires_at)}
-                </small>
-              </div>
-              <div className="row-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void decline(invitation.id)}
-                >
-                  Decline
-                </button>
-                <button
-                  className="primary-button compact-button"
-                  type="button"
-                  onClick={() => void accept(invitation.id)}
-                >
-                  Accept
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <form
-        className="settings-section token-form"
-        onSubmit={(event) => void acceptToken(event)}
-      >
-        <label className="settings-field">
-          <span>Invitation token</span>
-          <input
-            required
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            autoComplete="off"
-          />
-        </label>
-        <FormActions state={state} label="Accept token" />
-      </form>
+      <WorkspaceJoinPanel
+        context={context}
+        onJoined={async (workspace) => {
+          await onWorkspaceJoined(workspace);
+          await queryClient.invalidateQueries({ queryKey: ['session'] });
+        }}
+      />
     </SettingsArticle>
   );
 }

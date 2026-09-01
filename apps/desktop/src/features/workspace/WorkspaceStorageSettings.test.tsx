@@ -103,6 +103,7 @@ describe('WorkspaceStorageSettings', () => {
 
 const workspace: Workspace = {
   id: 'workspace-1',
+  identifier: 'kanleaf-core',
   name: 'Kanleaf Core',
   accent: 'sage',
   role: 'owner',

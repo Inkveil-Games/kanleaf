@@ -80,6 +80,7 @@ export type WorkspaceLocation =
 
 export function parseWorkspaceContentPath(
   value: string,
+  resolveWorkspaceId: (workspaceIdentifier: string) => string | null,
 ): WorkspaceContentLocation | null {
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('#')) {
     return null;
@@ -116,19 +117,30 @@ export function parseWorkspaceContentPath(
     return null;
   }
 
-  const location = contentLocationFromSegments(segments);
+  const workspaceIdentifier = segments[0];
+  const workspaceId = workspaceIdentifier
+    ? resolveWorkspaceId(workspaceIdentifier)
+    : null;
+  if (!workspaceIdentifier || !workspaceId) {
+    return null;
+  }
+
+  const location = contentLocationFromSegments(segments, workspaceId);
   const taskId = taskValues[0] ?? null;
   if (!location || (taskId !== null && !hasTask(location))) {
     return null;
   }
 
   const withSelection = hasTask(location) ? { ...location, taskId } : location;
-  const canonical = workspaceContentPath(withSelection);
+  const canonical = workspaceContentPath(withSelection, workspaceIdentifier);
   return canonical === value ? withSelection : null;
 }
 
-export function workspaceContentPath(location: WorkspaceContentLocation) {
-  const path = contentPathWithoutTask(location);
+export function workspaceContentPath(
+  location: WorkspaceContentLocation,
+  workspaceIdentifier: string,
+) {
+  const path = contentPathWithoutTask(location, workspaceIdentifier);
   return hasTask(location) && location.taskId
     ? withTask(path, location.taskId)
     : path;
@@ -682,13 +694,11 @@ function reconcileResource<T>(
 
 function contentLocationFromSegments(
   segments: string[],
+  workspaceId: string,
 ): WorkspaceContentLocation | null {
-  const [prefix, workspaceId, area, projectId, surface, resourceId] = segments;
-  if (prefix !== 'w' || !workspaceId) {
-    return null;
-  }
+  const [, area, projectId, surface, resourceId] = segments;
 
-  if (segments.length === 3) {
+  if (segments.length === 2) {
     if (area === 'my-work' || area === 'inbox') {
       return { kind: area, workspaceId, taskId: null };
     }
@@ -701,7 +711,7 @@ function contentLocationFromSegments(
     return null;
   }
 
-  if (segments.length === 4 && area !== 'projects' && projectId) {
+  if (segments.length === 3 && area !== 'projects' && projectId) {
     if (area === 'views') {
       return {
         kind: 'workspace-view',
@@ -723,10 +733,10 @@ function contentLocationFromSegments(
   if (area !== 'projects' || !projectId) {
     return null;
   }
-  if (segments.length === 4) {
+  if (segments.length === 3) {
     return { kind: 'project-overview', workspaceId, projectId };
   }
-  if (segments.length === 5) {
+  if (segments.length === 4) {
     switch (surface) {
       case 'work-items':
         return {
@@ -762,7 +772,7 @@ function contentLocationFromSegments(
         return null;
     }
   }
-  if (segments.length !== 6 || !resourceId) {
+  if (segments.length !== 5 || !resourceId) {
     return null;
   }
 
@@ -801,59 +811,59 @@ function contentLocationFromSegments(
   }
 }
 
-function contentPathWithoutTask(location: WorkspaceContentLocation): string {
+function contentPathWithoutTask(
+  location: WorkspaceContentLocation,
+  workspaceIdentifier: string,
+): string {
   switch (location.kind) {
     case 'my-work':
-      return routePaths.workspaceMyWork(location.workspaceId);
+      return routePaths.workspaceMyWork(workspaceIdentifier);
     case 'inbox':
-      return routePaths.workspaceInbox(location.workspaceId);
+      return routePaths.workspaceInbox(workspaceIdentifier);
     case 'all-tasks':
-      return routePaths.workspaceTasks(location.workspaceId);
+      return routePaths.workspaceTasks(workspaceIdentifier);
     case 'workspace-view':
-      return routePaths.workspaceView(location.workspaceId, location.viewId);
+      return routePaths.workspaceView(workspaceIdentifier, location.viewId);
     case 'workspace-library':
       return location.documentId
-        ? routePaths.workspaceDocument(
-            location.workspaceId,
-            location.documentId,
-          )
-        : routePaths.workspaceLibrary(location.workspaceId);
+        ? routePaths.workspaceDocument(workspaceIdentifier, location.documentId)
+        : routePaths.workspaceLibrary(workspaceIdentifier);
     case 'project-overview':
-      return routePaths.project(location.workspaceId, location.projectId);
+      return routePaths.project(workspaceIdentifier, location.projectId);
     case 'project-work-items':
       return routePaths.projectWorkItems(
-        location.workspaceId,
+        workspaceIdentifier,
         location.projectId,
       );
     case 'project-cycles':
       return location.cycleId
         ? routePaths.projectCycle(
-            location.workspaceId,
+            workspaceIdentifier,
             location.projectId,
             location.cycleId,
           )
-        : routePaths.projectCycles(location.workspaceId, location.projectId);
+        : routePaths.projectCycles(workspaceIdentifier, location.projectId);
     case 'project-modules':
       return location.moduleId
         ? routePaths.projectModule(
-            location.workspaceId,
+            workspaceIdentifier,
             location.projectId,
             location.moduleId,
           )
-        : routePaths.projectModules(location.workspaceId, location.projectId);
+        : routePaths.projectModules(workspaceIdentifier, location.projectId);
     case 'project-library':
       return location.documentId
         ? routePaths.projectDocument(
-            location.workspaceId,
+            workspaceIdentifier,
             location.projectId,
             location.documentId,
           )
-        : routePaths.projectLibrary(location.workspaceId, location.projectId);
+        : routePaths.projectLibrary(workspaceIdentifier, location.projectId);
     case 'project-views':
-      return routePaths.projectViews(location.workspaceId, location.projectId);
+      return routePaths.projectViews(workspaceIdentifier, location.projectId);
     case 'project-view':
       return routePaths.projectView(
-        location.workspaceId,
+        workspaceIdentifier,
         location.projectId,
         location.viewId,
       );

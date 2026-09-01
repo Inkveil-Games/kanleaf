@@ -9,9 +9,15 @@ export interface HostWorkspaceOwner {
 
 export interface HostWorkspace {
   id: string;
+  identifier: string;
   name: string;
   created_at: string;
   owner: HostWorkspaceOwner;
+}
+
+export interface DeleteHostWorkspaceRequest {
+  identifier: string;
+  password: string;
 }
 
 export interface HostAccessPolicy {
@@ -24,6 +30,22 @@ export function listHostWorkspaces(context: ApiContext) {
     context.serverUrl,
     '/api/host/workspaces',
     { token: context.token },
+  );
+}
+
+export function deleteHostWorkspace(
+  context: ApiContext,
+  workspaceId: string,
+  request: DeleteHostWorkspaceRequest,
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/host/workspaces/${workspaceId}`,
+    {
+      method: 'DELETE',
+      token: context.token,
+      body: JSON.stringify(request),
+    },
   );
 }
 

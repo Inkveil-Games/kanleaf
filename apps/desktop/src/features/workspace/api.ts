@@ -32,11 +32,15 @@ export function listWorkspaces(context: ApiContext) {
   });
 }
 
-export function createWorkspace(context: ApiContext, name: string) {
+export function createWorkspace(
+  context: ApiContext,
+  name: string,
+  identifier?: string,
+) {
   return apiRequest<Workspace>(context.serverUrl, '/api/workspaces', {
     method: 'POST',
     token: context.token,
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(identifier ? { identifier } : {}) }),
   });
 }
 
