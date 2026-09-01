@@ -3,7 +3,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { Project, TaskConfiguration, Workspace } from '../workspace/types';
-import { ProjectSettings } from './ProjectSettings';
+import {
+  ProjectSettings,
+  type ProjectSettingsSection,
+} from './ProjectSettings';
 
 const workspace: Workspace = {
   id: 'workspace-1',
@@ -45,12 +48,16 @@ const configuration: TaskConfiguration = {
   default_task_type_id: 'type-task',
 };
 
-function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
+function renderSettings(
+  fetchMock: ReturnType<typeof vi.fn>,
+  section: ProjectSettingsSection = 'general',
+) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const onUpdated = vi.fn().mockResolvedValue(undefined);
+  const onSectionChange = vi.fn();
   render(
     <QueryClientProvider client={client}>
       <ProjectSettings
@@ -59,13 +66,15 @@ function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
         project={project}
         userId="owner-1"
         configuration={configuration}
+        section={section}
+        onSectionChange={onSectionChange}
         onClose={vi.fn()}
         onUpdated={onUpdated}
         onRemoved={vi.fn().mockResolvedValue(undefined)}
       />
     </QueryClientProvider>,
   );
-  return { onUpdated };
+  return { onSectionChange, onUpdated };
 }
 
 function response(body: unknown, status = 200) {
@@ -79,6 +88,19 @@ function response(body: unknown, status = 200) {
 
 describe('ProjectSettings', () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it('requests a section change without replacing the controlled section', () => {
+    const { onSectionChange } = renderSettings(vi.fn(() => response([])));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Members' }));
+
+    expect(onSectionChange).toHaveBeenCalledWith('members');
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'General' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
 
   it('saves identity and visibility through the Project API', async () => {
     const fetchMock = vi.fn((url: string, options?: RequestInit) => {
@@ -161,8 +183,7 @@ describe('ProjectSettings', () => {
       }
       return response([]);
     });
-    renderSettings(fetchMock);
-    fireEvent.click(screen.getByRole('button', { name: 'Members' }));
+    renderSettings(fetchMock, 'members');
 
     const candidate = await screen.findByLabelText('Workspace member');
     await waitFor(() =>

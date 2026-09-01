@@ -1,5 +1,4 @@
 import { Building2, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
 import type { User } from '../../lib/api/types';
 import { AccountSwitcher } from '../account/AccountSwitcher';
 import type { AccountSession } from '../auth/accountSessionStore';
@@ -12,7 +11,7 @@ import type { ApiContext } from '../workspace/api';
 import { HostAccessSettings } from './HostAccessSettings';
 import { HostWorkspaces } from './HostWorkspaces';
 
-type HostSection = 'workspaces' | 'access';
+export type HostSection = 'workspaces' | 'access';
 
 interface HostConsoleProps {
   context: ApiContext;
@@ -20,6 +19,8 @@ interface HostConsoleProps {
   accountSessions: AccountSession[];
   accountTransitioning: boolean;
   accountError: string | null;
+  section: HostSection;
+  onSectionChange: (section: HostSection) => void;
   onSwitchAccount: (userId: string) => void;
   onAddAccount: () => void;
   onDismissAccountError: () => void;
@@ -33,14 +34,14 @@ export function HostConsole({
   accountSessions,
   accountTransitioning,
   accountError,
+  section,
+  onSectionChange,
   onSwitchAccount,
   onAddAccount,
   onDismissAccountError,
   onSignOut,
   onClose,
 }: HostConsoleProps) {
-  const [section, setSection] = useState<HostSection>('workspaces');
-
   return (
     <main className="host-console">
       <SettingsFrame
@@ -52,13 +53,13 @@ export function HostConsole({
               active={section === 'workspaces'}
               icon={<Building2 aria-hidden="true" size={15} />}
               label="Workspaces"
-              onClick={() => setSection('workspaces')}
+              onClick={() => onSectionChange('workspaces')}
             />
             <SettingsLink
               active={section === 'access'}
               icon={<ShieldCheck aria-hidden="true" size={15} />}
               label="Access"
-              onClick={() => setSection('access')}
+              onClick={() => onSectionChange('access')}
             />
           </SettingsGroup>
         }

@@ -13,6 +13,7 @@ import {
   archiveProjectModule,
   completeProjectCycle,
   createProjectCycle,
+  createProjectModule,
   listPlanningTasks,
   listProjectCycles,
   listProjectModules,
@@ -78,6 +79,14 @@ const cycle: ProjectCycle = {
   archived_at: null,
   created_at: '2026-08-28T00:00:00Z',
   updated_at: '2026-08-28T00:00:00Z',
+};
+
+const secondCycle: ProjectCycle = {
+  ...cycle,
+  id: 'cycle-2',
+  name: 'Cycle 2',
+  start_date: '2026-09-15',
+  due_date: '2026-09-28',
 };
 
 const projectModule: ProjectModule = {
@@ -157,6 +166,11 @@ beforeEach(() => {
     id: 'cycle-2',
     name: 'Cycle 2',
   });
+  vi.mocked(createProjectModule).mockResolvedValue({
+    ...projectModule,
+    id: 'module-2',
+    name: 'Frontend',
+  });
   vi.mocked(updateProjectCycle).mockResolvedValue(cycle);
   vi.mocked(updateProjectModule).mockResolvedValue(projectModule);
   vi.mocked(completeProjectCycle).mockResolvedValue({
@@ -167,6 +181,128 @@ beforeEach(() => {
 });
 
 describe('ProjectPlanningPane', () => {
+  it('does not request planning data before Project access settles', () => {
+    renderPlanning('cycles', vi.fn(), null, vi.fn(), false);
+
+    expect(screen.getByText('Loading cycles…')).toBeInTheDocument();
+    expect(listProjectCycles).not.toHaveBeenCalled();
+    expect(listPlanningTasks).not.toHaveBeenCalled();
+  });
+
+  it('shows the deterministic first item on a parent route without selecting it in the URL', async () => {
+    vi.mocked(listProjectCycles).mockResolvedValue([cycle, secondCycle]);
+    const selectId = vi.fn();
+
+    renderPlanning('cycles', vi.fn(), null, selectId);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Cycle 1', level: 2 }),
+    ).toBeInTheDocument();
+    expect(selectId).not.toHaveBeenCalled();
+  });
+
+  it('uses the controlled item and requests route selection from the list', async () => {
+    vi.mocked(listProjectCycles).mockResolvedValue([cycle, secondCycle]);
+    const selectId = vi.fn();
+
+    renderPlanning('cycles', vi.fn(), secondCycle.id, selectId);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Cycle 2', level: 2 }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: /Cycle 1/ }));
+    expect(selectId).toHaveBeenCalledWith('cycle-1');
+  });
+
+  it.each<{ kind: PlanningKind; emptyHeading: string }>([
+    { kind: 'cycles', emptyHeading: 'Select a Cycle' },
+    { kind: 'modules', emptyHeading: 'Select a Module' },
+  ])(
+    'returns a stale $kind route to its parent without selecting the first item',
+    async ({ kind, emptyHeading }) => {
+      const selectId = vi.fn();
+
+      renderPlanning(kind, vi.fn(), 'missing-planning-item', selectId);
+
+      await waitFor(() =>
+        expect(selectId).toHaveBeenCalledWith(null, { replace: true }),
+      );
+      expect(
+        screen.getByRole('heading', { name: emptyHeading, level: 2 }),
+      ).toBeInTheDocument();
+      for (const option of screen.getAllByRole('option')) {
+        expect(option).toHaveAttribute('aria-selected', 'false');
+      }
+    },
+  );
+
+  it('keeps a stale route while its owning list is pending', async () => {
+    vi.mocked(listProjectCycles).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const selectId = vi.fn();
+
+    renderPlanning('cycles', vi.fn(), 'missing-cycle', selectId);
+
+    expect(await screen.findByText('Loading cycles…')).toBeInTheDocument();
+    expect(selectId).not.toHaveBeenCalled();
+  });
+
+  it('keeps a stale route when its owning list fails', async () => {
+    vi.mocked(listProjectCycles).mockRejectedValue(
+      new Error('Cycles unavailable'),
+    );
+    const selectId = vi.fn();
+
+    renderPlanning('cycles', vi.fn(), 'missing-cycle', selectId);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cycles unavailable',
+    );
+    expect(selectId).not.toHaveBeenCalled();
+  });
+
+  it('requests the created item route after creation', async () => {
+    const selectId = vi.fn();
+    renderPlanning('cycles', vi.fn(), null, selectId);
+
+    await screen.findByRole('heading', { name: 'Cycle 1', level: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'New cycle' }));
+    fireEvent.change(screen.getByLabelText('Cycle name'), {
+      target: { value: 'Cycle 2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(selectId).toHaveBeenCalledWith('cycle-2'));
+  });
+
+  it('requests the created Module route after creation', async () => {
+    const selectId = vi.fn();
+    renderPlanning('modules', vi.fn(), null, selectId);
+
+    await screen.findByRole('heading', { name: 'Backend', level: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'New module' }));
+    fireEvent.change(screen.getByLabelText('Module name'), {
+      target: { value: 'Frontend' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(selectId).toHaveBeenCalledWith('module-2'));
+  });
+
+  it('returns an archived selection to the parent route with replace intent', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const selectId = vi.fn();
+    renderPlanning('modules', vi.fn(), projectModule.id, selectId);
+
+    await screen.findByRole('heading', { name: 'Backend', level: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive Backend' }));
+
+    await waitFor(() =>
+      expect(selectId).toHaveBeenCalledWith(null, { replace: true }),
+    );
+  });
+
   it('shows Cycle progress, linked work, editing, completion, and creation', async () => {
     const openTask = vi.fn();
     renderPlanning('cycles', openTask);
@@ -255,6 +391,12 @@ describe('ProjectPlanningPane', () => {
 function renderPlanning(
   kind: PlanningKind,
   onOpenTask: (taskId: string) => void,
+  selectedId: string | null = null,
+  onSelectId: (
+    id: string | null,
+    options?: { replace?: boolean },
+  ) => void = vi.fn(),
+  accessSettled = true,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -265,8 +407,11 @@ function renderPlanning(
         context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
         workspaceId="workspace-1"
         project={project}
+        accessSettled={accessSettled}
         members={members}
         kind={kind}
+        selectedId={selectedId}
+        onSelectId={onSelectId}
         onOpenTask={onOpenTask}
       />
     </QueryClientProvider>,

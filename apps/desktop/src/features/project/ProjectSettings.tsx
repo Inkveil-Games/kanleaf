@@ -7,7 +7,7 @@ import {
   SlidersHorizontal,
   UsersRound,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import {
   listProjectMembers,
   listWorkspaceMembers,
@@ -19,9 +19,9 @@ import { ProjectDefaultSettings } from './ProjectDefaultSettings';
 import { ProjectFeatureSettings } from './ProjectFeatureSettings';
 import { ProjectGeneralSettings } from './ProjectGeneralSettings';
 import { ProjectMemberSettings } from './ProjectMemberSettings';
+import type { ProjectSettingsSection } from './settingsSections';
 
-type ProjectSettingsSection =
-  'general' | 'members' | 'features' | 'defaults' | 'danger';
+export type { ProjectSettingsSection } from './settingsSections';
 
 interface ProjectSettingsProps {
   context: ApiContext;
@@ -29,6 +29,8 @@ interface ProjectSettingsProps {
   project: Project;
   userId: string;
   configuration: TaskConfiguration;
+  section: ProjectSettingsSection;
+  onSectionChange: (section: ProjectSettingsSection) => void;
   onClose: () => void;
   onUpdated: (project: Project) => Promise<void>;
   onRemoved: () => Promise<void>;
@@ -40,11 +42,12 @@ export function ProjectSettings({
   project,
   userId,
   configuration,
+  section,
+  onSectionChange,
   onClose,
   onUpdated,
   onRemoved,
 }: ProjectSettingsProps) {
-  const [section, setSection] = useState<ProjectSettingsSection>('general');
   const members = useQuery({
     queryKey: ['project-members', workspace.id, project.id],
     queryFn: () => listProjectMembers(context, workspace.id, project.id),
@@ -70,31 +73,31 @@ export function ProjectSettings({
               active={section === 'general'}
               icon={<Settings2 aria-hidden="true" size={15} />}
               label="General"
-              onClick={() => setSection('general')}
+              onClick={() => onSectionChange('general')}
             />
             <SettingsLink
               active={section === 'members'}
               icon={<UsersRound aria-hidden="true" size={15} />}
               label="Members"
-              onClick={() => setSection('members')}
+              onClick={() => onSectionChange('members')}
             />
             <SettingsLink
               active={section === 'features'}
               icon={<ListChecks aria-hidden="true" size={15} />}
               label="Features"
-              onClick={() => setSection('features')}
+              onClick={() => onSectionChange('features')}
             />
             <SettingsLink
               active={section === 'defaults'}
               icon={<SlidersHorizontal aria-hidden="true" size={15} />}
               label="Defaults"
-              onClick={() => setSection('defaults')}
+              onClick={() => onSectionChange('defaults')}
             />
             <SettingsLink
               active={section === 'danger'}
               icon={<ShieldAlert aria-hidden="true" size={15} />}
               label="Danger zone"
-              onClick={() => setSection('danger')}
+              onClick={() => onSectionChange('danger')}
               danger
             />
           </SettingsGroup>

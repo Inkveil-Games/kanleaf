@@ -27,7 +27,20 @@ const host = {
 };
 
 describe('HostConsole', () => {
-  it('navigates its two Settings surfaces and returns to the Workspace', () => {
+  it('renders the route-owned section and requests section changes', () => {
+    const onSectionChange = vi.fn();
+    renderConsole({ section: 'access', onSectionChange });
+
+    expect(screen.getByText('Access policy')).toBeInTheDocument();
+    expect(screen.queryByText('Workspace list')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }));
+
+    expect(onSectionChange).toHaveBeenCalledWith('workspaces');
+    expect(screen.getByText('Access policy')).toBeInTheDocument();
+  });
+
+  it('returns to the Workspace', () => {
     const onClose = vi.fn();
     renderConsole({ onClose });
 
@@ -35,8 +48,6 @@ describe('HostConsole', () => {
       screen.getByRole('region', { name: 'Host Console' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Workspace list')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
-    expect(screen.getByText('Access policy')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -71,6 +82,8 @@ function renderConsole(
     ],
     accountTransitioning: false,
     accountError: null,
+    section: 'workspaces',
+    onSectionChange: vi.fn(),
     onSwitchAccount: vi.fn(),
     onAddAccount: vi.fn(),
     onDismissAccountError: vi.fn(),

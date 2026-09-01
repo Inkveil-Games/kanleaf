@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, CalendarRange, Layers3, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Select } from '../../components/ui/Select';
 import {
   archiveProjectCycle,
@@ -31,8 +31,11 @@ interface ProjectPlanningPaneProps {
   context: ApiContext;
   workspaceId: string;
   project: Project;
+  accessSettled: boolean;
   members: ProjectMember[];
   kind: PlanningKind;
+  selectedId: string | null;
+  onSelectId: (id: string | null, options?: { replace?: boolean }) => void;
   onOpenTask: (taskId: string) => void;
 }
 
@@ -40,12 +43,14 @@ export function ProjectPlanningPane({
   context,
   workspaceId,
   project,
+  accessSettled,
   members,
   kind,
+  selectedId,
+  onSelectId,
   onOpenTask,
 }: ProjectPlanningPaneProps) {
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const canEdit =
@@ -56,16 +61,19 @@ export function ProjectPlanningPane({
   const cycles = useQuery({
     queryKey: ['cycles', workspaceId, project.id],
     queryFn: () => listProjectCycles(context, workspaceId, project.id),
-    enabled: kind === 'cycles',
+    enabled: accessSettled && kind === 'cycles',
   });
   const modules = useQuery({
     queryKey: ['modules', workspaceId, project.id],
     queryFn: () => listProjectModules(context, workspaceId, project.id),
-    enabled: kind === 'modules',
+    enabled: accessSettled && kind === 'modules',
   });
+  const owningQuery = kind === 'cycles' ? cycles : modules;
   const items = kind === 'cycles' ? (cycles.data ?? []) : (modules.data ?? []);
   const selected =
-    items.find(({ id }) => id === selectedId) ?? items[0] ?? null;
+    selectedId === null
+      ? (items[0] ?? null)
+      : (items.find(({ id }) => id === selectedId) ?? null);
   const effectiveSelectedId = selected?.id ?? null;
   const selectedFilter = selected
     ? kind === 'cycles'
@@ -75,8 +83,25 @@ export function ProjectPlanningPane({
   const tasks = useQuery({
     queryKey: ['tasks', workspaceId, kind, effectiveSelectedId],
     queryFn: () => listPlanningTasks(context, workspaceId, selectedFilter!),
-    enabled: Boolean(selectedFilter),
+    enabled: Boolean(accessSettled && selectedFilter),
   });
+
+  useEffect(() => {
+    if (
+      selectedId !== null &&
+      owningQuery.isSuccess &&
+      !owningQuery.isFetching &&
+      selected === null
+    ) {
+      onSelectId(null, { replace: true });
+    }
+  }, [
+    onSelectId,
+    owningQuery.isFetching,
+    owningQuery.isSuccess,
+    selectedId,
+    selected,
+  ]);
 
   async function refreshPlanning() {
     await Promise.all([
@@ -97,7 +122,7 @@ export function ProjectPlanningPane({
       values,
     );
     await refreshPlanning();
-    setSelectedId(created.id);
+    onSelectId(created.id);
     setCreating(false);
   }
 
@@ -109,7 +134,7 @@ export function ProjectPlanningPane({
       { name },
     );
     await refreshPlanning();
-    setSelectedId(created.id);
+    onSelectId(created.id);
     setCreating(false);
   }
 
@@ -136,7 +161,7 @@ export function ProjectPlanningPane({
     } else {
       await archiveProjectModule(context, workspaceId, project.id, selected.id);
     }
-    setSelectedId(null);
+    onSelectId(null, { replace: true });
     await refreshPlanning();
   }
 
@@ -149,7 +174,9 @@ export function ProjectPlanningPane({
     }
   }
 
-  const loading = kind === 'cycles' ? cycles.isPending : modules.isPending;
+  const loading =
+    !accessSettled ||
+    (kind === 'cycles' ? cycles.isPending : modules.isPending);
   const loadError = kind === 'cycles' ? cycles.error : modules.error;
 
   return (
@@ -207,7 +234,7 @@ export function ProjectPlanningPane({
               type="button"
               role="option"
               aria-selected={item.id === effectiveSelectedId}
-              onClick={() => setSelectedId(item.id)}
+              onClick={() => onSelectId(item.id)}
             >
               {kind === 'cycles' ? (
                 <CalendarRange aria-hidden="true" size={15} />

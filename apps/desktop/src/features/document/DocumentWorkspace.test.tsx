@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
@@ -142,25 +148,62 @@ function response(payload: unknown, status = 200) {
   );
 }
 
-function renderWorkspace(fetchMock: ReturnType<typeof vi.fn>) {
+function renderWorkspace(
+  fetchMock: ReturnType<typeof vi.fn>,
+  options: {
+    projectId?: string | null;
+    selectedDocumentId?: string | null;
+    cachedDocuments?: WorkspaceDocument[];
+    onSelectDocument?: (
+      document: WorkspaceDocument | null,
+      navigation?: { replace?: boolean },
+    ) => boolean | void | Promise<boolean | void>;
+    onPrepareDocumentMutation?: () => boolean | void | Promise<boolean | void>;
+    onInvalidSelection?: () => void;
+  } = {},
+) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  if (options.cachedDocuments) {
+    client.setQueryData(
+      ['documents', 'workspace-1', options.projectId ?? 'all'] as const,
+      options.cachedDocuments,
+    );
+  }
+  const onInvalidSelection = options.onInvalidSelection ?? (() => undefined);
   function Harness() {
     const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
-      null,
+      options.selectedDocumentId ?? null,
     );
+    async function selectDocument(
+      document: WorkspaceDocument | null,
+      navigation?: { replace?: boolean },
+    ) {
+      const result = navigation
+        ? options.onSelectDocument?.(document, navigation)
+        : options.onSelectDocument?.(document);
+      const allowed = result instanceof Promise ? await result : result;
+      if (allowed === false) return false;
+      setSelectedDocumentId(document?.id ?? null);
+      return true;
+    }
+    async function prepareDocumentMutation() {
+      return (await options.onPrepareDocumentMutation?.()) !== false;
+    }
     return (
       <QueryClientProvider client={client}>
         <DocumentWorkspace
           context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
           workspaceId="workspace-1"
           projects={projects}
-          projectId={null}
+          projectId={options.projectId ?? null}
           canCreateWorkspaceDocuments
           selectedDocumentId={selectedDocumentId}
-          onSelectDocument={setSelectedDocumentId}
+          onSelectDocument={selectDocument}
+          onPrepareDocumentMutation={prepareDocumentMutation}
+          onInvalidSelection={onInvalidSelection}
         />
       </QueryClientProvider>
     );
@@ -170,6 +213,377 @@ function renderWorkspace(fetchMock: ReturnType<typeof vi.fn>) {
 
 describe('DocumentWorkspace', () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps an explicit missing note empty until its parent route replaces it', async () => {
+    let resolveDocuments!: (response: Response) => void;
+    const documentsResponse = new Promise<Response>((resolve) => {
+      resolveDocuments = resolve;
+    });
+    const onInvalidSelection = vi.fn();
+    renderWorkspace(vi.fn().mockReturnValue(documentsResponse), {
+      selectedDocumentId: 'missing-note',
+      onInvalidSelection,
+    });
+
+    expect(await screen.findByText('Loading Library…')).toBeInTheDocument();
+    expect(onInvalidSelection).not.toHaveBeenCalled();
+
+    resolveDocuments(
+      new Response(JSON.stringify([document('root', 'Architecture')]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    await waitFor(() => expect(onInvalidSelection).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Editor root')).not.toBeInTheDocument();
+    expect(screen.getByText('Select a Library note')).toBeInTheDocument();
+  });
+
+  it('rejects an explicit note outside the current project scope', async () => {
+    const onInvalidSelection = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('workspace-note', 'Workspace note'),
+        document('project-note', 'Project note', { project_id: 'project-1' }),
+      ]),
+      {
+        projectId: 'project-1',
+        selectedDocumentId: 'workspace-note',
+        onInvalidSelection,
+      },
+    );
+
+    await waitFor(() => expect(onInvalidSelection).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Editor project-note')).not.toBeInTheDocument();
+    expect(screen.getByText('Select a Library note')).toBeInTheDocument();
+  });
+
+  it('waits for a cached document list to finish refetching before rejecting an explicit note', async () => {
+    let resolveDocuments!: (response: Response) => void;
+    const documentsResponse = new Promise<Response>((resolve) => {
+      resolveDocuments = resolve;
+    });
+    const onInvalidSelection = vi.fn();
+    renderWorkspace(vi.fn().mockReturnValue(documentsResponse), {
+      selectedDocumentId: 'deep-note',
+      cachedDocuments: [document('root', 'Architecture')],
+      onInvalidSelection,
+    });
+
+    expect(
+      await screen.findByRole('treeitem', { name: /Architecture/ }),
+    ).toBeInTheDocument();
+    expect(onInvalidSelection).not.toHaveBeenCalled();
+
+    resolveDocuments(
+      new Response(
+        JSON.stringify([
+          document('root', 'Architecture'),
+          document('deep-note', 'Deep link', { position: 1 }),
+        ]),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+
+    expect(await screen.findByText('Editor deep-note')).toBeInTheDocument();
+    expect(onInvalidSelection).not.toHaveBeenCalled();
+  });
+
+  it('replaces a hidden descendant route with its collapsed ancestor', async () => {
+    let allowSelection!: (allowed: boolean) => void;
+    const selection = new Promise<boolean>((resolve) => {
+      allowSelection = resolve;
+    });
+    const onSelectDocument = vi.fn().mockReturnValue(selection);
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('child', 'Vault', { parent_id: 'root' }),
+      ]),
+      { selectedDocumentId: 'child', onSelectDocument },
+    );
+    await screen.findByText('Editor child');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Collapse Architecture' }),
+    );
+
+    expect(onSelectDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'root', project_id: null }),
+      { replace: true },
+    );
+    expect(screen.getByText('Editor child')).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /Vault/ })).toBeInTheDocument();
+
+    await act(async () => allowSelection(true));
+
+    expect(await screen.findByText('Editor root')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('treeitem', { name: /Vault/ }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps a selected descendant open when its collapse navigation is rejected', async () => {
+    const onSelectDocument = vi.fn().mockResolvedValue(false);
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('child', 'Vault', { parent_id: 'root' }),
+      ]),
+      { selectedDocumentId: 'child', onSelectDocument },
+    );
+    await screen.findByText('Editor child');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Collapse Architecture' }),
+    );
+
+    await waitFor(() => expect(onSelectDocument).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Editor child')).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: /Vault/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Collapse Architecture' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('replaces the selected document route when closing its detail', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(createServer([document('root', 'Architecture')]), {
+      selectedDocumentId: 'root',
+      onSelectDocument,
+    });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Library' }));
+
+    expect(onSelectDocument).toHaveBeenLastCalledWith(null, { replace: true });
+  });
+
+  it('replaces the archived document route after deletion', async () => {
+    const onSelectDocument = vi.fn();
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(true);
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock, {
+      selectedDocumentId: 'root',
+      onSelectDocument,
+      onPrepareDocumentMutation,
+    });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
+
+    await waitFor(() =>
+      expect(onPrepareDocumentMutation).toHaveBeenCalledTimes(1),
+    );
+    const deleteCall = fetchMock.mock.calls.findIndex(
+      ([, request]) => request?.method === 'DELETE',
+    );
+    expect(deleteCall).toBeGreaterThanOrEqual(0);
+    expect(onPrepareDocumentMutation.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[deleteCall],
+    );
+    await waitFor(() =>
+      expect(onSelectDocument).toHaveBeenLastCalledWith(null, {
+        replace: true,
+      }),
+    );
+  });
+
+  it('keeps the document open when preparing its archive is rejected', async () => {
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(false);
+    renderWorkspace(fetchMock, {
+      selectedDocumentId: 'root',
+      onPrepareDocumentMutation,
+    });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
+
+    await waitFor(() =>
+      expect(onPrepareDocumentMutation).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.getByText('Editor root')).toBeInTheDocument();
+    expect(
+      screen.getByRole('alertdialog', { name: 'Archive Library note' }),
+    ).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([, request]) => request?.method === 'DELETE'),
+    ).toBe(false);
+  });
+
+  it('pushes a directly selected document route', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('release', 'Release notes', { position: 1 }),
+      ]),
+      { onSelectDocument },
+    );
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('treeitem', { name: /Release notes/ }));
+
+    expect(onSelectDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'release', project_id: null }),
+    );
+  });
+
+  it('preserves a Project note scope when selecting it from the Workspace Library', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('workspace-note', 'Workspace note'),
+        document('project-note', 'Project note', {
+          project_id: 'project-1',
+        }),
+      ]),
+      { onSelectDocument },
+    );
+    await screen.findByText('Editor workspace-note');
+
+    fireEvent.click(screen.getByRole('treeitem', { name: /Project note/ }));
+
+    expect(onSelectDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: 'project-note',
+        project_id: 'project-1',
+      }),
+    );
+  });
+
+  it('pushes a newly created document route', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(createServer([document('root', 'Architecture')]), {
+      onSelectDocument,
+    });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note title' }), {
+      target: { value: 'Meeting notes' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create note' }));
+
+    expect(
+      await screen.findByRole('treeitem', { name: /Meeting notes/ }),
+    ).toBeInTheDocument();
+    expect(onSelectDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'document-2', project_id: null }),
+    );
+  });
+
+  it('preserves a Project note scope when creating it from the Workspace Library', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('workspace-note', 'Workspace note'),
+        document('project-note', 'Project note', {
+          project_id: 'project-1',
+        }),
+      ]),
+      { onSelectDocument },
+    );
+    await screen.findByText('Editor workspace-note');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Project note' }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add nested note' }));
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Nested note title' }),
+      { target: { value: 'Project child' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create nested note' }));
+
+    expect(
+      await screen.findByRole('treeitem', { name: /Project child/ }),
+    ).toBeInTheDocument();
+    expect(onSelectDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: 'document-3',
+        project_id: 'project-1',
+      }),
+    );
+  });
+
+  it('does not create a document before the Markdown save preflight succeeds', async () => {
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(false);
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock, { onPrepareDocumentMutation });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note title' }), {
+      target: { value: 'Blocked note' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create note' }));
+
+    await waitFor(() =>
+      expect(onPrepareDocumentMutation).toHaveBeenCalledOnce(),
+    );
+    expect(
+      fetchMock.mock.calls.some(([, options]) => options?.method === 'POST'),
+    ).toBe(false);
+    expect(screen.queryByRole('treeitem', { name: /Blocked note/ })).toBeNull();
+  });
+
+  it('does not navigate when renaming the selected document', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(createServer([document('root', 'Architecture')]), {
+      selectedDocumentId: 'root',
+      onSelectDocument,
+    });
+    await screen.findByText('Editor root');
+    const tree = screen.getByRole('tree', {
+      name: 'Workspace Library',
+    });
+
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'F2' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note title' }), {
+      target: { value: 'System design' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename note' }));
+
+    expect(
+      await screen.findByRole('treeitem', { name: /System design/ }),
+    ).toBeInTheDocument();
+    expect(onSelectDocument).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate when reordering the selected document', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('release', 'Release notes', { position: 1 }),
+      ]),
+      { selectedDocumentId: 'release', onSelectDocument },
+    );
+    await screen.findByText('Editor release');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Release notes' }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: /Move up/ }));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('treeitem').map((item) => item.textContent),
+      ).toEqual(['Release notes', 'Architecture']),
+    );
+    expect(onSelectDocument).not.toHaveBeenCalled();
+  });
 
   it('navigates the tree by keyboard and keeps selection through rename and nesting', async () => {
     const fetchMock = createServer([
@@ -191,9 +605,11 @@ describe('DocumentWorkspace', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Collapse Architecture' }),
     );
-    expect(
-      screen.queryByRole('treeitem', { name: /Vault/ }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('treeitem', { name: /Vault/ }),
+      ).not.toBeInTheDocument(),
+    );
     expect(await screen.findByText('Editor root')).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Expand Architecture' }),

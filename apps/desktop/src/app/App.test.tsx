@@ -1,4 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  MemoryRouter,
+  useLocation,
+  useNavigate,
+  type InitialEntry,
+} from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   upsertAccountSession,
@@ -29,9 +35,21 @@ vi.mock('../features/workspace/WorkspaceShell', () => ({
 }));
 
 vi.mock('../features/host/HostConsole', () => ({
-  HostConsole: ({ onClose }: { onClose: () => void }) => (
+  HostConsole: ({
+    section,
+    onSectionChange,
+    onClose,
+  }: {
+    section: 'workspaces' | 'access';
+    onSectionChange: (section: 'workspaces' | 'access') => void;
+    onClose: () => void;
+  }) => (
     <div>
       <h1>Host Console</h1>
+      <p>Host section: {section}</p>
+      <button type="button" onClick={() => onSectionChange('access')}>
+        Access
+      </button>
       <button type="button" onClick={onClose}>
         Back to Workspace
       </button>
@@ -64,11 +82,7 @@ describe('App', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { name: 'Sign in to Kanleaf' }),
@@ -84,11 +98,7 @@ describe('App', () => {
   it('explains when the server environment variable is missing', () => {
     vi.stubEnv('VITE_KANLEAF_SERVER_URL', '');
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       screen.getByRole('heading', { name: 'Server not configured' }),
@@ -118,11 +128,7 @@ describe('App', () => {
       );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { name: 'Server unavailable' }),
@@ -142,11 +148,7 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(healthResponse()));
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { name: 'Choose an account' }),
@@ -178,11 +180,7 @@ describe('App', () => {
       ),
     );
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       await screen.findByText('Workspace for user-1@example.com'),
@@ -220,11 +218,7 @@ describe('App', () => {
       ),
     );
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     expect(
       await screen.findByRole('heading', { name: 'Choose an account' }),
@@ -234,47 +228,90 @@ describe('App', () => {
   });
 
   it('restores a Host session directly into /host', async () => {
-    window.history.replaceState(null, '', '/host');
     retainAccount('host-1');
     stubHealthySession('host-1', true);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp(['/host']);
 
     expect(
       await screen.findByRole('heading', { name: 'Host Console' }),
     ).toBeInTheDocument();
+    expect(screen.getByText('Host section: workspaces')).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent(/^\/host$/);
+  });
+
+  it('restores a Host session directly into the Access route', async () => {
+    retainAccount('host-1');
+    stubHealthySession('host-1', true);
+
+    renderApp(['/host/access']);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Host Console' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Host section: access')).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/host/access');
+  });
+
+  it('does not add history when the active Host section is selected again', async () => {
+    retainAccount('host-1');
+    stubHealthySession('host-1', true);
+
+    renderApp(['/host', '/host/access']);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+
+    expect(currentLocation()).toHaveTextContent(/^\/host$/);
+    expect(screen.getByText('Host section: workspaces')).toBeInTheDocument();
+  });
+
+  it('replaces a trailing slash without discarding search state', async () => {
+    retainAccount('host-1');
+    stubHealthySession('host-1', true);
+
+    renderApp(['/host/access/?source=bookmark']);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Host Console' }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(currentLocation()).toHaveTextContent(
+        '/host/access?source=bookmark',
+      ),
+    );
+  });
+
+  it('replaces an unknown Host child with Host Workspaces', async () => {
+    retainAccount('host-1');
+    stubHealthySession('host-1', true);
+
+    renderApp(['/host/not-a-section']);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Host Console' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Host section: workspaces')).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/host');
   });
 
   it('keeps anonymous /host visitors on normal authentication', async () => {
-    window.history.replaceState(null, '', '/host');
     vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(healthResponse()));
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp(['/host/access']);
 
     expect(
       await screen.findByRole('heading', { name: 'Sign in to Kanleaf' }),
     ).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/host/access');
   });
 
   it('denies /host to a restored non-Host session', async () => {
-    window.history.replaceState(null, '', '/host');
     retainAccount('user-1');
     stubHealthySession('user-1', false);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp(['/host/access']);
 
     expect(
       await screen.findByRole('heading', { name: 'Host access required' }),
@@ -283,18 +320,14 @@ describe('App', () => {
     expect(
       await screen.findByText('Workspace for user-1@example.com'),
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/');
+    expect(currentLocation()).toHaveTextContent('/');
   });
 
   it('opens Host Console from the Host account action and handles history', async () => {
     retainAccount('host-1');
     stubHealthySession('host-1', true);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
 
     fireEvent.click(
       await screen.findByRole('button', { name: 'Host Console' }),
@@ -302,24 +335,29 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', { name: 'Host Console' }),
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/host');
+    expect(currentLocation()).toHaveTextContent('/host');
 
-    window.history.pushState(null, '', '/');
-    fireEvent.popState(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+    expect(currentLocation()).toHaveTextContent('/host/access');
+    expect(screen.getByText('Host section: access')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    expect(currentLocation()).toHaveTextContent('/host');
+    fireEvent.click(screen.getByRole('button', { name: 'Go forward' }));
+    expect(currentLocation()).toHaveTextContent('/host/access');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
     expect(
       await screen.findByText('Workspace for host-1@example.com'),
     ).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/');
   });
 
   it('discards the exact retained token after any authenticated request receives 401', async () => {
     retainAccount('user-1');
     const fetchMock = stubHealthySession('user-1', false);
 
-    render(
-      <Providers>
-        <App />
-      </Providers>,
-    );
+    renderApp();
     expect(
       await screen.findByText('Workspace for user-1@example.com'),
     ).toBeInTheDocument();
@@ -352,6 +390,41 @@ describe('App', () => {
     );
   });
 });
+
+function renderApp(initialEntries: InitialEntry[] = ['/']) {
+  return render(
+    <Providers>
+      <MemoryRouter initialEntries={initialEntries}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>
+    </Providers>,
+  );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  return (
+    <div>
+      <output aria-label="Current location">
+        {location.pathname}
+        {location.search}
+      </output>
+      <button type="button" onClick={() => navigate(-1)}>
+        Go back
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        Go forward
+      </button>
+    </div>
+  );
+}
+
+function currentLocation() {
+  return screen.getByRole('status', { name: 'Current location' });
+}
 
 function retainAccount(userId: string) {
   vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');

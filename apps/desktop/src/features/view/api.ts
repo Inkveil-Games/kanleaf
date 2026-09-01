@@ -39,6 +39,18 @@ export function listSavedViews(
   );
 }
 
+export function getSavedView(
+  context: ApiContext,
+  workspaceId: string,
+  viewId: string,
+) {
+  return apiRequest<SavedView>(
+    context.serverUrl,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/views/${encodeURIComponent(viewId)}`,
+    { token: context.token },
+  );
+}
+
 export function createSavedView(
   context: ApiContext,
   workspaceId: string,

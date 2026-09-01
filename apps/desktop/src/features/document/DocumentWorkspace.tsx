@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
 import {
@@ -28,7 +28,12 @@ interface DocumentWorkspaceProps {
   projectId: string | null;
   canCreateWorkspaceDocuments: boolean;
   selectedDocumentId: string | null;
-  onSelectDocument: (documentId: string | null) => void;
+  onSelectDocument: (
+    document: WorkspaceDocument | null,
+    navigation?: { replace?: boolean },
+  ) => boolean | Promise<boolean>;
+  onPrepareDocumentMutation: () => boolean | Promise<boolean>;
+  onInvalidSelection: () => void;
 }
 
 export function DocumentWorkspace({
@@ -39,6 +44,8 @@ export function DocumentWorkspace({
   canCreateWorkspaceDocuments,
   selectedDocumentId,
   onSelectDocument,
+  onPrepareDocumentMutation,
+  onInvalidSelection,
 }: DocumentWorkspaceProps) {
   const queryClient = useQueryClient();
   const queryKey = ['documents', workspaceId, projectId ?? 'all'] as const;
@@ -64,6 +71,15 @@ export function DocumentWorkspace({
     () => visibleSections(allSections, collapsedIds),
     [allSections, collapsedIds],
   );
+  const scopedDocumentIds = useMemo(
+    () =>
+      new Set(
+        allSections.flatMap((section) =>
+          section.entries.map(({ document }) => document.id),
+        ),
+      ),
+    [allSections],
+  );
   const entries = useMemo(
     () => sections.flatMap((section) => section.entries),
     [sections],
@@ -82,11 +98,27 @@ export function DocumentWorkspace({
     ? isProjectEditor(activeProject)
     : canCreateWorkspaceDocuments;
 
-  async function refresh(preferredId?: string | null) {
+  useEffect(() => {
+    if (
+      documents.isSuccess &&
+      !documents.isFetching &&
+      selectedDocumentId !== null &&
+      !scopedDocumentIds.has(selectedDocumentId)
+    ) {
+      onInvalidSelection();
+    }
+  }, [
+    documents.isFetching,
+    documents.isSuccess,
+    onInvalidSelection,
+    scopedDocumentIds,
+    selectedDocumentId,
+  ]);
+
+  async function refresh() {
     await queryClient.invalidateQueries({
       queryKey: ['documents', workspaceId],
     });
-    if (preferredId !== undefined) onSelectDocument(preferredId);
   }
 
   async function run(action: () => Promise<void>) {
@@ -105,6 +137,10 @@ export function DocumentWorkspace({
       : null;
     const scopeProjectId = parent?.project_id ?? projectId;
     await run(async () => {
+      if (!(await onPrepareDocumentMutation())) {
+        setCreatingParentId(undefined);
+        return;
+      }
       const created = await createDocument(context, workspaceId, {
         title,
         project_id: scopeProjectId,
@@ -118,7 +154,8 @@ export function DocumentWorkspace({
         });
       }
       setCreatingParentId(undefined);
-      await refresh(created.id);
+      await refresh();
+      await onSelectDocument(created);
     });
   }
 
@@ -126,7 +163,7 @@ export function DocumentWorkspace({
     await run(async () => {
       await updateDocument(context, workspaceId, documentId, patch);
       setRenamingId(null);
-      await refresh(documentId);
+      await refresh();
     });
   }
 
@@ -152,15 +189,38 @@ export function DocumentWorkspace({
         parent_id: document.parent_id,
         document_ids: siblings.map(({ id }) => id),
       });
-      await refresh(document.id);
+      await refresh();
     });
   }
 
   async function confirmArchive(documentId: string) {
     await run(async () => {
+      if (!(await onPrepareDocumentMutation())) return;
       await archiveDocument(context, workspaceId, documentId);
       setArchiveCandidateId(null);
-      await refresh(null);
+      await refresh();
+      await onSelectDocument(null, { replace: true });
+    });
+  }
+
+  async function toggleCollapsed(documentId: string) {
+    const collapsing = !collapsedIds.has(documentId);
+    if (
+      collapsing &&
+      selectedDocumentId &&
+      descendantIds(documents.data ?? [], documentId).has(selectedDocumentId) &&
+      !(await onSelectDocument(
+        documents.data?.find(({ id }) => id === documentId) ?? null,
+        { replace: true },
+      ))
+    ) {
+      return;
+    }
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(documentId)) next.delete(documentId);
+      else next.add(documentId);
+      return next;
     });
   }
 
@@ -179,30 +239,17 @@ export function DocumentWorkspace({
         error={documents.error ? errorMessage(documents.error) : null}
         actionError={actionError}
         onSelect={(documentId) => {
-          onSelectDocument(documentId);
+          const document = documents.data?.find(({ id }) => id === documentId);
+          if (document) void onSelectDocument(document);
           setArchiveCandidateId(null);
         }}
         onToggleCollapsed={(documentId) => {
-          const collapsing = !collapsedIds.has(documentId);
-          if (
-            collapsing &&
-            selectedDocumentId &&
-            descendantIds(documents.data ?? [], documentId).has(
-              selectedDocumentId,
-            )
-          ) {
-            onSelectDocument(documentId);
-          }
-          setCollapsedIds((current) => {
-            const next = new Set(current);
-            if (next.has(documentId)) next.delete(documentId);
-            else next.add(documentId);
-            return next;
-          });
+          void toggleCollapsed(documentId);
         }}
         onStartCreate={(parentId) => {
           if (parentId) {
-            onSelectDocument(parentId);
+            const parent = documents.data?.find(({ id }) => id === parentId);
+            if (parent) void onSelectDocument(parent);
             setCollapsedIds((current) => {
               const next = new Set(current);
               next.delete(parentId);
@@ -220,7 +267,8 @@ export function DocumentWorkspace({
           void moveSibling(document, offset).catch(() => undefined);
         }}
         onArchive={(documentId) => {
-          onSelectDocument(documentId);
+          const document = documents.data?.find(({ id }) => id === documentId);
+          if (document) void onSelectDocument(document);
           setArchiveCandidateId(documentId);
         }}
       />
@@ -241,7 +289,9 @@ export function DocumentWorkspace({
             onConfirmArchive={() => {
               void confirmArchive(selected.id).catch(() => undefined);
             }}
-            onBack={() => onSelectDocument(null)}
+            onBack={() => {
+              void onSelectDocument(null, { replace: true });
+            }}
           />
         ) : (
           <div className="document-detail-empty">
@@ -264,11 +314,13 @@ function nearestVisibleSelection(
   visible: WorkspaceDocument[],
   documents: WorkspaceDocument[],
 ) {
+  if (selectedId === null) return visible[0]?.id ?? null;
+
   const visibleIds = new Set(visible.map(({ id }) => id));
-  let candidateId = selectedId;
+  let candidateId: string | null = selectedId;
   while (candidateId && !visibleIds.has(candidateId)) {
     candidateId =
       documents.find(({ id }) => id === candidateId)?.parent_id ?? null;
   }
-  return candidateId ?? visible[0]?.id ?? null;
+  return candidateId;
 }

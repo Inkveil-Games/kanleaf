@@ -1,21 +1,33 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
 } from 'react';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
-import type { AccountSettingsSection } from '../account/AccountSettings';
+import {
+  accountSettingsSections,
+  isAccountSettingsSection,
+  type AccountSettingsSection,
+} from '../account/settingsSections';
 import type { AccountSession } from '../auth/accountSessionStore';
 import { CommandPalette } from '../command/CommandPalette';
 import type { WorkspaceDocument } from '../document/types';
 import { ProjectOverview } from '../project/ProjectOverview';
 import { ProjectPlanningPane } from '../project/ProjectPlanningPane';
 import { ProjectSettings } from '../project/ProjectSettings';
+import {
+  isProjectSettingsSection,
+  projectSettingsSections,
+  type ProjectSettingsSection,
+} from '../project/settingsSections';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { DocumentWorkspace } from '../document/DocumentWorkspace';
 import {
@@ -25,16 +37,16 @@ import {
 import { TaskDetailPane } from '../task/TaskDetailPane';
 import { TaskListPane } from '../task/TaskListPane';
 import { getTaskConfiguration } from '../task-config/api';
-import type { User } from '../../lib/api/types';
+import type { SessionResponse, User } from '../../lib/api/types';
 import {
   createSavedView,
   deleteSavedView,
+  getSavedView,
   listSavedViews,
   queryTasks,
   updateSavedView,
 } from '../view/api';
 import {
-  collectionFromScope,
   createTaskQuery,
   scopeProjectId,
   type SavedView,
@@ -74,14 +86,31 @@ import {
   WorkspaceNavigation,
   type WorkspaceSurface,
 } from './WorkspaceNavigation';
-import type { WorkspaceSettingsSection } from './WorkspaceSettings';
+import {
+  isWorkspaceSettingsSection,
+  workspaceSettingsSections,
+  type WorkspaceSettingsSection,
+} from './settingsSections';
 import { PaneResizeHandle } from './PaneResizeHandle';
 import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 import { WorkspaceControl } from './WorkspaceControl';
 import { WorkspaceImportDialog } from './WorkspaceImportDialog';
+import {
+  reconcileWorkspaceLocation,
+  settingsReturnTarget,
+  workspaceLocationIdentity,
+  type Resolution,
+  type TaskCollectionLocation,
+  type WorkspaceContentLocation,
+  type WorkspaceLocation,
+  type WorkspaceLocationAccess,
+  type WorkspaceReplacementLocation,
+  type WorkspaceSettingsLocation,
+} from './workspaceLocation';
+import { deriveWorkspacePresentation } from './workspacePresentation';
 
-interface WorkspaceShellProps {
+export interface WorkspaceShellProps {
   serverUrl: string;
   token: string;
   user: User;
@@ -93,6 +122,18 @@ interface WorkspaceShellProps {
   onOpenHostConsole?: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
+  location: WorkspaceLocation | null;
+  onNavigate: (
+    location: WorkspaceReplacementLocation,
+    options?: { replace?: boolean },
+  ) => void;
+  flushDocumentSaves: () => Promise<void>;
+}
+
+interface TaskViewDraft {
+  identity: string;
+  query: ReturnType<typeof createTaskQuery>;
+  layout: TaskLayout;
 }
 
 export function WorkspaceShell({
@@ -107,37 +148,59 @@ export function WorkspaceShell({
   onOpenHostConsole,
   onDismissAccountError,
   onSignOut,
+  location,
+  onNavigate,
+  flushDocumentSaves,
 }: WorkspaceShellProps) {
   const queryClient = useQueryClient();
-  const context = { serverUrl, token };
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
-    user.active_workspace_id,
+  const context = useMemo(() => ({ serverUrl, token }), [serverUrl, token]);
+  const syncActiveWorkspace = useCallback(
+    (workspaceId: string | null) => {
+      queryClient.setQueryData<SessionResponse>(
+        ['session', serverUrl, token],
+        (current) =>
+          current
+            ? {
+                ...current,
+                user: { ...current.user, active_workspace_id: workspaceId },
+              }
+            : current,
+      );
+    },
+    [queryClient, serverUrl, token],
   );
-  const [collection, setCollection] = useState<Collection>({ kind: 'my-work' });
-  const [taskQuery, setTaskQuery] = useState(() =>
-    createTaskQuery({ kind: 'my-work' }),
-  );
-  const [taskLayout, setTaskLayout] = useState<TaskLayout>('list');
-  const [activeView, setActiveView] = useState<SavedView | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDraft, setTaskDraft] = useState<TaskViewDraft | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [surface, setSurface] = useState<WorkspaceSurface>('tasks');
-  const [settingsModal, setSettingsModal] = useState<
-    'account' | 'workspace' | 'project' | null
-  >(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
-    null,
-  );
   const [joiningProject, setJoiningProject] = useState(false);
-  const [accountSettingsSection, setAccountSettingsSection] =
-    useState<AccountSettingsSection>('profile');
-  const [workspaceSettingsSection, setWorkspaceSettingsSection] =
-    useState<WorkspaceSettingsSection>('general');
+  const activationAttempt = useRef<string | null>(null);
+  const activationGeneration = useRef(0);
+  const activationQueue = useRef<Promise<void>>(Promise.resolve());
+  const [activationRetry, setActivationRetry] = useState(0);
+  const [directActivationError, setDirectActivationError] = useState<{
+    attempt: string;
+    message: string;
+  } | null>(null);
+  const canonicalReplacement = useRef<string | null>(null);
   const paneLayout = useWorkspacePaneLayout();
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
+
+  const enqueueWorkspaceActivation = useCallback(
+    (workspaceId: string, generation: number) => {
+      const result = activationQueue.current.then(async () => {
+        if (activationGeneration.current !== generation) return false;
+        await activateWorkspace(context, workspaceId);
+        return activationGeneration.current === generation;
+      });
+      activationQueue.current = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    },
+    [context],
+  );
 
   useEffect(() => {
     function openCommands(event: KeyboardEvent) {
@@ -158,30 +221,105 @@ export function WorkspaceShell({
     queryKey: ['workspaces', serverUrl, token],
     queryFn: () => listWorkspaces(context),
   });
-  const workspaceId = activeWorkspaceId ?? workspaces.data?.[0]?.id ?? null;
+  const workspaceId =
+    location?.workspaceId ??
+    user.active_workspace_id ??
+    workspaces.data?.[0]?.id ??
+    null;
+  const activeWorkspace = workspaces.data?.find(({ id }) => id === workspaceId);
+  const hasContentAccess = Boolean(
+    activeWorkspace && activeWorkspace.role !== 'guest',
+  );
+  const hasSettledWorkspaceAccess = Boolean(
+    activeWorkspace &&
+    workspaces.isFetchedAfterMount &&
+    !workspaces.isFetching &&
+    !workspaces.error,
+  );
+  const hasSettledContentAccess = Boolean(
+    hasSettledWorkspaceAccess && activeWorkspace?.role !== 'guest',
+  );
+  const routeContent = useMemo(
+    () =>
+      location ? deriveWorkspacePresentation(location, null).content : null,
+    [location],
+  );
+  const routedProjectId =
+    routeContent && 'projectId' in routeContent ? routeContent.projectId : null;
+  const routedViewId =
+    routeContent?.kind === 'workspace-view' ||
+    routeContent?.kind === 'project-view'
+      ? routeContent.viewId
+      : null;
+  const projects = useQuery({
+    queryKey: ['projects', workspaceId],
+    queryFn: () => listProjects(context, workspaceId!),
+    enabled: hasSettledWorkspaceAccess,
+  });
+  const routedProject = projects.data?.find(({ id }) => id === routedProjectId);
+  const projectAccessSettled = Boolean(
+    projects.isFetchedAfterMount && !projects.isFetching && !projects.error,
+  );
+  const canResolveRoutedView =
+    routeContent?.kind === 'workspace-view'
+      ? hasSettledContentAccess
+      : routeContent?.kind === 'project-view'
+        ? Boolean(routedProject?.effective_role && projectAccessSettled)
+        : false;
+  const savedView = useQuery({
+    queryKey: ['saved-view', workspaceId, routedViewId],
+    queryFn: () => getSavedView(context, workspaceId!, routedViewId!),
+    enabled: Boolean(routedViewId && canResolveRoutedView),
+    retry: false,
+  });
+  const presentation = useMemo(
+    () =>
+      location
+        ? deriveWorkspacePresentation(location, savedView.data ?? null)
+        : null,
+    [location, savedView.data],
+  );
+  const collection = useMemo<Collection>(
+    () => presentation?.collection ?? { kind: 'my-work' },
+    [presentation?.collection],
+  );
+  const visibleSurface: WorkspaceSurface = presentation?.surface ?? 'tasks';
+  const activeProjectId = presentation?.activeProjectId ?? null;
+  const activeProject = projects.data?.find(({ id }) => id === activeProjectId);
+  const activeView = savedView.data ?? null;
+  const selectedTaskId = presentation?.selectedTaskId ?? null;
+  const selectedDocumentId = presentation?.selectedDocumentId ?? null;
+  const routeIdentity = location ? workspaceLocationIdentity(location) : null;
+  const canonicalTaskDraft = useMemo<TaskViewDraft | null>(() => {
+    if (!routeIdentity || visibleSurface !== 'tasks') return null;
+    if (presentation?.activeViewId && !activeView) return null;
+    return {
+      identity: routeIdentity,
+      query: activeView?.query ?? createTaskQuery(collection),
+      layout: activeView?.layout ?? 'list',
+    };
+  }, [
+    activeView,
+    collection,
+    presentation?.activeViewId,
+    routeIdentity,
+    visibleSurface,
+  ]);
+
+  const currentTaskDraft =
+    taskDraft?.identity === routeIdentity ? taskDraft : canonicalTaskDraft;
+  const taskQuery = useMemo(
+    () => currentTaskDraft?.query ?? createTaskQuery(collection),
+    [collection, currentTaskDraft?.query],
+  );
+  const taskLayout = currentTaskDraft?.layout ?? 'list';
+  const taskDraftReady =
+    visibleSurface !== 'tasks' || currentTaskDraft !== null;
   const taskRequest = useMemo(
     () => ({ workspaceId, query: taskQuery }),
     [taskQuery, workspaceId],
   );
   const deferredTaskRequest = useDeferredValue(taskRequest);
-  const activeWorkspace = workspaces.data?.find(({ id }) => id === workspaceId);
-  const hasContentAccess = Boolean(
-    activeWorkspace && activeWorkspace.role !== 'guest',
-  );
-  const projects = useQuery({
-    queryKey: ['projects', workspaceId],
-    queryFn: () => listProjects(context, workspaceId!),
-    enabled: Boolean(workspaceId),
-  });
-  const activeProject = projects.data?.find(({ id }) => id === activeProjectId);
-  const visibleSurface: WorkspaceSurface =
-    activeProject &&
-    ((surface === 'cycles' && !activeProject.cycles_enabled) ||
-      (surface === 'modules' && !activeProject.modules_enabled) ||
-      (surface === 'documents' && !activeProject.pages_enabled) ||
-      (surface === 'views' && !activeProject.views_enabled))
-      ? 'project-overview'
-      : surface;
   const queryProjectId =
     activeView?.project_id ?? scopeProjectId(taskQuery.scope);
   const hasCollectionAccess = queryProjectId
@@ -189,6 +327,12 @@ export function WorkspaceShell({
         projects.data?.find(({ id }) => id === queryProjectId)?.effective_role,
       )
     : hasContentAccess;
+  const hasSettledCollectionAccess = queryProjectId
+    ? Boolean(
+        projectAccessSettled &&
+        projects.data?.find(({ id }) => id === queryProjectId)?.effective_role,
+      )
+    : hasSettledContentAccess;
   const collectionKey =
     activeView?.id ??
     (collection.kind === 'project'
@@ -210,19 +354,20 @@ export function WorkspaceShell({
     enabled: Boolean(
       workspaceId &&
       deferredTaskRequest.workspaceId === workspaceId &&
-      hasCollectionAccess &&
+      taskDraftReady &&
+      hasSettledCollectionAccess &&
       visibleSurface === 'tasks',
     ),
   });
   const taskConfiguration = useQuery({
     queryKey: ['task-configuration', workspaceId],
     queryFn: () => getTaskConfiguration(context, workspaceId!),
-    enabled: Boolean(workspaceId),
+    enabled: hasSettledWorkspaceAccess,
   });
   const workspaceViews = useQuery({
     queryKey: ['saved-views', workspaceId, null],
     queryFn: () => listSavedViews(context, workspaceId!, null),
-    enabled: Boolean(workspaceId && hasContentAccess),
+    enabled: hasSettledContentAccess,
   });
   const projectViews = useQuery({
     queryKey: ['saved-views', workspaceId, activeProjectId],
@@ -230,6 +375,7 @@ export function WorkspaceShell({
     enabled: Boolean(
       workspaceId &&
       activeProjectId &&
+      projectAccessSettled &&
       activeProject?.effective_role &&
       activeProject.views_enabled,
     ),
@@ -240,9 +386,11 @@ export function WorkspaceShell({
     enabled: Boolean(
       workspaceId &&
       selectedTaskId &&
-      hasCollectionAccess &&
+      taskDraftReady &&
+      hasSettledCollectionAccess &&
       visibleSurface === 'tasks',
     ),
+    retry: false,
   });
   const selectedProjectId =
     task.data?.project_id ??
@@ -251,13 +399,25 @@ export function WorkspaceShell({
   const workspaceMembers = useQuery({
     queryKey: ['workspace-members', workspaceId],
     queryFn: () => listWorkspaceMembers(context, workspaceId!),
-    enabled: Boolean(workspaceId && hasContentAccess),
+    enabled: Boolean(
+      workspaceId &&
+      hasSettledContentAccess &&
+      visibleSurface === 'tasks' &&
+      !queryProjectId,
+    ),
   });
   const selectedProjectMembers = useQuery({
     queryKey: ['project-members', workspaceId, selectedProjectId],
     queryFn: () =>
       listProjectMembers(context, workspaceId!, selectedProjectId!),
-    enabled: Boolean(workspaceId && selectedProjectId),
+    enabled: Boolean(
+      workspaceId &&
+      selectedTaskId &&
+      selectedProjectId &&
+      visibleSurface === 'tasks' &&
+      projectAccessSettled &&
+      projects.data?.find(({ id }) => id === selectedProjectId)?.effective_role,
+    ),
   });
   const planningProjectId = selectedProjectId ?? queryProjectId;
   const selectedProject = projects.data?.find(
@@ -267,7 +427,12 @@ export function WorkspaceShell({
     queryKey: ['cycles', workspaceId, planningProjectId],
     queryFn: () => listProjectCycles(context, workspaceId!, planningProjectId!),
     enabled: Boolean(
-      workspaceId && planningProjectId && selectedProject?.cycles_enabled,
+      workspaceId &&
+      planningProjectId &&
+      visibleSurface === 'tasks' &&
+      projectAccessSettled &&
+      selectedProject?.effective_role &&
+      selectedProject.cycles_enabled,
     ),
   });
   const selectedProjectModules = useQuery({
@@ -275,7 +440,12 @@ export function WorkspaceShell({
     queryFn: () =>
       listProjectModules(context, workspaceId!, planningProjectId!),
     enabled: Boolean(
-      workspaceId && planningProjectId && selectedProject?.modules_enabled,
+      workspaceId &&
+      planningProjectId &&
+      visibleSurface === 'tasks' &&
+      projectAccessSettled &&
+      selectedProject?.effective_role &&
+      selectedProject.modules_enabled,
     ),
   });
   const activeProjectMembers = useQuery({
@@ -284,33 +454,196 @@ export function WorkspaceShell({
     enabled: Boolean(
       workspaceId &&
       activeProjectId &&
+      projectAccessSettled &&
+      activeProject?.effective_role &&
       (visibleSurface === 'cycles' ||
         visibleSurface === 'modules' ||
         (visibleSurface === 'tasks' && collection.kind === 'project')),
     ),
   });
 
-  function resetTaskView(nextCollection: Collection) {
-    setCollection(nextCollection);
-    setTaskQuery(createTaskQuery(nextCollection));
-    setTaskLayout('list');
-    setActiveView(null);
-  }
+  const access = useMemo<WorkspaceLocationAccess>(
+    () => ({
+      activeWorkspaceId: user.active_workspace_id,
+      workspaces: queryResolution(workspaces),
+      ...(routedProjectId
+        ? { project: listItemResolution(projects, routedProject) }
+        : {}),
+      ...(routedViewId
+        ? {
+            savedView: queryResolution(savedView),
+          }
+        : {}),
+      ...(selectedTaskId ? { task: queryResolution(task) } : {}),
+      ...(location && isSettingsLocation(location)
+        ? {
+            settingsSections: settingsSectionResolution(
+              location,
+              activeWorkspace?.role,
+            ),
+          }
+        : {}),
+    }),
+    [
+      activeWorkspace?.role,
+      location,
+      projects,
+      routedProject,
+      routedProjectId,
+      routedViewId,
+      savedView,
+      selectedTaskId,
+      task,
+      user.active_workspace_id,
+      workspaces,
+    ],
+  );
+  const reconciliation = useMemo(
+    () => (location ? reconcileWorkspaceLocation(location, access) : null),
+    [access, location],
+  );
+  const replacementKey =
+    reconciliation?.status === 'replace'
+      ? JSON.stringify({ from: location, ...reconciliation })
+      : null;
+
+  useEffect(() => {
+    if (!location) {
+      if (workspaces.isFetching || workspaces.error) return;
+      const target =
+        workspaces.data?.find(({ id }) => id === user.active_workspace_id) ??
+        workspaces.data?.[0];
+      if (target) {
+        onNavigate(
+          { kind: 'my-work', workspaceId: target.id, taskId: null },
+          { replace: true },
+        );
+      }
+      return;
+    }
+
+    if (reconciliation?.status !== 'replace' || !replacementKey) {
+      canonicalReplacement.current = null;
+      return;
+    }
+    if (canonicalReplacement.current === replacementKey) return;
+
+    canonicalReplacement.current = replacementKey;
+    if (reconciliation.notice === 'task-unavailable') {
+      window.setTimeout(() => {
+        setActionError(
+          'That Task is unavailable or you no longer have access.',
+        );
+      });
+    }
+    onNavigate(reconciliation.location, { replace: true });
+  }, [
+    location,
+    onNavigate,
+    reconciliation,
+    replacementKey,
+    user.active_workspace_id,
+    workspaces.data,
+    workspaces.error,
+    workspaces.isFetching,
+  ]);
+
+  useEffect(() => {
+    if (
+      !location ||
+      !activeWorkspace ||
+      workspaces.isFetching ||
+      workspaces.error
+    ) {
+      return;
+    }
+
+    const attempt = `${user.id}:${activeWorkspace.id}`;
+    if (activationAttempt.current === attempt) return;
+    activationAttempt.current = attempt;
+    const generation = ++activationGeneration.current;
+    setDirectActivationError(null);
+    if (user.active_workspace_id === activeWorkspace.id) return;
+
+    void enqueueWorkspaceActivation(activeWorkspace.id, generation)
+      .then((isLatest) => {
+        if (isLatest) syncActiveWorkspace(activeWorkspace.id);
+      })
+      .catch((caught) => {
+        if (activationGeneration.current !== generation) return;
+        setDirectActivationError({
+          attempt,
+          message: errorMessage(caught),
+        });
+      });
+  }, [
+    activationRetry,
+    activeWorkspace,
+    enqueueWorkspaceActivation,
+    location,
+    syncActiveWorkspace,
+    user.active_workspace_id,
+    user.id,
+    workspaces.error,
+    workspaces.isFetching,
+  ]);
+
+  const prepareDocumentMutation = useCallback(async () => {
+    setActionError(null);
+    try {
+      await flushDocumentSaves();
+      return true;
+    } catch (caught) {
+      setActionError(errorMessage(caught));
+      return false;
+    }
+  }, [flushDocumentSaves]);
+
+  const navigateSafely = useCallback(
+    async (
+      nextLocation: WorkspaceReplacementLocation,
+      options?: { replace?: boolean },
+    ) => {
+      if (!(await prepareDocumentMutation())) return false;
+      onNavigate(nextLocation, options);
+      return true;
+    },
+    [onNavigate, prepareDocumentMutation],
+  );
+
+  const navigateTask = useCallback(
+    (taskId: string | null, replace = false) => {
+      if (!presentation || !hasTaskSelection(presentation.content)) return;
+      void navigateSafely(
+        { ...presentation.content, taskId },
+        replace ? { replace: true } : undefined,
+      );
+    },
+    [navigateSafely, presentation],
+  );
 
   async function switchWorkspace(nextWorkspaceId: string) {
     if (nextWorkspaceId === workspaceId) return;
+    const generation = ++activationGeneration.current;
     setActionError(null);
+    setDirectActivationError(null);
     try {
-      await activateWorkspace(context, nextWorkspaceId);
-      setActiveWorkspaceId(nextWorkspaceId);
-      resetTaskView({ kind: 'my-work' });
-      setSelectedTaskId(null);
-      setSelectedDocumentId(null);
-      setActiveProjectId(null);
-      setSurface('tasks');
-      setSettingsModal(null);
-      setWorkspaceSettingsSection('general');
+      await flushDocumentSaves();
+      if (activationGeneration.current !== generation) return;
+      const isLatest = await enqueueWorkspaceActivation(
+        nextWorkspaceId,
+        generation,
+      );
+      if (!isLatest) return;
+      activationAttempt.current = `${user.id}:${nextWorkspaceId}`;
+      onNavigate({
+        kind: 'my-work',
+        workspaceId: nextWorkspaceId,
+        taskId: null,
+      });
+      syncActiveWorkspace(nextWorkspaceId);
     } catch (caught) {
+      if (activationGeneration.current !== generation) return;
       setActionError(errorMessage(caught));
     }
   }
@@ -318,15 +651,12 @@ export function WorkspaceShell({
   async function addWorkspace(name: string) {
     setActionError(null);
     try {
+      await flushDocumentSaves();
       const workspace = await createWorkspace(context, name);
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-      setActiveWorkspaceId(workspace.id);
-      resetTaskView({ kind: 'my-work' });
-      setSelectedTaskId(null);
-      setSelectedDocumentId(null);
-      setActiveProjectId(null);
-      setSurface('tasks');
-      setSettingsModal(null);
+      activationAttempt.current = `${user.id}:${workspace.id}`;
+      onNavigate({ kind: 'my-work', workspaceId: workspace.id, taskId: null });
+      syncActiveWorkspace(workspace.id);
     } catch (caught) {
       setActionError(errorMessage(caught));
       throw caught;
@@ -334,31 +664,32 @@ export function WorkspaceShell({
   }
 
   async function openImportedWorkspace(importedWorkspaceId: string) {
+    await flushDocumentSaves();
     await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    activationAttempt.current = `${user.id}:${importedWorkspaceId}`;
+    onNavigate({
+      kind: 'my-work',
+      workspaceId: importedWorkspaceId,
+      taskId: null,
+    });
+    syncActiveWorkspace(importedWorkspaceId);
     await queryClient.invalidateQueries({ queryKey: ['session'] });
-    setActiveWorkspaceId(importedWorkspaceId);
-    resetTaskView({ kind: 'my-work' });
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setActiveProjectId(null);
-    setSurface('tasks');
-    setSettingsModal(null);
   }
 
   async function addProject(name: string) {
     if (!workspaceId) return;
     setActionError(null);
     try {
+      await flushDocumentSaves();
       const project = await createProject(context, workspaceId, name);
       await queryClient.invalidateQueries({
         queryKey: ['projects', workspaceId],
       });
-      setCollection({ kind: 'project', projectId: project.id });
-      setActiveProjectId(project.id);
-      setSelectedTaskId(null);
-      setSelectedDocumentId(null);
-      setSurface('project-overview');
-      setSettingsModal(null);
+      onNavigate({
+        kind: 'project-overview',
+        workspaceId,
+        projectId: project.id,
+      });
     } catch (caught) {
       setActionError(errorMessage(caught));
       throw caught;
@@ -366,7 +697,15 @@ export function WorkspaceShell({
   }
 
   async function addTask(title: string) {
-    if (!workspaceId) return;
+    const taskLocation = presentation?.content;
+    if (
+      !workspaceId ||
+      !taskLocation ||
+      !hasTaskSelection(taskLocation) ||
+      !(await prepareDocumentMutation())
+    ) {
+      return;
+    }
     const created = await createTask(
       context,
       workspaceId,
@@ -374,9 +713,9 @@ export function WorkspaceShell({
       collection,
       collection.kind === 'my-work' ? [user.id] : undefined,
     );
-    setSelectedTaskId(created.id);
     queryClient.setQueryData(['task', workspaceId, created.id], created);
     await queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] });
+    onNavigate({ ...taskLocation, taskId: created.id });
   }
 
   async function patchTask(taskId: string, patch: TaskPatch) {
@@ -387,14 +726,23 @@ export function WorkspaceShell({
   }
 
   async function removeTask() {
-    if (!workspaceId || !selectedTaskId) return;
+    const taskLocation = presentation?.content;
+    if (
+      !workspaceId ||
+      !selectedTaskId ||
+      !taskLocation ||
+      !hasTaskSelection(taskLocation)
+    ) {
+      return;
+    }
     setActionError(null);
     try {
+      await flushDocumentSaves();
       await archiveTask(context, workspaceId, selectedTaskId);
       queryClient.removeQueries({
         queryKey: ['task', workspaceId, selectedTaskId],
       });
-      setSelectedTaskId(null);
+      onNavigate({ ...taskLocation, taskId: null }, { replace: true });
       await refreshTaskCaches();
     } catch (caught) {
       setActionError(errorMessage(caught));
@@ -402,12 +750,21 @@ export function WorkspaceShell({
   }
 
   async function permanentlyDeleteTask(reference: string) {
-    if (!workspaceId || !selectedTaskId) return;
+    const taskLocation = presentation?.content;
+    if (
+      !workspaceId ||
+      !selectedTaskId ||
+      !taskLocation ||
+      !hasTaskSelection(taskLocation)
+    ) {
+      return;
+    }
+    await flushDocumentSaves();
     await deleteTask(context, workspaceId, selectedTaskId, reference);
     queryClient.removeQueries({
       queryKey: ['task', workspaceId, selectedTaskId],
     });
-    setSelectedTaskId(null);
+    onNavigate({ ...taskLocation, taskId: null }, { replace: true });
     await refreshTaskCaches();
   }
 
@@ -470,40 +827,43 @@ export function WorkspaceShell({
   }
 
   function selectCollection(nextCollection: Collection) {
-    setSurface('tasks');
-    resetTaskView(nextCollection);
-    setActiveProjectId(
-      nextCollection.kind === 'project' ? nextCollection.projectId : null,
-    );
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
+    if (!workspaceId) return;
+    void navigateSafely(collectionLocation(workspaceId, nextCollection));
   }
 
   function openSavedView(view: SavedView) {
-    const nextCollection = collectionFromScope(view.query.scope);
-    setCollection(nextCollection);
-    setTaskQuery(view.query);
-    setTaskLayout(view.layout);
-    setActiveView(view);
-    setActiveProjectId(view.project_id);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface('tasks');
-    setActionError(null);
+    queryClient.setQueryData(['saved-view', view.workspace_id, view.id], view);
+    void navigateSafely(savedViewLocation(view));
+  }
+
+  function changeTaskQuery(nextQuery: ReturnType<typeof createTaskQuery>) {
+    if (!routeIdentity || !currentTaskDraft) return;
+    setTaskDraft({
+      ...currentTaskDraft,
+      identity: routeIdentity,
+      query: nextQuery,
+    });
   }
 
   function changeTaskLayout(nextLayout: TaskLayout) {
-    setTaskLayout(nextLayout);
+    if (!routeIdentity || !currentTaskDraft) return;
+    let nextQuery = currentTaskDraft.query;
     if (nextLayout === 'board' && !taskQuery.grouping.primary) {
-      setTaskQuery({
+      nextQuery = {
         ...taskQuery,
         grouping: { primary: 'state_group', secondary: null },
-      });
+      };
     }
+    setTaskDraft({
+      ...currentTaskDraft,
+      identity: routeIdentity,
+      query: nextQuery,
+      layout: nextLayout,
+    });
   }
 
   async function addSavedView(name: string, visibility: SavedViewVisibility) {
-    if (!workspaceId) return;
+    if (!workspaceId || !(await prepareDocumentMutation())) return;
     const created = await createSavedView(context, workspaceId, {
       name,
       visibility,
@@ -511,15 +871,22 @@ export function WorkspaceShell({
       query: taskQuery,
       layout: taskLayout,
     });
-    setActiveView(created);
+    queryClient.setQueryData(['saved-view', workspaceId, created.id], created);
     await refreshSavedViewCache(created.project_id);
+    onNavigate(savedViewLocation(created));
   }
 
   async function addProjectSavedView(
     name: string,
     visibility: SavedViewVisibility,
   ) {
-    if (!workspaceId || !activeProjectId) return;
+    if (
+      !workspaceId ||
+      !activeProjectId ||
+      !(await prepareDocumentMutation())
+    ) {
+      return;
+    }
     const query = createTaskQuery({
       kind: 'project',
       projectId: activeProjectId,
@@ -532,7 +899,8 @@ export function WorkspaceShell({
       layout: 'list',
     });
     await refreshSavedViewCache(activeProjectId);
-    openSavedView(created);
+    queryClient.setQueryData(['saved-view', workspaceId, created.id], created);
+    onNavigate(savedViewLocation(created));
   }
 
   async function patchSavedView(
@@ -545,7 +913,7 @@ export function WorkspaceShell({
       activeView.id,
       patch,
     );
-    setActiveView(updated);
+    queryClient.setQueryData(['saved-view', workspaceId, updated.id], updated);
     await refreshSavedViewCache(updated.project_id);
   }
 
@@ -555,7 +923,7 @@ export function WorkspaceShell({
       query: taskQuery,
       layout: taskLayout,
     });
-    setActiveView(updated);
+    queryClient.setQueryData(['saved-view', workspaceId, updated.id], updated);
     await refreshSavedViewCache(updated.project_id);
   }
 
@@ -570,8 +938,17 @@ export function WorkspaceShell({
     if (!workspaceId || !activeView) return;
     if (!window.confirm(`Delete the View “${activeView.name}”?`)) return;
     const projectId = activeView.project_id;
+    await flushDocumentSaves();
     await deleteSavedView(context, workspaceId, activeView.id);
-    setActiveView(null);
+    queryClient.removeQueries({
+      queryKey: ['saved-view', workspaceId, activeView.id],
+    });
+    onNavigate(
+      projectId
+        ? { kind: 'project-views', workspaceId, projectId }
+        : { kind: 'all-tasks', workspaceId, taskId: null },
+      { replace: true },
+    );
     await refreshSavedViewCache(projectId);
   }
 
@@ -582,9 +959,13 @@ export function WorkspaceShell({
   }
 
   function openAccountSettings(section: AccountSettingsSection) {
-    setAccountSettingsSection(section);
-    setSettingsModal('account');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely({
+      kind: 'account-settings',
+      workspaceId,
+      section,
+      returnTo: presentation?.content ?? null,
+    });
   }
 
   async function openNotificationTask(
@@ -593,95 +974,130 @@ export function WorkspaceShell({
   ) {
     setActionError(null);
     try {
-      if (notificationWorkspaceId !== workspaceId) {
+      const notificationTask = await getTask(
+        context,
+        notificationWorkspaceId,
+        taskId,
+      );
+      await flushDocumentSaves();
+      const changesWorkspace = notificationWorkspaceId !== workspaceId;
+      if (changesWorkspace) {
         await activateWorkspace(context, notificationWorkspaceId);
-        setActiveWorkspaceId(notificationWorkspaceId);
+        activationAttempt.current = `${user.id}:${notificationWorkspaceId}`;
       }
-      resetTaskView({ kind: 'my-work' });
-      setActiveProjectId(null);
-      setSettingsModal(null);
-      setSurface('tasks');
-      setSelectedTaskId(taskId);
+      onNavigate(
+        notificationTask.project_id
+          ? {
+              kind: 'project-work-items',
+              workspaceId: notificationWorkspaceId,
+              projectId: notificationTask.project_id,
+              taskId,
+            }
+          : {
+              kind: 'all-tasks',
+              workspaceId: notificationWorkspaceId,
+              taskId,
+            },
+      );
+      if (changesWorkspace) {
+        syncActiveWorkspace(notificationWorkspaceId);
+      }
     } catch (caught) {
       setActionError(errorMessage(caught));
     }
   }
 
   function openWorkspaceSettings(section: WorkspaceSettingsSection) {
-    setWorkspaceSettingsSection(section);
-    setSettingsModal('workspace');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely({
+      kind: 'workspace-settings',
+      workspaceId,
+      section,
+      returnTo: presentation?.content ?? null,
+    });
   }
 
   function openProjectOverview(projectId: string) {
-    setActiveView(null);
-    setActiveProjectId(projectId);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface('project-overview');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely({ kind: 'project-overview', workspaceId, projectId });
   }
 
   function openProjectSettings(projectId: string) {
-    setActiveProjectId(projectId);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface('project-overview');
-    setSettingsModal('project');
-    setActionError(null);
+    if (!workspaceId) return;
+    const projectOverview: WorkspaceContentLocation = {
+      kind: 'project-overview',
+      workspaceId,
+      projectId,
+    };
+    void navigateSafely({
+      kind: 'project-settings',
+      workspaceId,
+      projectId,
+      section: 'general',
+      returnTo:
+        presentation?.activeProjectId === projectId
+          ? presentation.content
+          : projectOverview,
+    });
   }
 
   function openPlanning(projectId: string, kind: 'cycles' | 'modules') {
-    setActiveView(null);
-    setActiveProjectId(projectId);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface(kind);
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely(
+      kind === 'cycles'
+        ? { kind: 'project-cycles', workspaceId, projectId, cycleId: null }
+        : { kind: 'project-modules', workspaceId, projectId, moduleId: null },
+    );
   }
 
   function openDocuments(
     projectId: string | null,
     documentId: string | null = null,
   ) {
-    setActiveView(null);
-    setActiveProjectId(projectId);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(documentId);
-    setTaskLayout('list');
-    setSurface('documents');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely(
+      projectId
+        ? {
+            kind: 'project-library',
+            workspaceId,
+            projectId,
+            documentId,
+          }
+        : { kind: 'workspace-library', workspaceId, documentId },
+    );
   }
 
   function openProjectViews(projectId: string) {
-    setActiveView(null);
-    setActiveProjectId(projectId);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface('views');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely({ kind: 'project-views', workspaceId, projectId });
   }
 
   function openPlanningTask(taskId: string) {
-    if (!activeProject) return;
-    resetTaskView({ kind: 'project', projectId: activeProject.id });
-    setSelectedTaskId(taskId);
-    setSurface('tasks');
+    if (!workspaceId || !activeProject) return;
+    void navigateSafely({
+      kind: 'project-work-items',
+      workspaceId,
+      projectId: activeProject.id,
+      taskId,
+    });
   }
 
   function openCommandTask(currentTask: Task) {
-    resetTaskView({ kind: 'all' });
-    setActiveProjectId(currentTask.project_id);
-    setSelectedTaskId(currentTask.id);
-    setSelectedDocumentId(null);
-    setSettingsModal(null);
-    setSurface('tasks');
-    setActionError(null);
+    if (!workspaceId) return;
+    void navigateSafely(
+      currentTask.project_id
+        ? {
+            kind: 'project-work-items',
+            workspaceId,
+            projectId: currentTask.project_id,
+            taskId: currentTask.id,
+          }
+        : { kind: 'all-tasks', workspaceId, taskId: currentTask.id },
+    );
   }
 
   function openCommandDocument(document: WorkspaceDocument) {
     openDocuments(document.project_id, document.id);
-    setSettingsModal(null);
   }
 
   async function joinActiveProject() {
@@ -693,8 +1109,12 @@ export function WorkspaceShell({
       await queryClient.invalidateQueries({
         queryKey: ['projects', workspaceId],
       });
-      resetTaskView({ kind: 'project', projectId: activeProject.id });
-      setSurface('tasks');
+      await navigateSafely({
+        kind: 'project-work-items',
+        workspaceId,
+        projectId: activeProject.id,
+        taskId: null,
+      });
     } catch (caught) {
       setActionError(errorMessage(caught));
     } finally {
@@ -714,16 +1134,16 @@ export function WorkspaceShell({
   }
 
   async function refreshAfterProjectRemoval() {
-    resetTaskView(hasContentAccess ? { kind: 'inbox' } : { kind: 'my-work' });
-    setActiveProjectId(null);
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setSurface('tasks');
-    setSettingsModal(null);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['projects', workspaceId] }),
       queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
     ]);
+    if (workspaceId) {
+      onNavigate(
+        { kind: 'my-work', workspaceId, taskId: null },
+        { replace: true },
+      );
+    }
   }
 
   async function refreshWorkspace() {
@@ -743,17 +1163,102 @@ export function WorkspaceShell({
   async function refreshAfterWorkspaceRemoval() {
     const result = await workspaces.refetch();
     const nextWorkspace = result.data?.find(({ id }) => id !== workspaceId);
-    setActiveWorkspaceId(nextWorkspace?.id ?? null);
-    resetTaskView({ kind: 'my-work' });
-    setSelectedTaskId(null);
-    setSelectedDocumentId(null);
-    setActiveProjectId(null);
-    setSurface('tasks');
-    setSettingsModal(null);
+    if (nextWorkspace) {
+      activationAttempt.current = `${user.id}:${nextWorkspace.id}`;
+    }
+    onNavigate(
+      nextWorkspace
+        ? { kind: 'my-work', workspaceId: nextWorkspace.id, taskId: null }
+        : { kind: 'root' },
+      { replace: true },
+    );
+    syncActiveWorkspace(nextWorkspace?.id ?? null);
     await queryClient.invalidateQueries({ queryKey: ['session'] });
   }
 
-  if (workspaces.error) {
+  const selectDocument = useCallback(
+    (document: WorkspaceDocument | null, options?: { replace?: boolean }) => {
+      if (!workspaceId) return Promise.resolve(false);
+      const documentProjectId = document?.project_id ?? activeProjectId;
+      const nextLocation: WorkspaceContentLocation = documentProjectId
+        ? {
+            kind: 'project-library',
+            workspaceId,
+            projectId: documentProjectId,
+            documentId: document?.id ?? null,
+          }
+        : {
+            kind: 'workspace-library',
+            workspaceId,
+            documentId: document?.id ?? null,
+          };
+      return navigateSafely(
+        preserveSettingsLocation(location, nextLocation),
+        options,
+      );
+    },
+    [activeProjectId, location, navigateSafely, workspaceId],
+  );
+  const rejectDocumentSelection = useCallback(() => {
+    if (!workspaceId) return;
+    const nextLocation: WorkspaceContentLocation = activeProjectId
+      ? {
+          kind: 'project-library',
+          workspaceId,
+          projectId: activeProjectId,
+          documentId: null,
+        }
+      : { kind: 'workspace-library', workspaceId, documentId: null };
+    onNavigate(preserveSettingsLocation(location, nextLocation), {
+      replace: true,
+    });
+  }, [activeProjectId, location, onNavigate, workspaceId]);
+  const selectPlanningItem = useCallback(
+    (selectedId: string | null, options?: { replace?: boolean }) => {
+      if (!workspaceId || !activeProjectId) return;
+      const nextLocation: WorkspaceContentLocation =
+        visibleSurface === 'cycles'
+          ? {
+              kind: 'project-cycles',
+              workspaceId,
+              projectId: activeProjectId,
+              cycleId: selectedId,
+            }
+          : {
+              kind: 'project-modules',
+              workspaceId,
+              projectId: activeProjectId,
+              moduleId: selectedId,
+            };
+      void navigateSafely(
+        preserveSettingsLocation(location, nextLocation),
+        options,
+      );
+    },
+    [activeProjectId, location, navigateSafely, visibleSurface, workspaceId],
+  );
+
+  function closeSettings() {
+    if (!location || !isSettingsLocation(location)) return;
+    void navigateSafely(settingsReturnTarget(location), { replace: true });
+  }
+
+  function changeAccountSettingsSection(section: AccountSettingsSection) {
+    if (!location || location.kind !== 'account-settings') return;
+    void navigateSafely({ ...location, section }, { replace: true });
+  }
+
+  function changeWorkspaceSettingsSection(section: WorkspaceSettingsSection) {
+    if (!location || location.kind !== 'workspace-settings') return;
+    void navigateSafely({ ...location, section }, { replace: true });
+  }
+
+  function changeProjectSettingsSection(section: ProjectSettingsSection) {
+    if (!location || location.kind !== 'project-settings') return;
+    void navigateSafely({ ...location, section }, { replace: true });
+  }
+
+  if (workspaces.error && (!workspaces.data || !location || !activeWorkspace)) {
     return (
       <main className="status-page">
         <Wordmark quiet />
@@ -779,7 +1284,13 @@ export function WorkspaceShell({
       </main>
     );
   }
+  if (!location && (workspaces.data?.length ?? 0) > 0) {
+    return <WorkspaceOpening />;
+  }
   if (!workspaceId || !activeWorkspace) {
+    if ((workspaces.data?.length ?? 0) > 0) {
+      return <WorkspaceOpening />;
+    }
     return (
       <EmptyWorkspace
         error={actionError}
@@ -787,6 +1298,54 @@ export function WorkspaceShell({
         onSignOut={onSignOut}
       />
     );
+  }
+  const directActivationAttempt = `${user.id}:${activeWorkspace.id}`;
+  if (
+    directActivationError?.attempt === directActivationAttempt &&
+    user.active_workspace_id !== activeWorkspace.id
+  ) {
+    return (
+      <WorkspaceRouteFailure
+        message={directActivationError.message}
+        onRetry={() => {
+          activationAttempt.current = null;
+          setDirectActivationError(null);
+          setActivationRetry((current) => current + 1);
+        }}
+      />
+    );
+  }
+  if (routedProjectId && projects.isPending) {
+    return <WorkspaceOpening />;
+  }
+  if (routedProjectId && projects.error) {
+    return (
+      <WorkspaceRouteFailure
+        message={errorMessage(projects.error)}
+        onRetry={() => void projects.refetch()}
+      />
+    );
+  }
+  if (routedProjectId && projects.data && !routedProject) {
+    return <WorkspaceOpening />;
+  }
+  if (routedViewId && savedView.isPending) {
+    return <WorkspaceOpening />;
+  }
+  if (
+    routedViewId &&
+    savedView.error &&
+    !isAuthoritativeAbsence(savedView.error)
+  ) {
+    return (
+      <WorkspaceRouteFailure
+        message={errorMessage(savedView.error)}
+        onRetry={() => void savedView.refetch()}
+      />
+    );
+  }
+  if (reconciliation?.status === 'replace') {
+    return <WorkspaceOpening />;
   }
 
   const visibleTasks = tasks.data ?? [];
@@ -899,7 +1458,6 @@ export function WorkspaceShell({
         onOpenWorkspaceSettings={openWorkspaceSettings}
         onOpenInvitations={() => openAccountSettings('invitations')}
         onImportWorkspace={() => {
-          setSettingsModal(null);
           setImportDialogOpen(true);
           setActionError(null);
         }}
@@ -931,7 +1489,15 @@ export function WorkspaceShell({
             onSwitchAccount={onSwitchAccount}
             onAddAccount={onAddAccount}
             onOpenAccountSettings={() => openAccountSettings('profile')}
-            onOpenHostConsole={onOpenHostConsole}
+            onOpenHostConsole={
+              onOpenHostConsole
+                ? () => {
+                    void flushDocumentSaves()
+                      .then(onOpenHostConsole)
+                      .catch((caught) => setActionError(errorMessage(caught)));
+                  }
+                : undefined
+            }
             onSignOutCurrent={onSignOut}
             onDismissError={onDismissAccountError}
           />
@@ -1017,7 +1583,9 @@ export function WorkspaceShell({
           projectId={activeProjectId}
           canCreateWorkspaceDocuments={hasContentAccess}
           selectedDocumentId={selectedDocumentId}
-          onSelectDocument={setSelectedDocumentId}
+          onSelectDocument={selectDocument}
+          onPrepareDocumentMutation={prepareDocumentMutation}
+          onInvalidSelection={rejectDocumentSelection}
         />
       ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
         activeProject &&
@@ -1029,8 +1597,13 @@ export function WorkspaceShell({
           context={context}
           workspaceId={workspaceId}
           project={activeProject}
+          accessSettled={Boolean(
+            projectAccessSettled && activeProject.effective_role,
+          )}
           members={activeProjectMembers.data ?? []}
           kind={visibleSurface}
+          selectedId={presentation?.planningSelectedId ?? null}
+          onSelectId={selectPlanningItem}
           onOpenTask={openPlanningTask}
         />
       ) : !hasCollectionAccess ? (
@@ -1075,9 +1648,9 @@ export function WorkspaceShell({
             canManageActiveView={canManageActiveView}
             canChangeActiveViewVisibility={canChangeActiveViewVisibility}
             canEditTask={canEditTask}
-            onQueryChange={setTaskQuery}
+            onQueryChange={changeTaskQuery}
             onLayoutChange={changeTaskLayout}
-            onSelectTask={setSelectedTaskId}
+            onSelectTask={(taskId) => navigateTask(taskId)}
             onCreateTask={addTask}
             onUpdateState={async (currentTask: Task, stateId) => {
               setActionError(null);
@@ -1103,7 +1676,7 @@ export function WorkspaceShell({
             onDeleteView={removeSavedView}
             onViewActionError={setActionError}
             onRetry={() => void tasks.refetch()}
-            onClearSelection={() => setSelectedTaskId(null)}
+            onClearSelection={() => navigateTask(null, true)}
           />
           <TaskDetailPane
             serverUrl={serverUrl}
@@ -1135,26 +1708,24 @@ export function WorkspaceShell({
             onDelete={permanentlyDeleteTask}
             onAddRelation={addRelation}
             onRemoveRelation={removeRelation}
-            onOpenTask={setSelectedTaskId}
-            onClose={() => setSelectedTaskId(null)}
+            onOpenTask={(taskId) => navigateTask(taskId)}
+            onClose={() => navigateTask(null, true)}
             onRetry={() => void task.refetch()}
           />
         </>
       )}
-      {settingsModal === 'account' && (
-        <SettingsDialog
-          label="Account settings"
-          onClose={() => setSettingsModal(null)}
-        >
-          <AccountSettingsShell
-            context={context}
-            user={user}
-            section={accountSettingsSection}
-            onSectionChange={setAccountSettingsSection}
-            onClose={() => setSettingsModal(null)}
-          />
-        </SettingsDialog>
-      )}
+      {location?.kind === 'account-settings' &&
+        isAccountSettingsSection(location.section) && (
+          <SettingsDialog label="Account settings" onClose={closeSettings}>
+            <AccountSettingsShell
+              context={context}
+              user={user}
+              section={location.section}
+              onSectionChange={changeAccountSettingsSection}
+              onClose={closeSettings}
+            />
+          </SettingsDialog>
+        )}
       {importDialogOpen && (
         <WorkspaceImportDialog
           context={context}
@@ -1162,50 +1733,55 @@ export function WorkspaceShell({
           onClose={() => setImportDialogOpen(false)}
         />
       )}
-      {settingsModal === 'workspace' && (
-        <SettingsDialog
-          label={`${activeWorkspace.name} Workspace settings`}
-          onClose={() => setSettingsModal(null)}
-        >
-          <WorkspaceSettingsShell
-            context={context}
-            user={user}
-            workspace={activeWorkspace}
-            workspaceCount={workspaces.data?.length ?? 0}
-            section={workspaceSettingsSection}
-            onSectionChange={setWorkspaceSettingsSection}
-            onClose={() => setSettingsModal(null)}
-            onWorkspaceUpdated={refreshWorkspace}
-            onConfigurationUpdated={refreshTaskConfiguration}
-            onWorkspaceRemoved={refreshAfterWorkspaceRemoval}
-          />
-        </SettingsDialog>
-      )}
-      {settingsModal === 'project' && activeProject && (
-        <SettingsDialog
-          label={`${activeProject.name} Project settings`}
-          onClose={() => setSettingsModal(null)}
-        >
-          <ProjectSettings
-            context={context}
-            workspace={activeWorkspace}
-            project={activeProject}
-            userId={user.id}
-            configuration={
-              taskConfiguration.data ?? {
-                states: [],
-                labels: [],
-                task_types: [],
-                default_state_id: activeProject.default_state_id,
-                default_task_type_id: activeProject.default_task_type_id,
+      {location?.kind === 'workspace-settings' &&
+        isWorkspaceSettingsSection(location.section) && (
+          <SettingsDialog
+            label={`${activeWorkspace.name} Workspace settings`}
+            onClose={closeSettings}
+          >
+            <WorkspaceSettingsShell
+              context={context}
+              user={user}
+              workspace={activeWorkspace}
+              workspaceCount={workspaces.data?.length ?? 0}
+              section={location.section}
+              onSectionChange={changeWorkspaceSettingsSection}
+              onClose={closeSettings}
+              onWorkspaceUpdated={refreshWorkspace}
+              onConfigurationUpdated={refreshTaskConfiguration}
+              onWorkspaceRemoved={refreshAfterWorkspaceRemoval}
+            />
+          </SettingsDialog>
+        )}
+      {location?.kind === 'project-settings' &&
+        isProjectSettingsSection(location.section) &&
+        activeProject && (
+          <SettingsDialog
+            label={`${activeProject.name} Project settings`}
+            onClose={closeSettings}
+          >
+            <ProjectSettings
+              context={context}
+              workspace={activeWorkspace}
+              project={activeProject}
+              userId={user.id}
+              configuration={
+                taskConfiguration.data ?? {
+                  states: [],
+                  labels: [],
+                  task_types: [],
+                  default_state_id: activeProject.default_state_id,
+                  default_task_type_id: activeProject.default_task_type_id,
+                }
               }
-            }
-            onClose={() => setSettingsModal(null)}
-            onUpdated={refreshProject}
-            onRemoved={refreshAfterProjectRemoval}
-          />
-        </SettingsDialog>
-      )}
+              section={location.section}
+              onSectionChange={changeProjectSettingsSection}
+              onClose={closeSettings}
+              onUpdated={refreshProject}
+              onRemoved={refreshAfterProjectRemoval}
+            />
+          </SettingsDialog>
+        )}
       {commandPaletteOpen && (
         <CommandPalette
           context={context}
@@ -1234,6 +1810,166 @@ export function WorkspaceShell({
           </button>
         </div>
       )}
+    </main>
+  );
+}
+
+function queryResolution<T>(query: {
+  data: T | undefined;
+  isPending: boolean;
+  isFetching: boolean;
+  error: unknown;
+}): Resolution<T> {
+  if (query.error instanceof ApiError && query.error.status === 403) {
+    return { status: 'forbidden' };
+  }
+  if (
+    query.error instanceof ApiError &&
+    (query.error.status === 404 || query.error.status === 422)
+  ) {
+    return { status: 'absent' };
+  }
+  if (query.error) return { status: 'transient-error' };
+  if (query.isFetching) return { status: 'pending' };
+  if (query.data !== undefined) {
+    return { status: 'resolved', value: query.data };
+  }
+  if (query.isPending) return { status: 'pending' };
+  return { status: 'pending' };
+}
+
+function listItemResolution<T>(
+  query: {
+    data: readonly unknown[] | undefined;
+    error: unknown;
+    isFetching: boolean;
+  },
+  item: T | undefined,
+): Resolution<T> {
+  if (query.error) return { status: 'transient-error' };
+  if (query.isFetching) return { status: 'pending' };
+  if (query.data !== undefined) {
+    return item === undefined
+      ? { status: 'absent' }
+      : { status: 'resolved', value: item };
+  }
+  return { status: 'pending' };
+}
+
+function settingsSectionResolution(
+  location: WorkspaceSettingsLocation,
+  workspaceRole: string | undefined,
+): Resolution<readonly string[]> {
+  if (location.kind === 'account-settings') {
+    return { status: 'resolved', value: accountSettingsSections };
+  }
+  if (location.kind === 'project-settings') {
+    return { status: 'resolved', value: projectSettingsSections };
+  }
+
+  const canManage = workspaceRole === 'owner' || workspaceRole === 'admin';
+  return {
+    status: 'resolved',
+    value: canManage
+      ? workspaceSettingsSections
+      : workspaceSettingsSections.filter(
+          (section) => section !== 'invitations' && section !== 'storage',
+        ),
+  };
+}
+
+function isSettingsLocation(
+  location: WorkspaceLocation,
+): location is WorkspaceSettingsLocation {
+  return location.kind.endsWith('-settings');
+}
+
+function preserveSettingsLocation(
+  current: WorkspaceLocation | null,
+  content: WorkspaceContentLocation,
+): WorkspaceLocation {
+  return current && isSettingsLocation(current)
+    ? { ...current, returnTo: content }
+    : content;
+}
+
+function hasTaskSelection(
+  location: WorkspaceContentLocation,
+): location is TaskCollectionLocation {
+  return 'taskId' in location;
+}
+
+function collectionLocation(
+  workspaceId: string,
+  collection: Collection,
+): TaskCollectionLocation {
+  switch (collection.kind) {
+    case 'my-work':
+      return { kind: 'my-work', workspaceId, taskId: null };
+    case 'inbox':
+      return { kind: 'inbox', workspaceId, taskId: null };
+    case 'all':
+      return { kind: 'all-tasks', workspaceId, taskId: null };
+    case 'project':
+      return {
+        kind: 'project-work-items',
+        workspaceId,
+        projectId: collection.projectId,
+        taskId: null,
+      };
+  }
+}
+
+function savedViewLocation(view: SavedView): TaskCollectionLocation {
+  return view.project_id
+    ? {
+        kind: 'project-view',
+        workspaceId: view.workspace_id,
+        projectId: view.project_id,
+        viewId: view.id,
+        taskId: null,
+      }
+    : {
+        kind: 'workspace-view',
+        workspaceId: view.workspace_id,
+        viewId: view.id,
+        taskId: null,
+      };
+}
+
+function isAuthoritativeAbsence(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    (error.status === 403 || error.status === 404 || error.status === 422)
+  );
+}
+
+function WorkspaceOpening() {
+  return (
+    <main className="status-page" aria-live="polite">
+      <Wordmark quiet />
+      <p>Opening your workspace…</p>
+    </main>
+  );
+}
+
+function WorkspaceRouteFailure({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <main className="status-page">
+      <Wordmark quiet />
+      <div className="form-heading" role="alert">
+        <h1>Workspace view unavailable</h1>
+        <p>{message}</p>
+      </div>
+      <button className="primary-button" type="button" onClick={onRetry}>
+        Try again
+      </button>
     </main>
   );
 }
