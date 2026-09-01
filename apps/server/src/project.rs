@@ -22,15 +22,12 @@ use crate::{
     AppState,
     auth::AuthenticatedUser,
     domain::{
-        ProjectDescription, ProjectIdentifier, ProjectVisibility, ResourceName, VaultStorageName,
+        ProjectDescription, ProjectIcon, ProjectIdentifier, ProjectVisibility, ResourceName,
+        VaultStorageName,
     },
     error::{AppError, is_unique_violation},
-    task::{
-        AppliedTaskFileUpdate, TaskVaultRow, apply_task_file_update, enqueue_projection,
-        finish_task_file_update, project_many, rollback_task_file_update, task_vault_row,
-    },
+    task::{enqueue_projection, project_many},
     task_config::{validate_state_assignment, validate_task_type_assignment},
-    vault::{LibraryMove, LibraryPath},
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -47,6 +44,7 @@ pub struct ProjectResponse {
     pub storage_name: String,
     pub identifier: String,
     pub description: String,
+    pub icon: String,
     pub lead_user_id: Option<Uuid>,
     pub visibility: String,
     pub default_assignee_id: Option<Uuid>,
@@ -69,14 +67,25 @@ pub(crate) struct CreateProjectRequest {
     name: String,
     #[serde(default)]
     identifier: Option<String>,
+    #[serde(default)]
+    description: String,
+    #[serde(default = "default_project_icon")]
+    icon: String,
+    #[serde(default)]
+    visibility: ProjectVisibility,
+    #[serde(default)]
+    lead_user_id: Option<Uuid>,
+}
+
+fn default_project_icon() -> String {
+    "folder".to_owned()
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UpdateProjectRequest {
     #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
-    identifier: Option<String>,
     #[serde(default)]
     description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_nullable_uuid_patch")]
@@ -113,6 +122,10 @@ pub(crate) fn routes() -> Router<AppState> {
             get(list).post(create),
         )
         .route(
+            "/api/workspaces/{workspace_id}/projects/archived",
+            get(list_archived),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/projects/{project_id}",
             get(detail).patch(update).delete(archive),
         )
@@ -121,12 +134,72 @@ pub(crate) fn routes() -> Router<AppState> {
             post(archive),
         )
         .route(
+            "/api/workspaces/{workspace_id}/projects/{project_id}/restore",
+            post(restore),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/projects/{project_id}/delete",
             post(delete_project),
         )
         .merge(membership::routes())
         .merge(cycle::routes())
         .merge(module::routes())
+}
+
+async fn list_archived(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<Uuid>, PathRejection>,
+) -> Result<Json<Vec<ProjectResponse>>, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    workspace_role(&state.pool, auth.user.id, workspace_id).await?;
+    let projects = sqlx::query_as::<_, ProjectResponse>(
+        r#"
+        SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
+               projects.identifier, projects.description, projects.icon, projects.lead_user_id,
+               projects.visibility, projects.default_assignee_id,
+               projects.default_state_id, projects.default_task_type_id,
+               projects.cycles_enabled, projects.modules_enabled,
+               projects.pages_enabled, projects.views_enabled,
+               ARRAY(
+                   SELECT project_task_types.task_type_id
+                   FROM project_task_types
+                   JOIN task_types ON task_types.id = project_task_types.task_type_id
+                   WHERE project_task_types.workspace_id = projects.workspace_id
+                     AND project_task_types.project_id = projects.id
+                   ORDER BY task_types.position, task_types.id
+               ) AS enabled_task_type_ids,
+               CASE
+                   WHEN workspace_memberships.role IN ('owner', 'admin') THEN 'admin'
+                   ELSE project_memberships.role
+               END AS effective_role,
+               false AS can_join,
+               projects.archived_at, projects.created_at, projects.updated_at
+        FROM projects
+        JOIN workspace_memberships
+          ON workspace_memberships.workspace_id = projects.workspace_id
+         AND workspace_memberships.user_id = $1
+        LEFT JOIN project_memberships
+          ON project_memberships.workspace_id = projects.workspace_id
+         AND project_memberships.project_id = projects.id
+         AND project_memberships.user_id = $1
+        WHERE projects.workspace_id = $2
+          AND projects.archived_at IS NOT NULL
+          AND (
+              workspace_memberships.role IN ('owner', 'admin')
+              OR (
+                  workspace_memberships.role = 'member'
+                  AND project_memberships.role = 'admin'
+              )
+          )
+        ORDER BY projects.archived_at DESC, projects.id
+        "#,
+    )
+    .bind(auth.user.id)
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(projects))
 }
 
 async fn list(
@@ -139,7 +212,7 @@ async fn list(
     let projects = sqlx::query_as::<_, ProjectResponse>(
         r#"
         SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
-               projects.identifier, projects.description, projects.lead_user_id,
+               projects.identifier, projects.description, projects.icon, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
                projects.default_state_id, projects.default_task_type_id,
                projects.cycles_enabled, projects.modules_enabled,
@@ -157,7 +230,7 @@ async fn list(
                    ELSE project_memberships.role
                END AS effective_role,
                workspace_memberships.role = 'member'
-                   AND projects.visibility = 'open'
+                   AND projects.visibility = 'public'
                    AND project_memberships.user_id IS NULL AS can_join,
                projects.archived_at, projects.created_at, projects.updated_at
         FROM projects
@@ -175,7 +248,7 @@ async fn list(
               OR project_memberships.user_id IS NOT NULL
               OR (
                   workspace_memberships.role = 'member'
-                  AND projects.visibility = 'open'
+                  AND projects.visibility = 'public'
               )
           )
         ORDER BY projects.created_at, projects.id
@@ -210,15 +283,50 @@ async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let role = workspace_role(&state.pool, auth.user.id, workspace_id).await?;
-    if role == WorkspaceRole::Guest {
-        return Err(AppError::Forbidden);
-    }
-
+    let description = ProjectDescription::new(&request.description)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let icon =
+        ProjectIcon::new(&request.icon).map_err(|error| AppError::Validation(error.to_string()))?;
     let project_id = Uuid::new_v4();
     let storage_name = VaultStorageName::from_initial_name(name.as_str(), project_id);
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
+    let creator_role: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT role
+        FROM workspace_memberships
+        WHERE workspace_id = $1 AND user_id = $2
+        FOR SHARE
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(auth.user.id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let role = creator_role
+        .as_deref()
+        .map(WorkspaceRole::from_database)
+        .transpose()?
+        .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))?;
+    if role == WorkspaceRole::Guest {
+        return Err(AppError::Forbidden);
+    }
+    let lead_user_id = request.lead_user_id.unwrap_or(auth.user.id);
+    let lead_workspace_role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 FOR SHARE",
+    )
+    .bind(workspace_id)
+    .bind(lead_user_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let lead_workspace_role = lead_workspace_role.ok_or_else(|| {
+        AppError::Validation("Project lead must belong to this Workspace".to_owned())
+    })?;
+    if lead_workspace_role == "guest" {
+        return Err(AppError::Validation(
+            "Guests cannot lead a Project".to_owned(),
+        ));
+    }
     let identifier = match request.identifier {
         Some(identifier) => ProjectIdentifier::new(&identifier)
             .map_err(|error| AppError::Validation(error.to_string()))?,
@@ -227,10 +335,10 @@ async fn create(
     let result = sqlx::query(
         r#"
         INSERT INTO projects (
-            id, workspace_id, name, storage_name, identifier, lead_user_id,
-            default_state_id, default_task_type_id
+            id, workspace_id, name, storage_name, identifier, description, icon,
+            visibility, lead_user_id, default_state_id, default_task_type_id
         )
-        SELECT $1, id, $3, $4, $5, $6,
+        SELECT $1, id, $3, $4, $5, $6, $7, $8, $9,
                default_inbox_state_id, default_task_type_id
         FROM workspaces
         WHERE id = $2
@@ -241,14 +349,17 @@ async fn create(
     .bind(name.as_str())
     .bind(storage_name.as_str())
     .bind(identifier.as_str())
-    .bind(auth.user.id)
+    .bind(description.as_str())
+    .bind(icon.as_str())
+    .bind(request.visibility.as_str())
+    .bind(lead_user_id)
     .execute(&mut *transaction)
     .await;
     match result {
         Ok(_) => {}
         Err(error) if is_unique_violation(&error) => {
             return Err(AppError::Conflict(
-                "Project name or identifier is already in use".to_owned(),
+                "Project ID is already in use".to_owned(),
             ));
         }
         Err(error) => return Err(error.into()),
@@ -279,6 +390,21 @@ async fn create(
         .execute(&mut *transaction)
         .await?;
     }
+    if lead_workspace_role == "member" && lead_user_id != auth.user.id {
+        sqlx::query(
+            r#"
+            INSERT INTO project_memberships (workspace_id, project_id, user_id, role)
+            VALUES ($1, $2, $3, 'admin')
+            ON CONFLICT (project_id, user_id) DO UPDATE
+            SET role = 'admin', updated_at = now()
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(lead_user_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
     transaction.commit().await?;
     Ok((
         StatusCode::CREATED,
@@ -305,19 +431,13 @@ async fn update(
         .map(ResourceName::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let identifier = request
-        .identifier
-        .as_deref()
-        .map(ProjectIdentifier::new)
-        .transpose()
-        .map_err(|error| AppError::Validation(error.to_string()))?;
     let description = request
         .description
         .as_deref()
         .map(ProjectDescription::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let projects_task_metadata = name.is_some() || identifier.is_some();
+    let projects_task_metadata = name.is_some();
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
 
     let mut transaction = state.pool.begin().await?;
@@ -365,23 +485,21 @@ async fn update(
         r#"
         UPDATE projects
         SET name = COALESCE($1, name),
-            identifier = COALESCE($2, identifier),
-            description = COALESCE($3, description),
-            lead_user_id = CASE WHEN $4 THEN $5 ELSE lead_user_id END,
-            visibility = COALESCE($6, visibility),
-            default_assignee_id = CASE WHEN $7 THEN $8 ELSE default_assignee_id END,
-            default_state_id = COALESCE($9, default_state_id),
-            default_task_type_id = COALESCE($10, default_task_type_id),
-            cycles_enabled = COALESCE($11, cycles_enabled),
-            modules_enabled = COALESCE($12, modules_enabled),
-            pages_enabled = COALESCE($13, pages_enabled),
-            views_enabled = COALESCE($14, views_enabled),
+            description = COALESCE($2, description),
+            lead_user_id = CASE WHEN $3 THEN $4 ELSE lead_user_id END,
+            visibility = COALESCE($5, visibility),
+            default_assignee_id = CASE WHEN $6 THEN $7 ELSE default_assignee_id END,
+            default_state_id = COALESCE($8, default_state_id),
+            default_task_type_id = COALESCE($9, default_task_type_id),
+            cycles_enabled = COALESCE($10, cycles_enabled),
+            modules_enabled = COALESCE($11, modules_enabled),
+            pages_enabled = COALESCE($12, pages_enabled),
+            views_enabled = COALESCE($13, views_enabled),
             updated_at = now()
-        WHERE workspace_id = $15 AND id = $16 AND archived_at IS NULL
+        WHERE workspace_id = $14 AND id = $15 AND archived_at IS NULL
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
-    .bind(identifier.as_ref().map(ProjectIdentifier::as_str))
     .bind(description.as_ref().map(ProjectDescription::as_str))
     .bind(lead_changed)
     .bind(lead_user_id)
@@ -402,7 +520,7 @@ async fn update(
         Ok(_) => {}
         Err(error) if is_unique_violation(&error) => {
             return Err(AppError::Conflict(
-                "Project name or identifier is already in use".to_owned(),
+                "Project ID is already in use".to_owned(),
             ));
         }
         Err(error) => return Err(error.into()),
@@ -454,35 +572,37 @@ async fn archive(
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, project_id)) = path.map_err(AppError::from)?;
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
-    let mut transaction = state.pool.begin().await?;
-    lock_workspace(&mut transaction, workspace_id).await?;
-    let vault_sources = project_vault_sources(&mut transaction, workspace_id, project_id).await?;
     let result = sqlx::query(
         "UPDATE projects SET archived_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL",
     )
     .bind(project_id)
     .bind(workspace_id)
-    .execute(&mut *transaction)
+    .execute(&state.pool)
     .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Project not found".to_owned()));
     }
-    move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
-    move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
-    let task_ids = vault_sources
-        .tasks
-        .iter()
-        .map(|(task_id, _)| *task_id)
-        .collect::<Vec<_>>();
-    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
-    let vault_changes =
-        apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
-    if let Err(error) = transaction.commit().await {
-        rollback_project_vault_changes(&state, workspace_id, &vault_changes).await;
-        return Err(error.into());
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn restore(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, Uuid)>, PathRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path((workspace_id, project_id)) = path.map_err(AppError::from)?;
+    require_project_admin_including_archived(&state.pool, auth.user.id, workspace_id, project_id)
+        .await?;
+    let result = sqlx::query(
+        "UPDATE projects SET archived_at = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2 AND archived_at IS NOT NULL",
+    )
+    .bind(project_id)
+    .bind(workspace_id)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Archived Project not found".to_owned()));
     }
-    finish_project_vault_changes(&state, &vault_changes).await;
-    project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -494,203 +614,144 @@ async fn delete_project(
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, project_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
-    require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
-    let identifier: Option<String> = sqlx::query_scalar(
-        "SELECT identifier FROM projects WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+    let project: Option<(String, String)> = sqlx::query_as(
+        r#"
+        SELECT projects.identifier, projects.storage_name
+        FROM projects
+        WHERE projects.workspace_id = $1 AND projects.id = $2
+        FOR UPDATE OF projects
+        "#,
     )
     .bind(workspace_id)
     .bind(project_id)
     .fetch_optional(&mut *transaction)
     .await?;
-    let identifier =
-        identifier.ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
-    if request.identifier.trim().to_ascii_uppercase() != identifier {
+    let (identifier, storage_name) =
+        project.ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
+    let workspace_role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 FOR SHARE",
+    )
+    .bind(workspace_id)
+    .bind(auth.user.id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(workspace_role) = workspace_role else {
+        return Err(AppError::NotFound("Project not found".to_owned()));
+    };
+    if !matches!(workspace_role.as_str(), "owner" | "admin") {
+        let project_role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM project_memberships WHERE workspace_id = $1 AND project_id = $2 AND user_id = $3 FOR SHARE",
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(auth.user.id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if project_role.as_deref() != Some("admin") {
+            return Err(AppError::NotFound("Project not found".to_owned()));
+        }
+    }
+    if request.identifier != identifier {
         return Err(AppError::Validation(
             "Project identifier does not match".to_owned(),
         ));
     }
-    let vault_sources = project_vault_sources(&mut transaction, workspace_id, project_id).await?;
-    move_tasks_to_inbox(&mut transaction, workspace_id, project_id).await?;
-    move_documents_to_workspace(&mut transaction, workspace_id, project_id).await?;
-    let task_ids = vault_sources
-        .tasks
-        .iter()
-        .map(|(task_id, _)| *task_id)
-        .collect::<Vec<_>>();
-    enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
-    let vault_changes =
-        apply_project_vault_changes(&state, &mut transaction, workspace_id, vault_sources).await?;
-    sqlx::query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2")
+    let deletion = state
+        .vault
+        .begin_project_deletion(workspace_id, project_id, &storage_name)
+        .await
+        .map_err(AppError::internal)?;
+    let database_result: Result<Vec<Uuid>, AppError> = async {
+        let detached_task_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            UPDATE tasks
+            SET parent_id = NULL, updated_at = now()
+            WHERE workspace_id = $1
+              AND project_id IS DISTINCT FROM $2
+              AND parent_id IN (
+                  SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2
+              )
+            RETURNING id
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(project_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        enqueue_projection(&mut transaction, workspace_id, &detached_task_ids).await?;
+        sqlx::query("DELETE FROM tasks WHERE workspace_id = $1 AND project_id = $2")
+            .bind(workspace_id)
+            .bind(project_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            r#"
+            UPDATE documents
+            SET parent_id = NULL, updated_at = now()
+            WHERE workspace_id = $1
+              AND project_id IS DISTINCT FROM $2
+              AND parent_id IN (
+                  SELECT id FROM documents WHERE workspace_id = $1 AND project_id = $2
+              )
+            "#,
+        )
         .bind(workspace_id)
         .bind(project_id)
         .execute(&mut *transaction)
         .await?;
-    if let Err(error) = transaction.commit().await {
-        rollback_project_vault_changes(&state, workspace_id, &vault_changes).await;
-        return Err(error.into());
+        sqlx::query("DELETE FROM documents WHERE workspace_id = $1 AND project_id = $2")
+            .bind(workspace_id)
+            .bind(project_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2")
+            .bind(workspace_id)
+            .bind(project_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(detached_task_ids)
     }
-    finish_project_vault_changes(&state, &vault_changes).await;
-    project_many(&state, workspace_id, &task_ids).await;
+    .await;
+    let detached_task_ids = match database_result {
+        Ok(task_ids) => task_ids,
+        Err(error) => {
+            if let Err(rollback_error) = state.vault.rollback_project_deletion(&deletion).await {
+                warn!(%project_id, %rollback_error, "failed to roll back Project vault deletion");
+            }
+            return Err(error);
+        }
+    };
+    state
+        .vault
+        .finish_project_deletion(&deletion)
+        .await
+        .map_err(AppError::internal)?;
+    project_many(&state, workspace_id, &detached_task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
-struct ProjectVaultSources {
-    tasks: Vec<(Uuid, TaskVaultRow)>,
-    library: Vec<(Uuid, LibraryPath, LibraryPath)>,
-}
-
-struct ProjectVaultChanges {
-    tasks: Vec<(Uuid, AppliedTaskFileUpdate)>,
-    library: Vec<(Uuid, LibraryMove)>,
-}
-
-async fn project_vault_sources(
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    project_id: Uuid,
-) -> Result<ProjectVaultSources, AppError> {
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE workspace_id = $1 AND id = $2")
-            .bind(workspace_id)
-            .bind(project_id)
-            .fetch_optional(&mut **transaction)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
-    let task_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2 ORDER BY id",
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_all(&mut **transaction)
-    .await?;
-    let mut tasks = Vec::with_capacity(task_ids.len());
-    for task_id in task_ids {
-        tasks.push((
-            task_id,
-            task_vault_row(transaction, workspace_id, task_id, true).await?,
-        ));
-    }
-    let roots: Vec<(Uuid, String)> = sqlx::query_as(
-        r#"
-        SELECT id, storage_name FROM documents
-        WHERE workspace_id = $1 AND project_id = $2 AND parent_id IS NULL
-        ORDER BY id
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_all(&mut **transaction)
-    .await?;
-    let library = roots
-        .into_iter()
-        .map(|(document_id, storage_name)| {
-            let source =
-                LibraryPath::parse_scoped(Some(&project_storage_name), [storage_name.as_str()])
-                    .map_err(AppError::internal)?;
-            let destination =
-                LibraryPath::parse([storage_name.as_str()]).map_err(AppError::internal)?;
-            Ok((document_id, source, destination))
-        })
-        .collect::<Result<_, AppError>>()?;
-    Ok(ProjectVaultSources { tasks, library })
-}
-
-async fn apply_project_vault_changes(
-    state: &AppState,
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    sources: ProjectVaultSources,
-) -> Result<ProjectVaultChanges, AppError> {
-    let mut changes = ProjectVaultChanges {
-        tasks: Vec::with_capacity(sources.tasks.len()),
-        library: Vec::with_capacity(sources.library.len()),
-    };
-    for (task_id, source) in sources.tasks {
-        let target = match task_vault_row(transaction, workspace_id, task_id, true).await {
-            Ok(target) => target,
-            Err(error) => {
-                rollback_project_vault_changes(state, workspace_id, &changes).await;
-                return Err(error);
-            }
-        };
-        match apply_task_file_update(state, workspace_id, task_id, &source, &target).await {
-            Ok(change) => changes.tasks.push((task_id, change)),
-            Err(error) => {
-                rollback_project_vault_changes(state, workspace_id, &changes).await;
-                return Err(error);
-            }
+pub async fn recover_project_deletions(state: &AppState) -> anyhow::Result<()> {
+    for deletion in state.vault.pending_project_deletions().await? {
+        let project_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)")
+                .bind(deletion.project_id())
+                .fetch_one(&state.pool)
+                .await?;
+        if project_exists {
+            state.vault.rollback_project_deletion(&deletion).await?;
+        } else {
+            state.vault.finish_project_deletion(&deletion).await?;
         }
     }
-    for (document_id, source, destination) in sources.library {
-        match state
-            .vault
-            .move_library_tree(workspace_id, document_id, &source, &destination)
-            .await
-        {
-            Ok(Some(change)) => changes.library.push((document_id, change)),
-            Ok(None) => {}
-            Err(error) => {
-                rollback_project_vault_changes(state, workspace_id, &changes).await;
-                return Err(AppError::internal(error));
-            }
-        }
-    }
-    Ok(changes)
-}
-
-async fn rollback_project_vault_changes(
-    state: &AppState,
-    workspace_id: Uuid,
-    changes: &ProjectVaultChanges,
-) {
-    for (document_id, change) in changes.library.iter().rev() {
-        if let Err(error) = state.vault.rollback_library_move(change).await {
-            warn!(%document_id, %error, "failed to roll back Project Wiki move");
-        }
-    }
-    for (task_id, change) in changes.tasks.iter().rev() {
-        rollback_task_file_update(state, workspace_id, *task_id, change).await;
-    }
-}
-
-async fn finish_project_vault_changes(state: &AppState, changes: &ProjectVaultChanges) {
-    for (document_id, change) in &changes.library {
-        if let Err(error) = state.vault.finish_library_move(change).await {
-            warn!(%document_id, %error, "failed to finish Project Wiki move cleanup");
-        }
-    }
-    for (task_id, change) in &changes.tasks {
-        finish_task_file_update(state, *task_id, change).await;
-    }
-}
-
-async fn move_documents_to_workspace(
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    project_id: Uuid,
-) -> Result<(), AppError> {
-    // A Project archive must not strand durable Pages behind an inaccessible
-    // Project scope. Moving the whole forest preserves parent relationships.
-    sqlx::query(
-        r#"
-        UPDATE documents
-        SET project_id = NULL, updated_at = now()
-        WHERE workspace_id = $1 AND project_id = $2
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .execute(&mut **transaction)
-    .await?;
     Ok(())
 }
 
 impl UpdateProjectRequest {
     fn is_empty(&self) -> bool {
         self.name.is_none()
-            && self.identifier.is_none()
             && self.description.is_none()
             && self.lead_user_id.is_none()
             && self.visibility.is_none()
@@ -714,7 +775,7 @@ async fn select_project(
     sqlx::query_as::<_, ProjectResponse>(
         r#"
         SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
-               projects.identifier, projects.description, projects.lead_user_id,
+               projects.identifier, projects.description, projects.icon, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
                projects.default_state_id, projects.default_task_type_id,
                projects.cycles_enabled, projects.modules_enabled,
@@ -757,33 +818,20 @@ async fn generate_identifier(
     workspace_id: Uuid,
     name: &str,
 ) -> Result<ProjectIdentifier, AppError> {
-    let mut base: String = name
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .take(8)
-        .collect::<String>()
-        .to_ascii_uppercase();
-    if base.len() < 2 {
-        base = "PRJ".to_owned();
-    }
+    let base = ProjectIdentifier::suggested(name);
     for ordinal in 1..=9999 {
-        let suffix = if ordinal == 1 {
-            String::new()
-        } else {
-            ordinal.to_string()
-        };
-        let prefix_length = 12usize.saturating_sub(suffix.len());
-        let candidate = format!("{}{}", &base[..base.len().min(prefix_length)], suffix);
+        let candidate = base
+            .with_ordinal(ordinal)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE workspace_id = $1 AND identifier = $2)",
         )
         .bind(workspace_id)
-        .bind(&candidate)
+        .bind(candidate.as_str())
         .fetch_one(&mut **transaction)
         .await?;
         if !exists {
-            return ProjectIdentifier::new(&candidate)
-                .map_err(|error| AppError::Validation(error.to_string()));
+            return Ok(candidate);
         }
     }
     Err(AppError::Conflict(
@@ -902,6 +950,43 @@ async fn lock_workspace(
         .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))
 }
 
+async fn require_project_admin_including_archived(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+    workspace_id: Uuid,
+    project_id: Uuid,
+) -> Result<(), AppError> {
+    let access: Option<(String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT workspace_memberships.role, project_memberships.role
+        FROM projects
+        JOIN workspace_memberships
+          ON workspace_memberships.workspace_id = projects.workspace_id
+         AND workspace_memberships.user_id = $1
+        LEFT JOIN project_memberships
+          ON project_memberships.workspace_id = projects.workspace_id
+         AND project_memberships.project_id = projects.id
+         AND project_memberships.user_id = $1
+        WHERE projects.workspace_id = $2 AND projects.id = $3
+        "#,
+    )
+    .bind(user_id)
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some((workspace_role, project_role)) = access else {
+        return Err(AppError::NotFound("Project not found".to_owned()));
+    };
+    if matches!(workspace_role.as_str(), "owner" | "admin")
+        || project_role.as_deref() == Some("admin")
+    {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
 async fn lock_workspace_for_assignment(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
@@ -914,49 +999,6 @@ async fn lock_workspace_for_assignment(
     found
         .map(|_| ())
         .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))
-}
-
-async fn move_tasks_to_inbox(
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    project_id: Uuid,
-) -> Result<(), AppError> {
-    // Preserve work when a Project leaves navigation; Inbox is the neutral scope.
-    sqlx::query("DELETE FROM task_cycle_assignments WHERE workspace_id = $1 AND project_id = $2")
-        .bind(workspace_id)
-        .bind(project_id)
-        .execute(&mut **transaction)
-        .await?;
-    sqlx::query("DELETE FROM task_module_assignments WHERE workspace_id = $1 AND project_id = $2")
-        .bind(workspace_id)
-        .bind(project_id)
-        .execute(&mut **transaction)
-        .await?;
-    sqlx::query(
-        r#"
-        DELETE FROM task_assignees
-        USING tasks, workspace_memberships
-        WHERE task_assignees.workspace_id = $1
-          AND task_assignees.task_id = tasks.id
-          AND tasks.workspace_id = $1
-          AND tasks.project_id = $2
-          AND workspace_memberships.workspace_id = $1
-          AND workspace_memberships.user_id = task_assignees.user_id
-          AND workspace_memberships.role = 'guest'
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .execute(&mut **transaction)
-    .await?;
-    sqlx::query(
-        "UPDATE tasks SET project_id = NULL, updated_at = now() WHERE workspace_id = $1 AND project_id = $2",
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .execute(&mut **transaction)
-    .await?;
-    Ok(())
 }
 
 fn deserialize_nullable_uuid_patch<'de, D>(

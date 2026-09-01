@@ -156,7 +156,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
 
     let project_storage = VaultStorageName::from_initial_name("Kanleaf", project);
     sqlx::query(
-        "INSERT INTO projects (id, workspace_id, name, storage_name, identifier, default_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, 'KAN', $5, $6)",
+        "INSERT INTO projects (id, workspace_id, name, storage_name, identifier, default_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, 'kanleaf', $5, $6)",
     )
         .bind(project)
         .bind(first_workspace)

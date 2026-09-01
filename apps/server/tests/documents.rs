@@ -555,7 +555,7 @@ async fn legacy_uuid_pages_migrate_to_deterministic_library_paths(pool: PgPool) 
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn archiving_a_project_preserves_its_pages_as_workspace_documents(pool: PgPool) {
+async fn archiving_a_project_preserves_its_project_pages_in_place(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
@@ -611,19 +611,16 @@ async fn archiving_a_project_preserves_its_pages_as_workspace_documents(pool: Pg
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert!(rows.iter().all(|(_, project_id, _)| project_id.is_none()));
+    assert!(
+        rows.iter()
+            .all(|(_, stored_project_id, _)| *stored_project_id == Some(project_id))
+    );
     assert_eq!(
         rows.iter().find(|(id, _, _)| *id == child_id).unwrap().2,
         Some(root_id)
     );
-    let workspace_wiki = data_dir
-        .path()
-        .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
-    assert!(workspace_wiki.join("decision_log.md").exists());
-    assert!(workspace_wiki.join("decision_log/adr_001.md").exists());
-    assert!(!project_wiki.exists());
+    assert!(project_wiki.join("decision_log.md").exists());
+    assert!(project_wiki.join("decision_log/adr_001.md").exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]

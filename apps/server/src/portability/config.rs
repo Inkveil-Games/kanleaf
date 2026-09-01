@@ -15,6 +15,7 @@ use crate::{
 };
 
 const CONFIG_FORMAT_VERSION: u16 = 1;
+const PROJECT_CONFIG_FORMAT_VERSION: u16 = 2;
 const PROJECTION_BATCH_SIZE: i64 = 20;
 const RETRY_DELAY_SECONDS: f64 = 30.0;
 
@@ -110,6 +111,8 @@ pub(super) struct ProjectConfig {
     pub storage_name: String,
     pub identifier: String,
     pub description: String,
+    #[serde(default = "default_project_icon")]
+    pub icon: String,
     pub visibility: String,
     pub lead_email: Option<String>,
     pub default_assignee_email: Option<String>,
@@ -121,6 +124,12 @@ pub(super) struct ProjectConfig {
     pub cycles: Vec<CycleConfig>,
     pub modules: Vec<ModuleConfig>,
     pub archived: bool,
+    #[serde(skip)]
+    pub legacy_identifier: Option<String>,
+}
+
+fn default_project_icon() -> String {
+    "folder".to_owned()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -242,6 +251,7 @@ struct ProjectRow {
     storage_name: String,
     identifier: String,
     description: String,
+    icon: String,
     visibility: String,
     lead_email: Option<String>,
     default_assignee_email: Option<String>,
@@ -413,7 +423,7 @@ async fn build_snapshot(
     let project_rows = sqlx::query_as::<_, ProjectRow>(
         r#"
         SELECT projects.id, projects.name, projects.storage_name,
-               projects.identifier, projects.description, projects.visibility,
+               projects.identifier, projects.description, projects.icon, projects.visibility,
                leads.email AS lead_email, assignees.email AS default_assignee_email,
                projects.default_state_id, projects.default_task_type_id,
                projects.cycles_enabled, projects.modules_enabled,
@@ -565,12 +575,13 @@ async fn load_project_config(
     .fetch_all(&mut **transaction)
     .await?;
     Ok(ProjectConfig {
-        format_version: CONFIG_FORMAT_VERSION,
+        format_version: PROJECT_CONFIG_FORMAT_VERSION,
         id: project.id,
         name: project.name,
         storage_name: project.storage_name,
         identifier: project.identifier,
         description: project.description,
+        icon: project.icon,
         visibility: project.visibility,
         lead_email: project.lead_email,
         default_assignee_email: project.default_assignee_email,
@@ -587,6 +598,7 @@ async fn load_project_config(
         cycles,
         modules,
         archived: project.archived,
+        legacy_identifier: None,
     })
 }
 

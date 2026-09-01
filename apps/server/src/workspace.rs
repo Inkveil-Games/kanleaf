@@ -178,6 +178,10 @@ pub(crate) fn routes() -> Router<AppState> {
             post(task::query),
         )
         .route(
+            "/api/workspaces/{workspace_id}/tasks/by-number/{task_number}",
+            get(task::get_by_number),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/tasks/{task_id}",
             get(task::get).patch(task::update).delete(task::archive),
         )

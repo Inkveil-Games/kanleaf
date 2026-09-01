@@ -358,7 +358,8 @@ pub(super) async fn run(
         WHERE tasks.workspace_id = "#,
     );
     sql.push_bind(workspace_id)
-        .push(" AND tasks.archived_at IS NULL");
+        .push(" AND tasks.archived_at IS NULL")
+        .push(" AND (tasks.project_id IS NULL OR projects.archived_at IS NULL)");
     push_scope(&mut sql, &query.scope, user_id);
     if let Some(search) = query.search.as_deref() {
         sql.push(" AND tasks.title ILIKE ")

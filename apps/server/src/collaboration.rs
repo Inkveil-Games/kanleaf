@@ -554,9 +554,8 @@ async fn list_notifications(
         SELECT notifications.id, notifications.notification_type,
                notifications.workspace_id, workspaces.name AS workspace_name,
                notifications.task_id,
-               CASE WHEN projects.identifier IS NULL THEN
-                   CASE WHEN tasks.task_number IS NULL THEN NULL ELSE 'K-' || tasks.task_number END
-               ELSE projects.identifier || '-' || tasks.task_number END AS task_reference,
+               CASE WHEN tasks.task_number IS NULL THEN NULL
+                    ELSE '#' || tasks.task_number END AS task_reference,
                tasks.title AS task_title, notifications.comment_id,
                notifications.invitation_id, notifications.actor_id,
                actors.email AS actor_email, actors.display_name AS actor_display_name,

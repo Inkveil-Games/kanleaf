@@ -358,8 +358,8 @@ pub(super) async fn hydrate_tasks(
     Ok(())
 }
 
-pub(super) fn task_reference(project_identifier: Option<&str>, number: i64) -> String {
-    project_identifier.map_or_else(|| format!("#{number}"), |value| format!("{value}-{number}"))
+pub(super) fn task_reference(_project_identifier: Option<&str>, number: i64) -> String {
+    format!("#{number}")
 }
 
 #[derive(FromRow)]
@@ -458,6 +458,6 @@ mod tests {
     #[test]
     fn task_reference_uses_the_current_location_without_changing_the_number() {
         assert_eq!(task_reference(None, 42), "#42");
-        assert_eq!(task_reference(Some("KAN"), 42), "KAN-42");
+        assert_eq!(task_reference(Some("kanleaf-core"), 42), "#42");
     }
 }

@@ -268,7 +268,7 @@ async fn join(
     .bind(project_id)
     .fetch_optional(&state.pool)
     .await?;
-    if visibility.as_deref() != Some(ProjectVisibility::Open.as_str()) {
+    if visibility.as_deref() != Some(ProjectVisibility::Public.as_str()) {
         return Err(AppError::NotFound("Project not found".to_owned()));
     }
     let result = sqlx::query(

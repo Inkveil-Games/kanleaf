@@ -139,7 +139,343 @@ async fn add_project_member(
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn effective_roles_keep_private_projects_hidden_and_open_projects_joinable(pool: PgPool) {
+async fn project_creation_uses_public_identity_and_allows_duplicate_names(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let (_, member_id, _) = register(&app, "lead@example.com").await;
+    add_workspace_member(&pool, workspace_id, member_id, "member").await;
+
+    let first = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects"),
+            json!({
+                "name": "Product launch",
+                "identifier": "product-launch",
+                "description": "Coordinate the public launch",
+                "icon": "rocket",
+                "visibility": "public",
+                "lead_user_id": member_id
+            }),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let first = response_json(first).await;
+    assert_eq!(first["identifier"], "product-launch");
+    assert_eq!(first["description"], "Coordinate the public launch");
+    assert_eq!(first["icon"], "rocket");
+    assert_eq!(first["visibility"], "public");
+    assert_eq!(first["lead_user_id"], member_id.to_string());
+
+    let lead_role: String = sqlx::query_scalar(
+        "SELECT role FROM project_memberships WHERE project_id = $1 AND user_id = $2",
+    )
+    .bind(Uuid::parse_str(first["id"].as_str().unwrap()).unwrap())
+    .bind(member_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(lead_role, "admin");
+
+    let duplicate_name = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects"),
+            json!({
+                "name": "Product launch",
+                "identifier": "second-launch",
+                "description": "",
+                "icon": "folder",
+                "visibility": "private",
+                "lead_user_id": null
+            }),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate_name.status(), StatusCode::CREATED);
+
+    let duplicate_identifier = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects"),
+            json!({
+                "name": "Another name",
+                "identifier": "product-launch",
+                "description": "",
+                "icon": "folder",
+                "visibility": "private",
+                "lead_user_id": null
+            }),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate_identifier.status(), StatusCode::CONFLICT);
+
+    let identifier_update = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!(
+                "/api/workspaces/{workspace_id}/projects/{}",
+                first["id"].as_str().unwrap()
+            ),
+            json!({"identifier": "renamed-project"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(identifier_update.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn project_archive_restores_data_and_delete_frees_the_identifier(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let (member_token, member_id, _) = register(&app, "member@example.com").await;
+    let (guest_token, guest_id, _) = register(&app, "guest@example.com").await;
+    add_workspace_member(&pool, workspace_id, member_id, "member").await;
+    add_workspace_member(&pool, workspace_id, guest_id, "guest").await;
+
+    let project = create_project(&app, &owner_token, workspace_id, "Lifecycle").await;
+    let project_id = project["id"].as_str().unwrap();
+    assert_eq!(
+        add_project_member(
+            &app,
+            &owner_token,
+            workspace_id,
+            project_id,
+            member_id,
+            "admin",
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
+    let task = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            json!({"title": "Keep in Project", "project_id": project_id}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(task.status(), StatusCode::CREATED);
+    let task = response_json(task).await;
+    let by_number = app
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!(
+                "/api/workspaces/{workspace_id}/tasks/by-number/{}",
+                task["task_number"]
+            ),
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(by_number.status(), StatusCode::OK);
+    assert_eq!(response_json(by_number).await["id"], task["id"]);
+    let outside_task = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            json!({"title": "Keep outside Project"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(outside_task.status(), StatusCode::CREATED);
+    let outside_task = response_json(outside_task).await;
+    let outside_task_id = Uuid::parse_str(outside_task["id"].as_str().unwrap()).unwrap();
+    sqlx::query("UPDATE tasks SET parent_id = $1 WHERE workspace_id = $2 AND id = $3")
+        .bind(Uuid::parse_str(task["id"].as_str().unwrap()).unwrap())
+        .bind(workspace_id)
+        .bind(outside_task_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let document = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents"),
+            json!({"title": "Keep in Project", "project_id": project_id}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(document.status(), StatusCode::CREATED);
+    let document = response_json(document).await;
+    let project_directory = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Projects")
+        .join(project["storage_name"].as_str().unwrap());
+    assert!(project_directory.exists());
+
+    let archived = app
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/archive"),
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archived.status(), StatusCode::NO_CONTENT);
+
+    let task_project_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT project_id FROM tasks WHERE id = $1")
+            .bind(Uuid::parse_str(task["id"].as_str().unwrap()).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let document_project_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT project_id FROM documents WHERE id = $1")
+            .bind(Uuid::parse_str(document["id"].as_str().unwrap()).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(task_project_id, Some(Uuid::parse_str(project_id).unwrap()));
+    assert_eq!(
+        document_project_id,
+        Some(Uuid::parse_str(project_id).unwrap())
+    );
+    assert!(project_directory.exists());
+
+    for (token, expected) in [
+        (&owner_token, 1usize),
+        (&member_token, 1usize),
+        (&guest_token, 0usize),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/api/workspaces/{workspace_id}/projects/archived"),
+                token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(response).await.as_array().unwrap().len(),
+            expected
+        );
+    }
+
+    let restored = app
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/restore"),
+            &member_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(restored.status(), StatusCode::NO_CONTENT);
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(empty_request(
+                "POST",
+                &format!("/api/workspaces/{workspace_id}/projects/{project_id}/archive"),
+                &owner_token,
+            ))
+            .await
+            .unwrap();
+        if response.status() == StatusCode::NO_CONTENT {
+            break;
+        }
+    }
+    let deleted = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/delete"),
+            json!({"identifier": "lifecycle"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    for table in ["projects", "documents"] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {table} WHERE workspace_id = $1"
+        ))
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0, "{table} still has Project-owned rows");
+    }
+    let outside_task_state: (Option<Uuid>, i64, i64) = sqlx::query_as(
+        "SELECT parent_id, metadata_version, projected_metadata_version FROM tasks WHERE workspace_id = $1 AND id = $2",
+    )
+    .bind(workspace_id)
+    .bind(outside_task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(outside_task_state.0, None);
+    assert_eq!(outside_task_state.1, outside_task_state.2);
+    let project_task_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM tasks WHERE workspace_id = $1 AND id = $2")
+            .bind(workspace_id)
+            .bind(Uuid::parse_str(task["id"].as_str().unwrap()).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(project_task_count, 0);
+    assert!(!project_directory.exists());
+
+    let reused = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects"),
+            json!({"name": "Lifecycle again", "identifier": "lifecycle"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reused.status(), StatusCode::CREATED);
+    let reused = response_json(reused).await;
+    let next_task = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            json!({"title": "Do not reuse numbers", "project_id": reused["id"]}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(next_task.status(), StatusCode::CREATED);
+    assert!(
+        response_json(next_task).await["task_number"]
+            .as_i64()
+            .unwrap()
+            > task["task_number"].as_i64().unwrap()
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn effective_roles_keep_private_projects_hidden_and_public_projects_joinable(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
@@ -279,7 +615,7 @@ async fn effective_roles_keep_private_projects_hidden_and_open_projects_joinable
         .oneshot(json_request(
             "PATCH",
             &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
-            json!({"visibility": "open"}),
+            json!({"visibility": "public"}),
             Some(&owner_token),
         ))
         .await
@@ -364,9 +700,8 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
             &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
             json!({
                 "name": "Kanleaf Desktop",
-                "identifier": "KAN",
                 "description": "Desktop-first project management",
-                "visibility": "open",
+                "visibility": "public",
                 "lead_user_id": owner_id,
                 "default_assignee_id": owner_id,
                 "default_state_id": default_state,
@@ -383,7 +718,7 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
         .unwrap();
     assert_eq!(changed.status(), StatusCode::OK);
     let changed = response_json(changed).await;
-    assert_eq!(changed["identifier"], "KAN");
+    assert_eq!(changed["identifier"], "kanleaf-core");
     assert_eq!(changed["lead_user_id"], owner_id.to_string());
     assert_eq!(changed["cycles_enabled"], false);
     assert_eq!(changed["pages_enabled"], true);
@@ -515,7 +850,7 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
         .oneshot(json_request(
             "POST",
             &format!("/api/workspaces/{workspace_id}/projects/{project_id}/delete"),
-            json!({"identifier": "KAN"}),
+            json!({"identifier": "kanleaf-core"}),
             Some(&owner_token),
         ))
         .await
@@ -530,7 +865,7 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
         ))
         .await
         .unwrap();
-    assert_eq!(response_json(inbox).await.as_array().unwrap().len(), 1);
+    assert!(response_json(inbox).await.as_array().unwrap().is_empty());
 
     let former_admin = app
         .oneshot(empty_request(

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
 
 const MAX_EMAIL_LENGTH: usize = 320;
@@ -421,19 +422,113 @@ pub struct ProjectIdentifier(String);
 
 impl ProjectIdentifier {
     pub fn new(value: &str) -> Result<Self, ValidationError> {
-        let normalized = value.trim().to_ascii_uppercase();
-        let mut characters = normalized.chars();
-        let valid_start = characters
-            .next()
-            .is_some_and(|character| character.is_ascii_alphanumeric());
-        let valid_rest =
-            characters.all(|character| character.is_ascii_alphanumeric() || character == '-');
-        if !valid_start || !valid_rest || !(2..=12).contains(&normalized.len()) {
+        let valid_length = (2..=48).contains(&value.len());
+        let valid_characters = value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        let valid_edges = value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+            && value
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphanumeric);
+        if !valid_length || !valid_characters || !valid_edges || value.contains("--") {
             return Err(ValidationError::new(
-                "Project identifier must be 2-12 letters, numbers, or hyphens",
+                "Project ID must contain 2 to 48 lowercase letters, numbers, or single hyphens",
             ));
         }
-        Ok(Self(normalized))
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn suggested(value: &str) -> Self {
+        let mut slug = String::with_capacity(value.len().min(48));
+        let mut separated = true;
+        let normalized = value.replace(['đ', 'Đ'], "d");
+        for character in normalized.nfkd() {
+            if is_combining_mark(character) {
+                continue;
+            }
+            if character.is_ascii_alphanumeric() {
+                if slug.len() == 48 {
+                    break;
+                }
+                slug.push(character.to_ascii_lowercase());
+                separated = false;
+            } else if !separated && slug.len() < 48 {
+                slug.push('-');
+                separated = true;
+            }
+        }
+        while slug.ends_with('-') {
+            slug.pop();
+        }
+        Self(if slug.len() < 2 {
+            "project".to_owned()
+        } else {
+            slug
+        })
+    }
+
+    pub fn with_ordinal(&self, ordinal: usize) -> Result<Self, ValidationError> {
+        let suffix = if ordinal == 1 {
+            String::new()
+        } else {
+            format!("-{ordinal}")
+        };
+        let prefix_length = 48usize.saturating_sub(suffix.len());
+        let prefix = self.0[..self.0.len().min(prefix_length)].trim_end_matches('-');
+        Self::new(&format!("{prefix}{suffix}"))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectIcon(String);
+
+impl ProjectIcon {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        const ICONS: &[&str] = &[
+            "folder",
+            "rocket",
+            "target",
+            "flag",
+            "bug",
+            "lightbulb",
+            "briefcase-business",
+            "code-2",
+            "palette",
+            "megaphone",
+            "chart-no-axes-combined",
+            "boxes",
+            "compass",
+            "globe-2",
+            "heart",
+            "star",
+            "zap",
+            "layout-dashboard",
+            "list-checks",
+            "calendar-days",
+            "clipboard-check",
+            "git-branch",
+            "database",
+            "terminal",
+            "shield-check",
+            "wrench",
+            "cpu",
+            "brush",
+            "pen-tool",
+            "camera",
+            "sparkles",
+        ];
+        if !ICONS.contains(&value) {
+            return Err(ValidationError::new("Choose a supported Project icon"));
+        }
+        Ok(Self(value.to_owned()))
     }
 
     pub fn as_str(&self) -> &str {
@@ -459,18 +554,19 @@ impl ProjectDescription {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectVisibility {
+    #[default]
     Private,
-    Open,
+    Public,
 }
 
 impl ProjectVisibility {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Private => "private",
-            Self::Open => "open",
+            Self::Public => "public",
         }
     }
 }
@@ -529,9 +625,9 @@ impl ValidationError {
 mod tests {
     use super::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
-        ProjectDescription, ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName,
-        TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword, VaultStorageName,
-        WorkspaceIdentifier,
+        ProjectDescription, ProjectIcon, ProjectIdentifier, ProjectRole, ProjectVisibility,
+        ResourceName, TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
+        VaultStorageName, WorkspaceIdentifier,
     };
     use uuid::Uuid;
 
@@ -656,10 +752,43 @@ mod tests {
 
     #[test]
     fn validates_project_vocabulary() {
-        assert_eq!(ProjectIdentifier::new(" kan-1 ").unwrap().as_str(), "KAN-1");
-        assert!(ProjectIdentifier::new("bad identifier").is_err());
+        assert_eq!(
+            ProjectIdentifier::new("kanleaf-core").unwrap().as_str(),
+            "kanleaf-core"
+        );
+        for identifier in [
+            "a",
+            "-kanleaf",
+            "kanleaf-",
+            "kanleaf--core",
+            "Kanleaf",
+            "kan_leaf",
+            "kanleaf core",
+        ] {
+            assert!(
+                ProjectIdentifier::new(identifier).is_err(),
+                "accepted {identifier}"
+            );
+        }
+        assert!(ProjectIdentifier::new(&"x".repeat(49)).is_err());
+        let long = ProjectIdentifier::new(&format!("{}-bb", "a".repeat(45))).unwrap();
+        assert_eq!(
+            long.with_ordinal(2).unwrap().as_str(),
+            format!("{}-2", "a".repeat(45))
+        );
+        assert_eq!(
+            ProjectIdentifier::suggested("Điện Biên Phủ").as_str(),
+            "dien-bien-phu"
+        );
+        assert_eq!(
+            ProjectIdentifier::suggested("Die\u{0323}n Bie\u{0302}n Phu\u{0309}").as_str(),
+            "dien-bien-phu"
+        );
+        assert_eq!(ProjectIcon::new("folder").unwrap().as_str(), "folder");
+        assert_eq!(ProjectIcon::new("rocket").unwrap().as_str(), "rocket");
+        assert!(ProjectIcon::new("not-a-kanleaf-icon").is_err());
         assert!(ProjectDescription::new(&"x".repeat(2001)).is_err());
-        assert_eq!(ProjectVisibility::Open.as_str(), "open");
+        assert_eq!(ProjectVisibility::Public.as_str(), "public");
         assert!(ProjectRole::Contributor.can_edit());
         assert!(!ProjectRole::Viewer.can_edit());
     }

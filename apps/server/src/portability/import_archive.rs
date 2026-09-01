@@ -15,7 +15,7 @@ use zip::ZipArchive;
 use crate::{
     domain::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, ProjectDescription,
-        ProjectIdentifier, ResourceName, TaskTitle, TaskTypeIcon, VaultStorageName,
+        ProjectIcon, ProjectIdentifier, ResourceName, TaskTitle, TaskTypeIcon, VaultStorageName,
     },
     task::{TaskProperties, TaskQuery, TaskQueryScope, read_task_properties},
     vault::TaskPath,
@@ -290,19 +290,36 @@ pub(super) fn validate_staging(
             .map(|project| &project.storage_name),
     )?;
     let mut projects = Vec::with_capacity(project_identities.len());
+    let mut project_identifiers = HashSet::new();
     for identity in &manifest.source.projects {
-        let project: ProjectConfig = load_json(
+        let mut project: ProjectConfig = load_json(
             staging_vault,
             &format!(".kanleaf/projects/{}.json", identity.id),
         )?;
-        if project.format_version != 1
+        if !matches!(project.format_version, 1 | 2)
             || project.id != identity.id
             || project.storage_name != identity.storage_name
             || project.archived != identity.archived
         {
             return Err(ImportArchiveError::InvalidMetadata);
         }
+        if project.format_version == 1 {
+            if !valid_legacy_project_identifier(&project.identifier)
+                || !matches!(project.visibility.as_str(), "private" | "open")
+            {
+                return Err(ImportArchiveError::InvalidMetadata);
+            }
+            project.legacy_identifier = Some(project.identifier.clone());
+            project.identifier = allocate_imported_identifier(&project.name, &project_identifiers)?;
+            if project.visibility == "open" {
+                project.visibility = "public".to_owned();
+            }
+            project.format_version = 2;
+        }
         validate_project(&project, &task_config)?;
+        if !project_identifiers.insert(project.identifier.clone()) {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
         projects.push(project);
     }
     let project_map = projects
@@ -325,14 +342,6 @@ pub(super) fn validate_staging(
     if cycle_ids.len() != cycle_count || module_ids.len() != module_count {
         return Err(ImportArchiveError::InvalidMetadata);
     }
-    let project_identifiers = projects
-        .iter()
-        .map(|project| project.identifier.as_str())
-        .collect::<HashSet<_>>();
-    if project_identifiers.len() != projects.len() {
-        return Err(ImportArchiveError::InvalidMetadata);
-    }
-
     let task_ids = manifest
         .source
         .tasks
@@ -365,7 +374,7 @@ pub(super) fn validate_staging(
             read_task_properties(&source).map_err(|_| ImportArchiveError::InvalidMetadata)?;
         if properties.kanleaf_id != identity.id
             || TaskTitle::new(&properties.title).is_err()
-            || properties.reference != expected_reference(identity, project)
+            || !reference_matches(&properties.reference, identity, project)
             || properties.project.as_deref() != project.map(|project| project.name.as_str())
         {
             return Err(ImportArchiveError::InvalidMetadata);
@@ -721,7 +730,8 @@ fn validate_project(
         || VaultStorageName::parse(&project.storage_name).is_err()
         || identifier.as_str() != project.identifier
         || ProjectDescription::new(&project.description).is_err()
-        || !matches!(project.visibility.as_str(), "private" | "open")
+        || ProjectIcon::new(&project.icon).is_err()
+        || !matches!(project.visibility.as_str(), "private" | "public")
     {
         return Err(ImportArchiveError::InvalidMetadata);
     }
@@ -874,11 +884,42 @@ fn task_path<'a>(
     Ok((path, project))
 }
 
-fn expected_reference(task: &TaskIdentity, project: Option<&ProjectConfig>) -> String {
-    project.map_or_else(
-        || format!("#{}", task.number),
-        |project| format!("{}-{}", project.identifier, task.number),
-    )
+fn reference_matches(
+    reference: &str,
+    task: &TaskIdentity,
+    project: Option<&ProjectConfig>,
+) -> bool {
+    reference == format!("#{}", task.number)
+        || project
+            .and_then(|project| project.legacy_identifier.as_deref())
+            .is_some_and(|identifier| reference == format!("{identifier}-{}", task.number))
+}
+
+fn valid_legacy_project_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    let valid_start = characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphanumeric());
+    valid_start
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
+        && (2..=12).contains(&value.len())
+        && value == value.to_ascii_uppercase()
+}
+
+fn allocate_imported_identifier(
+    name: &str,
+    used: &HashSet<String>,
+) -> Result<String, ImportArchiveError> {
+    let base = ProjectIdentifier::suggested(name);
+    for ordinal in 1..=9999 {
+        let candidate = base
+            .with_ordinal(ordinal)
+            .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+        if !used.contains(candidate.as_str()) {
+            return Ok(candidate.as_str().to_owned());
+        }
+    }
+    Err(ImportArchiveError::InvalidMetadata)
 }
 
 fn document_paths(

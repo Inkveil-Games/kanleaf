@@ -172,17 +172,17 @@ async fn workspace_and_project_lifecycle_persists(pool: PgPool) {
         .parse()
         .unwrap();
 
-    let duplicate = app
+    let duplicate_identifier = app
         .clone()
         .oneshot(json_request(
             "POST",
             &format!("/api/workspaces/{workspace_id}/projects"),
-            json!({"name": "kanleaf"}),
+            json!({"name": "kanleaf", "identifier": "kanleaf"}),
             Some(&token),
         ))
         .await
         .unwrap();
-    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    assert_eq!(duplicate_identifier.status(), StatusCode::CONFLICT);
 
     let renamed_project = app
         .clone()

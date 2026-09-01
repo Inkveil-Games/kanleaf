@@ -900,25 +900,45 @@ async fn resolve_parent(
     let Some(reference) = reference else {
         return Ok(None);
     };
+    let number = parse_parent_reference(reference)
+        .ok_or_else(|| "Parent could not be resolved".to_owned())?;
     sqlx::query_scalar(
         r#"
         SELECT tasks.id
         FROM tasks
-        LEFT JOIN projects ON projects.id = tasks.project_id
         WHERE tasks.workspace_id = $1 AND tasks.archived_at IS NULL
-          AND CASE WHEN projects.identifier IS NULL
-                   THEN '#' || tasks.task_number::text
-                   ELSE projects.identifier || '-' || tasks.task_number::text
-              END = $2
+          AND tasks.task_number = $2
         "#,
     )
     .bind(workspace_id)
-    .bind(reference.trim())
+    .bind(number)
     .fetch_optional(pool)
     .await
     .map_err(|_| "Parent could not be resolved".to_owned())?
     .map(Some)
     .ok_or_else(|| "Parent reference does not identify an active Task".to_owned())
+}
+
+fn parse_parent_reference(reference: &str) -> Option<i64> {
+    let reference = reference.trim();
+    let number = if let Some(number) = reference.strip_prefix('#') {
+        number
+    } else {
+        let (legacy_identifier, number) = reference.rsplit_once('-')?;
+        let mut characters = legacy_identifier.chars();
+        let valid_start = characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphanumeric());
+        let valid_legacy_identifier = valid_start
+            && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
+            && (2..=12).contains(&legacy_identifier.len())
+            && legacy_identifier == legacy_identifier.to_ascii_uppercase();
+        if !valid_legacy_identifier {
+            return None;
+        }
+        number
+    };
+    number.parse::<i64>().ok().filter(|number| *number > 0)
 }
 
 fn parse_priority(value: Option<&str>) -> Result<TaskPriority, String> {
@@ -1005,4 +1025,18 @@ fn operation_response(
         applied_task_ids: result.applied_task_ids,
         error: result.error,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_parent_reference;
+
+    #[test]
+    fn parent_references_accept_the_current_and_legacy_formats_only() {
+        assert_eq!(parse_parent_reference("#42"), Some(42));
+        assert_eq!(parse_parent_reference("KAN-42"), Some(42));
+        assert_eq!(parse_parent_reference(" kan-leaf-42 "), None);
+        assert_eq!(parse_parent_reference("#0"), None);
+        assert_eq!(parse_parent_reference("42"), None);
+    }
 }

@@ -211,14 +211,14 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .oneshot(json_request(
             "PATCH",
             &format!("/api/workspaces/{workspace_id}/projects/{project_id}"),
-            json!({"name": "Kanleaf Core", "identifier": "CORE"}),
+            json!({"name": "Kanleaf Core"}),
             Some(&token),
         ))
         .await
         .unwrap();
     assert_eq!(renamed_project.status(), StatusCode::OK);
     let renamed_source = fs::read_to_string(&project_document_path).unwrap();
-    assert!(renamed_source.contains("Reference: CORE-1\n"));
+    assert!(renamed_source.contains("Reference: \"#1\"\n"));
     assert!(renamed_source.contains("Project:\n  - Kanleaf Core\n"));
 
     let project_tasks = app
@@ -644,7 +644,7 @@ async fn task_and_document_access_isolated_by_workspace(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
+async fn archiving_a_project_preserves_its_tasks_and_markdown(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
@@ -683,27 +683,45 @@ async fn archiving_a_project_moves_its_active_tasks_to_inbox(pool: PgPool) {
         .unwrap();
     assert_eq!(archived.status(), StatusCode::NO_CONTENT);
 
-    let inbox = app
+    let hidden_detail = app
+        .clone()
         .oneshot(empty_request(
             "GET",
-            &format!("/api/workspaces/{workspace_id}/tasks?inbox=true"),
+            &format!(
+                "/api/workspaces/{workspace_id}/tasks/{}",
+                task["id"].as_str().unwrap()
+            ),
             &token,
         ))
         .await
         .unwrap();
-    let inbox = response_json(inbox).await;
-    assert_eq!(inbox.as_array().unwrap().len(), 1);
-    assert_eq!(inbox[0]["id"], task["id"]);
-    assert_eq!(inbox[0]["project_id"], Value::Null);
-    let inbox_path = data_dir
-        .path()
-        .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
-    let source = fs::read_to_string(inbox_path).unwrap();
-    assert!(source.contains("Project: []\n"));
-    assert!(!project_path.exists());
+    assert_eq!(hidden_detail.status(), StatusCode::NOT_FOUND);
+    let visible_tasks = app
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert!(
+        response_json(visible_tasks)
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let stored_project_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT project_id FROM tasks WHERE id = $1")
+            .bind(task["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_project_id, Some(project_id));
+    let source = fs::read_to_string(&project_path).unwrap();
+    assert!(source.contains("Project:\n  - Temporary\n"));
 }
 
 #[sqlx::test(migrations = "./migrations")]

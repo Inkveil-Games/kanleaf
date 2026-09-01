@@ -313,7 +313,7 @@ impl Vault {
     }
 }
 
-async fn ensure_regular_directory(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn ensure_regular_directory(path: &std::path::Path) -> Result<(), VaultError> {
     match fs::create_dir(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -327,7 +327,7 @@ async fn ensure_regular_directory(path: &std::path::Path) -> Result<(), VaultErr
     }
 }
 
-async fn regular_directory_exists(path: &std::path::Path) -> Result<bool, VaultError> {
+pub(super) async fn regular_directory_exists(path: &std::path::Path) -> Result<bool, VaultError> {
     match fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Ok(true),
         Ok(_) => Err(VaultError::InvalidManagedPath),
@@ -336,7 +336,7 @@ async fn regular_directory_exists(path: &std::path::Path) -> Result<bool, VaultE
     }
 }
 
-async fn ensure_absent(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn ensure_absent(path: &std::path::Path) -> Result<(), VaultError> {
     match fs::symlink_metadata(path).await {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
@@ -344,7 +344,9 @@ async fn ensure_absent(path: &std::path::Path) -> Result<(), VaultError> {
     }
 }
 
-async fn remove_regular_directory_if_present(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn remove_regular_directory_if_present(
+    path: &std::path::Path,
+) -> Result<(), VaultError> {
     match fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(path).await?;
@@ -356,7 +358,7 @@ async fn remove_regular_directory_if_present(path: &std::path::Path) -> Result<(
     }
 }
 
-async fn remove_file_if_present(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn remove_file_if_present(path: &std::path::Path) -> Result<(), VaultError> {
     match fs::remove_file(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -375,7 +377,7 @@ async fn sync_directory_if_present(path: &std::path::Path) -> Result<(), VaultEr
     }
 }
 
-async fn sync_directory(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn sync_directory(path: &std::path::Path) -> Result<(), VaultError> {
     #[cfg(unix)]
     {
         let directory = fs::File::open(path).await?;

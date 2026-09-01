@@ -201,10 +201,7 @@ async fn metadata_hierarchy_relations_and_my_work_are_tenant_scoped(pool: PgPool
     )
     .await;
     let parent_id = parent["id"].as_str().unwrap();
-    assert_eq!(
-        parent["reference"],
-        format!("{}-1", project["identifier"].as_str().unwrap())
-    );
+    assert_eq!(parent["reference"], "#1");
     assert_eq!(parent["assignees"][0]["user_id"], member_id.to_string());
     assert_eq!(parent["labels"][0]["id"], label_id);
 

@@ -489,6 +489,29 @@ pub(crate) async fn get(
     Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
 }
 
+pub(crate) async fn get_by_number(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, i64)>, PathRejection>,
+) -> Result<Json<TaskResponse>, AppError> {
+    let Path((workspace_id, task_number)) = path.map_err(AppError::from)?;
+    if task_number <= 0 {
+        return Err(AppError::NotFound("Task not found".to_owned()));
+    }
+    let task_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM tasks WHERE workspace_id = $1 AND task_number = $2")
+            .bind(workspace_id)
+            .bind(task_number)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    let mut transaction = state.pool.begin().await?;
+    let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
+    authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
+    transaction.commit().await?;
+    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
+}
+
 pub(crate) async fn update(
     State(state): State<AppState>,
     auth: AuthenticatedUser,

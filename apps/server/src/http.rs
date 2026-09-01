@@ -253,7 +253,7 @@ mod tests {
 
         for path in [
             "/host/access",
-            "/w/01994e1e-66dd-7d58-8274-a9a428aadf2f/projects/01994e1e-6d47-7ac2-8b28-433a93632680/cycles/01994e1e-7293-7299-9d4d-03d444a80bc9",
+            "/w/kanleaf-core/p/mobile-client/cycles/01994e1e-7293-7299-9d4d-03d444a80bc9",
         ] {
             let deep_link_response = app
                 .clone()

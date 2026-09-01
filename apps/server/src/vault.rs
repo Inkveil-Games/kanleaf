@@ -17,6 +17,7 @@ use uuid::Uuid;
 mod layout;
 mod library_operation;
 mod migration;
+mod project_deletion;
 mod task_operation;
 mod workspace_deletion;
 

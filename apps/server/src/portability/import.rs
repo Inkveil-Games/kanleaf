@@ -603,12 +603,12 @@ async fn insert_projects(
             r#"
             INSERT INTO projects (
                 id, workspace_id, name, storage_name, identifier, description,
-                visibility, default_state_id, default_task_type_id,
+                icon, visibility, default_state_id, default_task_type_id,
                 cycles_enabled, modules_enabled, pages_enabled, views_enabled,
                 archived_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                $10, $11, $12, $13, CASE WHEN $14 THEN now() END
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, CASE WHEN $15 THEN now() END
             )
             "#,
         )
@@ -618,6 +618,7 @@ async fn insert_projects(
         .bind(&project.storage_name)
         .bind(&project.identifier)
         .bind(&project.description)
+        .bind(&project.icon)
         .bind(&project.visibility)
         .bind(mapped(&maps.states, project.default_state_id)?)
         .bind(mapped(&maps.types, project.default_task_type_id)?)
