@@ -87,8 +87,9 @@ User ──< Session
   inside the same tenant.
 - Library notes keep stable IDs, titles, portable storage names, hierarchy, and
   ordering in PostgreSQL. A parent must share the same Workspace/Project scope;
-  subtree moves validate cycles and move every descendant together. Project is
-  access/filter metadata and never becomes a physical vault folder.
+  subtree moves validate cycles and move every descendant together. Workspace
+  notes live under `Wiki/`; Project notes live under the owning
+  `Projects/<stable-name>/Wiki/` tree.
 - Task comments store Markdown collaboration records in PostgreSQL, including
   one reply level, structured mentions, immutable prior revisions, and
   tombstone deletion. Activity is a compact product feed, not an event-sourcing
@@ -393,8 +394,13 @@ the Rust runtime image, and configures `KANLEAF_WEB_DIR=/usr/share/kanleaf`.
 Node and pnpm are build-stage tools and are absent at runtime. The image briefly
 starts as root to set ownership on a mounted vault, then executes the server as
 the unprivileged `kanleaf` user. Compose exposes one application service and
-port and persists only PostgreSQL data and vault files under the selected host
-data root.
+port. Its current bind mounts persist PostgreSQL and `vaults/`; server recovery
+state under `/data/operations` and `/data/trash` remains container-local. Any
+rename between the vault bind mount and those container-local paths can cross a
+mount boundary, so the current Compose topology does not satisfy the atomic
+rename assumption used by import activation and trash operations. Resolving
+that gap requires a migration-compatible persistence layout and runtime
+container test; Compose parsing and local single-directory tests do not prove it.
 
 ## Deferred intentionally
 

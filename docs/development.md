@@ -125,7 +125,10 @@ pnpm tauri build --no-bundle
 ```
 
 Install the pinned browser once, then run the real-service E2E suite. Playwright
-starts Axum and Vite itself, uses a temporary vault, and cleans it up afterward.
+starts Axum and Vite itself, uses a temporary vault, and cleans that vault up
+afterward. It migrates and writes the supplied PostgreSQL database without
+removing the created records, so first create a dedicated disposable database
+such as `kanleaf_e2e`; never point these suites at developer or deployment data.
 The suite covers durable Task and Library Markdown, Live Preview block/source
 transitions, portable Library trees, collaboration notifications, read state,
 and cross-workspace Task/activity/document isolation. The self-host suite also
@@ -135,9 +138,9 @@ access lifecycle against the compiled same-origin client.
 
 ```bash
 pnpm --filter @kanleaf/desktop exec playwright install chromium
-DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf \
+DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf_e2e \
   pnpm test:e2e
-DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf \
+DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf_e2e \
   pnpm test:e2e:self-host
 ```
 
@@ -216,7 +219,9 @@ do not expose the port directly to the Internet. Use an HTTPS reverse proxy for
 remote access.
 
 Use an alphanumeric PostgreSQL password in the provided URL-based Compose
-configuration, or percent-encode URL-reserved characters.
+configuration. Do not percent-encode it: Compose passes the same literal value
+to PostgreSQL and embeds it in `DATABASE_URL`, whose URL parser would decode a
+different password.
 
 ## Troubleshooting
 

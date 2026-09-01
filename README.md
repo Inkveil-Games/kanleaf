@@ -57,11 +57,11 @@ Markdown document.
 - A same-origin browser client in the AMD64/ARM64 self-host image
 - Docker Compose self-hosting and a Tauri v2 shell
 
-Account and Workspace settings have separate focused windows, while Project
-settings use their own project-scoped window. Workspace and account switching
-stay at the top and bottom of the navigation pane; the full-width top bar keeps
-global search and notifications available. Press `/` for collection-local Task
-search and `C` to create a Task when the current collection permits it.
+Account, Workspace, and Project settings use routed overlays, so their selected
+section survives refresh and browser history. Workspace switching uses the
+compact top control, account switching remains in the navigation footer, and
+the top bar keeps global search and notifications available. Press `/` for
+collection-local Task search and `C` to create a Task when permitted.
 
 ## Architecture at a glance
 
@@ -135,11 +135,12 @@ pnpm build
 ```
 
 The Playwright suite starts temporary Axum and Vite processes and removes its
-temporary vault after completion:
+temporary vault after completion. It retains records in the supplied database,
+so create and use a disposable `kanleaf_e2e` database:
 
 ```bash
 pnpm --filter @kanleaf/desktop exec playwright install chromium
-DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf \
+DATABASE_URL=postgres://kanleaf:kanleaf_dev@127.0.0.1:5432/kanleaf_e2e \
   pnpm test:e2e
 ```
 
