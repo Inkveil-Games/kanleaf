@@ -74,6 +74,15 @@ unless the user also asked for a change.
 - React Router owns durable application location: Host sections, Workspace and
   Project surfaces, Saved Views, selected Tasks/documents/planning items, and
   Settings sections. Build paths through the existing typed route helpers.
+- Workspace names may repeat. Canonical URLs carry the immutable, globally
+  unique, lifetime-reserved public identifier. Resolve it through authenticated
+  Workspace data before passing the UUID to feature APIs; UUID-prefixed `/w/...`
+  paths are compatibility redirects only. Keep `api`, `assets`, `host`, `setup`,
+  and `w` reserved in client validation, and update that list with server/domain,
+  database, and route tests whenever a top-level route is added.
+- The account response's server-owned `setup_stage` drives routed onboarding.
+  Do not infer completion from `active_workspace_id`, cached Workspaces, or
+  component-local progress, and do not allow arbitrary URLs to bypass a stage.
 - Preserve clean direct links, refresh, Back, and Forward. Normalize syntactic
   forms such as trailing slashes and wildcards immediately; replace a
   semantically missing or unauthorized location only after the owning query can

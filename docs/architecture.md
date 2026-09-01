@@ -62,7 +62,13 @@ User ──< Session
   Restricted. A separate normalized exact-email table stores approved
   addresses before or after account creation. This deployment policy is not
   Workspace configuration and never enters portable projections or exports.
-- A user has an optional active workspace and may belong to many workspaces.
+- A user has a server-owned setup stage, an optional active Workspace, and may
+  belong to many Workspaces. Registration does not imply membership.
+- Workspace names are display labels and may repeat. Each Workspace instead has
+  an immutable, globally unique public identifier for URLs. A lifetime registry
+  keeps retired identifiers unavailable after deletion, and the top-level route
+  names `api`, `assets`, `host`, `setup`, and `w` stay reserved; the Workspace
+  UUID remains the database, API authorization, and vault identity.
 - A project belongs to exactly one workspace. Owner/Admin access is implicit;
   other access uses explicit fixed-role Project memberships. Private projects
   are non-disclosing, while Open projects are discoverable and joinable only by
@@ -118,17 +124,22 @@ define a future offline cache or sync model.
 ## Authentication and authorization
 
 Registration normalizes the email, hashes the password with Argon2id, and
-atomically creates a user, Personal workspace, owner membership, active
-workspace, and session. Login returns a random 32-byte base64url bearer token.
-Only its SHA-256 digest is stored in PostgreSQL, so a database read does not
-reveal usable sessions.
+atomically creates only a user and session. The server-owned setup stage then
+requires account details before a normal user creates a first Workspace or
+accepts an invitation; invitation setup is optional after creation. The
+configured Host may complete setup without joining a Workspace so instance
+administration cannot deadlock. Login returns a random 32-byte base64url bearer
+token. Only its SHA-256 digest is stored in PostgreSQL, so a database read does
+not reveal usable sessions.
 
 An optional normalized `KANLEAF_HOST_EMAIL` identifies one deployment Host.
 The derived `is_host` response flag is never stored as an account role. Host
-API handlers authorize that identity again on the server and may cross only
-the explicitly defined Workspace name/Owner metadata boundary; Host status
-does not grant Workspace membership or access to Tasks, Library documents,
-Markdown vaults, or filesystem paths.
+API handlers authorize that identity again on the server. Their metadata
+allowlist is Workspace UUID, name, identifier, and creation time plus Owner UUID,
+display name, and email. They may also invoke the narrow permanent
+Workspace-deletion use case only after exact-ID confirmation and Host password
+verification. Host status does not grant Workspace membership or access to Tasks,
+Library documents, Markdown contents, or filesystem paths.
 
 Instance access is Open by default. In Restricted mode, registration, valid
 credential login, and bearer-session extraction require either an approved
@@ -299,10 +310,34 @@ purged only after its record becomes unreachable. A purge failure is logged and
 leaves internal trash for operator cleanup instead of encouraging an unsafe
 client retry.
 
-Confirmed Workspace deletion first renames its typed vault to an internal trash
-namespace. A database failure restores that directory; a successful commit
-makes the Workspace unreachable before the server purges trash. Cleanup failure
-is logged for an operator and never exposes the internal path through the API.
+Confirmed Workspace deletion first records a durable manifest and renames its
+typed UUID vault beneath `vaults/.trash`, on the same persisted mount. A
+database failure or an interrupted pre-commit operation restores that directory;
+a rename-synchronization failure also compensates immediately before the request
+returns. Once committed, startup recovery or the request purges the vault,
+Workspace-scoped migration recovery copies (`<uuid>.legacy-*` and
+`.<uuid>.v2-staging.*`),
+Workspace Task trash, structural operation manifests, and known export artifacts;
+a successful commit retires the public identifier and makes all relational data
+unreachable first. The manifest and rename directory entries are synchronized
+before the database commit. An export holds a shared Workspace-row fence through
+artifact publication, while deletion holds the exclusive row lock. Canceling a
+preparing export leaves a hidden durable database marker until its worker, or
+startup recovery after a crash, has removed any late-published artifact. Periodic
+expiry similarly preserves `preparing` and `canceled` rows because a live worker
+may still publish against their staging key; it cleans bounded stable `(id,
+staging_key)` batches and never follows with a broad re-evaluated delete. Export
+publication synchronizes both the ZIP and its `operations/` directory before the
+`ready` transition, and every unlink synchronizes that directory before its last
+database recovery marker is removed.
+Cleanup failure leaves the deletion manifest queued for recovery and never
+exposes an internal path through the API. Workspace Owner and Host deletion share
+this cross-store use case; Owner authority is rechecked under the deletion lock,
+while the Host endpoint reauthorizes Host identity, the exact Workspace
+identifier, and the current Host password. Both endpoints verify Argon2 before
+opening the deletion transaction, then lock and compare the current stored hash
+to the verified snapshot before any vault mutation so a concurrent password
+change invalidates the request.
 
 ## Desktop client
 
@@ -323,8 +358,8 @@ The desktop app is feature-oriented:
   layouts;
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
   notification inbox, and account notification preferences;
-- `features/host` owns the deployment Host's metadata-only Workspace list and
-  instance access policy surface;
+- `features/host` owns the deployment Host's metadata-only Workspace list,
+  guarded deletion action, and instance access policy surface;
 - `features/document` owns the Workspace Library and Project-filtered Library
   trees, hierarchy, ordering, scope moves, and archive interaction;
 - `features/markdown` owns the shared Task/Library source editor, Live Preview,
@@ -338,6 +373,14 @@ to a typed location and reconciles it only after the owning TanStack Query data
 can prove access or absence. Loading and transient API failures retain the URL.
 TanStack Query remains the sole owner of remote cache state; routes do not use
 loaders or duplicate API state.
+
+Workspace browser routes use the immutable public identifier (`/<identifier>`),
+then resolve it through the authenticated Workspace list to the UUID required by
+API and authorization boundaries. Compatibility routes under `/w/<uuid>`
+redirect only when that account can resolve the Workspace and preserve the
+remaining path, query, and hash. The server-owned account setup stage similarly
+owns `/setup/account`, `/setup/workspace`, and `/setup/invite`; a refresh cannot
+skip or rewind those steps through client-only state.
 
 Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
@@ -394,13 +437,14 @@ the Rust runtime image, and configures `KANLEAF_WEB_DIR=/usr/share/kanleaf`.
 Node and pnpm are build-stage tools and are absent at runtime. The image briefly
 starts as root to set ownership on a mounted vault, then executes the server as
 the unprivileged `kanleaf` user. Compose exposes one application service and
-port. Its current bind mounts persist PostgreSQL and `vaults/`; server recovery
-state under `/data/operations` and `/data/trash` remains container-local. Any
-rename between the vault bind mount and those container-local paths can cross a
-mount boundary, so the current Compose topology does not satisfy the atomic
-rename assumption used by import activation and trash operations. Resolving
-that gap requires a migration-compatible persistence layout and runtime
-container test; Compose parsing and local single-directory tests do not prove it.
+port. Its current bind mounts persist PostgreSQL and `vaults/`;
+Workspace-deletion manifests and trash are therefore deliberately stored under
+`/data/vaults/.trash`. Other recovery state under `/data/operations` and
+`/data/trash` remains container-local. A rename between the vault bind mount and
+those container-local paths can still cross a mount boundary, so the topology
+does not yet satisfy every import or structural trash assumption. Resolving the
+remaining gap requires a migration-compatible persistence layout and runtime
+container test; Compose parsing and local one-directory tests do not prove it.
 
 ## Deferred intentionally
 

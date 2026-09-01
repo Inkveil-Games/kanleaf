@@ -92,9 +92,11 @@ the user also requested a change.
 - Prefer non-disclosing lookups already used by the feature. Do not reveal
   whether an inaccessible private Project, Task, document, member, or path exists.
 - Host identity comes from normalized `KANLEAF_HOST_EMAIL` and is rechecked by
-  Host handlers. It may administer instance access policy and see only the
-  explicit cross-Workspace name/Owner metadata; it is not a Workspace role and
-  must never bypass Task, Library, or vault access.
+  Host handlers. It may administer instance access policy, see only Workspace
+  UUID/name/identifier/creation time plus Owner UUID/display name/email, and call
+  the guarded permanent Workspace-deletion use case after exact-identifier and
+  current-password confirmation. It is not a Workspace role and must never expose
+  memberships, counts, Tasks, Library data, Markdown, paths, or vault content.
 - Restricted instance access applies to registration, valid-credential login,
   and bearer-session extraction. Workspace invitations do not bypass it.
 - Never serialize password hashes, session digests, bearer tokens from storage,
@@ -112,6 +114,11 @@ the user also requested a change.
 - Preserve composite tenant foreign keys, partial uniqueness, check constraints,
   and Workspace-row coordination patterns. Application checks complement rather
   than replace database constraints.
+- Workspace names may repeat; identifiers may not. Every creation/import path
+  reserves the immutable identifier in the lifetime registry in the same
+  transaction as the Workspace. Retired identifiers remain unavailable. Keep
+  reserved roots `api`, `assets`, `host`, `setup`, and `w` synchronized across
+  domain validation, database constraints, frontend validation, and route tests.
 - Append one ordered migration and keep it tracked with the capability change.
   Never edit an existing committed migration or depend on an untracked local
   schema. Create a Git commit only when the task/workflow authorizes it.
@@ -136,16 +143,34 @@ the user also requested a change.
   authored content intact and return the existing stable conflict response.
 - Structural moves and deletion are not atomic with PostgreSQL. Distinguish
   synchronous returned-error compensation from restart recovery. Library
-  structural operations use durable manifests; current Task/Workspace trash
-  handles are in-memory compensation and do not recover every crash window. Do
-  not copy the latter when restart recovery is required.
+  structural operations and Workspace deletion use durable manifests; current
+  Task trash handles are in-memory compensation and do not recover every crash
+  window. Do not copy the latter when restart recovery is required.
+- Permanent Workspace deletion locks the Workspace row, rechecks Owner authority
+  there, synchronizes its persisted manifest/rename before commit, and immediately
+  rolls back a staged rename when post-rename synchronization fails. It fences
+  export publication on the same row and purges UUID-scoped `<uuid>.legacy-*` and
+  `.<uuid>.v2-staging.*` migration copies, Workspace Task trash, and
+  Workspace-scoped structural manifests before retiring its deletion manifest.
+  Password verification stays outside the transaction, but the transaction locks
+  and compares the current hash with the verified snapshot before vault mutation.
+  Preserve that ordering when touching any participating operation.
+- Canceling an export that is still preparing leaves a hidden durable `canceled`
+  operation marker. Only its worker, or startup recovery when no prior worker can
+  publish, may remove that marker after deleting the artifact. Periodic expiry
+  cleanup must skip both `preparing` and `canceled` rows because a live worker may
+  still publish against their staging key. Clean only bounded stable ID/key
+  selections, never a broad predicate re-evaluated after filesystem work. Sync
+  the ZIP and `operations/` directory before `ready`, and sync the directory after
+  unlink before deleting the final recovery row.
 - Live vaults, `KANLEAF_DATA_DIR/operations`, staging, and trash must share a
-  filesystem topology that supports the expected atomic renames. The current
-  Compose file bind-mounts only `/data/vaults`, so import/trash renames can cross
-  into the container filesystem and fail with `EXDEV`; it is already
-  incompatible with that assumption. Do not claim Compose safety from a config
-  parse or local one-directory tests. Fixing it requires a migration-compatible
-  persistence decision plus a real container mount/recreation test.
+  filesystem topology that supports the expected atomic renames. Workspace
+  deletion keeps its manifest and trash under the current `/data/vaults` mount,
+  but import and other top-level operations can still cross into the container
+  filesystem and fail with `EXDEV`. Do not claim general Compose safety from a
+  config parse or local one-directory tests. Fixing the remaining topology gap
+  requires a migration-compatible persistence decision plus a real container
+  mount/recreation test.
 - Do not casually reorder body writes and database commits. Current body-write
   rollback/retry semantics are not a blanket guarantee; changes need an explicit
   failure design and human review.

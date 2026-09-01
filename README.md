@@ -11,12 +11,15 @@ Markdown document.
 
 ## Features
 
-- Email/password authentication with Argon2id hashes and hashed server sessions
+- Email/password authentication with registration password confirmation,
+  Argon2id hashes, and hashed server sessions
 - Explicit switching between multiple retained accounts on the configured server
-- Multiple workspaces with personal workspace creation and switching
+- Guided account setup followed by explicit Workspace creation or invitation join
+- Multiple Workspaces with globally unique public IDs, clean routed URLs, and
+  switching
 - Workspace profile, member roles, invitations, ownership, and lifecycle tools
-- A deployment-scoped Host Console with Workspace Owner visibility and optional
-  exact-email access restrictions
+- A deployment-scoped Host Console with Workspace Owner visibility, guarded
+  permanent deletion, and optional exact-email access restrictions
 - Project overview, visibility, membership roles, defaults, and feature controls
 - Configurable task states, labels, task types, and Inbox defaults
 - Inbox, My Work, projects, task search, readable references, and bulk updates
@@ -57,11 +60,17 @@ Markdown document.
 - A same-origin browser client in the AMD64/ARM64 self-host image
 - Docker Compose self-hosting and a Tauri v2 shell
 
-Account, Workspace, and Project settings use routed overlays, so their selected
-section survives refresh and browser history. Workspace switching uses the
-compact top control, account switching remains in the navigation footer, and
-the top bar keeps global search and notifications available. Press `/` for
-collection-local Task search and `C` to create a Task when permitted.
+New accounts first review their display name and preferences. Normal accounts
+then create a Workspace or accept an invitation; the configured Host may instead
+continue directly to Host Console. Registration does not silently create a
+Personal Workspace. Account, Workspace, and Project settings use routed overlays,
+so their selected section survives refresh and browser history.
+Canonical Workspace URLs start with the reviewed public ID, for example
+`/kanleaf-core/my-work`, while UUIDs remain internal identities. Workspace
+switching uses the compact top control, account switching remains in the
+navigation footer, and the top bar keeps global search and notifications
+available. Press `/` for collection-local Task search and `C` to create a Task
+when permitted.
 
 ## Architecture at a glance
 
@@ -150,8 +159,9 @@ From `infra/self-host`:
 
 ```bash
 cp .env.example .env
-# Set a strong POSTGRES_PASSWORD, review the data directory, and optionally set
-# KANLEAF_HOST_EMAIL to the account that will administer this deployment.
+# Set a strong alphanumeric POSTGRES_PASSWORD (it is interpolated into a URL),
+# review the data directory, and optionally set KANLEAF_HOST_EMAIL to the account
+# that will administer this deployment.
 docker compose pull kanleaf
 docker compose up -d --no-build
 docker compose ps
@@ -170,12 +180,12 @@ Raspberry Pi 5. Use a release tag in `KANLEAF_IMAGE` when one is available, or
 run `docker compose build kanleaf` to build the checked-out source locally.
 
 `KANLEAF_HOST_EMAIL` is optional. When set, sign in or register with that exact
-email and open `/host` to view Workspace Owners or enable Restricted access.
-Open access remains the default. Restricted access permits only the configured
-Host and approved exact emails to register, sign in, or keep active sessions;
-Workspace invitations do not bypass it. Because Kanleaf does not verify email
-ownership yet, create the Host account on a trusted network before exposing the
-deployment.
+email and open `/host` to view Workspace Owners, permanently delete a Workspace
+after two confirmations, or enable Restricted access. Open access remains the
+default. Restricted access permits only the configured Host and approved exact
+emails to register, sign in, or keep active sessions; Workspace invitations do
+not bypass it. Because Kanleaf does not verify email ownership yet, create the
+Host account on a trusted network before exposing the deployment.
 
 An existing Pi deployment whose timer only pulls the published image needs one
 manual checkout refresh for the new Compose environment mapping. Do not copy

@@ -107,9 +107,14 @@ another icon family or draw text-like symbols when an established icon exists.
 
 ## Host Console invariants
 
-- Host identity is deployment-scoped, not Workspace membership. The Workspace
-  list is read-only and may show only Workspace name and Owner metadata; do not
-  add Task/Library drilldown, Workspace management, or creation actions.
+- Host identity is deployment-scoped, not Workspace membership. The API
+  allowlist is Workspace UUID/name/identifier/creation time plus Owner
+  UUID/display name/email; the current table intentionally presents only
+  name/identifier and Owner display name/email. Its sole Workspace management
+  action is permanent deletion behind two explicit stages: first explain the
+  cross-store consequence, then require the exact identifier and current Host
+  password. Do not add Task/Library drilldown, content preview, creation, bulk
+  actions, or other Workspace administration.
 - The configured Host email is always allowed and cannot be removed. Other
   allowlist entries may be prepared and edited while access remains Open.
 - Enabling or saving Restricted access may revoke active sessions immediately.
