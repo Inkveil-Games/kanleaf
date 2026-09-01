@@ -105,7 +105,7 @@ export function WorkspaceControl({
                         type="button"
                         aria-checked={active}
                         onClick={() => {
-                          if (!active) void onSwitchWorkspace(candidate.id);
+                          void onSwitchWorkspace(candidate.id);
                         }}
                       >
                         <span

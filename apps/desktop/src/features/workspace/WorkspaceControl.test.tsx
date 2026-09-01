@@ -9,6 +9,31 @@ const workspaces: Workspace[] = [
 ];
 
 describe('WorkspaceControl', () => {
+  it('forwards a selection of the routed Workspace so an in-flight switch can be repaired', () => {
+    const onSwitchWorkspace = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WorkspaceControl
+        userEmail="quang@example.com"
+        workspaces={workspaces}
+        workspaceId="workspace-1"
+        navigationVisible
+        onSwitchWorkspace={onSwitchWorkspace}
+        onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
+        onOpenWorkspaceSettings={vi.fn()}
+        onOpenInvitations={vi.fn()}
+        onImportWorkspace={vi.fn()}
+        onToggleNavigation={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(
+      screen.getByRole('menuitemradio', { name: /Kanleaf Core/ }),
+    );
+
+    expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-1');
+  });
+
   it('groups Workspace switching, actions, and the navigation toggle', async () => {
     const onSwitchWorkspace = vi.fn().mockResolvedValue(undefined);
     const onCreateWorkspace = vi.fn().mockResolvedValue(undefined);

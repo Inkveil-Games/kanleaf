@@ -28,6 +28,7 @@ interface ProjectSettingsProps {
   workspace: Workspace;
   project: Project;
   userId: string;
+  accessSettled: boolean;
   configuration: TaskConfiguration;
   section: ProjectSettingsSection;
   onSectionChange: (section: ProjectSettingsSection) => void;
@@ -41,6 +42,7 @@ export function ProjectSettings({
   workspace,
   project,
   userId,
+  accessSettled,
   configuration,
   section,
   onSectionChange,
@@ -51,11 +53,12 @@ export function ProjectSettings({
   const members = useQuery({
     queryKey: ['project-members', workspace.id, project.id],
     queryFn: () => listProjectMembers(context, workspace.id, project.id),
+    enabled: accessSettled,
   });
   const workspaceMembers = useQuery({
     queryKey: ['workspace-members', workspace.id],
     queryFn: () => listWorkspaceMembers(context, workspace.id),
-    enabled: section === 'members',
+    enabled: accessSettled && section === 'members',
   });
 
   return (

@@ -96,6 +96,7 @@ import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 import { WorkspaceControl } from './WorkspaceControl';
 import { WorkspaceImportDialog } from './WorkspaceImportDialog';
+import type { WorkspaceImportOperation } from './portabilityApi';
 import {
   reconcileWorkspaceLocation,
   settingsReturnTarget,
@@ -134,6 +135,11 @@ interface TaskViewDraft {
   identity: string;
   query: ReturnType<typeof createTaskQuery>;
   layout: TaskLayout;
+}
+
+interface WorkspaceIntentResult<T> {
+  latest: boolean;
+  value: T | undefined;
 }
 
 export function WorkspaceShell({
@@ -177,6 +183,7 @@ export function WorkspaceShell({
   const activationAttempt = useRef<string | null>(null);
   const activationGeneration = useRef(0);
   const activationQueue = useRef<Promise<void>>(Promise.resolve());
+  const pendingWorkspaceIntents = useRef(0);
   const [activationRetry, setActivationRetry] = useState(0);
   const [directActivationError, setDirectActivationError] = useState<{
     attempt: string;
@@ -186,20 +193,32 @@ export function WorkspaceShell({
   const paneLayout = useWorkspacePaneLayout();
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
 
-  const enqueueWorkspaceActivation = useCallback(
-    (workspaceId: string, generation: number) => {
-      const result = activationQueue.current.then(async () => {
-        if (activationGeneration.current !== generation) return false;
-        await activateWorkspace(context, workspaceId);
-        return activationGeneration.current === generation;
-      });
+  const enqueueWorkspaceIntent = useCallback(
+    <T,>(generation: number, operation: () => Promise<T>) => {
+      pendingWorkspaceIntents.current += 1;
+      const result = activationQueue.current.then(
+        async (): Promise<WorkspaceIntentResult<T>> => {
+          if (activationGeneration.current !== generation) {
+            return { latest: false, value: undefined };
+          }
+          const value = await operation();
+          return {
+            latest: activationGeneration.current === generation,
+            value,
+          };
+        },
+      );
       activationQueue.current = result.then(
-        () => undefined,
-        () => undefined,
+        () => {
+          pendingWorkspaceIntents.current -= 1;
+        },
+        () => {
+          pendingWorkspaceIntents.current -= 1;
+        },
       );
       return result;
     },
-    [context],
+    [],
   );
 
   useEffect(() => {
@@ -231,10 +250,7 @@ export function WorkspaceShell({
     activeWorkspace && activeWorkspace.role !== 'guest',
   );
   const hasSettledWorkspaceAccess = Boolean(
-    activeWorkspace &&
-    workspaces.isFetchedAfterMount &&
-    !workspaces.isFetching &&
-    !workspaces.error,
+    activeWorkspace && workspaces.isFetchedAfterMount && !workspaces.error,
   );
   const hasSettledContentAccess = Boolean(
     hasSettledWorkspaceAccess && activeWorkspace?.role !== 'guest',
@@ -258,7 +274,9 @@ export function WorkspaceShell({
   });
   const routedProject = projects.data?.find(({ id }) => id === routedProjectId);
   const projectAccessSettled = Boolean(
-    projects.isFetchedAfterMount && !projects.isFetching && !projects.error,
+    hasSettledWorkspaceAccess &&
+    projects.isFetchedAfterMount &&
+    !projects.error,
   );
   const canResolveRoutedView =
     routeContent?.kind === 'workspace-view'
@@ -508,6 +526,8 @@ export function WorkspaceShell({
       : null;
 
   useEffect(() => {
+    if (pendingWorkspaceIntents.current > 0) return;
+
     if (!location) {
       if (workspaces.isFetching || workspaces.error) return;
       const target =
@@ -563,11 +583,16 @@ export function WorkspaceShell({
     activationAttempt.current = attempt;
     const generation = ++activationGeneration.current;
     setDirectActivationError(null);
-    if (user.active_workspace_id === activeWorkspace.id) return;
+    const needsActivation =
+      user.active_workspace_id !== activeWorkspace.id ||
+      pendingWorkspaceIntents.current > 0;
+    if (!needsActivation) return;
 
-    void enqueueWorkspaceActivation(activeWorkspace.id, generation)
-      .then((isLatest) => {
-        if (isLatest) syncActiveWorkspace(activeWorkspace.id);
+    void enqueueWorkspaceIntent(generation, () =>
+      activateWorkspace(context, activeWorkspace.id),
+    )
+      .then((result) => {
+        if (result.latest) syncActiveWorkspace(activeWorkspace.id);
       })
       .catch((caught) => {
         if (activationGeneration.current !== generation) return;
@@ -579,7 +604,8 @@ export function WorkspaceShell({
   }, [
     activationRetry,
     activeWorkspace,
-    enqueueWorkspaceActivation,
+    context,
+    enqueueWorkspaceIntent,
     location,
     syncActiveWorkspace,
     user.active_workspace_id,
@@ -623,24 +649,25 @@ export function WorkspaceShell({
   );
 
   async function switchWorkspace(nextWorkspaceId: string) {
-    if (nextWorkspaceId === workspaceId) return;
+    const repairsPendingIntent = pendingWorkspaceIntents.current > 0;
     const generation = ++activationGeneration.current;
     setActionError(null);
     setDirectActivationError(null);
+    if (nextWorkspaceId === workspaceId && !repairsPendingIntent) return;
     try {
-      await flushDocumentSaves();
-      if (activationGeneration.current !== generation) return;
-      const isLatest = await enqueueWorkspaceActivation(
-        nextWorkspaceId,
-        generation,
-      );
-      if (!isLatest) return;
-      activationAttempt.current = `${user.id}:${nextWorkspaceId}`;
-      onNavigate({
-        kind: 'my-work',
-        workspaceId: nextWorkspaceId,
-        taskId: null,
+      const result = await enqueueWorkspaceIntent(generation, async () => {
+        await flushDocumentSaves();
+        await activateWorkspace(context, nextWorkspaceId);
       });
+      if (!result.latest) return;
+      activationAttempt.current = `${user.id}:${nextWorkspaceId}`;
+      if (nextWorkspaceId !== workspaceId) {
+        onNavigate({
+          kind: 'my-work',
+          workspaceId: nextWorkspaceId,
+          taskId: null,
+        });
+      }
       syncActiveWorkspace(nextWorkspaceId);
     } catch (caught) {
       if (activationGeneration.current !== generation) return;
@@ -649,31 +676,70 @@ export function WorkspaceShell({
   }
 
   async function addWorkspace(name: string) {
+    const generation = ++activationGeneration.current;
     setActionError(null);
+    setDirectActivationError(null);
     try {
-      await flushDocumentSaves();
-      const workspace = await createWorkspace(context, name);
-      await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-      activationAttempt.current = `${user.id}:${workspace.id}`;
-      onNavigate({ kind: 'my-work', workspaceId: workspace.id, taskId: null });
-      syncActiveWorkspace(workspace.id);
+      const result = await enqueueWorkspaceIntent(generation, async () => {
+        await flushDocumentSaves();
+        const workspace = await createWorkspace(context, name);
+        await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        return workspace;
+      });
+      if (!result.latest || !result.value) return;
+      activationAttempt.current = `${user.id}:${result.value.id}`;
+      onNavigate({
+        kind: 'my-work',
+        workspaceId: result.value.id,
+        taskId: null,
+      });
+      syncActiveWorkspace(result.value.id);
     } catch (caught) {
-      setActionError(errorMessage(caught));
+      if (activationGeneration.current === generation) {
+        setActionError(errorMessage(caught));
+      }
       throw caught;
     }
   }
 
-  async function openImportedWorkspace(importedWorkspaceId: string) {
-    await flushDocumentSaves();
-    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    activationAttempt.current = `${user.id}:${importedWorkspaceId}`;
-    onNavigate({
-      kind: 'my-work',
-      workspaceId: importedWorkspaceId,
-      taskId: null,
-    });
-    syncActiveWorkspace(importedWorkspaceId);
-    await queryClient.invalidateQueries({ queryKey: ['session'] });
+  async function applyWorkspaceImportIntent(
+    apply: () => Promise<WorkspaceImportOperation>,
+  ): Promise<WorkspaceImportOperation | null> {
+    const generation = ++activationGeneration.current;
+    setActionError(null);
+    setDirectActivationError(null);
+    try {
+      const result = await enqueueWorkspaceIntent(generation, async () => {
+        await flushDocumentSaves();
+        const applied = await apply();
+        if (applied.state !== 'completed' || !applied.workspace_id) {
+          return applied;
+        }
+        await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+        if (activationGeneration.current === generation) {
+          await activateWorkspace(context, applied.workspace_id);
+        }
+        return applied;
+      });
+      if (!result.latest || !result.value) return null;
+      const importedWorkspaceId = result.value.workspace_id;
+      if (result.value.state !== 'completed' || !importedWorkspaceId) {
+        return result.value;
+      }
+      activationAttempt.current = `${user.id}:${importedWorkspaceId}`;
+      onNavigate({
+        kind: 'my-work',
+        workspaceId: importedWorkspaceId,
+        taskId: null,
+      });
+      syncActiveWorkspace(importedWorkspaceId);
+      await queryClient.invalidateQueries({ queryKey: ['session'] });
+      return result.value;
+    } catch (caught) {
+      if (activationGeneration.current !== generation) return null;
+      setActionError(errorMessage(caught));
+      throw caught;
+    }
   }
 
   async function addProject(name: string) {
@@ -972,25 +1038,34 @@ export function WorkspaceShell({
     notificationWorkspaceId: string,
     taskId: string,
   ) {
+    const repairsPendingIntent = pendingWorkspaceIntents.current > 0;
+    const generation = ++activationGeneration.current;
     setActionError(null);
+    setDirectActivationError(null);
     try {
-      const notificationTask = await getTask(
-        context,
-        notificationWorkspaceId,
-        taskId,
-      );
-      await flushDocumentSaves();
       const changesWorkspace = notificationWorkspaceId !== workspaceId;
-      if (changesWorkspace) {
-        await activateWorkspace(context, notificationWorkspaceId);
+      const result = await enqueueWorkspaceIntent(generation, async () => {
+        const notificationTask = await getTask(
+          context,
+          notificationWorkspaceId,
+          taskId,
+        );
+        await flushDocumentSaves();
+        if (changesWorkspace || repairsPendingIntent) {
+          await activateWorkspace(context, notificationWorkspaceId);
+        }
+        return notificationTask;
+      });
+      if (!result.latest || !result.value) return;
+      if (changesWorkspace || repairsPendingIntent) {
         activationAttempt.current = `${user.id}:${notificationWorkspaceId}`;
       }
       onNavigate(
-        notificationTask.project_id
+        result.value.project_id
           ? {
               kind: 'project-work-items',
               workspaceId: notificationWorkspaceId,
-              projectId: notificationTask.project_id,
+              projectId: result.value.project_id,
               taskId,
             }
           : {
@@ -999,10 +1074,11 @@ export function WorkspaceShell({
               taskId,
             },
       );
-      if (changesWorkspace) {
+      if (changesWorkspace || repairsPendingIntent) {
         syncActiveWorkspace(notificationWorkspaceId);
       }
     } catch (caught) {
+      if (activationGeneration.current !== generation) return;
       setActionError(errorMessage(caught));
     }
   }
@@ -1160,9 +1236,24 @@ export function WorkspaceShell({
     ]);
   }
 
-  async function refreshAfterWorkspaceRemoval() {
-    const result = await workspaces.refetch();
-    const nextWorkspace = result.data?.find(({ id }) => id !== workspaceId);
+  async function removeWorkspaceIntent(remove: () => Promise<void>) {
+    const generation = ++activationGeneration.current;
+    setActionError(null);
+    setDirectActivationError(null);
+    const result = await enqueueWorkspaceIntent(generation, async () => {
+      await flushDocumentSaves();
+      await remove();
+      const refreshed = await workspaces.refetch();
+      const nextWorkspace = refreshed.data?.find(
+        ({ id }) => id !== workspaceId,
+      );
+      if (nextWorkspace && activationGeneration.current === generation) {
+        await activateWorkspace(context, nextWorkspace.id);
+      }
+      return nextWorkspace ?? null;
+    });
+    if (!result.latest) return;
+    const nextWorkspace = result.value;
     if (nextWorkspace) {
       activationAttempt.current = `${user.id}:${nextWorkspace.id}`;
     }
@@ -1179,7 +1270,8 @@ export function WorkspaceShell({
   const selectDocument = useCallback(
     (document: WorkspaceDocument | null, options?: { replace?: boolean }) => {
       if (!workspaceId) return Promise.resolve(false);
-      const documentProjectId = document?.project_id ?? activeProjectId;
+      const documentProjectId =
+        document === null ? activeProjectId : document.project_id;
       const nextLocation: WorkspaceContentLocation = documentProjectId
         ? {
             kind: 'project-library',
@@ -1258,7 +1350,7 @@ export function WorkspaceShell({
     void navigateSafely({ ...location, section }, { replace: true });
   }
 
-  if (workspaces.error && (!workspaces.data || !location || !activeWorkspace)) {
+  if (workspaces.error) {
     return (
       <main className="status-page">
         <Wordmark quiet />
@@ -1581,6 +1673,11 @@ export function WorkspaceShell({
           workspaceId={workspaceId}
           projects={projects.data ?? []}
           projectId={activeProjectId}
+          accessSettled={
+            activeProjectId
+              ? Boolean(projectAccessSettled && activeProject?.effective_role)
+              : hasSettledContentAccess
+          }
           canCreateWorkspaceDocuments={hasContentAccess}
           selectedDocumentId={selectedDocumentId}
           onSelectDocument={selectDocument}
@@ -1729,11 +1826,12 @@ export function WorkspaceShell({
       {importDialogOpen && (
         <WorkspaceImportDialog
           context={context}
-          onImported={openImportedWorkspace}
+          onApplyImport={applyWorkspaceImportIntent}
           onClose={() => setImportDialogOpen(false)}
         />
       )}
-      {location?.kind === 'workspace-settings' &&
+      {hasSettledWorkspaceAccess &&
+        location?.kind === 'workspace-settings' &&
         isWorkspaceSettingsSection(location.section) && (
           <SettingsDialog
             label={`${activeWorkspace.name} Workspace settings`}
@@ -1749,7 +1847,7 @@ export function WorkspaceShell({
               onClose={closeSettings}
               onWorkspaceUpdated={refreshWorkspace}
               onConfigurationUpdated={refreshTaskConfiguration}
-              onWorkspaceRemoved={refreshAfterWorkspaceRemoval}
+              onRemoveWorkspace={removeWorkspaceIntent}
             />
           </SettingsDialog>
         )}
@@ -1765,6 +1863,9 @@ export function WorkspaceShell({
               workspace={activeWorkspace}
               project={activeProject}
               userId={user.id}
+              accessSettled={Boolean(
+                projectAccessSettled && activeProject.effective_role,
+              )}
               configuration={
                 taskConfiguration.data ?? {
                   states: [],

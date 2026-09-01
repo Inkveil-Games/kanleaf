@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   MemoryRouter,
   Route,
@@ -18,12 +18,14 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../lib/api/client';
 import type { User } from '../../lib/api/types';
+import type { WorkspaceImportOperation } from './portabilityApi';
 import { createTaskQuery, type SavedView } from '../view/types';
 import type { Project, Task, TaskConfiguration, Workspace } from './types';
 import { WorkspaceRouteScreen } from './WorkspaceRouteScreen';
 
 const mocks = vi.hoisted(() => ({
   activateWorkspace: vi.fn(),
+  applyWorkspaceImport: vi.fn(),
   archiveTask: vi.fn(),
   createSavedView: vi.fn(),
   createTask: vi.fn(),
@@ -41,6 +43,8 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceMembers: vi.fn(),
   listWorkspaces: vi.fn(),
   queryTasks: vi.fn(),
+  removeWorkspace: vi.fn(),
+  workspaceSettingsMounted: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -97,38 +101,45 @@ vi.mock('./workspacePaneLayout', () => ({
   }),
 }));
 
-vi.mock('./WorkspaceControl', () => ({
-  WorkspaceControl: ({
-    onCreateWorkspace,
-    onOpenWorkspaceSettings,
-    onSwitchWorkspace,
-  }: {
-    onCreateWorkspace: (name: string) => Promise<void>;
-    onOpenWorkspaceSettings: (section: 'general') => void;
-    onSwitchWorkspace: (workspaceId: string) => Promise<void>;
-  }) => (
-    <div>
-      <button
-        type="button"
-        onClick={() => void onSwitchWorkspace('workspace-2')}
-      >
-        Switch workspace
-      </button>
-      <button
-        type="button"
-        onClick={() => void onSwitchWorkspace('workspace-4')}
-      >
-        Switch workspace C
-      </button>
-      <button type="button" onClick={() => void onCreateWorkspace('New')}>
-        Create workspace
-      </button>
-      <button type="button" onClick={() => onOpenWorkspaceSettings('general')}>
-        Open Workspace Settings
-      </button>
-    </div>
-  ),
-}));
+vi.mock('./WorkspaceControl', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./WorkspaceControl')>();
+  return {
+    WorkspaceControl: (
+      props: Parameters<typeof actual.WorkspaceControl>[0],
+    ) => (
+      <div>
+        <actual.WorkspaceControl {...props} />
+        <button
+          type="button"
+          onClick={() => void props.onSwitchWorkspace('workspace-2')}
+        >
+          Switch workspace
+        </button>
+        <button
+          type="button"
+          onClick={() => void props.onSwitchWorkspace('workspace-4')}
+        >
+          Switch workspace C
+        </button>
+        <button
+          type="button"
+          onClick={() => void props.onCreateWorkspace('New')}
+        >
+          Create workspace
+        </button>
+        <button type="button" onClick={props.onImportWorkspace}>
+          Open import
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onOpenWorkspaceSettings('general')}
+        >
+          Open Workspace Settings
+        </button>
+      </div>
+    ),
+  };
+});
 
 vi.mock('./WorkspaceNavigation', () => ({
   WorkspaceNavigation: ({
@@ -216,17 +227,25 @@ vi.mock('../task/TaskDetailPane', () => ({
 
 vi.mock('../document/DocumentWorkspace', () => ({
   DocumentWorkspace: ({
+    accessSettled,
     onInvalidSelection,
     onSelectDocument,
   }: {
+    accessSettled: boolean;
     onInvalidSelection: () => void;
-    onSelectDocument: (document: {
-      id: string;
-      project_id: string | null;
-    }) => Promise<boolean>;
+    onSelectDocument: (
+      document: {
+        id: string;
+        project_id: string | null;
+      },
+      navigation?: { replace?: boolean },
+    ) => Promise<boolean>;
   }) => (
     <div>
       <output>Document workspace</output>
+      <output aria-label="Document access">
+        {accessSettled ? 'settled' : 'pending'}
+      </output>
       <button
         type="button"
         onClick={() =>
@@ -238,8 +257,30 @@ vi.mock('../document/DocumentWorkspace', () => ({
       >
         Open Project note
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSelectDocument(
+            { id: 'document-1', project_id: 'project-1' },
+            { replace: true },
+          )
+        }
+      >
+        Canonicalize Project note
+      </button>
       <button type="button" onClick={onInvalidSelection}>
         Invalidate document background
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSelectDocument(
+            { id: 'document-1', project_id: null },
+            { replace: true },
+          )
+        }
+      >
+        Move note to Workspace
       </button>
     </div>
   ),
@@ -270,10 +311,36 @@ vi.mock('../project/ProjectSettings', () => ({ ProjectSettings: () => null }));
 vi.mock('../view/ProjectViewsPane', () => ({
   ProjectViewsPane: () => null,
 }));
-vi.mock('./WorkspaceTopBar', () => ({ WorkspaceTopBar: () => null }));
+vi.mock('./WorkspaceTopBar', () => ({
+  WorkspaceTopBar: ({
+    onOpenNotificationTask,
+  }: {
+    onOpenNotificationTask: (workspaceId: string, taskId: string) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onOpenNotificationTask('workspace-4', 'task-1')}
+    >
+      Open notification
+    </button>
+  ),
+}));
 vi.mock('./PaneResizeHandle', () => ({ PaneResizeHandle: () => null }));
 vi.mock('./WorkspaceImportDialog', () => ({
-  WorkspaceImportDialog: () => null,
+  WorkspaceImportDialog: ({
+    onApplyImport,
+  }: {
+    onApplyImport: (
+      apply: () => Promise<WorkspaceImportOperation>,
+    ) => Promise<WorkspaceImportOperation | null>;
+  }) => (
+    <button
+      type="button"
+      onClick={() => void onApplyImport(() => mocks.applyWorkspaceImport())}
+    >
+      Complete import
+    </button>
+  ),
 }));
 vi.mock('../settings/SettingsDialog', () => ({
   SettingsDialog: ({ children }: { children: ReactNode }) => children,
@@ -284,21 +351,48 @@ vi.mock('../settings/SettingsShell', () => ({
     section,
     onSectionChange,
     onClose,
+    onWorkspaceUpdated,
+    onRemoveWorkspace,
   }: {
     section: string;
     onSectionChange: (section: 'members') => void;
     onClose: () => void;
-  }) => (
-    <section aria-label="Workspace Settings">
-      <output>Settings section: {section}</output>
-      <button type="button" onClick={() => onSectionChange('members')}>
-        Open Members Settings
-      </button>
-      <button type="button" onClick={onClose}>
-        Close Settings
-      </button>
-    </section>
-  ),
+    onWorkspaceUpdated: () => Promise<void>;
+    onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
+  }) => {
+    mocks.workspaceSettingsMounted(section);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>(
+      'idle',
+    );
+
+    async function saveWorkspace() {
+      setSaveStatus('saving');
+      await onWorkspaceUpdated();
+      setSaveStatus('saved');
+    }
+
+    return (
+      <section aria-label="Workspace Settings">
+        <output>Settings section: {section}</output>
+        <output aria-label="Workspace save status">{saveStatus}</output>
+        <button type="button" onClick={() => void saveWorkspace()}>
+          Save workspace
+        </button>
+        <button type="button" onClick={() => onSectionChange('members')}>
+          Open Members Settings
+        </button>
+        <button type="button" onClick={onClose}>
+          Close Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => void onRemoveWorkspace(() => mocks.removeWorkspace())}
+        >
+          Remove workspace
+        </button>
+      </section>
+    );
+  },
 }));
 
 const workspaces = [
@@ -402,6 +496,11 @@ const enabledViewsProject: Project = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.activateWorkspace.mockResolvedValue(undefined);
+  mocks.applyWorkspaceImport.mockResolvedValue({
+    id: 'import-1',
+    state: 'completed',
+    workspace_id: 'workspace-4',
+  });
   mocks.archiveTask.mockResolvedValue(undefined);
   mocks.createSavedView.mockResolvedValue({
     ...savedView,
@@ -427,6 +526,7 @@ beforeEach(() => {
   mocks.listWorkspaceMembers.mockResolvedValue([]);
   mocks.listWorkspaces.mockResolvedValue(workspaces);
   mocks.queryTasks.mockResolvedValue([]);
+  mocks.removeWorkspace.mockResolvedValue(undefined);
 });
 
 describe('WorkspaceShell routing integration', () => {
@@ -664,6 +764,267 @@ describe('WorkspaceShell routing integration', () => {
     },
   );
 
+  it('repairs an in-flight activation when the latest intent returns to the already-active Workspace', async () => {
+    const workspaceTwo = deferred<void>();
+    const workspaceOne = deferred<void>();
+    mocks.activateWorkspace.mockImplementation((_context, workspaceId) =>
+      workspaceId === 'workspace-2'
+        ? workspaceTwo.promise
+        : workspaceOne.promise,
+    );
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/my-work'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Switch workspace' }),
+    );
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-2',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(
+      screen.getByRole('menuitemradio', { name: /Workspace One/ }),
+    );
+
+    await act(async () => workspaceTwo.resolve());
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-1',
+      ),
+    );
+    await act(async () => workspaceOne.resolve());
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<{ user: User }>([
+          'session',
+          'http://server.test',
+          'token',
+        ])?.user.active_workspace_id,
+      ).toBe('workspace-1'),
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/my-work',
+    );
+  });
+
+  it('serializes Workspace creation behind an in-flight activation', async () => {
+    const workspaceTwo = deferred<void>();
+    mocks.activateWorkspace.mockReturnValue(workspaceTwo.promise);
+    mocks.listWorkspaces
+      .mockReset()
+      .mockResolvedValueOnce(workspaces)
+      .mockResolvedValue([...workspaces, createdWorkspace]);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/my-work'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Switch workspace' }),
+    );
+    await waitFor(() => expect(mocks.activateWorkspace).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    await act(async () => workspaceTwo.resolve());
+
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-3/my-work',
+      ),
+    );
+    expect(
+      queryClient.getQueryData<{ user: User }>([
+        'session',
+        'http://server.test',
+        'token',
+      ])?.user.active_workspace_id,
+    ).toBe('workspace-3');
+  });
+
+  it('repairs an imported Workspace behind an in-flight activation', async () => {
+    const workspaceTwo = deferred<void>();
+    const importedWorkspace = deferred<void>();
+    mocks.activateWorkspace.mockImplementation((_context, workspaceId) =>
+      workspaceId === 'workspace-2'
+        ? workspaceTwo.promise
+        : importedWorkspace.promise,
+    );
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/my-work'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Switch workspace' }),
+    );
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-2',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open import' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete import' }));
+    expect(mocks.applyWorkspaceImport).not.toHaveBeenCalled();
+    expect(mocks.activateWorkspace).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'workspace-4',
+    );
+
+    await act(async () => workspaceTwo.resolve());
+    await waitFor(() =>
+      expect(mocks.applyWorkspaceImport).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-4',
+      ),
+    );
+    await act(async () => importedWorkspace.resolve());
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<{ user: User }>([
+          'session',
+          'http://server.test',
+          'token',
+        ])?.user.active_workspace_id,
+      ).toBe('workspace-4'),
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-4/my-work',
+    );
+  });
+
+  it('keeps a later Workspace switch after an in-flight removal finishes', async () => {
+    const removal = deferred<void>();
+    const workspaceFour = deferred<void>();
+    mocks.removeWorkspace.mockReturnValue(removal.promise);
+    mocks.activateWorkspace.mockImplementation((_context, workspaceId) =>
+      workspaceId === 'workspace-4' ? workspaceFour.promise : Promise.resolve(),
+    );
+    mocks.listWorkspaces
+      .mockReset()
+      .mockResolvedValueOnce(workspaces)
+      .mockResolvedValue([workspaces[1], workspaces[2]]);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/danger'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove workspace' }),
+    );
+    await waitFor(() => expect(mocks.removeWorkspace).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace C' }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.activateWorkspace).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'workspace-4',
+    );
+
+    await act(async () => removal.resolve());
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-4',
+      ),
+    );
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 0);
+        }),
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/settings/workspace/danger',
+    );
+    await act(async () => workspaceFour.resolve());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-4/my-work',
+      ),
+    );
+    expect(
+      queryClient.getQueryData<{ user: User }>([
+        'session',
+        'http://server.test',
+        'token',
+      ])?.user.active_workspace_id,
+    ).toBe('workspace-4');
+  });
+
+  it('serializes notification activation behind the previous Workspace intent', async () => {
+    const workspaceTwo = deferred<void>();
+    const notificationWorkspace = deferred<void>();
+    mocks.getTask.mockResolvedValue({ ...task, workspace_id: 'workspace-4' });
+    mocks.activateWorkspace.mockImplementation((_context, workspaceId) =>
+      workspaceId === 'workspace-2'
+        ? workspaceTwo.promise
+        : notificationWorkspace.promise,
+    );
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/my-work'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Switch workspace' }),
+    );
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-2',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open notification' }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.activateWorkspace).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'workspace-4',
+    );
+
+    await act(async () => workspaceTwo.resolve());
+    await waitFor(() =>
+      expect(mocks.activateWorkspace).toHaveBeenCalledWith(
+        expect.anything(),
+        'workspace-4',
+      ),
+    );
+    await act(async () => notificationWorkspace.resolve());
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<{ user: User }>([
+          'session',
+          'http://server.test',
+          'token',
+        ])?.user.active_workspace_id,
+      ).toBe('workspace-4'),
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-4/tasks?task=task-1',
+    );
+  });
+
   it.each([
     ['older first', false],
     ['newer first', true],
@@ -855,6 +1216,57 @@ describe('WorkspaceShell routing integration', () => {
     );
   });
 
+  it('replaces a direct aggregate Library URL with its Project-scoped URL', async () => {
+    mocks.listProjects.mockResolvedValue([disabledViewsProject]);
+    renderWorkspaceRoutes({
+      initialEntries: ['/sentinel', '/w/workspace-1/library/document-1'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Canonicalize Project note',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/projects/project-1/library/document-1',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/sentinel',
+      ),
+    );
+  });
+
+  it('replaces a Project Library URL after its note moves to the Workspace scope', async () => {
+    mocks.listProjects.mockResolvedValue([disabledViewsProject]);
+    renderWorkspaceRoutes({
+      initialEntries: [
+        '/sentinel',
+        '/w/workspace-1/projects/project-1/library/document-1',
+      ],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Move note to Workspace' }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/library/document-1',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/sentinel',
+      ),
+    );
+  });
+
   it.each([
     {
       name: 'document',
@@ -930,6 +1342,28 @@ describe('WorkspaceShell routing integration', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
+  it('shows Retry when a matching cached Workspace refresh fails', async () => {
+    const refresh = deferred<Workspace[]>();
+    mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-2/tasks'],
+      seededWorkspaces: workspaces,
+    });
+
+    await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledOnce());
+    await act(async () =>
+      refresh.reject(new Error('Workspace refresh failed')),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Workspace refresh failed',
+    );
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-2/tasks',
+    );
+  });
+
   it('keeps a routed Project and shows Retry when its stale list refresh fails', async () => {
     const refresh = deferred<Project[]>();
     mocks.listProjects.mockReturnValueOnce(refresh.promise);
@@ -999,6 +1433,148 @@ describe('WorkspaceShell routing integration', () => {
     await act(async () => {
       refresh.resolve([enabledViewsProject]);
     });
+  });
+
+  it('keeps confirmed child access while the owning Workspace refreshes', async () => {
+    const workspaceRefresh = deferred<Workspace[]>();
+    mocks.listWorkspaces
+      .mockResolvedValueOnce(workspaces)
+      .mockReturnValueOnce(workspaceRefresh.promise);
+    mocks.listProjects.mockResolvedValue([enabledViewsProject]);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/projects/project-2/library'],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Document access')).toHaveTextContent(
+        'settled',
+      ),
+    );
+
+    act(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['workspaces', 'http://server.test', 'token'],
+      });
+    });
+    await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByLabelText('Document access')).toHaveTextContent(
+      'settled',
+    );
+    await act(async () => workspaceRefresh.resolve(workspaces));
+  });
+
+  it('does not mount cached Workspace Settings before access settles', async () => {
+    const refresh = deferred<Workspace[]>();
+    mocks.listWorkspaces.mockReturnValueOnce(refresh.promise);
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/members'],
+      seededWorkspaces: [workspaces[0]],
+    });
+
+    await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledOnce());
+    expect(mocks.workspaceSettingsMounted).not.toHaveBeenCalled();
+    expect(mocks.listWorkspaceMembers).not.toHaveBeenCalled();
+    expect(mocks.getTaskConfiguration).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('region', { name: 'Workspace Settings' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove workspace' }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => refresh.resolve([workspaces[0]]));
+    await waitFor(() =>
+      expect(mocks.workspaceSettingsMounted).toHaveBeenCalledWith('members'),
+    );
+    expect(
+      screen.getByRole('region', { name: 'Workspace Settings' }),
+    ).toBeVisible();
+  });
+
+  it('keeps confirmed Workspace Settings mounted through a background refresh', async () => {
+    const refresh = deferred<Workspace[]>();
+    mocks.listWorkspaces
+      .mockResolvedValueOnce(workspaces)
+      .mockReturnValueOnce(refresh.promise);
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Save workspace' }),
+    );
+    await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledTimes(2));
+
+    expect(
+      screen.getByRole('region', { name: 'Workspace Settings' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Workspace save status')).toHaveTextContent(
+      'saving',
+    );
+
+    await act(async () => refresh.resolve(workspaces));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Workspace save status')).toHaveTextContent(
+        'saved',
+      ),
+    );
+  });
+
+  it('hides confirmed Workspace Settings when a background refresh fails', async () => {
+    const refresh = deferred<Workspace[]>();
+    mocks.listWorkspaces
+      .mockResolvedValueOnce(workspaces)
+      .mockReturnValueOnce(refresh.promise);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
+    });
+
+    await screen.findByRole('region', { name: 'Workspace Settings' });
+    act(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['workspaces', 'http://server.test', 'token'],
+      });
+    });
+    await waitFor(() => expect(mocks.listWorkspaces).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getByRole('region', { name: 'Workspace Settings' }),
+    ).toBeVisible();
+
+    await act(async () => refresh.reject(new Error('Access refresh failed')));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Access refresh failed',
+    );
+    expect(
+      screen.queryByRole('region', { name: 'Workspace Settings' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps confirmed Project child access through a background refresh', async () => {
+    const refresh = deferred<Project[]>();
+    mocks.listProjects
+      .mockResolvedValueOnce([enabledViewsProject])
+      .mockReturnValueOnce(refresh.promise);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/projects/project-2/library'],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Document access')).toHaveTextContent(
+        'settled',
+      ),
+    );
+    act(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['projects', 'workspace-1'],
+      });
+    });
+    await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByLabelText('Document access')).toHaveTextContent(
+      'settled',
+    );
+    await act(async () => refresh.resolve([enabledViewsProject]));
   });
 
   it('does not request Project child data from cached access before authorization settles', async () => {

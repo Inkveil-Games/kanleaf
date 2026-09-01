@@ -51,6 +51,7 @@ const configuration: TaskConfiguration = {
 function renderSettings(
   fetchMock: ReturnType<typeof vi.fn>,
   section: ProjectSettingsSection = 'general',
+  accessSettled = true,
 ) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
@@ -58,13 +59,14 @@ function renderSettings(
   });
   const onUpdated = vi.fn().mockResolvedValue(undefined);
   const onSectionChange = vi.fn();
-  render(
+  const settings = (settled: boolean) => (
     <QueryClientProvider client={client}>
       <ProjectSettings
         context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
         workspace={workspace}
         project={project}
         userId="owner-1"
+        accessSettled={settled}
         configuration={configuration}
         section={section}
         onSectionChange={onSectionChange}
@@ -72,9 +74,15 @@ function renderSettings(
         onUpdated={onUpdated}
         onRemoved={vi.fn().mockResolvedValue(undefined)}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { onSectionChange, onUpdated };
+  const rendered = render(settings(accessSettled));
+  return {
+    onSectionChange,
+    onUpdated,
+    rerenderWithAccessSettled: (settled: boolean) =>
+      rendered.rerender(settings(settled)),
+  };
 }
 
 function response(body: unknown, status = 200) {
@@ -88,6 +96,29 @@ function response(body: unknown, status = 200) {
 
 describe('ProjectSettings', () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it('waits for access to settle before loading member administration data', async () => {
+    const fetchMock = vi.fn(() => response([]));
+    const { rerenderWithAccessSettled } = renderSettings(
+      fetchMock,
+      'members',
+      false,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    rerenderWithAccessSettled(true);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://kanleaf.example.com/api/workspaces/workspace-1/projects/project-1/members',
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://kanleaf.example.com/api/workspaces/workspace-1/members',
+      expect.anything(),
+    );
+  });
 
   it('requests a section change without replacing the controlled section', () => {
     const { onSectionChange } = renderSettings(vi.fn(() => response([])));

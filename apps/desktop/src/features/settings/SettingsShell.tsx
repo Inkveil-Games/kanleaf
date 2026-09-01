@@ -96,7 +96,7 @@ interface WorkspaceSettingsShellProps {
   onClose: () => void;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
-  onWorkspaceRemoved: () => Promise<void>;
+  onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
 }
 
 export function WorkspaceSettingsShell({
@@ -109,7 +109,7 @@ export function WorkspaceSettingsShell({
   onClose,
   onWorkspaceUpdated,
   onConfigurationUpdated,
-  onWorkspaceRemoved,
+  onRemoveWorkspace,
 }: WorkspaceSettingsShellProps) {
   const canManageWorkspace =
     workspace.role === 'owner' || workspace.role === 'admin';
@@ -185,7 +185,7 @@ export function WorkspaceSettingsShell({
         section={section}
         onWorkspaceUpdated={onWorkspaceUpdated}
         onConfigurationUpdated={onConfigurationUpdated}
-        onWorkspaceRemoved={onWorkspaceRemoved}
+        onRemoveWorkspace={onRemoveWorkspace}
       />
     </SettingsFrame>
   );

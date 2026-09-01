@@ -81,7 +81,10 @@ describe('WorkspaceSettings', () => {
       .mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderSettings(workspace, 'danger', owner.user_id);
+    const onRemoveWorkspace = vi.fn(async (remove: () => Promise<void>) =>
+      remove(),
+    );
+    renderSettings(workspace, 'danger', owner.user_id, onRemoveWorkspace);
 
     const deleteButton = screen.getByRole('button', {
       name: 'Delete Workspace',
@@ -114,6 +117,7 @@ describe('WorkspaceSettings', () => {
     expect(window.confirm).toHaveBeenCalledWith(
       `Permanently delete ${workspace.name}?`,
     );
+    expect(onRemoveWorkspace).toHaveBeenCalledWith(expect.any(Function));
   });
 });
 
@@ -130,6 +134,9 @@ function renderSettings(
   selectedWorkspace: Workspace,
   section: WorkspaceSettingsSection,
   userId: string,
+  onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void> = async (
+    remove,
+  ) => remove(),
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -144,7 +151,7 @@ function renderSettings(
         section={section}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
-        onWorkspaceRemoved={vi.fn()}
+        onRemoveWorkspace={onRemoveWorkspace}
       />
     </QueryClientProvider>,
   );

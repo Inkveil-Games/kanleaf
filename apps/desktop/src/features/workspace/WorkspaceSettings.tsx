@@ -31,7 +31,7 @@ interface WorkspaceSettingsProps {
   section: WorkspaceSettingsSection;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
-  onWorkspaceRemoved: () => Promise<void>;
+  onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
 }
 
 export function WorkspaceSettings({
@@ -42,7 +42,7 @@ export function WorkspaceSettings({
   section,
   onWorkspaceUpdated,
   onConfigurationUpdated,
-  onWorkspaceRemoved,
+  onRemoveWorkspace,
 }: WorkspaceSettingsProps) {
   if (section === 'general') {
     return (
@@ -96,7 +96,7 @@ export function WorkspaceSettings({
       context={context}
       workspace={workspace}
       workspaceCount={workspaceCount}
-      onWorkspaceRemoved={onWorkspaceRemoved}
+      onRemoveWorkspace={onRemoveWorkspace}
     />
   );
 }
@@ -189,10 +189,10 @@ function DangerSettings({
   context,
   workspace,
   workspaceCount,
-  onWorkspaceRemoved,
+  onRemoveWorkspace,
 }: Pick<
   WorkspaceSettingsProps,
-  'context' | 'workspace' | 'workspaceCount' | 'onWorkspaceRemoved'
+  'context' | 'workspace' | 'workspaceCount' | 'onRemoveWorkspace'
 >) {
   const [confirmation, setConfirmation] = useState('');
   const [password, setPassword] = useState('');
@@ -202,8 +202,7 @@ function DangerSettings({
     if (!window.confirm(`Leave ${workspace.name}?`)) return;
     setState({ status: 'saving' });
     try {
-      await leaveWorkspace(context, workspace.id);
-      await onWorkspaceRemoved();
+      await onRemoveWorkspace(() => leaveWorkspace(context, workspace.id));
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
     }
@@ -214,11 +213,12 @@ function DangerSettings({
     if (!window.confirm(`Permanently delete ${workspace.name}?`)) return;
     setState({ status: 'saving' });
     try {
-      await deleteWorkspace(context, workspace.id, {
-        name: confirmation,
-        password,
-      });
-      await onWorkspaceRemoved();
+      await onRemoveWorkspace(() =>
+        deleteWorkspace(context, workspace.id, {
+          name: confirmation,
+          password,
+        }),
+      );
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
     }

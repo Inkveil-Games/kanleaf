@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { WorkspaceImportOperation } from './portabilityApi';
 import { WorkspaceImportDialog } from './WorkspaceImportDialog';
 
 HTMLDialogElement.prototype.showModal = function showModal() {
@@ -33,11 +34,13 @@ describe('WorkspaceImportDialog', () => {
         }),
       );
     vi.stubGlobal('fetch', fetchMock);
-    const onImported = vi.fn().mockResolvedValue(undefined);
+    const onApplyImport = vi.fn(
+      async (apply: () => Promise<WorkspaceImportOperation>) => apply(),
+    );
     render(
       <WorkspaceImportDialog
         context={context}
-        onImported={onImported}
+        onApplyImport={onApplyImport}
         onClose={vi.fn()}
       />,
     );
@@ -61,9 +64,7 @@ describe('WorkspaceImportDialog', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Import as new Workspace' }),
     );
-    await waitFor(() =>
-      expect(onImported).toHaveBeenCalledWith('workspace-imported'),
-    );
+    await waitFor(() => expect(onApplyImport).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenLastCalledWith(
       'https://kanleaf.example.com/api/workspace-imports/import-1/apply',
       expect.objectContaining({

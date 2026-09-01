@@ -11,13 +11,15 @@ import {
 
 interface WorkspaceImportDialogProps {
   context: ApiContext;
-  onImported: (workspaceId: string) => Promise<void>;
+  onApplyImport: (
+    apply: () => Promise<WorkspaceImportOperation>,
+  ) => Promise<WorkspaceImportOperation | null>;
   onClose: () => void;
 }
 
 export function WorkspaceImportDialog({
   context,
-  onImported,
+  onApplyImport,
   onClose,
 }: WorkspaceImportDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -69,13 +71,18 @@ export function WorkspaceImportDialog({
     setBusy(true);
     setError(null);
     try {
-      const applied = await applyWorkspaceImport(context, operation);
+      const applied = await onApplyImport(() =>
+        applyWorkspaceImport(context, operation),
+      );
+      if (!applied) {
+        onClose();
+        return;
+      }
       setOperation(applied);
       if (applied.state !== 'completed' || !applied.workspace_id) {
         setError(applied.error?.message ?? 'Workspace import failed');
         return;
       }
-      await onImported(applied.workspace_id);
       onClose();
     } catch (caught) {
       setError(errorMessage(caught));

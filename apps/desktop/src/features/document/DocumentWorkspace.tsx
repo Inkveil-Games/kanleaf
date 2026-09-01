@@ -26,6 +26,7 @@ interface DocumentWorkspaceProps {
   workspaceId: string;
   projects: Project[];
   projectId: string | null;
+  accessSettled: boolean;
   canCreateWorkspaceDocuments: boolean;
   selectedDocumentId: string | null;
   onSelectDocument: (
@@ -41,6 +42,7 @@ export function DocumentWorkspace({
   workspaceId,
   projects,
   projectId,
+  accessSettled,
   canCreateWorkspaceDocuments,
   selectedDocumentId,
   onSelectDocument,
@@ -52,6 +54,7 @@ export function DocumentWorkspace({
   const documents = useQuery({
     queryKey,
     queryFn: () => listDocuments(context, workspaceId, projectId ?? undefined),
+    enabled: accessSettled,
   });
   const [creatingParentId, setCreatingParentId] = useState<
     string | null | undefined
@@ -62,10 +65,14 @@ export function DocumentWorkspace({
   );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const availableDocuments = useMemo(
+    () => (accessSettled ? (documents.data ?? []) : []),
+    [accessSettled, documents.data],
+  );
 
   const allSections = useMemo(
-    () => buildSections(documents.data ?? [], projects, projectId),
-    [documents.data, projectId, projects],
+    () => buildSections(availableDocuments, projects, projectId),
+    [availableDocuments, projectId, projects],
   );
   const sections = useMemo(
     () => visibleSections(allSections, collapsedIds),
@@ -87,30 +94,43 @@ export function DocumentWorkspace({
   const activeSelectedId = nearestVisibleSelection(
     selectedDocumentId,
     entries.map(({ document }) => document),
-    documents.data ?? [],
+    availableDocuments,
   );
   const selected =
-    documents.data?.find(({ id }) => id === activeSelectedId) ?? null;
+    availableDocuments.find(({ id }) => id === activeSelectedId) ?? null;
   const activeProject = projectId
     ? projects.find(({ id }) => id === projectId)
     : null;
-  const canCreate = projectId
-    ? isProjectEditor(activeProject)
-    : canCreateWorkspaceDocuments;
+  const canCreate =
+    accessSettled &&
+    (projectId ? isProjectEditor(activeProject) : canCreateWorkspaceDocuments);
 
   useEffect(() => {
     if (
-      documents.isSuccess &&
-      !documents.isFetching &&
-      selectedDocumentId !== null &&
-      !scopedDocumentIds.has(selectedDocumentId)
+      !accessSettled ||
+      !documents.isSuccess ||
+      documents.isFetching ||
+      selectedDocumentId === null
     ) {
+      return;
+    }
+
+    const routedDocument = documents.data.find(
+      ({ id }) => id === selectedDocumentId,
+    );
+    if (!routedDocument || !scopedDocumentIds.has(selectedDocumentId)) {
       onInvalidSelection();
+    } else if (routedDocument.project_id !== projectId) {
+      void onSelectDocument(routedDocument, { replace: true });
     }
   }, [
+    accessSettled,
+    documents.data,
     documents.isFetching,
     documents.isSuccess,
     onInvalidSelection,
+    onSelectDocument,
+    projectId,
     scopedDocumentIds,
     selectedDocumentId,
   ]);
@@ -161,8 +181,19 @@ export function DocumentWorkspace({
 
   async function patchDocument(documentId: string, patch: DocumentPatch) {
     await run(async () => {
-      await updateDocument(context, workspaceId, documentId, patch);
+      const updated = await updateDocument(
+        context,
+        workspaceId,
+        documentId,
+        patch,
+      );
       setRenamingId(null);
+      if (
+        updated.id === selectedDocumentId &&
+        updated.project_id !== projectId
+      ) {
+        await onSelectDocument(updated, { replace: true });
+      }
       await refresh();
     });
   }
@@ -228,14 +259,14 @@ export function DocumentWorkspace({
     <>
       <DocumentTree
         sections={sections}
-        documents={documents.data ?? []}
+        documents={availableDocuments}
         projectId={projectId}
         selectedId={activeSelectedId}
         collapsedIds={collapsedIds}
-        creatingParentId={creatingParentId}
-        renamingId={renamingId}
+        creatingParentId={accessSettled ? creatingParentId : undefined}
+        renamingId={accessSettled ? renamingId : null}
         canCreate={canCreate}
-        loading={documents.isPending}
+        loading={!accessSettled || documents.isPending}
         error={documents.error ? errorMessage(documents.error) : null}
         actionError={actionError}
         onSelect={(documentId) => {
@@ -280,7 +311,7 @@ export function DocumentWorkspace({
             context={context}
             workspaceId={workspaceId}
             document={selected}
-            documents={documents.data ?? []}
+            documents={availableDocuments}
             projects={projects}
             confirmingArchive={archiveCandidateId === selected.id}
             onPatch={(patch) => patchDocument(selected.id, patch)}
