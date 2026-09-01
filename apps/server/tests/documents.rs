@@ -57,15 +57,36 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let payload = body(response).await;
-    (
-        payload["token"].as_str().unwrap().to_owned(),
-        payload["user"]["id"].as_str().unwrap().parse().unwrap(),
-        payload["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-    )
+    let token = payload["token"].as_str().unwrap().to_owned();
+    let user_id = payload["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/account/setup",
+            Some(json!({"display_name": email.split('@').next().unwrap()})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/workspaces",
+            Some(json!({"name": "Personal"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace.status(), StatusCode::CREATED);
+    let workspace_id = body(workspace).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    (token, user_id, workspace_id)
 }
 
 async fn create_project(app: &Router, token: &str, workspace_id: Uuid, name: &str) -> Uuid {

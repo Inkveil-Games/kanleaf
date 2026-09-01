@@ -75,15 +75,20 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = response_json(response).await;
-    (
-        body["token"].as_str().unwrap().to_owned(),
-        body["user"]["id"].as_str().unwrap().parse().unwrap(),
-        body["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
+    let token = body["token"].as_str().unwrap().to_owned();
+    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = send(
+        app,
+        "PATCH",
+        "/api/account/setup",
+        Some(json!({"display_name": email.split('@').next().unwrap()})),
+        &token,
     )
+    .await;
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = create(app, &token, "/api/workspaces", json!({"name": "Personal"})).await;
+    let workspace_id = workspace["id"].as_str().unwrap().parse().unwrap();
+    (token, user_id, workspace_id)
 }
 
 async fn create(app: &Router, token: &str, uri: &str, body: Value) -> Value {
@@ -329,6 +334,15 @@ async fn export_is_admin_only_actor_scoped_and_rechecks_download_access(pool: Pg
     )
     .await;
     assert_eq!(guessed.status(), StatusCode::NOT_FOUND);
+    let guessed_cancel = send(
+        &app,
+        "DELETE",
+        &format!("/api/workspace-exports/{operation_id}"),
+        None,
+        &owner_token,
+    )
+    .await;
+    assert_eq!(guessed_cancel.status(), StatusCode::NOT_FOUND);
 
     let downgraded = send(
         &app,
@@ -419,4 +433,102 @@ async fn startup_recovery_removes_export_artifacts_and_expires_operations(pool: 
             .join(format!("{expired_key}.kanleaf.zip"))
             .exists()
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn canceled_preparing_export_recovers_an_artifact_written_after_cancel(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(test_state(pool.clone(), &data_dir));
+    let (token, user_id, workspace_id) = register(&app, "export-cancel@example.com").await;
+    let operation_id = Uuid::new_v4();
+    let staging_key = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO workspace_operations (
+            id, actor_id, workspace_id, kind, state, revision, result,
+            staging_key, expires_at
+        ) VALUES ($1, $2, $3, 'workspace_export', 'preparing', $4, $5, $6,
+                  now() + interval '10 minutes')
+        "#,
+    )
+    .bind(operation_id)
+    .bind(user_id)
+    .bind(workspace_id)
+    .bind(Uuid::new_v4())
+    .bind(json!({
+        "file_name": "workspace.kanleaf.zip",
+        "file_count": 0,
+        "content_bytes": 0,
+        "archive_bytes": null,
+        "exclusions": [],
+        "error": null
+    }))
+    .bind(staging_key)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let canceled = send(
+        &app,
+        "DELETE",
+        &format!("/api/workspace-exports/{operation_id}"),
+        None,
+        &token,
+    )
+    .await;
+    assert_eq!(canceled.status(), StatusCode::NO_CONTENT);
+    let canceled_state: Option<String> =
+        sqlx::query_scalar("SELECT state FROM workspace_operations WHERE id = $1")
+            .bind(operation_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+    assert_eq!(canceled_state.as_deref(), Some("canceled"));
+
+    let hidden = send(
+        &app,
+        "GET",
+        &format!("/api/workspace-exports/{operation_id}"),
+        None,
+        &token,
+    )
+    .await;
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
+    let hidden_download = send(
+        &app,
+        "GET",
+        &format!("/api/workspace-exports/{operation_id}/download"),
+        None,
+        &token,
+    )
+    .await;
+    assert_eq!(hidden_download.status(), StatusCode::NOT_FOUND);
+
+    let repeated = send(
+        &app,
+        "DELETE",
+        &format!("/api/workspace-exports/{operation_id}"),
+        None,
+        &token,
+    )
+    .await;
+    assert_eq!(repeated.status(), StatusCode::NOT_FOUND);
+
+    let operations = data_dir.path().join("operations");
+    fs::create_dir_all(&operations).unwrap();
+    let artifact = operations.join(format!("{staging_key}.kanleaf.zip"));
+    fs::write(&artifact, "archive published after cancellation").unwrap();
+
+    recover_export_operations(&test_state(pool.clone(), &data_dir))
+        .await
+        .unwrap();
+
+    assert!(!artifact.exists());
+    let operation_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_operations WHERE id = $1)")
+            .bind(operation_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!operation_exists);
 }

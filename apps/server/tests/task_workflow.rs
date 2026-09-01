@@ -55,15 +55,22 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = json_body(response).await;
-    (
-        body["token"].as_str().unwrap().to_owned(),
-        body["user"]["id"].as_str().unwrap().parse().unwrap(),
-        body["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-    )
+    let token = body["token"].as_str().unwrap().to_owned();
+    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/account/setup",
+            Some(json!({"display_name": email.split('@').next().unwrap()})),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = create(app, &token, "/api/workspaces", json!({"name": "Personal"})).await;
+    let workspace_id = workspace["id"].as_str().unwrap().parse().unwrap();
+    (token, user_id, workspace_id)
 }
 
 async fn create(app: &Router, token: &str, uri: &str, body: Value) -> Value {

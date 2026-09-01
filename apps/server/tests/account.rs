@@ -7,15 +7,21 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, router};
+use kanleaf_server::{AppState, domain::NormalizedEmail, router};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 fn test_app(pool: PgPool, data_dir: &TempDir) -> axum::Router {
+    test_app_with_host(pool, data_dir, None)
+}
+
+fn test_app_with_host(pool: PgPool, data_dir: &TempDir, host_email: Option<&str>) -> axum::Router {
     router(
-        AppState::new(pool, data_dir.path().to_owned(), Duration::from_secs(3600)),
+        AppState::new(pool, data_dir.path().to_owned(), Duration::from_secs(3600))
+            .with_host_email(host_email.map(|email| NormalizedEmail::new(email).unwrap())),
         vec![HeaderValue::from_static("http://127.0.0.1:1420")],
     )
 }
@@ -73,6 +79,337 @@ async fn login(app: &axum::Router, email: &str, password: &str) -> axum::respons
         ))
         .await
         .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_setup_persists_defaults_and_never_regresses_a_later_stage(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let token = register(&app, "setup@example.com", "correct horse battery").await;
+
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": " Setup Person "}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let user = response_json(setup).await;
+    assert_eq!(user["display_name"], "Setup Person");
+    assert_eq!(user["theme"], "system");
+    assert_eq!(user["timezone"], "UTC");
+    assert_eq!(user["setup_stage"], "workspace");
+
+    let workspace = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Setup Team", "identifier": "setup-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace.status(), StatusCode::CREATED);
+
+    let retry = app
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Updated Setup Person", "theme": "dark"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(retry.status(), StatusCode::OK);
+    let user = response_json(retry).await;
+    assert_eq!(user["display_name"], "Updated Setup Person");
+    assert_eq!(user["theme"], "dark");
+    assert_eq!(user["setup_stage"], "invite");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn setup_completion_requires_the_first_workspace_to_still_exist(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let token = register(&app, "setup@example.com", "correct horse battery").await;
+
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Setup Person"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let rejected = app
+        .clone()
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    sqlx::query("UPDATE users SET setup_stage = 'invite' WHERE email = 'setup@example.com'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let missing_workspace = app
+        .clone()
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(missing_workspace.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    sqlx::query("UPDATE users SET setup_stage = 'workspace' WHERE email = 'setup@example.com'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Setup Team", "identifier": "setup-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+
+    let completed = app
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    assert_eq!(response_json(completed).await["setup_stage"], "complete");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn configured_host_can_complete_setup_without_a_workspace(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app_with_host(pool, &data_dir, Some("host@example.com"));
+    let token = register(&app, "host@example.com", "correct horse battery").await;
+
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Instance Host"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+
+    let completed = app
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    let host = response_json(completed).await;
+    assert_eq!(host["setup_stage"], "complete");
+    assert!(host["active_workspace_id"].is_null());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn configured_host_can_recover_invite_setup_without_a_workspace(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app_with_host(pool.clone(), &data_dir, Some("host@example.com"));
+    let token = register(&app, "host@example.com", "correct horse battery").await;
+
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Instance Host"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    sqlx::query("UPDATE users SET setup_stage = 'invite' WHERE email = 'host@example.com'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let completed = app
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    let host = response_json(completed).await;
+    assert_eq!(host["setup_stage"], "complete");
+    assert!(host["active_workspace_id"].is_null());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn invalid_account_setup_does_not_partially_update_the_account(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let token = register(&app, "setup@example.com", "correct horse battery").await;
+
+    let invalid = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({
+                "display_name": "Changed",
+                "theme": "dark",
+                "timezone": "GMT+7"
+            }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let account = app
+        .oneshot(empty_request("GET", "/api/account", &token))
+        .await
+        .unwrap();
+    let account = response_json(account).await;
+    assert_eq!(account["display_name"], "setup");
+    assert_eq!(account["theme"], "system");
+    assert_eq!(account["setup_stage"], "account");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_details_are_required_before_workspace_creation(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let token = register(&app, "setup@example.com", "correct horse battery").await;
+
+    let rejected = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Bypassed setup", "identifier": "bypassed-setup"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let workspace_count: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let registry_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workspace_identifier_registry")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let account: (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT setup_stage, active_workspace_id FROM users WHERE email = 'setup@example.com'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(workspace_count, 0);
+    assert_eq!(registry_count, 0);
+    assert_eq!(account, ("account".to_owned(), None));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_details_are_required_before_invitation_acceptance(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let owner_token = register(&app, "owner@example.com", "correct horse battery").await;
+    let owner_setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Owner"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(owner_setup.status(), StatusCode::OK);
+    let workspace = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Invitation source", "identifier": "invitation-source"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace.status(), StatusCode::CREATED);
+    let workspace_id: Uuid = response_json(workspace).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let invitation = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations"),
+            json!({"email": "invitee@example.com", "role": "member"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invitation.status(), StatusCode::CREATED);
+    let invitation_id: Uuid = response_json(invitation).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let invitee_token = register(&app, "invitee@example.com", "correct horse battery").await;
+
+    let rejected = app
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/invitations/{invitation_id}/accept"),
+            &invitee_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let membership_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM workspace_memberships
+        JOIN users ON users.id = workspace_memberships.user_id
+        WHERE workspace_memberships.workspace_id = $1
+          AND users.email = 'invitee@example.com'
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let accepted_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT accepted_at FROM workspace_invitations WHERE id = $1")
+            .bind(invitation_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let account: (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT setup_stage, active_workspace_id FROM users WHERE email = 'invitee@example.com'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(membership_count, 0);
+    assert_eq!(accepted_at, None);
+    assert_eq!(account, ("account".to_owned(), None));
 }
 
 #[sqlx::test(migrations = "./migrations")]

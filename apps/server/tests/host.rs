@@ -61,6 +61,34 @@ async fn register(app: &axum::Router, email: &str) -> Value {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
+    let payload = response_json(response).await;
+    let token = payload["token"].as_str().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": email.split('@').next().unwrap()}),
+            Some(token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    payload
+}
+
+async fn create_workspace(app: &axum::Router, token: &str, name: &str, identifier: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": name, "identifier": identifier}),
+            Some(token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
     response_json(response).await
 }
 
@@ -341,9 +369,12 @@ async fn host_lists_only_workspace_owner_metadata_without_gaining_workspace_acce
     let app = test_app(pool, &data_dir, Some("host@example.com"));
     let host = register(&app, "host@example.com").await;
     let host_token = host["token"].as_str().unwrap();
-    let host_workspace = host["user"]["active_workspace_id"].as_str().unwrap();
+    let host_workspace = create_workspace(&app, host_token, "Personal", "host-personal").await;
+    let host_workspace = host_workspace["id"].as_str().unwrap().to_owned();
     let owner = register(&app, "owner@example.com").await;
-    let owner_workspace = owner["user"]["active_workspace_id"].as_str().unwrap();
+    let owner_token = owner["token"].as_str().unwrap();
+    let owner_workspace = create_workspace(&app, owner_token, "Personal", "owner-personal").await;
+    let owner_workspace = owner_workspace["id"].as_str().unwrap().to_owned();
 
     let response = app
         .clone()
@@ -359,15 +390,16 @@ async fn host_lists_only_workspace_owner_metadata_without_gaining_workspace_acce
     let workspaces = workspaces.as_array().unwrap();
     assert_eq!(workspaces.len(), 2);
 
-    for (workspace_id, owner_email) in [
-        (host_workspace, "host@example.com"),
-        (owner_workspace, "owner@example.com"),
+    for (workspace_id, identifier, owner_email) in [
+        (&host_workspace, "host-personal", "host@example.com"),
+        (&owner_workspace, "owner-personal", "owner@example.com"),
     ] {
         let workspace = workspaces
             .iter()
-            .find(|workspace| workspace["id"] == workspace_id)
+            .find(|workspace| workspace["id"].as_str() == Some(workspace_id.as_str()))
             .unwrap();
         assert_eq!(workspace["name"], "Personal");
+        assert_eq!(workspace["identifier"], identifier);
         assert_eq!(workspace["owner"]["email"], owner_email);
         assert!(workspace["owner"]["id"].is_string());
         assert!(workspace["owner"]["display_name"].is_string());

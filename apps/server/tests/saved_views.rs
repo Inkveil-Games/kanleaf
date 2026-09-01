@@ -66,15 +66,20 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = json_body(response).await;
-    (
-        body["token"].as_str().unwrap().to_owned(),
-        body["user"]["id"].as_str().unwrap().parse().unwrap(),
-        body["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
+    let token = body["token"].as_str().unwrap().to_owned();
+    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = send(
+        app,
+        "PATCH",
+        "/api/account/setup",
+        Some(json!({"display_name": email.split('@').next().unwrap()})),
+        &token,
     )
+    .await;
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = create_json(app, &token, "/api/workspaces", json!({"name": "Personal"})).await;
+    let workspace_id = workspace["id"].as_str().unwrap().parse().unwrap();
+    (token, user_id, workspace_id)
 }
 
 async fn create_json(app: &Router, token: &str, uri: &str, body: Value) -> Value {

@@ -344,6 +344,23 @@ impl Vault {
         Ok(operations)
     }
 
+    pub(crate) async fn discard_workspace_library_operations(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<(), VaultError> {
+        for operation in self.pending_library_operations().await? {
+            if operation.workspace_id != workspace_id {
+                continue;
+            }
+            if matches!(operation.kind, PendingLibraryOperationKind::Delete { .. }) {
+                self.recover_library_delete(&operation, false).await?;
+            } else {
+                remove_file_if_present(&operation.manifest).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn recover_library_move(
         &self,
         operation: &PendingLibraryOperation,

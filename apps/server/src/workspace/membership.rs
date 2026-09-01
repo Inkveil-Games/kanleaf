@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    AssignableWorkspaceRole, WorkspaceRole, require_workspace_admin, require_workspace_member,
-    require_workspace_owner,
+    AssignableWorkspaceRole, WorkspaceRole, lock_workspace, require_workspace_admin,
+    require_workspace_member, require_workspace_owner, require_workspace_owner_in_transaction,
 };
 
 #[derive(Serialize, FromRow)]
@@ -241,16 +241,6 @@ async fn leave(
             "Transfer ownership before leaving this Workspace".to_owned(),
         ));
     }
-    let membership_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM workspace_memberships WHERE user_id = $1")
-            .bind(auth.user.id)
-            .fetch_one(&mut *transaction)
-            .await?;
-    if membership_count <= 1 {
-        return Err(AppError::Validation(
-            "Join or create another Workspace before leaving this one".to_owned(),
-        ));
-    }
     let task_ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT task_id FROM task_assignees WHERE workspace_id = $1 AND user_id = $2 ORDER BY task_id",
     )
@@ -283,6 +273,8 @@ async fn transfer_ownership(
     require_workspace_owner(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
+    lock_workspace(&mut transaction, workspace_id).await?;
+    require_workspace_owner_in_transaction(&mut transaction, auth.user.id, workspace_id).await?;
     let target_role = lock_member_role(&mut transaction, workspace_id, request.user_id).await?;
     if target_role != WorkspaceRole::Admin {
         return Err(AppError::Validation(

@@ -2,23 +2,36 @@ use std::collections::BTreeSet;
 
 use axum::{
     Json, Router,
-    extract::{FromRequestParts, State, rejection::JsonRejection},
+    extract::{FromRequestParts, Path, State, rejection::JsonRejection, rejection::PathRejection},
+    http::StatusCode,
     http::request::Parts,
-    routing::get,
+    routing::{delete, get},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::{AppState, auth::AuthenticatedUser, domain::NormalizedEmail, error::AppError};
+use crate::{
+    AppState,
+    auth::{AuthenticatedUser, verify_password},
+    domain::{NormalizedEmail, ValidatedPassword},
+    error::AppError,
+    workspace::{WorkspaceDeletionAuthority, permanently_delete_workspace},
+};
 
-pub(crate) struct HostUser;
+pub(crate) struct HostUser(AuthenticatedUser);
 
 #[derive(Deserialize)]
 struct AccessPolicyRequest {
     restricted: bool,
     allowed_emails: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteHostWorkspaceRequest {
+    identifier: String,
+    password: String,
 }
 
 #[derive(Serialize)]
@@ -37,6 +50,7 @@ struct AccessPolicyRow {
 struct HostWorkspaceRow {
     id: Uuid,
     name: String,
+    identifier: String,
     created_at: DateTime<Utc>,
     owner_id: Uuid,
     owner_display_name: String,
@@ -47,6 +61,7 @@ struct HostWorkspaceRow {
 struct HostWorkspaceResponse {
     id: Uuid,
     name: String,
+    identifier: String,
     created_at: DateTime<Utc>,
     owner: HostOwnerResponse,
 }
@@ -61,6 +76,10 @@ struct HostOwnerResponse {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/host/workspaces", get(list_workspaces))
+        .route(
+            "/api/host/workspaces/{workspace_id}",
+            delete(delete_workspace),
+        )
         .route("/api/host/access", get(get_access).put(update_access))
 }
 
@@ -75,8 +94,52 @@ impl FromRequestParts<AppState> for HostUser {
         if !auth.user.is_host {
             return Err(AppError::Forbidden);
         }
-        Ok(Self)
+        Ok(Self(auth))
     }
+}
+
+async fn delete_workspace(
+    HostUser(auth): HostUser,
+    State(state): State<AppState>,
+    path: Result<Path<Uuid>, PathRejection>,
+    payload: Result<Json<DeleteHostWorkspaceRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    let (identifier, password_hash): (String, String) = sqlx::query_as(
+        r#"
+        SELECT workspaces.identifier, users.password_hash
+        FROM workspaces
+        CROSS JOIN users
+        WHERE workspaces.id = $1 AND users.id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(auth.user.id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))?;
+    if request.identifier != identifier {
+        return Err(AppError::Validation(
+            "Workspace ID does not match".to_owned(),
+        ));
+    }
+    let password = ValidatedPassword::new(request.password)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    if !verify_password(password, password_hash.clone()).await? {
+        return Err(AppError::Validation("Password is incorrect".to_owned()));
+    }
+
+    permanently_delete_workspace(
+        &state,
+        workspace_id,
+        WorkspaceDeletionAuthority::Host {
+            user_id: auth.user.id,
+            verified_password_hash: password_hash,
+        },
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_workspaces(
@@ -87,6 +150,7 @@ async fn list_workspaces(
         r#"
         SELECT workspaces.id,
                workspaces.name,
+               workspaces.identifier,
                workspaces.created_at,
                users.id AS owner_id,
                users.display_name AS owner_display_name,
@@ -107,6 +171,7 @@ async fn list_workspaces(
             .map(|row| HostWorkspaceResponse {
                 id: row.id,
                 name: row.name,
+                identifier: row.identifier,
                 created_at: row.created_at,
                 owner: HostOwnerResponse {
                     id: row.owner_id,

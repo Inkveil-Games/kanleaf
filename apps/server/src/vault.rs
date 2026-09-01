@@ -18,6 +18,7 @@ mod layout;
 mod library_operation;
 mod migration;
 mod task_operation;
+mod workspace_deletion;
 
 pub use layout::{LibraryPath, ProjectPath, TaskPath};
 pub use library_operation::{
@@ -39,11 +40,6 @@ const MAX_EXPORT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 #[derive(Clone)]
 pub struct Vault {
     data_dir: Arc<PathBuf>,
-}
-
-pub struct WorkspaceTrash {
-    original: PathBuf,
-    trashed: PathBuf,
 }
 
 pub struct TaskTrash {
@@ -450,7 +446,15 @@ impl Vault {
         staging_key: Uuid,
     ) -> Result<PathBuf, VaultError> {
         let directory = self.data_dir.join("operations");
-        fs::create_dir_all(&directory).await?;
+        match fs::symlink_metadata(&directory).await {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => return Err(VaultError::InvalidManagedPath),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir_all(&directory).await?;
+                sync_directory(self.data_dir.as_path()).await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         let path = directory.join(format!("{staging_key}.kanleaf.zip"));
         match fs::symlink_metadata(&path).await {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path),
@@ -475,21 +479,34 @@ impl Vault {
     }
 
     pub(crate) async fn remove_export_artifact(&self, staging_key: Uuid) -> Result<(), VaultError> {
-        let path = self
-            .data_dir
-            .join("operations")
-            .join(format!("{staging_key}.kanleaf.zip"));
+        let directory = self.data_dir.join("operations");
+        let path = directory.join(format!("{staging_key}.kanleaf.zip"));
         match fs::symlink_metadata(&path).await {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
                 Err(VaultError::InvalidManagedPath)
             }
             Ok(_) => {
                 fs::remove_file(path).await?;
-                Ok(())
+                self.sync_export_artifact_directory().await
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                match fs::symlink_metadata(&directory).await {
+                    Ok(_) => self.sync_export_artifact_directory().await,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error.into()),
+                }
+            }
             Err(error) => Err(error.into()),
         }
+    }
+
+    pub(crate) async fn sync_export_artifact_directory(&self) -> Result<(), VaultError> {
+        let directory = self.data_dir.join("operations");
+        let metadata = fs::symlink_metadata(&directory).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        sync_directory(&directory).await
     }
 
     pub(crate) async fn prepare_import_staging(
@@ -713,40 +730,6 @@ impl Vault {
         Ok(())
     }
 
-    pub async fn trash_workspace(
-        &self,
-        workspace_id: Uuid,
-    ) -> Result<Option<WorkspaceTrash>, VaultError> {
-        let original = self.workspace_directory(workspace_id);
-        match fs::metadata(&original).await {
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        }
-
-        let trash_directory = self.data_dir.join("trash").join("workspaces");
-        fs::create_dir_all(&trash_directory).await?;
-        let trashed = trash_directory.join(format!("{workspace_id}.{}", Uuid::new_v4()));
-        fs::rename(&original, &trashed).await?;
-        Ok(Some(WorkspaceTrash { original, trashed }))
-    }
-
-    pub async fn restore_workspace(&self, trash: &WorkspaceTrash) -> Result<(), VaultError> {
-        if let Some(parent) = trash.original.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        fs::rename(&trash.trashed, &trash.original).await?;
-        Ok(())
-    }
-
-    pub async fn purge_workspace_trash(&self, trash: &WorkspaceTrash) -> Result<(), VaultError> {
-        match fs::remove_dir_all(&trash.trashed).await {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-
     pub async fn trash_task(
         &self,
         workspace_id: Uuid,
@@ -901,6 +884,17 @@ impl Vault {
         }
         Ok(())
     }
+}
+
+async fn sync_directory(path: &Path) -> Result<(), VaultError> {
+    #[cfg(unix)]
+    {
+        let directory = fs::File::open(path).await?;
+        directory.sync_all().await?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 async fn safe_read_directory(path: &Path) -> Result<Option<fs::ReadDir>, VaultError> {
@@ -1141,49 +1135,6 @@ mod tests {
                 .await,
             Err(VaultError::ExistingDocument)
         ));
-    }
-
-    #[tokio::test]
-    async fn workspace_trash_can_be_restored_or_purged() {
-        let data_dir = TempDir::new().unwrap();
-        let workspace_id = Uuid::new_v4();
-        let task_id = Uuid::new_v4();
-        let task_path = task_path(task_id);
-        let vault = Vault::new(data_dir.path().to_owned());
-        vault
-            .create_task_document(workspace_id, &task_path, "")
-            .await
-            .unwrap();
-        let revision = vault
-            .read_task_document(workspace_id, &task_path)
-            .await
-            .unwrap()
-            .revision;
-        vault
-            .write_task_document(workspace_id, &task_path, "recoverable", &revision)
-            .await
-            .unwrap();
-
-        let trashed = vault.trash_workspace(workspace_id).await.unwrap().unwrap();
-        assert!(
-            vault
-                .read_task_document(workspace_id, &task_path)
-                .await
-                .is_err()
-        );
-        vault.restore_workspace(&trashed).await.unwrap();
-        assert_eq!(
-            vault
-                .read_task_document(workspace_id, &task_path)
-                .await
-                .unwrap()
-                .content,
-            "recoverable"
-        );
-
-        let trashed = vault.trash_workspace(workspace_id).await.unwrap().unwrap();
-        vault.purge_workspace_trash(&trashed).await.unwrap();
-        assert!(vault.restore_workspace(&trashed).await.is_err());
     }
 
     #[tokio::test]

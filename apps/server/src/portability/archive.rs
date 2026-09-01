@@ -37,6 +37,7 @@ use super::{
 };
 
 const EXPORT_KIND: &str = "workspace_export";
+const EXPORT_CLEANUP_BATCH_SIZE: i64 = 100;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct StoredExportResult {
@@ -206,8 +207,7 @@ async fn get_export(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<ExportOperationResponse>, AppError> {
     let Path(operation_id) = path.map_err(AppError::from)?;
-    let operation =
-        operation::load_actor(&state.pool, operation_id, auth.user.id, EXPORT_KIND).await?;
+    let operation = load_visible_export(&state.pool, operation_id, auth.user.id).await?;
     let workspace_id = operation_workspace(&operation)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let result = parse_result(&operation)?;
@@ -220,18 +220,24 @@ async fn cancel_export(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path(operation_id) = path.map_err(AppError::from)?;
-    let operation =
-        operation::load_actor(&state.pool, operation_id, auth.user.id, EXPORT_KIND).await?;
+    let operation = load_visible_export(&state.pool, operation_id, auth.user.id).await?;
     let workspace_id = operation_workspace(&operation)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
-    let deleted =
-        operation::delete_actor(&state.pool, operation_id, auth.user.id, EXPORT_KIND).await?;
-    if let Some(staging_key) = deleted.staging_key {
+    let (staging_key, worker_may_publish) =
+        mark_export_canceled(&state.pool, operation_id, auth.user.id).await?;
+    if let Some(staging_key) = staging_key {
         state
             .vault
             .remove_export_artifact(staging_key)
             .await
             .map_err(|_| AppError::VaultUnavailable)?;
+    }
+    if (!worker_may_publish || staging_key.is_none())
+        && let Err(error) =
+            delete_canceled_export_marker(&state.pool, operation_id, auth.user.id, staging_key)
+                .await
+    {
+        warn!(%operation_id, %error, "failed to remove completed Workspace export cancellation marker");
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -242,8 +248,7 @@ async fn download_export(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Response<Body>, AppError> {
     let Path(operation_id) = path.map_err(AppError::from)?;
-    let operation =
-        operation::load_actor(&state.pool, operation_id, auth.user.id, EXPORT_KIND).await?;
+    let operation = load_visible_export(&state.pool, operation_id, auth.user.id).await?;
     let workspace_id = operation_workspace(&operation)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     if operation.state != "ready" {
@@ -270,6 +275,101 @@ async fn download_export(
         .map_err(AppError::internal)
 }
 
+async fn load_visible_export(
+    pool: &sqlx::PgPool,
+    operation_id: Uuid,
+    actor_id: Uuid,
+) -> Result<OperationRow, AppError> {
+    let operation = operation::load_actor(pool, operation_id, actor_id, EXPORT_KIND).await?;
+    if operation.state == "canceled" {
+        return Err(AppError::NotFound(
+            "Workspace operation not found".to_owned(),
+        ));
+    }
+    Ok(operation)
+}
+
+async fn mark_export_canceled(
+    pool: &sqlx::PgPool,
+    operation_id: Uuid,
+    actor_id: Uuid,
+) -> Result<(Option<Uuid>, bool), AppError> {
+    let mut transaction = pool.begin().await?;
+    let operation: OperationRow = sqlx::query_as(
+        r#"
+        SELECT id, workspace_id, state, revision, result, staging_key,
+               expires_at, created_at, updated_at
+        FROM workspace_operations
+        WHERE id = $1 AND actor_id = $2 AND kind = $3
+        FOR UPDATE
+        "#,
+    )
+    .bind(operation_id)
+    .bind(actor_id)
+    .bind(EXPORT_KIND)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .filter(|operation: &OperationRow| {
+        operation.state != "applying" && operation.state != "canceled"
+    })
+    .ok_or_else(|| AppError::NotFound("Workspace operation not found".to_owned()))?;
+    sqlx::query(
+        r#"
+        UPDATE workspace_operations
+        SET state = 'canceled', revision = $2, updated_at = now()
+        WHERE id = $1 AND actor_id = $3 AND kind = $4 AND state = $5
+        "#,
+    )
+    .bind(operation_id)
+    .bind(Uuid::new_v4())
+    .bind(actor_id)
+    .bind(EXPORT_KIND)
+    .bind(&operation.state)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok((operation.staging_key, operation.state == "preparing"))
+}
+
+async fn delete_canceled_export_marker(
+    pool: &sqlx::PgPool,
+    operation_id: Uuid,
+    actor_id: Uuid,
+    staging_key: Option<Uuid>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        DELETE FROM workspace_operations
+        WHERE id = $1 AND actor_id = $2 AND kind = $3 AND state = 'canceled'
+          AND staging_key IS NOT DISTINCT FROM $4
+        "#,
+    )
+    .bind(operation_id)
+    .bind(actor_id)
+    .bind(EXPORT_KIND)
+    .bind(staging_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn cleanup_canceled_export_after_worker(
+    state: &AppState,
+    operation_id: Uuid,
+    actor_id: Uuid,
+    staging_key: Uuid,
+) {
+    if let Err(error) = state.vault.remove_export_artifact(staging_key).await {
+        warn!(%operation_id, %error, "failed to remove canceled Workspace export artifact");
+        return;
+    }
+    if let Err(error) =
+        delete_canceled_export_marker(&state.pool, operation_id, actor_id, Some(staging_key)).await
+    {
+        warn!(%operation_id, %error, "failed to remove Workspace export cancellation marker");
+    }
+}
+
 async fn prepare_in_background(
     state: AppState,
     actor_id: Uuid,
@@ -292,7 +392,13 @@ async fn prepare_in_background(
                 code: code.to_owned(),
                 message: message.to_owned(),
             });
-            let _ = state.vault.remove_export_artifact(staging_key).await;
+            let artifact_removed = match state.vault.remove_export_artifact(staging_key).await {
+                Ok(()) => true,
+                Err(cleanup_error) => {
+                    warn!(operation_id = %operation.id, %cleanup_error, "failed to remove unsuccessful Workspace export artifact");
+                    false
+                }
+            };
             if let Err(state_error) = operation::set_state(
                 &state.pool,
                 operation.id,
@@ -303,6 +409,17 @@ async fn prepare_in_background(
             )
             .await
             {
+                if artifact_removed
+                    && let Err(cleanup_error) = delete_canceled_export_marker(
+                        &state.pool,
+                        operation.id,
+                        actor_id,
+                        Some(staging_key),
+                    )
+                    .await
+                {
+                    warn!(operation_id = %operation.id, %cleanup_error, "failed to remove Workspace export cancellation marker");
+                }
                 warn!(operation_id = %operation.id, %state_error, "failed to record Workspace export failure");
             }
             return;
@@ -318,7 +435,7 @@ async fn prepare_in_background(
     )
     .await
     {
-        let _ = state.vault.remove_export_artifact(staging_key).await;
+        cleanup_canceled_export_after_worker(&state, operation.id, actor_id, staging_key).await;
         warn!(operation_id = %operation.id, %error, "Workspace export was canceled before publication");
     }
 }
@@ -336,6 +453,11 @@ async fn prepare_export(
             .map_err(|_| ExportFailure::Database)?;
     project_many(state, workspace_id, &task_ids).await;
     project_config_now(state, workspace_id).await;
+
+    // Keep permanent deletion behind the complete archive publication window.
+    // If deletion won the race before this lock, no artifact is created; if
+    // export won, deletion waits and records the artifact's staging key.
+    let deletion_fence = lock_workspace_for_export(&state.pool, workspace_id).await?;
 
     let pending_tasks: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM task_projection_jobs WHERE workspace_id = $1)",
@@ -441,6 +563,11 @@ async fn prepare_export(
     write_archive(artifact.clone(), scan.files.clone(), manifest_json)
         .await
         .map_err(|_| ExportFailure::Storage)?;
+    state
+        .vault
+        .sync_export_artifact_directory()
+        .await
+        .map_err(|_| ExportFailure::Storage)?;
 
     if !state
         .vault
@@ -471,6 +598,10 @@ async fn prepare_export(
         .await
         .map_err(|_| ExportFailure::Storage)?
         .len();
+    deletion_fence
+        .commit()
+        .await
+        .map_err(|_| ExportFailure::Database)?;
     Ok(StoredExportResult {
         file_name: format!(
             "{}.kanleaf.zip",
@@ -482,6 +613,23 @@ async fn prepare_export(
         exclusions,
         error: None,
     })
+}
+
+async fn lock_workspace_for_export(
+    pool: &sqlx::PgPool,
+    workspace_id: Uuid,
+) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, ExportFailure> {
+    let mut transaction = pool.begin().await.map_err(|_| ExportFailure::Database)?;
+    let workspace_exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM workspaces WHERE id = $1 FOR SHARE")
+            .bind(workspace_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| ExportFailure::Database)?;
+    if workspace_exists.is_none() {
+        return Err(ExportFailure::WorkspaceChanged);
+    }
+    Ok(transaction)
 }
 
 async fn expected_paths(
@@ -638,6 +786,10 @@ fn operation_response(
 }
 
 pub async fn recover_export_operations(state: &AppState) -> anyhow::Result<()> {
+    // Startup runs before the listener and no worker from the prior process can
+    // still publish, so canceled markers are now safe to acknowledge.
+    cleanup_canceled_exports(state).await?;
+
     let interrupted: Vec<Option<Uuid>> = sqlx::query_scalar(
         r#"
         UPDATE workspace_operations
@@ -662,23 +814,72 @@ pub async fn recover_export_operations(state: &AppState) -> anyhow::Result<()> {
     cleanup_expired_exports(state).await
 }
 
-async fn cleanup_expired_exports(state: &AppState) -> anyhow::Result<()> {
-    let expired: Vec<Option<Uuid>> = sqlx::query_scalar(
+async fn cleanup_canceled_exports(state: &AppState) -> anyhow::Result<()> {
+    let canceled: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
         r#"
-        SELECT staging_key FROM workspace_operations
-        WHERE kind = 'workspace_export' AND expires_at <= now()
+        SELECT id, staging_key FROM workspace_operations
+        WHERE kind = 'workspace_export' AND state = 'canceled'
+        ORDER BY id
         "#,
     )
     .fetch_all(&state.pool)
     .await?;
-    for staging_key in expired.into_iter().flatten() {
-        state.vault.remove_export_artifact(staging_key).await?;
+    for (operation_id, staging_key) in canceled {
+        if let Some(staging_key) = staging_key {
+            state.vault.remove_export_artifact(staging_key).await?;
+        }
+        sqlx::query(
+            "DELETE FROM workspace_operations WHERE id = $1 AND kind = 'workspace_export' AND state = 'canceled'",
+        )
+        .bind(operation_id)
+        .execute(&state.pool)
+        .await?;
     }
-    sqlx::query(
-        "DELETE FROM workspace_operations WHERE kind = 'workspace_export' AND expires_at <= now()",
+    Ok(())
+}
+
+async fn cleanup_expired_exports(state: &AppState) -> anyhow::Result<()> {
+    // Preparing and canceled exports can still have live workers. Retain their
+    // staging keys so a late artifact remains recoverable after a crash; the
+    // worker or startup recovery owns their cleanup.
+    let expired: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT id, staging_key FROM workspace_operations
+        WHERE kind = 'workspace_export'
+          AND state NOT IN ('preparing', 'canceled')
+          AND expires_at <= now()
+        ORDER BY id
+        LIMIT $1
+        "#,
     )
-    .execute(&state.pool)
+    .bind(EXPORT_CLEANUP_BATCH_SIZE)
+    .fetch_all(&state.pool)
     .await?;
+    cleanup_selected_expired_exports(state, expired).await?;
+    Ok(())
+}
+
+async fn cleanup_selected_expired_exports(
+    state: &AppState,
+    expired: Vec<(Uuid, Option<Uuid>)>,
+) -> anyhow::Result<()> {
+    for (operation_id, staging_key) in expired {
+        if let Some(staging_key) = staging_key {
+            state.vault.remove_export_artifact(staging_key).await?;
+        }
+        sqlx::query(
+            r#"
+            DELETE FROM workspace_operations
+            WHERE id = $1
+              AND kind = 'workspace_export'
+              AND state NOT IN ('preparing', 'canceled')
+              AND expires_at <= now()
+            "#,
+        )
+        .bind(operation_id)
+        .execute(&state.pool)
+        .await?;
+    }
     Ok(())
 }
 
@@ -693,4 +894,396 @@ pub fn spawn_export_cleanup_worker(state: AppState) {
             }
         }
     });
+}
+
+#[cfg(all(test, feature = "postgres-tests"))]
+mod tests {
+    use std::{fs, time::Duration};
+
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
+    };
+    use http::HeaderValue;
+    use serde_json::{Value, json};
+    use sqlx::PgPool;
+    use tempfile::TempDir;
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use crate::{AppState, router};
+
+    use super::{
+        EXPORT_CLEANUP_BATCH_SIZE, cleanup_expired_exports, cleanup_selected_expired_exports,
+        lock_workspace_for_export, recover_export_operations,
+    };
+
+    async fn send(
+        app: &axum::Router,
+        method: &str,
+        uri: &str,
+        body: Value,
+        token: Option<&str>,
+    ) -> axum::response::Response {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(token) = token {
+            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        app.clone()
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    }
+
+    async fn json(response: axum::response::Response) -> Value {
+        let bytes = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn workspace_export_fence_blocks_deletion_until_publication_finishes(pool: PgPool) {
+        let data_dir = TempDir::new().unwrap();
+        let app = router(
+            AppState::new(
+                pool.clone(),
+                data_dir.path().to_owned(),
+                Duration::from_secs(3600),
+            ),
+            vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+        );
+        let registered = send(
+            &app,
+            "POST",
+            "/api/auth/register",
+            json!({"email": "fence@example.com", "password": "correct horse battery"}),
+            None,
+        )
+        .await;
+        assert_eq!(registered.status(), StatusCode::CREATED);
+        let registered = json(registered).await;
+        let token = registered["token"].as_str().unwrap();
+        let setup = send(
+            &app,
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Fence Owner"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(setup.status(), StatusCode::OK);
+        let created = send(
+            &app,
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Fence", "identifier": "export-fence"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let workspace_id: Uuid = json(created).await["id"].as_str().unwrap().parse().unwrap();
+
+        let fence = match lock_workspace_for_export(&pool, workspace_id).await {
+            Ok(fence) => fence,
+            Err(_) => panic!("Workspace export fence should lock a live Workspace"),
+        };
+        let delete_pool = pool.clone();
+        let mut deletion = tokio::spawn(async move {
+            sqlx::query("DELETE FROM workspaces WHERE id = $1")
+                .bind(workspace_id)
+                .execute(&delete_pool)
+                .await
+                .unwrap()
+                .rows_affected()
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut deletion)
+                .await
+                .is_err(),
+            "permanent deletion must wait while an export can still publish its artifact"
+        );
+        fence.commit().await.unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), deletion)
+                .await
+                .unwrap()
+                .unwrap(),
+            1
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn periodic_cleanup_preserves_expired_preparing_export_for_startup_recovery(
+        pool: PgPool,
+    ) {
+        let data_dir = TempDir::new().unwrap();
+        let state = AppState::new(
+            pool.clone(),
+            data_dir.path().to_owned(),
+            Duration::from_secs(3600),
+        );
+        let app = router(
+            state.clone(),
+            vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+        );
+        let registered = send(
+            &app,
+            "POST",
+            "/api/auth/register",
+            json!({"email": "expired-worker@example.com", "password": "correct horse battery"}),
+            None,
+        )
+        .await;
+        assert_eq!(registered.status(), StatusCode::CREATED);
+        let registered = json(registered).await;
+        let token = registered["token"].as_str().unwrap();
+        let actor_id: Uuid = registered["user"]["id"].as_str().unwrap().parse().unwrap();
+        let setup = send(
+            &app,
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Expired Worker"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(setup.status(), StatusCode::OK);
+        let created = send(
+            &app,
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Late Export", "identifier": "late-export"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let workspace_id: Uuid = json(created).await["id"].as_str().unwrap().parse().unwrap();
+        let operation_id = Uuid::new_v4();
+        let staging_key = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO workspace_operations (
+                id, actor_id, workspace_id, kind, state, revision, result,
+                staging_key, expires_at
+            ) VALUES (
+                $1, $2, $3, 'workspace_export', 'preparing', $4, $5, $6,
+                now() - interval '1 minute'
+            )
+            "#,
+        )
+        .bind(operation_id)
+        .bind(actor_id)
+        .bind(workspace_id)
+        .bind(Uuid::new_v4())
+        .bind(json!({
+            "file_name": "late-export.kanleaf.zip",
+            "file_count": 0,
+            "content_bytes": 0,
+            "archive_bytes": null,
+            "exclusions": [],
+            "error": null
+        }))
+        .bind(staging_key)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        cleanup_expired_exports(&state).await.unwrap();
+
+        let preparing: Option<(String, Option<Uuid>)> =
+            sqlx::query_as("SELECT state, staging_key FROM workspace_operations WHERE id = $1")
+                .bind(operation_id)
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            preparing,
+            Some(("preparing".to_owned(), Some(staging_key))),
+            "periodic expiry must retain the recovery key while a worker can still publish"
+        );
+
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        let artifact = operations.join(format!("{staging_key}.kanleaf.zip"));
+        fs::write(&artifact, "artifact published after periodic cleanup").unwrap();
+
+        recover_export_operations(&state).await.unwrap();
+
+        assert!(!artifact.exists());
+        let operation_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_operations WHERE id = $1)")
+                .bind(operation_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!operation_exists);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn periodic_cleanup_uses_a_stable_bounded_selection(pool: PgPool) {
+        let data_dir = TempDir::new().unwrap();
+        let state = AppState::new(
+            pool.clone(),
+            data_dir.path().to_owned(),
+            Duration::from_secs(3600),
+        );
+        let app = router(
+            state.clone(),
+            vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+        );
+        let registered = send(
+            &app,
+            "POST",
+            "/api/auth/register",
+            json!({"email": "expiry-race@example.com", "password": "correct horse battery"}),
+            None,
+        )
+        .await;
+        assert_eq!(registered.status(), StatusCode::CREATED);
+        let registered = json(registered).await;
+        let token = registered["token"].as_str().unwrap();
+        let actor_id: Uuid = registered["user"]["id"].as_str().unwrap().parse().unwrap();
+        let setup = send(
+            &app,
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": "Expiry Race"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(setup.status(), StatusCode::OK);
+        let created = send(
+            &app,
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Expiry Race", "identifier": "expiry-race"}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let workspace_id: Uuid = json(created).await["id"].as_str().unwrap().parse().unwrap();
+        let operation_id = Uuid::new_v4();
+        let staging_key = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO workspace_operations (
+                id, actor_id, workspace_id, kind, state, revision, result,
+                staging_key, expires_at
+            ) VALUES (
+                $1, $2, $3, 'workspace_export', 'preparing', $4, $5, $6,
+                now() - interval '1 minute'
+            )
+            "#,
+        )
+        .bind(operation_id)
+        .bind(actor_id)
+        .bind(workspace_id)
+        .bind(Uuid::new_v4())
+        .bind(json!({
+            "file_name": "expiry-race.kanleaf.zip",
+            "file_count": 0,
+            "content_bytes": 0,
+            "archive_bytes": null,
+            "exclusions": [],
+            "error": null
+        }))
+        .bind(staging_key)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let selected: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            r#"
+            SELECT id, staging_key FROM workspace_operations
+            WHERE kind = 'workspace_export'
+              AND state NOT IN ('preparing', 'canceled')
+              AND expires_at <= now()
+            ORDER BY id
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(selected.is_empty());
+
+        sqlx::query("UPDATE workspace_operations SET state = 'ready' WHERE id = $1")
+            .bind(operation_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        let artifact = operations.join(format!("{staging_key}.kanleaf.zip"));
+        fs::write(&artifact, "published after cleanup selected its batch").unwrap();
+
+        cleanup_selected_expired_exports(&state, selected)
+            .await
+            .unwrap();
+
+        assert!(artifact.exists());
+        let operation_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_operations WHERE id = $1)")
+                .bind(operation_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(operation_exists);
+
+        cleanup_expired_exports(&state).await.unwrap();
+
+        assert!(!artifact.exists());
+        let operation_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_operations WHERE id = $1)")
+                .bind(operation_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!operation_exists);
+
+        for _ in 0..=EXPORT_CLEANUP_BATCH_SIZE {
+            sqlx::query(
+                r#"
+                INSERT INTO workspace_operations (
+                    id, actor_id, workspace_id, kind, state, revision, result,
+                    staging_key, expires_at
+                ) VALUES (
+                    $1, $2, $3, 'workspace_export', 'ready', $4, '{}'::jsonb,
+                    NULL, now() - interval '1 minute'
+                )
+                "#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(actor_id)
+            .bind(workspace_id)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let expected_remaining: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT id FROM workspace_operations
+            WHERE kind = 'workspace_export'
+            ORDER BY id
+            OFFSET $1
+            "#,
+        )
+        .bind(EXPORT_CLEANUP_BATCH_SIZE)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(expected_remaining.len(), 1);
+
+        cleanup_expired_exports(&state).await.unwrap();
+
+        let remaining: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM workspace_operations WHERE kind = 'workspace_export' ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, expected_remaining);
+    }
 }

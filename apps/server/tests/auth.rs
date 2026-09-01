@@ -41,7 +41,7 @@ async fn response_json(response: axum::response::Response) -> Value {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn registration_creates_a_personal_workspace_and_hashed_session(pool: PgPool) {
+async fn registration_starts_account_setup_without_creating_a_workspace(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let response = app
@@ -61,7 +61,8 @@ async fn registration_creates_a_personal_workspace_and_hashed_session(pool: PgPo
     assert_eq!(payload["user"]["is_host"], false);
     assert_eq!(payload["user"]["display_name"], "person");
     assert_eq!(payload["user"]["theme"], "system");
-    assert!(payload["user"]["active_workspace_id"].is_string());
+    assert_eq!(payload["user"]["setup_stage"], "account");
+    assert!(payload["user"]["active_workspace_id"].is_null());
 
     let counts: (i64, i64, i64, i64) = sqlx::query_as(
         r#"
@@ -75,15 +76,12 @@ async fn registration_creates_a_personal_workspace_and_hashed_session(pool: PgPo
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(counts, (1, 1, 1, 1));
+    assert_eq!(counts, (1, 0, 0, 1));
 
-    let (role, token_hash): (String, Vec<u8>) = sqlx::query_as(
-        "SELECT workspace_memberships.role, sessions.token_hash FROM workspace_memberships CROSS JOIN sessions",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(role, "owner");
+    let token_hash: Vec<u8> = sqlx::query_scalar("SELECT token_hash FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(token_hash.len(), 32);
     assert_ne!(token_hash, token.as_bytes());
 
@@ -158,7 +156,7 @@ async fn duplicate_registration_rolls_back_the_entire_second_account(pool: PgPoo
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(counts, (1, 1, 1, 1));
+    assert_eq!(counts, (1, 0, 0, 1));
 }
 
 #[sqlx::test(migrations = "./migrations")]

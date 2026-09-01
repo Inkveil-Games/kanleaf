@@ -12,7 +12,7 @@ use kanleaf_server::{
     },
     router, router_with_web_client,
     task::{recover_projection_jobs, spawn_projection_worker},
-    workspace::migrate_workspace_vaults,
+    workspace::{migrate_workspace_vaults, recover_workspace_deletions},
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::signal;
@@ -44,6 +44,9 @@ async fn main() -> anyhow::Result<()> {
 
     let state =
         AppState::new(pool, config.data_dir, config.session_ttl).with_host_email(config.host_email);
+    recover_workspace_deletions(&state)
+        .await
+        .context("failed to recover interrupted Workspace deletions")?;
     recover_export_operations(&state)
         .await
         .context("failed to recover Workspace export operations")?;

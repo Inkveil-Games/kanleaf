@@ -23,10 +23,7 @@ use crate::{
     AppState,
     domain::{NormalizedEmail, ValidatedPassword},
     error::{AppError, is_unique_violation},
-    task_config::NewWorkspaceTaskConfiguration,
 };
-
-const PERSONAL_WORKSPACE_NAME: &str = "Personal";
 
 #[derive(Deserialize)]
 struct RegisterRequest {
@@ -50,6 +47,7 @@ pub struct UserResponse {
     pub timezone: String,
     pub week_start: String,
     pub date_format: String,
+    pub setup_stage: String,
     pub active_workspace_id: Option<Uuid>,
 }
 
@@ -75,6 +73,7 @@ struct LoginUser {
     timezone: String,
     week_start: String,
     date_format: String,
+    setup_stage: String,
     password_hash: String,
     active_workspace_id: Option<Uuid>,
 }
@@ -90,6 +89,7 @@ struct SessionUser {
     timezone: String,
     week_start: String,
     date_format: String,
+    setup_stage: String,
     active_workspace_id: Option<Uuid>,
 }
 
@@ -153,8 +153,6 @@ async fn register_user(
     let password_hash = hash_password(password).await?;
     let display_name = default_display_name(&email);
     let user_id = Uuid::new_v4();
-    let workspace_id = Uuid::new_v4();
-    let task_configuration = NewWorkspaceTaskConfiguration::new();
     let session_id = Uuid::new_v4();
     let (token, token_hash) = generate_bearer_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
@@ -181,35 +179,6 @@ async fn register_user(
         };
     }
 
-    sqlx::query(
-        r#"
-        INSERT INTO workspaces (
-            id, name, default_inbox_state_id, default_task_type_id, vault_layout_version
-        )
-        VALUES ($1, $2, $3, $4, 2)
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(PERSONAL_WORKSPACE_NAME)
-    .bind(task_configuration.default_state_id())
-    .bind(task_configuration.default_task_type_id())
-    .execute(&mut *transaction)
-    .await?;
-    task_configuration
-        .install(&mut transaction, workspace_id)
-        .await?;
-    sqlx::query(
-        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
-    )
-    .bind(workspace_id)
-    .bind(user_id)
-    .execute(&mut *transaction)
-    .await?;
-    sqlx::query("UPDATE users SET active_workspace_id = $1, updated_at = now() WHERE id = $2")
-        .bind(workspace_id)
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await?;
     insert_session(
         &mut transaction,
         session_id,
@@ -232,7 +201,8 @@ async fn register_user(
             timezone: "UTC".to_owned(),
             week_start: "monday".to_owned(),
             date_format: "locale".to_owned(),
-            active_workspace_id: Some(workspace_id),
+            setup_stage: "account".to_owned(),
+            active_workspace_id: None,
         },
     })
 }
@@ -243,7 +213,7 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
     let user = sqlx::query_as::<_, LoginUser>(
         r#"
         SELECT id, email, display_name, theme, timezone, week_start, date_format,
-               password_hash, active_workspace_id
+               setup_stage, password_hash, active_workspace_id
         FROM users
         WHERE email = $1
         "#,
@@ -289,6 +259,7 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
             timezone: user.timezone,
             week_start: user.week_start,
             date_format: user.date_format,
+            setup_stage: user.setup_stage,
             active_workspace_id: user.active_workspace_id,
         },
     })
@@ -370,6 +341,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                 users.timezone,
                 users.week_start,
                 users.date_format,
+                users.setup_stage,
                 users.active_workspace_id
             FROM sessions
             JOIN users ON users.id = sessions.user_id
@@ -405,6 +377,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                 timezone: session.timezone,
                 week_start: session.week_start,
                 date_format: session.date_format,
+                setup_stage: session.setup_stage,
                 active_workspace_id: session.active_workspace_id,
             },
         })
@@ -418,7 +391,7 @@ pub(crate) async fn select_user_response(
     Ok(sqlx::query_as::<_, UserResponse>(
         r#"
         SELECT id, email, COALESCE(email = $2, false) AS is_host, display_name,
-               theme, timezone, week_start, date_format, active_workspace_id
+               theme, timezone, week_start, date_format, setup_stage, active_workspace_id
         FROM users
         WHERE id = $1
         "#,

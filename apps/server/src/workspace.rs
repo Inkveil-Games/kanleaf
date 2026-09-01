@@ -13,7 +13,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -21,8 +21,8 @@ use crate::{
     AppState,
     auth::{AuthenticatedUser, verify_password},
     document,
-    domain::{ResourceName, ValidatedPassword},
-    error::AppError,
+    domain::{ResourceName, ValidatedPassword, WorkspaceIdentifier},
+    error::{AppError, is_unique_violation},
     project, saved_view, task, task_config,
 };
 
@@ -32,6 +32,17 @@ pub(crate) enum WorkspaceRole {
     Admin,
     Member,
     Guest,
+}
+
+pub(crate) enum WorkspaceDeletionAuthority {
+    Owner {
+        user_id: Uuid,
+        verified_password_hash: String,
+    },
+    Host {
+        user_id: Uuid,
+        verified_password_hash: String,
+    },
 }
 
 impl WorkspaceRole {
@@ -106,6 +117,7 @@ impl WorkspaceAccent {
 pub struct WorkspaceResponse {
     pub id: Uuid,
     pub name: String,
+    pub identifier: String,
     pub accent: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
@@ -115,6 +127,8 @@ pub struct WorkspaceResponse {
 #[derive(Deserialize)]
 struct CreateWorkspaceRequest {
     name: String,
+    #[serde(default)]
+    identifier: Option<String>,
     #[serde(default)]
     accent: Option<WorkspaceAccent>,
 }
@@ -191,7 +205,7 @@ async fn list(
 ) -> Result<Json<Vec<WorkspaceResponse>>, AppError> {
     let workspaces = sqlx::query_as::<_, WorkspaceResponse>(
         r#"
-        SELECT workspaces.id, workspaces.name, workspaces.accent,
+        SELECT workspaces.id, workspaces.name, workspaces.identifier, workspaces.accent,
                workspace_memberships.role, workspaces.created_at, workspaces.updated_at
         FROM workspaces
         JOIN workspace_memberships ON workspace_memberships.workspace_id = workspaces.id
@@ -211,25 +225,35 @@ async fn create(
     payload: Result<Json<CreateWorkspaceRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), AppError> {
     let Json(request) = payload.map_err(AppError::from)?;
+    require_account_details(&auth.user.setup_stage)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let accent = request.accent.unwrap_or(WorkspaceAccent::Sage);
     let workspace_id = Uuid::new_v4();
+    let identifier = request
+        .identifier
+        .as_deref()
+        .map(WorkspaceIdentifier::new)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?
+        .unwrap_or_else(|| WorkspaceIdentifier::from_workspace_id(workspace_id));
     let task_configuration = task_config::NewWorkspaceTaskConfiguration::new();
     let mut transaction = state.pool.begin().await?;
+    reserve_workspace_identifier(&mut transaction, &identifier, workspace_id).await?;
 
     let workspace = sqlx::query_as::<_, WorkspaceResponse>(
         r#"
         INSERT INTO workspaces (
-            id, name, accent, default_inbox_state_id, default_task_type_id,
+            id, name, identifier, accent, default_inbox_state_id, default_task_type_id,
             vault_layout_version
         )
-        VALUES ($1, $2, $3, $4, $5, 2)
-        RETURNING id, name, accent, 'owner'::text AS role, created_at, updated_at
+        VALUES ($1, $2, $3, $4, $5, $6, 2)
+        RETURNING id, name, identifier, accent, 'owner'::text AS role, created_at, updated_at
         "#,
     )
     .bind(workspace_id)
     .bind(name.as_str())
+    .bind(identifier.as_str())
     .bind(accent.as_str())
     .bind(task_configuration.default_state_id())
     .bind(task_configuration.default_task_type_id())
@@ -245,11 +269,22 @@ async fn create(
     .bind(auth.user.id)
     .execute(&mut *transaction)
     .await?;
-    sqlx::query("UPDATE users SET active_workspace_id = $1, updated_at = now() WHERE id = $2")
-        .bind(workspace_id)
-        .bind(auth.user.id)
-        .execute(&mut *transaction)
-        .await?;
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET active_workspace_id = $1,
+            setup_stage = CASE
+                WHEN setup_stage IN ('workspace', 'invite') THEN 'invite'
+                ELSE setup_stage
+            END,
+            updated_at = now()
+        WHERE id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(auth.user.id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
 
     Ok((StatusCode::CREATED, Json(workspace)))
@@ -341,36 +376,99 @@ async fn delete_workspace(
     }
     let password = ValidatedPassword::new(request.password)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    if !verify_password(password, password_hash).await? {
+    if !verify_password(password, password_hash.clone()).await? {
         return Err(AppError::Validation("Password is incorrect".to_owned()));
     }
 
-    let trashed = state
-        .vault
-        .trash_workspace(workspace_id)
-        .await
-        .map_err(AppError::internal)?;
-    if let Err(error) = delete_workspace_records(&state.pool, workspace_id).await {
-        if let Some(trashed) = &trashed
-            && let Err(restore_error) = state.vault.restore_workspace(trashed).await
-        {
-            return Err(AppError::internal(anyhow!(
-                "workspace deletion failed ({error}); vault restoration also failed ({restore_error})"
-            )));
-        }
-        return Err(error);
-    }
-
-    if let Some(trashed) = &trashed
-        && let Err(error) = state.vault.purge_workspace_trash(trashed).await
-    {
-        warn!(%workspace_id, %error, "workspace data remains in internal trash");
-    }
+    permanently_delete_workspace(
+        &state,
+        workspace_id,
+        WorkspaceDeletionAuthority::Owner {
+            user_id: auth.user.id,
+            verified_password_hash: password_hash,
+        },
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn delete_workspace_records(pool: &PgPool, workspace_id: Uuid) -> Result<(), AppError> {
-    let mut transaction = pool.begin().await?;
+pub(crate) async fn permanently_delete_workspace(
+    state: &AppState,
+    workspace_id: Uuid,
+    authority: WorkspaceDeletionAuthority,
+) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    lock_workspace(&mut transaction, workspace_id).await?;
+    let (user_id, verified_password_hash) = match authority {
+        WorkspaceDeletionAuthority::Owner {
+            user_id,
+            verified_password_hash,
+        } => {
+            require_workspace_owner_in_transaction(&mut transaction, user_id, workspace_id).await?;
+            (user_id, verified_password_hash)
+        }
+        WorkspaceDeletionAuthority::Host {
+            user_id,
+            verified_password_hash,
+        } => (user_id, verified_password_hash),
+    };
+    let current_password_hash: String =
+        sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+    if current_password_hash != verified_password_hash {
+        transaction.rollback().await?;
+        return Err(AppError::Validation("Password is incorrect".to_owned()));
+    }
+    let export_staging_keys: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT staging_key
+        FROM workspace_operations
+        WHERE workspace_id = $1
+          AND kind = 'workspace_export'
+          AND staging_key IS NOT NULL
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_all(&mut *transaction)
+    .await?;
+    let deletion = state
+        .vault
+        .begin_workspace_deletion(workspace_id, export_staging_keys)
+        .await
+        .map_err(AppError::internal)?;
+
+    if let Err(error) = delete_workspace_records(&mut transaction, workspace_id).await {
+        let database_rollback = transaction.rollback().await;
+        let vault_rollback = state.vault.rollback_workspace_deletion(&deletion).await;
+        return match (database_rollback, vault_rollback) {
+            (Ok(()), Ok(())) => Err(error),
+            (database, vault) => Err(AppError::internal(anyhow!(
+                "Workspace deletion failed ({error}); database rollback: {database:?}; vault rollback: {vault:?}"
+            ))),
+        };
+    }
+    if let Err(error) = transaction.commit().await {
+        warn!(%workspace_id, %error, "Workspace deletion commit outcome requires startup recovery");
+        return Err(error.into());
+    }
+    if let Err(error) = state.vault.finish_workspace_deletion(&deletion).await {
+        warn!(%workspace_id, %error, "Workspace deletion data remains queued for recovery");
+    }
+    Ok(())
+}
+
+async fn delete_workspace_records(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE workspace_identifier_registry SET retired_at = now() WHERE workspace_id = $1",
+    )
+    .bind(workspace_id)
+    .execute(&mut **transaction)
+    .await?;
     sqlx::query(
         r#"
         UPDATE users
@@ -388,16 +486,31 @@ async fn delete_workspace_records(pool: &PgPool, workspace_id: Uuid) -> Result<(
         "#,
     )
     .bind(workspace_id)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await?;
     let result = sqlx::query("DELETE FROM workspaces WHERE id = $1")
         .bind(workspace_id)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Workspace not found".to_owned()));
     }
-    transaction.commit().await?;
+    Ok(())
+}
+
+pub async fn recover_workspace_deletions(state: &AppState) -> anyhow::Result<()> {
+    for deletion in state.vault.pending_workspace_deletions().await? {
+        let workspace_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)")
+                .bind(deletion.workspace_id())
+                .fetch_one(&state.pool)
+                .await?;
+        if workspace_exists {
+            state.vault.rollback_workspace_deletion(&deletion).await?;
+        } else {
+            state.vault.finish_workspace_deletion(&deletion).await?;
+        }
+    }
     Ok(())
 }
 
@@ -408,7 +521,7 @@ async fn select_workspace(
 ) -> Result<WorkspaceResponse, AppError> {
     sqlx::query_as::<_, WorkspaceResponse>(
         r#"
-        SELECT workspaces.id, workspaces.name, workspaces.accent,
+        SELECT workspaces.id, workspaces.name, workspaces.identifier, workspaces.accent,
                workspace_memberships.role, workspaces.created_at, workspaces.updated_at
         FROM workspaces
         JOIN workspace_memberships ON workspace_memberships.workspace_id = workspaces.id
@@ -420,6 +533,73 @@ async fn select_workspace(
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))
+}
+
+pub(crate) async fn reserve_workspace_identifier(
+    transaction: &mut Transaction<'_, Postgres>,
+    identifier: &WorkspaceIdentifier,
+    workspace_id: Uuid,
+) -> Result<(), AppError> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO workspace_identifier_registry (identifier, workspace_id)
+        VALUES ($1, $2)
+        "#,
+    )
+    .bind(identifier.as_str())
+    .bind(workspace_id)
+    .execute(&mut **transaction)
+    .await;
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) if is_unique_violation(&error) => Err(AppError::Conflict(
+            "Workspace ID is already in use".to_owned(),
+        )),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn require_account_details(setup_stage: &str) -> Result<(), AppError> {
+    if setup_stage == "account" {
+        return Err(AppError::Validation(
+            "Complete account setup before creating or joining a Workspace".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) async fn lock_workspace(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+) -> Result<(), AppError> {
+    let workspace: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+            .bind(workspace_id)
+            .fetch_optional(&mut **transaction)
+            .await?;
+    if workspace.is_none() {
+        return Err(AppError::NotFound("Workspace not found".to_owned()));
+    }
+    Ok(())
+}
+
+pub(super) async fn require_workspace_owner_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+    workspace_id: Uuid,
+) -> Result<(), AppError> {
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM workspace_memberships WHERE user_id = $1 AND workspace_id = $2",
+    )
+    .bind(user_id)
+    .bind(workspace_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let role = role.ok_or(AppError::Forbidden)?;
+    if WorkspaceRole::from_database(&role)? != WorkspaceRole::Owner {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
 }
 
 pub(crate) async fn workspace_role(

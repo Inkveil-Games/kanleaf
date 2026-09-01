@@ -60,15 +60,36 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = response_json(response).await;
-    (
-        body["token"].as_str().unwrap().to_owned(),
-        body["user"]["id"].as_str().unwrap().parse().unwrap(),
-        body["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-    )
+    let token = body["token"].as_str().unwrap().to_owned();
+    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": email.split('@').next().unwrap()}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Personal"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace.status(), StatusCode::CREATED);
+    let workspace_id = response_json(workspace).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    (token, user_id, workspace_id)
 }
 
 async fn add_workspace_member(pool: &PgPool, workspace_id: Uuid, user_id: Uuid, role: &str) {

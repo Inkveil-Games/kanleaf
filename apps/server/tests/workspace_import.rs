@@ -58,7 +58,7 @@ async fn response_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
+async fn register_account(app: &Router, email: &str) -> (String, Uuid) {
     let response = send_json(
         app,
         "POST",
@@ -69,15 +69,27 @@ async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
     let body = response_json(response).await;
-    (
-        body["token"].as_str().unwrap().to_owned(),
-        body["user"]["id"].as_str().unwrap().parse().unwrap(),
-        body["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
+    let token = body["token"].as_str().unwrap().to_owned();
+    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
+    (token, user_id)
+}
+
+async fn register(app: &Router, email: &str) -> (String, Uuid, Uuid) {
+    let (token, user_id) = register_account(app, email).await;
+    let setup = send_json(
+        app,
+        "PATCH",
+        "/api/account/setup",
+        Some(json!({"display_name": email.split('@').next().unwrap()})),
+        &token,
     )
+    .await;
+    assert_eq!(setup.status(), StatusCode::OK);
+    let workspace = create(app, &token, "/api/workspaces", json!({"name": "Personal"})).await;
+    let workspace_id = workspace["id"].as_str().unwrap().parse().unwrap();
+    let completed = send_json(app, "POST", "/api/account/setup/complete", None, &token).await;
+    assert_eq!(completed.status(), StatusCode::OK);
+    (token, user_id, workspace_id)
 }
 
 async fn create(app: &Router, token: &str, uri: &str, body: Value) -> Value {
@@ -190,6 +202,53 @@ async fn apply_import(app: &Router, token: &str, preview: &Value) -> Value {
     .await;
     assert_eq!(response.status(), StatusCode::OK);
     response_json(response).await
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_details_are_required_before_import_apply(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (source_token, _, source_workspace_id) = register(&app, "source@example.com").await;
+    let archive = export_workspace(&app, &source_token, source_workspace_id).await;
+    let (importer_token, importer_id) = register_account(&app, "importer@example.com").await;
+    let preview = preview_import(&app, &importer_token, &archive).await;
+    assert_eq!(preview["state"], "ready", "{preview:#}");
+
+    let rejected = send_json(
+        &app,
+        "POST",
+        &format!(
+            "/api/workspace-imports/{}/apply",
+            preview["id"].as_str().unwrap()
+        ),
+        Some(json!({"revision": preview["revision"]})),
+        &importer_token,
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let imported_memberships: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workspace_memberships WHERE user_id = $1")
+            .bind(importer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let account: (String, Option<Uuid>) =
+        sqlx::query_as("SELECT setup_stage, active_workspace_id FROM users WHERE id = $1")
+            .bind(importer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let operation: (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT state, (result->>'target_workspace_id')::uuid FROM workspace_operations WHERE id = $1",
+    )
+    .bind(preview["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(imported_memberships, 0);
+    assert_eq!(account, ("account".to_owned(), None));
+    assert_eq!(operation, ("ready".to_owned(), None));
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -387,6 +446,16 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     let imported_workspace_id: Uuid = imported["workspace_id"].as_str().unwrap().parse().unwrap();
     assert_ne!(imported_workspace_id, source_workspace_id);
     assert_ne!(imported_workspace_id, importer_personal_workspace);
+    let imported_identifier: String =
+        sqlx::query_scalar("SELECT identifier FROM workspaces WHERE id = $1")
+            .bind(imported_workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        imported_identifier,
+        format!("workspace-{}", imported_workspace_id.simple())
+    );
     let member: (Uuid, String) =
         sqlx::query_as("SELECT user_id, role FROM workspace_memberships WHERE workspace_id = $1")
             .bind(imported_workspace_id)

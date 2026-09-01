@@ -35,6 +35,71 @@ async fn instance_access_defaults_open_and_constrains_allowed_emails(pool: PgPoo
     assert!(duplicate.is_err());
 }
 
+#[sqlx::test(migrations = false)]
+async fn account_setup_and_workspace_identifier_migration_backfills_existing_rows(pool: PgPool) {
+    sqlx::raw_sql(include_str!("../migrations/0001_initial_schema.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let user_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-123456789abc").unwrap();
+    sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'hash')")
+        .bind(user_id)
+        .bind("existing@example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first_workspace = Uuid::parse_str("b7c8d9e4-f120-44ea-8fd1-74948a86ccf1").unwrap();
+    let second_workspace = Uuid::parse_str("d4e5f6a1-1111-4222-8333-123456789abc").unwrap();
+    for workspace_id in [first_workspace, second_workspace] {
+        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, 'Kanleaf Core')")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/0018_account_setup_workspace_identifiers.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let existing_stage: String = sqlx::query_scalar("SELECT setup_stage FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(existing_stage, "complete");
+    let identifiers: Vec<String> =
+        sqlx::query_scalar("SELECT identifier FROM workspaces ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        identifiers,
+        [
+            "kanleaf-core-b7c8d9e4f12044ea8fd174948a86ccf1",
+            "kanleaf-core-d4e5f6a1111142228333123456789abc",
+        ]
+    );
+
+    let new_user_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'hash')")
+        .bind(new_user_id)
+        .bind("new@example.com")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let new_stage: String = sqlx::query_scalar("SELECT setup_stage FROM users WHERE id = $1")
+        .bind(new_user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(new_stage, "account");
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool) {
     let first_workspace = Uuid::new_v4();
@@ -49,11 +114,21 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
         let state_id = Uuid::new_v4();
         let task_type_id = Uuid::new_v4();
         let mut transaction = pool.begin().await.unwrap();
+        let identifier = format!("workspace-{}", id.simple());
         sqlx::query(
-            "INSERT INTO workspaces (id, name, default_inbox_state_id, default_task_type_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
+        )
+        .bind(&identifier)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO workspaces (id, name, identifier, default_inbox_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, $5)",
         )
             .bind(id)
             .bind(name)
+            .bind(identifier)
             .bind(state_id)
             .bind(task_type_id)
             .execute(&mut *transaction)

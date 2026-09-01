@@ -6,6 +6,7 @@ const MAX_EMAIL_LENGTH: usize = 320;
 const MIN_PASSWORD_LENGTH: usize = 10;
 const MAX_PASSWORD_BYTES: usize = 1024;
 const MAX_RESOURCE_NAME_LENGTH: usize = 120;
+const MAX_WORKSPACE_IDENTIFIER_LENGTH: usize = 48;
 const MAX_TASK_TITLE_LENGTH: usize = 300;
 const MAX_DOCUMENT_TITLE_LENGTH: usize = 300;
 pub const MAX_LIBRARY_STORAGE_NAME_BYTES: usize = 120;
@@ -74,6 +75,41 @@ impl ResourceName {
             return Err(ValidationError::new("Name cannot exceed 120 characters"));
         }
         Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceIdentifier(String);
+
+impl WorkspaceIdentifier {
+    pub fn new(value: &str) -> Result<Self, ValidationError> {
+        let valid_length = (2..=MAX_WORKSPACE_IDENTIFIER_LENGTH).contains(&value.len());
+        let valid_characters = value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        let valid_edges = value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+            && value
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphanumeric);
+        let reserved = matches!(value, "api" | "assets" | "host" | "setup" | "w");
+        if !valid_length || !valid_characters || !valid_edges || value.contains("--") || reserved {
+            return Err(ValidationError::new(
+                "Workspace ID must contain 2 to 48 lowercase letters, numbers, or single hyphens",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn from_workspace_id(workspace_id: Uuid) -> Self {
+        Self(format!("workspace-{}", workspace_id.simple()))
     }
 
     pub fn as_str(&self) -> &str {
@@ -495,6 +531,7 @@ mod tests {
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
         ProjectDescription, ProjectIdentifier, ProjectRole, ProjectVisibility, ResourceName,
         TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword, VaultStorageName,
+        WorkspaceIdentifier,
     };
     use uuid::Uuid;
 
@@ -625,5 +662,42 @@ mod tests {
         assert_eq!(ProjectVisibility::Open.as_str(), "open");
         assert!(ProjectRole::Contributor.can_edit());
         assert!(!ProjectRole::Viewer.can_edit());
+    }
+
+    #[test]
+    fn validates_workspace_identifiers() {
+        for identifier in ["kanleaf", "kanleaf-core", "team-42"] {
+            assert_eq!(
+                WorkspaceIdentifier::new(identifier).unwrap().as_str(),
+                identifier
+            );
+        }
+
+        for identifier in [
+            "a",
+            "-kanleaf",
+            "kanleaf-",
+            "kanleaf--core",
+            "Kanleaf",
+            "kan_leaf",
+            "kanleaf core",
+            "api",
+            "assets",
+            "host",
+            "setup",
+            "w",
+        ] {
+            assert!(
+                WorkspaceIdentifier::new(identifier).is_err(),
+                "accepted {identifier}"
+            );
+        }
+        assert!(WorkspaceIdentifier::new(&"x".repeat(49)).is_err());
+
+        let workspace_id = Uuid::parse_str("b7c8d9e4-f120-44ea-8fd1-74948a86ccf1").unwrap();
+        assert_eq!(
+            WorkspaceIdentifier::from_workspace_id(workspace_id).as_str(),
+            "workspace-b7c8d9e4f12044ea8fd174948a86ccf1"
+        );
     }
 }

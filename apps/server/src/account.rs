@@ -84,6 +84,19 @@ struct PreferencesRequest {
 }
 
 #[derive(Deserialize)]
+struct AccountSetupRequest {
+    display_name: String,
+    #[serde(default)]
+    theme: Option<Theme>,
+    #[serde(default)]
+    timezone: Option<String>,
+    #[serde(default)]
+    week_start: Option<WeekStart>,
+    #[serde(default)]
+    date_format: Option<DateFormat>,
+}
+
+#[derive(Deserialize)]
 struct ChangePasswordRequest {
     current_password: String,
     new_password: String,
@@ -100,6 +113,8 @@ struct AccountSessionResponse {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/account", get(get_account))
+        .route("/api/account/setup", patch(setup_account))
+        .route("/api/account/setup/complete", post(complete_setup))
         .route("/api/account/profile", patch(update_profile))
         .route("/api/account/preferences", patch(update_preferences))
         .route("/api/account/password", post(change_password))
@@ -113,6 +128,84 @@ pub(crate) fn routes() -> Router<AppState> {
 
 async fn get_account(auth: AuthenticatedUser) -> Json<UserResponse> {
     Json(auth.user)
+}
+
+async fn setup_account(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    payload: Result<Json<AccountSetupRequest>, JsonRejection>,
+) -> Result<Json<UserResponse>, AppError> {
+    let Json(request) = payload.map_err(AppError::from)?;
+    let display_name = ResourceName::new(&request.display_name)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let timezone = request
+        .timezone
+        .as_deref()
+        .map(canonical_timezone)
+        .transpose()?;
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET display_name = $1,
+            theme = COALESCE($2, theme),
+            timezone = COALESCE($3, timezone),
+            week_start = COALESCE($4, week_start),
+            date_format = COALESCE($5, date_format),
+            setup_stage = CASE
+                WHEN setup_stage = 'account' THEN 'workspace'
+                ELSE setup_stage
+            END,
+            updated_at = now()
+        WHERE id = $6
+        "#,
+    )
+    .bind(display_name.as_str())
+    .bind(request.theme.map(Theme::as_str))
+    .bind(timezone)
+    .bind(request.week_start.map(WeekStart::as_str))
+    .bind(request.date_format.map(DateFormat::as_str))
+    .bind(auth.user.id)
+    .execute(&state.pool)
+    .await?;
+
+    Ok(Json(select_user_response(&state, auth.user.id).await?))
+}
+
+async fn complete_setup(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+) -> Result<Json<UserResponse>, AppError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE users
+        SET setup_stage = 'complete', updated_at = now()
+        WHERE id = $1
+          AND (
+                setup_stage = 'complete'
+                OR ($2 AND setup_stage IN ('workspace', 'invite'))
+                OR (
+                    setup_stage = 'invite'
+                    AND EXISTS (
+                        SELECT 1
+                        FROM workspace_memberships
+                        WHERE workspace_memberships.user_id = users.id
+                    )
+                )
+              )
+        "#,
+    )
+    .bind(auth.user.id)
+    .bind(auth.user.is_host)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::Validation(
+            "Create or join a Workspace before completing setup".to_owned(),
+        ));
+    }
+
+    Ok(Json(select_user_response(&state, auth.user.id).await?))
 }
 
 async fn update_profile(

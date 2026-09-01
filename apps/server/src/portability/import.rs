@@ -20,9 +20,10 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::TaskPriority,
+    domain::{TaskPriority, WorkspaceIdentifier},
     error::AppError,
     task::{IdFilter, TaskProperties, TaskQuery, TaskQueryScope, remap_task_identity},
+    workspace::{require_account_details, reserve_workspace_identifier},
 };
 
 use super::{
@@ -235,6 +236,7 @@ async fn apply_import(
             "Workspace import preview changed or expired".to_owned(),
         ));
     }
+    require_account_details(&auth.user.setup_stage)?;
     let mut result = parse_result(&operation)?;
     let staging_key = operation.staging_key.ok_or_else(|| {
         AppError::internal(anyhow::anyhow!("Workspace import has no staging key"))
@@ -468,6 +470,8 @@ async fn insert_workspace(
     validated: &ValidatedImport,
     maps: &IdMaps,
 ) -> anyhow::Result<()> {
+    let identifier = WorkspaceIdentifier::from_workspace_id(workspace_id);
+    reserve_workspace_identifier(transaction, &identifier, workspace_id).await?;
     let max_number = validated
         .manifest
         .source
@@ -479,13 +483,14 @@ async fn insert_workspace(
     sqlx::query(
         r#"
         INSERT INTO workspaces (
-            id, name, accent, default_inbox_state_id, default_task_type_id,
+            id, name, identifier, accent, default_inbox_state_id, default_task_type_id,
             next_task_number, vault_layout_version
-        ) VALUES ($1, $2, $3, $4, $5, $6, 2)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 2)
         "#,
     )
     .bind(workspace_id)
     .bind(&validated.workspace.name)
+    .bind(identifier.as_str())
     .bind(&validated.workspace.accent)
     .bind(mapped(&maps.states, validated.workspace.default_state_id)?)
     .bind(mapped(
@@ -502,11 +507,22 @@ async fn insert_workspace(
     .bind(actor_id)
     .execute(&mut **transaction)
     .await?;
-    sqlx::query("UPDATE users SET active_workspace_id = $1, updated_at = now() WHERE id = $2")
-        .bind(workspace_id)
-        .bind(actor_id)
-        .execute(&mut **transaction)
-        .await?;
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET active_workspace_id = $1,
+            setup_stage = CASE
+                WHEN setup_stage IN ('workspace', 'invite') THEN 'invite'
+                ELSE setup_stage
+            END,
+            updated_at = now()
+        WHERE id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(actor_id)
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }
 

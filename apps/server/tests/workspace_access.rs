@@ -62,15 +62,45 @@ async fn register(app: &axum::Router, email: &str) -> (String, Uuid, Uuid) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let payload = response_json(response).await;
-    (
-        payload["token"].as_str().unwrap().to_owned(),
-        payload["user"]["id"].as_str().unwrap().parse().unwrap(),
-        payload["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-    )
+    let token = payload["token"].as_str().unwrap().to_owned();
+    let user_id: Uuid = payload["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": email.split('@').next().unwrap()}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({
+                "name": "Personal",
+                "identifier": format!("test-{}", &user_id.simple().to_string()[..12])
+            }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let workspace_id = response_json(created).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let completed = app
+        .clone()
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    (token, user_id, workspace_id)
 }
 
 async fn invite(
@@ -144,6 +174,10 @@ async fn invitation_membership_roles_and_ownership_are_enforced(pool: PgPool) {
     let pending = response_json(pending).await;
     assert_eq!(pending.as_array().unwrap().len(), 1);
     assert_eq!(pending[0]["workspace_id"], workspace_id.to_string());
+    assert_eq!(
+        pending[0]["workspace_identifier"],
+        format!("test-{}", &owner_id.simple().to_string()[..12])
+    );
 
     let accepted = app
         .clone()
@@ -331,6 +365,12 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
         .unwrap();
     assert_eq!(old_rejected.status(), StatusCode::CONFLICT);
 
+    sqlx::query("UPDATE users SET setup_stage = 'workspace' WHERE id = $1")
+        .bind(member_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     let token_accepted = app
         .clone()
         .oneshot(json_request(
@@ -352,6 +392,15 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
     .await
     .unwrap();
     assert_eq!(role, "member");
+
+    let session = app
+        .clone()
+        .oneshot(empty_request("GET", "/api/session", &member_token))
+        .await
+        .unwrap();
+    let user = &response_json(session).await["user"];
+    assert_eq!(user["active_workspace_id"], workspace_id.to_string());
+    assert_eq!(user["setup_stage"], "complete");
 
     let revoked = invite(
         &app,
@@ -603,4 +652,249 @@ async fn failed_database_deletion_restores_the_workspace_vault(pool: PgPool) {
             .await
             .unwrap();
     assert!(workspace_exists);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ownership_transfer_invalidates_an_in_flight_owner_deletion(pool: PgPool) {
+    const TRANSFER_GATE: i64 = 8_752_341;
+
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, owner_id, workspace_id) = register(&app, "owner@example.com").await;
+    let (_successor_token, successor_id, _) = register(&app, "successor@example.com").await;
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')",
+    )
+    .bind(workspace_id)
+    .bind(successor_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        CREATE FUNCTION hold_owner_demotion() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            IF OLD.role = 'owner' AND NEW.role = 'admin' THEN
+                PERFORM pg_advisory_xact_lock(8752341);
+            END IF;
+            RETURN NEW;
+        END
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        CREATE TRIGGER hold_owner_demotion
+        BEFORE UPDATE ON workspace_memberships
+        FOR EACH ROW EXECUTE FUNCTION hold_owner_demotion()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut gate = pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(TRANSFER_GATE)
+        .execute(&mut *gate)
+        .await
+        .unwrap();
+
+    let transfer_app = app.clone();
+    let transfer_token = owner_token.clone();
+    let transfer = tokio::spawn(async move {
+        transfer_app
+            .oneshot(json_request(
+                "POST",
+                &format!("/api/workspaces/{workspace_id}/transfer-ownership"),
+                json!({"user_id": successor_id}),
+                Some(&transfer_token),
+            ))
+            .await
+            .unwrap()
+    });
+    wait_for_lock_waiters(&pool, 1).await;
+
+    let delete_app = app.clone();
+    let delete_token = owner_token.clone();
+    let deletion = tokio::spawn(async move {
+        delete_app
+            .oneshot(json_request(
+                "DELETE",
+                &format!("/api/workspaces/{workspace_id}"),
+                json!({"name": "Personal", "password": PASSWORD}),
+                Some(&delete_token),
+            ))
+            .await
+            .unwrap()
+    });
+    wait_for_lock_waiters(&pool, 2).await;
+    let unlocked: bool = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
+        .bind(TRANSFER_GATE)
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+    assert!(unlocked);
+
+    let transferred = transfer.await.unwrap();
+    assert_eq!(transferred.status(), StatusCode::NO_CONTENT);
+    let rejected = deletion.await.unwrap();
+    assert_eq!(rejected.status(), StatusCode::FORBIDDEN);
+
+    let workspace_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let roles: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT user_id, role FROM workspace_memberships WHERE workspace_id = $1 ORDER BY user_id",
+    )
+    .bind(workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(workspace_exists);
+    assert!(roles.contains(&(owner_id, "admin".to_owned())));
+    assert!(roles.contains(&(successor_id, "owner".to_owned())));
+    let successor_workspace_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM workspace_memberships WHERE user_id = $1 AND workspace_id <> $2",
+    )
+    .bind(successor_id)
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(successor_workspace_count, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn password_change_invalidates_an_in_flight_owner_deletion(pool: PgPool) {
+    const NEW_PASSWORD: &str = "new correct horse battery";
+
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let mut workspace_gate = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM workspaces WHERE id = $1 FOR UPDATE")
+        .bind(workspace_id)
+        .execute(&mut *workspace_gate)
+        .await
+        .unwrap();
+
+    let delete_app = app.clone();
+    let delete_token = owner_token.clone();
+    let deletion = tokio::spawn(async move {
+        delete_app
+            .oneshot(json_request(
+                "DELETE",
+                &format!("/api/workspaces/{workspace_id}"),
+                json!({"name": "Personal", "password": PASSWORD}),
+                Some(&delete_token),
+            ))
+            .await
+            .unwrap()
+    });
+    wait_for_lock_waiters(&pool, 1).await;
+
+    let changed = app
+        .oneshot(json_request(
+            "POST",
+            "/api/account/password",
+            json!({"current_password": PASSWORD, "new_password": NEW_PASSWORD}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed.status(), StatusCode::NO_CONTENT);
+    workspace_gate.commit().await.unwrap();
+
+    let rejected = deletion.await.unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let workspace_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(workspace_exists);
+}
+
+async fn wait_for_lock_waiters(pool: &PgPool, expected: i64) {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM pg_stat_activity
+                WHERE datname = current_database() AND wait_event_type = 'Lock'
+                "#,
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if waiting >= expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("requests did not reach their expected lock waits");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_non_owner_can_leave_their_final_workspace(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (_owner_token, _, owner_workspace) = register(&app, "owner@example.com").await;
+    let (member_token, member_id, member_workspace) = register(&app, "member@example.com").await;
+
+    let delete_own_workspace = app
+        .clone()
+        .oneshot(json_request(
+            "DELETE",
+            &format!("/api/workspaces/{member_workspace}"),
+            json!({"name": "Personal", "password": PASSWORD}),
+            Some(&member_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(delete_own_workspace.status(), StatusCode::NO_CONTENT);
+
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(owner_workspace)
+    .bind(member_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE users SET active_workspace_id = $1 WHERE id = $2")
+        .bind(owner_workspace)
+        .bind(member_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let left = app
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/workspaces/{owner_workspace}/leave"),
+            &member_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(left.status(), StatusCode::NO_CONTENT);
+
+    let active: Option<Uuid> =
+        sqlx::query_scalar("SELECT active_workspace_id FROM users WHERE id = $1")
+            .bind(member_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(active, None);
 }

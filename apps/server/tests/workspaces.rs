@@ -59,15 +59,45 @@ async fn register(app: &axum::Router, email: &str) -> (String, Uuid, Uuid) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
     let payload = response_json(response).await;
-    (
-        payload["token"].as_str().unwrap().to_owned(),
-        payload["user"]["id"].as_str().unwrap().parse().unwrap(),
-        payload["user"]["active_workspace_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-    )
+    let token = payload["token"].as_str().unwrap().to_owned();
+    let user_id: Uuid = payload["user"]["id"].as_str().unwrap().parse().unwrap();
+    let setup = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            "/api/account/setup",
+            json!({"display_name": email.split('@').next().unwrap()}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({
+                "name": "Personal",
+                "identifier": format!("test-{}", &user_id.simple().to_string()[..12])
+            }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let workspace_id = response_json(created).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let completed = app
+        .clone()
+        .oneshot(empty_request("POST", "/api/account/setup/complete", &token))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    (token, user_id, workspace_id)
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -296,4 +326,113 @@ async fn members_can_activate_but_only_owners_can_rename_workspaces(pool: PgPool
         .await
         .unwrap();
     assert_eq!(owner_rename.status(), StatusCode::OK);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn workspace_identifiers_are_global_immutable_and_never_reused(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, _) = register(&app, "owner@example.com").await;
+
+    let first = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Repeated name", "identifier": "first-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let first = response_json(first).await;
+    assert_eq!(first["identifier"], "first-team");
+    let first_id = first["id"].as_str().unwrap();
+
+    let same_name = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Repeated name", "identifier": "second-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(same_name.status(), StatusCode::CREATED);
+
+    let duplicate = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Another name", "identifier": "first-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+
+    let deleted = app
+        .clone()
+        .oneshot(json_request(
+            "DELETE",
+            &format!("/api/workspaces/{first_id}"),
+            json!({"name": "Repeated name", "password": "correct horse battery"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+    let reused = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Replacement", "identifier": "first-team"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reused.status(), StatusCode::CONFLICT);
+
+    let fallback = app
+        .oneshot(json_request(
+            "POST",
+            "/api/workspaces",
+            json!({"name": "Imported caller"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(fallback.status(), StatusCode::CREATED);
+    let fallback = response_json(fallback).await;
+    let fallback_id = fallback["id"].as_str().unwrap().replace('-', "");
+    assert_eq!(fallback["identifier"], format!("workspace-{fallback_id}"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn workspace_identifier_validation_rejects_reserved_and_noncanonical_values(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, _) = register(&app, "owner@example.com").await;
+
+    for identifier in ["setup", "Kanleaf", "bad--id", "bad id"] {
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/workspaces",
+                json!({"name": "Team", "identifier": identifier}),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "accepted {identifier}"
+        );
+    }
 }

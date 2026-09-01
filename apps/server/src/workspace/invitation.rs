@@ -17,7 +17,7 @@ use crate::{
     error::{AppError, is_unique_violation},
 };
 
-use super::{AssignableWorkspaceRole, require_workspace_admin};
+use super::{AssignableWorkspaceRole, require_account_details, require_workspace_admin};
 
 const INVITATION_LIFETIME_DAYS: i64 = 7;
 
@@ -37,6 +37,7 @@ struct InvitationResponse {
     id: Uuid,
     workspace_id: Uuid,
     workspace_name: String,
+    workspace_identifier: String,
     email: String,
     role: String,
     invited_by_display_name: Option<String>,
@@ -363,6 +364,7 @@ async fn accept_locked_invitation(
     if invitation.email != auth.user.email {
         return Err(AppError::Forbidden);
     }
+    require_account_details(&auth.user.setup_stage)?;
     sqlx::query(
         r#"
         INSERT INTO workspace_memberships (workspace_id, user_id, role)
@@ -379,6 +381,22 @@ async fn accept_locked_invitation(
         "UPDATE workspace_invitations SET accepted_at = now(), updated_at = now() WHERE id = $1",
     )
     .bind(invitation.id)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET active_workspace_id = $1,
+            setup_stage = CASE
+                WHEN setup_stage IN ('workspace', 'invite') THEN 'complete'
+                ELSE setup_stage
+            END,
+            updated_at = now()
+        WHERE id = $2
+        "#,
+    )
+    .bind(invitation.workspace_id)
+    .bind(auth.user.id)
     .execute(&mut **transaction)
     .await?;
     Ok(())
@@ -404,6 +422,7 @@ async fn find_invitation(
 fn invitation_select() -> &'static str {
     r#"
     SELECT invitations.id, invitations.workspace_id, workspaces.name AS workspace_name,
+           workspaces.identifier AS workspace_identifier,
            invitations.email, invitations.role,
            inviters.display_name AS invited_by_display_name,
            CASE

@@ -135,6 +135,18 @@ impl Vault {
         Ok(operations)
     }
 
+    pub(crate) async fn discard_workspace_task_moves(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<(), VaultError> {
+        for operation in self.pending_task_moves().await? {
+            if operation.workspace_id == workspace_id {
+                remove_file_if_present(&operation.manifest).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn recover_task_move(
         &self,
         operation: &PendingTaskMove,
