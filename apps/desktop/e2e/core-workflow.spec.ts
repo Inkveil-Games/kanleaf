@@ -101,9 +101,14 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Workspace name').fill('Studio');
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(workspaceSelect).toContainText('Studio');
+  await expect(page).toHaveURL(/\/w\/[^/]+\/my-work$/);
+  const workspaceId = new URL(page.url()).pathname.split('/')[2];
 
   await workspaceSelect.click();
   await page.getByRole('menuitem', { name: 'Settings for Studio' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/settings/workspace/general$`),
+  );
   await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
@@ -112,6 +117,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await page.getByRole('button', { name: 'Switch account' }).click();
   await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/settings/account/profile$`),
+  );
   await expect(
     page.getByRole('region', { name: 'Account settings' }),
   ).toBeVisible();
@@ -123,6 +131,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     page.getByRole('button', { name: 'Switch account' }),
   ).toContainText('Kanleaf Tester');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
   await workspaceSelect.click();
   await page
     .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
@@ -133,22 +142,38 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByRole('button', { name: 'Profile' })).not.toBeVisible();
   await page.setViewportSize({ width: 960, height: 640 });
   await page.getByRole('button', { name: 'States' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/settings/workspace/states$`),
+  );
   await page.getByPlaceholder('State name').fill('Review');
   await chooseSelectOption(page, 'State group', 'In progress');
   await page.getByRole('button', { name: 'Add state' }).click();
   await expect(page.getByLabel('Review name')).toBeVisible();
   await page.getByRole('button', { name: 'Task types' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/settings/workspace/task-types$`),
+  );
   await page.getByPlaceholder('Type name').fill('Bug');
   await page.getByLabel('Task type icon key').fill('bug');
   await page.getByRole('button', { name: 'Add type' }).click();
   await expect(page.getByLabel('Bug name')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await expect(
+    page.getByRole('region', { name: 'Workspace settings' }),
+  ).not.toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Kanleaf' })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/projects/[^/]+$`));
+  const projectId = new URL(page.url()).pathname.split('/')[4];
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole('button', { name: 'Collapse navigation' }).click();
   await expect(page.locator('.navigation-pane')).not.toBeVisible();
@@ -159,6 +184,9 @@ test('manages structured work and durable Markdown across reloads', async ({
     .locator('.project-header-actions')
     .getByRole('button', { name: 'Settings' })
     .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/settings/general$`),
+  );
   await page.getByLabel('Description').fill('Kanleaf Core delivery project.');
   await chooseSelectOption(
     page,
@@ -168,6 +196,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Save general settings' }).click();
   await expect(page.getByText('Project details saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Features' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/settings/features$`),
+  );
   await page
     .locator('.feature-toggle-row')
     .filter({ hasText: 'Cycles' })
@@ -176,16 +207,28 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Save features' }).click();
   await expect(page.getByText('Project features saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Project' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}$`),
+  );
   await expect(page.getByText('Kanleaf Core delivery project.')).toBeVisible();
 
   const projectNavigation = page.locator('.project-subnav');
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/work-items$`),
+  );
   await chooseSelectOption(page, 'Layout', 'Board');
   await projectNavigation.getByRole('button', { name: 'Library' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/library$`),
+  );
   await expect(page.locator('.document-detail-pane')).toBeVisible();
   await page.getByRole('button', { name: 'New Library note' }).click();
   await page.getByLabel('Note title').fill('Project handbook');
   await page.getByRole('button', { name: 'Create note' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/library/[^/?]+$`),
+  );
   const pageMarkdown = `# Project handbook
 
 This note is stored as a durable **Markdown file**.
@@ -400,6 +443,13 @@ let source_is_markdown = true;
   );
   await page.getByRole('button', { name: 'Save Markdown' }).click();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  const nestedDocumentUrl = page.url();
+  await page.reload();
+  await expect(page).toHaveURL(nestedDocumentUrl);
+  await expect(
+    page.getByRole('heading', { name: 'Architecture decisions' }),
+  ).toBeVisible();
+  await expect(nestedSource).toContainText('Decision log');
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(
     page.getByRole('button', { name: 'Back to Library' }),
@@ -412,6 +462,9 @@ let source_is_markdown = true;
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
   await chooseSelectOption(page, 'Layout', 'List');
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/cycles$`),
+  );
   await page.getByRole('button', { name: 'New cycle' }).click();
   await page.getByLabel('Cycle name').fill('Cycle 1');
   await page.getByLabel('Start', { exact: true }).fill('2026-09-01');
@@ -420,14 +473,29 @@ let source_is_markdown = true;
   await expect(
     page.getByRole('heading', { name: 'Cycle 1', level: 2 }),
   ).toBeVisible();
+  const cycleUrl = page.url();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/cycles/[^/?]+$`),
+  );
+  await page.reload();
+  await expect(page).toHaveURL(cycleUrl);
+  await expect(
+    page.getByRole('heading', { name: 'Cycle 1', level: 2 }),
+  ).toBeVisible();
 
   await projectNavigation.getByRole('button', { name: 'Modules' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/modules$`),
+  );
   await page.getByRole('button', { name: 'New module' }).click();
   await page.getByLabel('Module name').fill('Core');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Core', level: 2 }),
   ).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/modules/[^/?]+$`),
+  );
 
   await page
     .locator('.project-subnav')
@@ -437,6 +505,11 @@ let source_is_markdown = true;
   await page.getByRole('button', { name: 'New task' }).click();
   await page.getByLabel('Task title').fill('Complete the v0.1 workflow');
   await page.getByRole('button', { name: 'Add' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(
+      `/w/${workspaceId}/projects/${projectId}/work-items\\?task=[^&]+$`,
+    ),
+  );
   const taskDetail = page.getByRole('region', { name: 'Task detail' });
   await expect(taskDetail.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
@@ -486,6 +559,9 @@ let source_is_markdown = true;
     .locator('.task-row-main')
     .filter({ hasText: 'Complete the v0.1 workflow' });
   await taskRow.click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/my-work\\?task=[^&]+$`),
+  );
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(page.getByRole('button', { name: 'Close task' })).toContainText(
     'Back',
@@ -511,7 +587,15 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByRole('table')).toContainText('Notes');
   await page.getByRole('button', { name: 'Save Markdown' }).click();
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  const openTaskUrl = page.url();
+  await page.reload();
+  await expect(page).toHaveURL(openTaskUrl);
+  await expect(
+    page.getByRole('heading', { name: 'Architecture' }),
+  ).toBeVisible();
+  await expect(page.getByText('Filesystem Markdown')).toBeVisible();
   await page.getByRole('button', { name: 'Close task' }).click();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
   await expect(taskRow).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
 
@@ -526,7 +610,17 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('heading', { name: 'Urgent work' }),
   ).toBeVisible();
+  const savedViewUrl = page.url();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/views/[^/?]+$`));
   await page.getByRole('button', { name: 'My Work' }).click();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
+  await page.goBack();
+  await expect(page).toHaveURL(savedViewUrl);
+  await expect(
+    page.getByRole('heading', { name: 'Urgent work' }),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceId}/my-work$`));
 
   await page.reload();
   await expect(taskRow).toBeVisible();
@@ -561,6 +655,9 @@ Kanleaf keeps **structured work** beside durable notes.
     .locator('.project-subnav')
     .getByRole('button', { name: 'Views', exact: true })
     .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/views$`),
+  );
   const projectViewsSurface = page.locator('.project-views-surface');
   await expect(
     projectViewsSurface.getByRole('heading', {
@@ -577,6 +674,10 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('heading', { name: 'Project focus' }),
   ).toBeVisible();
+  const projectViewUrl = page.url();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${workspaceId}/projects/${projectId}/views/[^/?]+$`),
+  );
   await chooseSelectOption(page, 'Layout', 'Board');
   const viewSaved = page.waitForResponse((response) => {
     const path = new URL(response.url()).pathname;
@@ -589,6 +690,14 @@ Kanleaf keeps **structured work** beside durable notes.
   expect((await viewSaved).ok()).toBe(true);
 
   await page.reload();
+  await expect(page).toHaveURL(projectViewUrl);
+  await expect(
+    page.getByRole('heading', { name: 'Project focus' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Layout')).toHaveAttribute(
+    'data-value',
+    'board',
+  );
   await page
     .locator('.project-nav-row')
     .getByRole('button', { name: 'Kanleaf' })
@@ -721,7 +830,11 @@ test('switches retained accounts without crossing account data', async ({
   await page.reload();
   await expect(accountTrigger).toContainText(firstEmail);
   await page.getByRole('button', { name: 'Inbox' }).click();
-  await expect(page.getByText(firstTask, { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole('listbox', { name: 'Inbox tasks' })
+      .getByText(firstTask, { exact: true }),
+  ).toBeVisible();
 
   await accountTrigger.click();
   await page

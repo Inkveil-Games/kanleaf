@@ -129,7 +129,8 @@ starts Axum and Vite itself, uses a temporary vault, and cleans it up afterward.
 The suite covers durable Task and Library Markdown, Live Preview block/source
 transitions, portable Library trees, collaboration notifications, read state,
 and cross-workspace Task/activity/document isolation. The self-host suite also
-loads `/host` through Axum's SPA fallback and verifies the complete Restricted
+loads Host and nested Workspace deep links through Axum's SPA fallback,
+verifies refresh and browser history, and exercises the complete Restricted
 access lifecycle against the compiled same-origin client.
 
 ```bash

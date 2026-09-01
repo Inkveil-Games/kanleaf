@@ -4,7 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from '@playwright/test';
-import { hostE2eEmail } from './environment';
+import { hostE2eEmail, serverUrl } from './environment';
 
 const password = 'playwright-password';
 
@@ -56,6 +56,79 @@ test('serves the browser client and protected Host route from one origin', async
 
   const missingAsset = await request.get('/assets/does-not-exist.js');
   expect(missingAsset.status()).toBe(404);
+});
+
+test('restores the Host Access route through refresh and browser history', async ({
+  page,
+  request,
+}) => {
+  const host = await registerOrLogin(request, hostE2eEmail);
+  expect(host.user.is_host).toBe(true);
+  await page.addInitScript(
+    (token) => localStorage.setItem('kanleaf.session-token', token),
+    host.token,
+  );
+
+  await page.goto('/host/access');
+  await expect(page).toHaveURL(`${serverUrl}/host/access`);
+  await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Access', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+
+  await page.reload();
+  await expect(page).toHaveURL(`${serverUrl}/host/access`);
+  await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Workspaces' }).click();
+  await expect(page).toHaveURL(`${serverUrl}/host`);
+  await expect(page.getByRole('heading', { name: 'Workspaces' })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(`${serverUrl}/host/access`);
+  await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+
+  await page.goForward();
+  await expect(page).toHaveURL(`${serverUrl}/host`);
+  await expect(page.getByRole('heading', { name: 'Workspaces' })).toBeVisible();
+});
+
+test('restores a Workspace route through refresh and browser history', async ({
+  page,
+  request,
+}) => {
+  const host = await registerOrLogin(request, hostE2eEmail);
+  expect(host.user.is_host).toBe(true);
+  const inboxPath = `/w/${host.user.active_workspace_id}/inbox`;
+  const myWorkPath = `/w/${host.user.active_workspace_id}/my-work`;
+  await page.addInitScript(
+    (token) => localStorage.setItem('kanleaf.session-token', token),
+    host.token,
+  );
+
+  await page.goto(inboxPath);
+  await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await page.reload();
+  await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'My Work' }).click();
+  await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
+  await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
+  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+
+  await page.goForward();
+  await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
+  await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
 });
 
 test('manages Restricted access through the Host Console', async ({

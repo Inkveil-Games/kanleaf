@@ -251,6 +251,37 @@ mod tests {
             "no-cache"
         );
 
+        for path in [
+            "/host/access",
+            "/w/01994e1e-66dd-7d58-8274-a9a428aadf2f/projects/01994e1e-6d47-7ac2-8b28-433a93632680/cycles/01994e1e-7293-7299-9d4d-03d444a80bc9",
+        ] {
+            let deep_link_response = app
+                .clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(deep_link_response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                deep_link_response
+                    .headers()
+                    .get(header::CACHE_CONTROL)
+                    .unwrap(),
+                "no-cache",
+                "{path}"
+            );
+            assert!(
+                String::from_utf8(
+                    to_bytes(deep_link_response.into_body(), 4096)
+                        .await
+                        .unwrap()
+                        .to_vec()
+                )
+                .unwrap()
+                .contains("Kanleaf browser client"),
+                "{path}"
+            );
+        }
+
         let asset_response = app
             .clone()
             .oneshot(

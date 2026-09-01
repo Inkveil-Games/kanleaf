@@ -307,6 +307,8 @@ is logged for an operator and never exposes the internal path through the API.
 
 The desktop app is feature-oriented:
 
+- `app/routing` owns the React Router boundary, authenticated route tree, and
+  canonical URL builders; it does not fetch application data;
 - `lib/config` validates build-time client configuration, while `features/auth`
   owns a versioned account-session registry scoped to the normalized server URL;
 - `features/workspace` owns tenant navigation and API coordination;
@@ -328,7 +330,15 @@ The desktop app is feature-oriented:
   reading renderer, revision conflict recovery, and persistence state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
-TanStack Query owns remote cache state. Vite embeds the server URL from
+React Router owns durable application location: Host Console sections,
+Workspace and Project surfaces, Saved Views, selected Tasks/documents/planning
+items, and Settings sections. `features/workspace` converts each matched route
+to a typed location and reconciles it only after the owning TanStack Query data
+can prove access or absence. Loading and transient API failures retain the URL.
+TanStack Query remains the sole owner of remote cache state; routes do not use
+loaders or duplicate API state.
+
+Vite embeds the server URL from
 `VITE_KANLEAF_SERVER_URL`, and the app verifies its health automatically before
 authentication. Tauri and development builds use an absolute HTTP/HTTPS URL;
 the published browser build uses the reserved `same-origin` value, resolved to
@@ -345,8 +355,9 @@ widgets. Decorations never rewrite the editor state. The same
 `react-markdown` renderer backs replacement blocks and Reading/Split views,
 with raw HTML disabled and safe new-window attributes on external links.
 
-Temporary filters, grouping, sorting, and layout changes stay in React state.
-Saving a View sends the same typed query used by the task endpoint to
+Temporary filters, grouping, sorting, and layout changes stay in React state;
+the Task query parameter identifies only the open detail pane. Saving a View
+sends the same typed query used by the task endpoint to
 PostgreSQL; the client does not maintain a second filter representation. Board,
 Calendar, and Timeline changes use normal task update endpoints, so the same
 server authorization applies to direct edits and drag operations.
@@ -355,13 +366,14 @@ The layout is desktop-first with a 960×640 minimum Tauri window. A compact top
 bar owns Workspace switching and global notifications. Navigation, collection,
 and detail panes use keyboard-accessible resize separators, keep their widths
 on the device, and switch to focused detail navigation when the window narrows.
-Account and Workspace settings are separate floating windows, and task detail
-remains a pane rather than a modal. Task detail switches between structured
+Account, Workspace, and Project Settings are routed overlays, and task detail
+remains a pane rather than a modal. Closing a Settings overlay returns to its
+validated background route without adding another history entry. Task detail switches between structured
 Details and chronological Activity without losing its pane context. The top-bar
 inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
-Host Console is a full-page Settings surface at `/host`; a small History API
-boundary keeps direct loads and browser Back/Forward navigation working without
-adding a routing dependency.
+Host Console is a full-page Settings surface at `/host` and `/host/access`.
+`BrowserRouter` preserves clean direct links, refresh, and browser Back/Forward
+navigation for both Host and Workspace routes.
 
 ## Deployment
 
