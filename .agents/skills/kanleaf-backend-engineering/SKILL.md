@@ -114,11 +114,13 @@ the user also requested a change.
 - Preserve composite tenant foreign keys, partial uniqueness, check constraints,
   and Workspace-row coordination patterns. Application checks complement rather
   than replace database constraints.
-- Workspace names may repeat; identifiers may not. Every creation/import path
-  reserves the immutable identifier in the lifetime registry in the same
-  transaction as the Workspace. Retired identifiers remain unavailable. Keep
-  reserved roots `api`, `assets`, `host`, `setup`, and `w` synchronized across
-  domain validation, database constraints, frontend validation, and route tests.
+- Workspace names may repeat; identifiers of live Workspaces may not. Every
+  creation/import path reserves the immutable identifier in the registry in the
+  same transaction as the Workspace. Release it only in the transaction that
+  commits permanent deletion; archive, failure, and rollback retain it. A later
+  Workspace may use an identifier only after that deletion commits. Keep reserved
+  roots `api`, `assets`, `host`, `setup`, and `w` synchronized across domain
+  validation, database constraints, frontend validation, and route tests.
 - Append one ordered migration and keep it tracked with the capability change.
   Never edit an existing committed migration or depend on an untracked local
   schema. Create a Git commit only when the task/workflow authorizes it.

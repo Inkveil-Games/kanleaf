@@ -468,12 +468,6 @@ async fn delete_workspace_records(
     workspace_id: Uuid,
 ) -> Result<(), AppError> {
     sqlx::query(
-        "UPDATE workspace_identifier_registry SET retired_at = now() WHERE workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .execute(&mut **transaction)
-    .await?;
-    sqlx::query(
         r#"
         UPDATE users
         SET active_workspace_id = (
@@ -499,6 +493,10 @@ async fn delete_workspace_records(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Workspace not found".to_owned()));
     }
+    sqlx::query("DELETE FROM workspace_identifier_registry WHERE workspace_id = $1")
+        .bind(workspace_id)
+        .execute(&mut **transaction)
+        .await?;
     Ok(())
 }
 

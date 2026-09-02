@@ -329,7 +329,7 @@ async fn members_can_activate_but_only_owners_can_rename_workspaces(pool: PgPool
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn workspace_identifiers_are_global_immutable_and_never_reused(pool: PgPool) {
+async fn workspace_identifiers_are_global_and_reused_after_permanent_deletion(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool, &data_dir);
     let (token, _, _) = register(&app, "owner@example.com").await;
@@ -395,7 +395,8 @@ async fn workspace_identifiers_are_global_immutable_and_never_reused(pool: PgPoo
         ))
         .await
         .unwrap();
-    assert_eq!(reused.status(), StatusCode::CONFLICT);
+    assert_eq!(reused.status(), StatusCode::CREATED);
+    assert_eq!(response_json(reused).await["identifier"], "first-team");
 
     let fallback = app
         .oneshot(json_request(

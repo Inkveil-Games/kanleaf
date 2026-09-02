@@ -76,8 +76,8 @@ owning feature instead of scattering it through unrelated handlers.
 - React Router owns durable application location. Use the typed builders and
   adapters under `apps/desktop/src/app/routing` and
   `apps/desktop/src/features/workspace`; do not hand-assemble paths.
-- Workspace names may repeat. Public routes use the immutable, globally unique,
-  lifetime-reserved Workspace identifier; resolve it to the UUID before API or
+- Workspace names may repeat. Public routes use the immutable, globally unique
+  identifier of the live Workspace; resolve it to the UUID before API or
   authorization work. Keep the reserved roots `api`, `assets`, `host`, `setup`,
   and `w` synchronized across frontend validation, server domain validation,
   database constraints, and route tests when adding a top-level route. The
@@ -127,8 +127,10 @@ owning feature instead of scattering it through unrelated handlers.
 - Add a new ordered migration; never rewrite a committed migration. Keep
   migrations and both lockfiles tracked.
 - Every Workspace creation/import path reserves its identifier in the same
-  transaction that creates the Workspace. Never free or reuse a retired
-  identifier.
+  transaction that creates the Workspace. Release that reservation only in the
+  transaction that commits permanent deletion; archive, failed deletion, and
+  rollback keep it reserved. A successfully deleted Workspace identifier may be
+  used by a later Workspace.
 - Construct vault paths only through typed IDs or validated storage names.
   Reject traversal, symlinks, special files, unmanaged archive entries, and
   revision mismatches at the established boundary.

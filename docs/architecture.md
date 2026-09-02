@@ -64,11 +64,13 @@ User ──< Session
   Workspace configuration and never enters portable projections or exports.
 - A user has a server-owned setup stage, an optional active Workspace, and may
   belong to many Workspaces. Registration does not imply membership.
-- Workspace names are display labels and may repeat. Each Workspace instead has
-  an immutable, globally unique public identifier for URLs. A lifetime registry
-  keeps retired identifiers unavailable after deletion, and the top-level route
-  names `api`, `assets`, `host`, `setup`, and `w` stay reserved; the Workspace
-  UUID remains the database, API authorization, and vault identity.
+- Workspace names are display labels and may repeat. Each live Workspace instead
+  has an immutable, globally unique public identifier for URLs. Its registry row
+  is created in the same transaction as the Workspace and removed only when
+  permanent deletion commits, so archive and failed deletion retain the
+  reservation while a successfully deleted identifier may be used again. The
+  top-level route names `api`, `assets`, `host`, `setup`, and `w` stay reserved;
+  the Workspace UUID remains the database, API authorization, and vault identity.
 - A project belongs to exactly one workspace. Its immutable lowercase public
   identifier is unique among active and archived Projects in that Workspace;
   permanent deletion frees it for reuse. Owner/Admin access is implicit; other

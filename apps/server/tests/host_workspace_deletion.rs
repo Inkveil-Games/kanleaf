@@ -255,14 +255,14 @@ async fn host_deletion_requires_both_confirmations_and_removes_every_managed_cop
             .await
             .unwrap();
     assert_eq!(active_workspace, None);
-    let retired: bool = sqlx::query_scalar(
-        "SELECT retired_at IS NOT NULL FROM workspace_identifier_registry WHERE workspace_id = $1",
+    let identifier_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM workspace_identifier_registry WHERE workspace_id = $1",
     )
     .bind(workspace_id)
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(retired);
+    assert_eq!(identifier_count, 0);
     assert!(!markdown.exists());
     assert!(!export.exists());
 
@@ -275,7 +275,7 @@ async fn host_deletion_requires_both_confirmations_and_removes_every_managed_cop
         ))
         .await
         .unwrap();
-    assert_eq!(reused.status(), StatusCode::CONFLICT);
+    assert_eq!(reused.status(), StatusCode::CREATED);
     let host_still_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
             .bind(host_id)
@@ -436,14 +436,12 @@ async fn startup_recovery_purges_a_committed_workspace_deletion(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE workspace_identifier_registry SET retired_at = now() WHERE workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .execute(&pool)
-    .await
-    .unwrap();
     sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM workspace_identifier_registry WHERE workspace_id = $1")
         .bind(workspace_id)
         .execute(&pool)
         .await

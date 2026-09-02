@@ -404,7 +404,10 @@ test('permanently deletes a Workspace through both Host confirmations', async ({
         identifier: victim.workspace.identifier,
       },
     });
-    expect(identifierReuse.status()).toBe(409);
+    expect(identifierReuse.status()).toBe(201);
+    expect((await identifierReuse.json()).identifier).toBe(
+      victim.workspace.identifier,
+    );
   } finally {
     const restored = await replaceAccessPolicy(
       request,

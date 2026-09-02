@@ -98,6 +98,35 @@ async fn account_setup_and_workspace_identifier_migration_backfills_existing_row
         .await
         .unwrap();
     assert_eq!(new_stage, "account");
+
+    sqlx::query(
+        "UPDATE workspace_identifier_registry SET retired_at = now() WHERE workspace_id = $1",
+    )
+    .bind(first_workspace)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(first_workspace)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/0020_release_deleted_workspace_identifiers.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let retired_identifier_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM workspace_identifier_registry WHERE workspace_id = $1",
+    )
+    .bind(first_workspace)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retired_identifier_count, 0);
 }
 
 #[sqlx::test(migrations = "./migrations")]
