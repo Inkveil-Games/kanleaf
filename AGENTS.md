@@ -13,7 +13,7 @@ card-heavy SaaS dashboard or move task detail into modal-first flows.
 ## Current technical decisions
 
 - Frontend: React 19, strict TypeScript, Vite 8, React Router 7, TanStack Query,
-  CodeMirror 6, and CSS design tokens.
+  Base UI headless primitives, CodeMirror 6, and CSS design tokens.
 - Desktop shell: Tauri v2. The native boundary is intentionally thin and has no
   application commands or native filesystem API today.
 - Server: Rust 2024, Axum 0.8, Tokio, SQLx 0.8, and PostgreSQL 17.
@@ -203,9 +203,20 @@ obvious syntax. Avoid narration and excessive generated commentary. Update
 concise current docs when commands, configuration, architecture, or supported
 behavior changes.
 
-Prefer existing dependencies and standard-library capabilities. A new
-dependency needs a concrete current use, ownership location, and maintenance or
-security justification. Keep lockfile changes intentional.
+Before implementing generic infrastructure, search the existing components,
+dependencies, and framework capabilities. Use the existing Base UI wrappers for
+accessible Select, Menu, and Popover behavior; do not add a competing primitive
+system. Evaluate a mature maintained library for substantial generic behavior
+such as caching, form engines, parsing, drag/drop, virtualization, or security
+primitives, but keep Kanleaf authorization, vault, routing, and product rules in
+project code.
+
+Prefer existing dependencies and standard-library capabilities. Add a
+dependency only for a concrete current use when it reduces total system
+complexity after bundle/runtime cost, security, compatibility, migration,
+testing, and maintenance are considered. Straightforward local code remains
+preferable to a package for a small clear helper. Keep lockfile changes
+intentional and remove superseded implementations in the same migration.
 
 ## Git
 
