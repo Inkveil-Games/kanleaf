@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace, WorkspaceMember } from './types';
@@ -10,6 +10,15 @@ const context = {
   serverUrl: 'https://kanleaf.example.com',
   token: 'session-token',
 };
+
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function showModal() {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function close() {
+    this.open = false;
+  };
+});
 
 const owner: WorkspaceMember = {
   user_id: 'owner-1',
@@ -27,6 +36,20 @@ const member: WorkspaceMember = {
   role: 'member',
   joined_at: '2026-08-21T01:00:00Z',
   updated_at: '2026-08-21T01:00:00Z',
+};
+
+const invitation = {
+  id: 'invitation-1',
+  workspace_id: 'workspace-1',
+  workspace_name: 'Kanleaf Core',
+  workspace_identifier: 'kanleaf-core',
+  email: 'invited@example.com',
+  role: 'member',
+  invited_by_display_name: 'Workspace Owner',
+  status: 'pending',
+  expires_at: '2026-09-10T01:00:00Z',
+  created_at: '2026-09-03T01:00:00Z',
+  updated_at: '2026-09-03T01:00:00Z',
 };
 
 describe('WorkspaceSettings', () => {
@@ -50,19 +73,30 @@ describe('WorkspaceSettings', () => {
     renderSettings({ ...workspace, role: 'member' }, 'members', member.user_id);
 
     expect(await screen.findByText('Workspace Owner')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Remove Workspace Member' }),
+      screen.queryByRole('combobox', { name: 'Workspace Member role' }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Workspace Member actions' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Invite people' })).toBeNull();
+    expect(screen.queryByText('Pending invitations')).toBeNull();
   });
 
   it('lets an Owner change a non-owner role', async () => {
     const promoted = { ...member, role: 'admin' as const };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse([owner, member]))
-      .mockResolvedValueOnce(jsonResponse(promoted))
-      .mockResolvedValueOnce(jsonResponse([owner, promoted]));
+    let memberReads = 0;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/invitations')) return jsonResponse([]);
+        if (init?.method === 'PATCH') return jsonResponse(promoted);
+        memberReads += 1;
+        return jsonResponse(
+          memberReads === 1 ? [owner, member] : [owner, promoted],
+        );
+      },
+    );
     vi.stubGlobal('fetch', fetchMock);
     renderSettings(workspace, 'members', owner.user_id);
 
@@ -80,6 +114,151 @@ describe('WorkspaceSettings', () => {
         }),
       ),
     );
+  });
+
+  it('combines searchable members and pending invitations in one page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        return url.endsWith('/members')
+          ? jsonResponse([owner, member])
+          : jsonResponse([invitation]);
+      }),
+    );
+    renderSettings(workspace, 'members', owner.user_id);
+
+    expect(
+      await screen.findByRole('button', { name: 'Invite people' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Pending invitations')).toBeInTheDocument();
+    expect(await screen.findByText('invited@example.com')).toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByRole('searchbox', { name: 'Search members' }),
+      {
+        target: { value: 'owner@example.com' },
+      },
+    );
+    expect(screen.getByText('Workspace Owner')).toBeInTheDocument();
+    expect(screen.queryByText('Workspace Member')).toBeNull();
+  });
+
+  it('reveals a one-time token after inviting a person from Members', async () => {
+    const issued = { ...invitation, token: 'one-time-invite-token' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/members')) return jsonResponse([owner]);
+        if (init?.method === 'POST') {
+          return new Response(JSON.stringify(issued), {
+            status: 201,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+    renderSettings(workspace, 'members', owner.user_id);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Invite people' }),
+    );
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'invited@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create invitation' }));
+
+    expect(
+      await screen.findByDisplayValue('one-time-invite-token'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Invite another' }),
+    ).toBeInTheDocument();
+  });
+
+  it('renews a pending invitation and reveals its replacement token', async () => {
+    const renewed = { ...invitation, token: 'renewed-invite-token' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/members')) return jsonResponse([owner]);
+        if (url.endsWith('/renew') && init?.method === 'POST') {
+          return jsonResponse(renewed);
+        }
+        return jsonResponse([invitation]);
+      }),
+    );
+    renderSettings(workspace, 'members', owner.user_id);
+
+    await screen.findByText('invited@example.com');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Manage invitation for invited@example.com',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Renew invitation' }));
+
+    expect(
+      await screen.findByDisplayValue('renewed-invite-token'),
+    ).toBeInTheDocument();
+  });
+
+  it('revokes a pending invitation from its row menu', async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/members')) return jsonResponse([owner]);
+        if (url.endsWith('/invitation-1') && init?.method === 'DELETE') {
+          return new Response(null, { status: 204 });
+        }
+        return jsonResponse([invitation]);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderSettings(workspace, 'members', owner.user_id);
+
+    await screen.findByText('invited@example.com');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Manage invitation for invited@example.com',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke invitation' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/invitations/invitation-1',
+        expect.objectContaining({ method: 'DELETE' }),
+      ),
+    );
+  });
+
+  it('does not render an empty action menu for accepted invitation history', async () => {
+    const accepted = {
+      ...invitation,
+      id: 'accepted-invitation',
+      email: 'accepted@example.com',
+      status: 'accepted',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        input.toString().endsWith('/members')
+          ? jsonResponse([owner])
+          : jsonResponse([accepted]),
+      ),
+    );
+    renderSettings(workspace, 'members', owner.user_id);
+
+    await screen.findByText('Invitation history');
+    expect(
+      screen.queryByRole('button', {
+        name: 'Manage invitation for accepted@example.com',
+      }),
+    ).toBeNull();
   });
 
   it('requires the exact name and confirmation before deletion', async () => {

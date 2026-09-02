@@ -17,7 +17,6 @@ import {
 import { canManageWorkspace } from './permissions';
 import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace, WorkspaceAccent } from './types';
-import { WorkspaceInvitationSettings } from './WorkspaceInvitationSettings';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
 import { ArchivedProjectsSettings } from '../project/ArchivedProjectsSettings';
@@ -64,11 +63,6 @@ export function WorkspaceSettings({
         userId={userId}
         onWorkspaceUpdated={onWorkspaceUpdated}
       />
-    );
-  }
-  if (section === 'invitations') {
-    return (
-      <WorkspaceInvitationSettings context={context} workspace={workspace} />
     );
   }
   if (

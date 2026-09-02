@@ -146,13 +146,21 @@ export function workspaceLocationFromRoute(
         taskId,
       };
     case 'account-settings':
-    case 'workspace-settings':
       return {
         kind,
         workspaceId,
         section: requiredParameter(params, 'section'),
         returnTo,
       };
+    case 'workspace-settings': {
+      const section = requiredParameter(params, 'section');
+      return {
+        kind,
+        workspaceId,
+        section: section === 'invitations' ? 'members' : section,
+        returnTo,
+      };
+    }
     case 'project-settings':
       return {
         kind,

@@ -2068,7 +2068,6 @@ function settingsSectionResolution(
       ? workspaceSettingsSections
       : workspaceSettingsSections.filter(
           (section) =>
-            section !== 'invitations' &&
             section !== 'storage' &&
             (workspaceRole !== 'guest' || section !== 'projects'),
         ),

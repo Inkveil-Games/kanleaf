@@ -393,7 +393,21 @@ function canonicalWorkspacePath(
   resolveTaskNumber: (taskId: string) => string | null,
 ) {
   if (!location) return '/';
-  if (location.kind.endsWith('-settings')) return pathname;
+  if (location.kind.endsWith('-settings')) {
+    if (
+      location.kind === 'workspace-settings' &&
+      location.section === 'members' &&
+      pathname.replace(/\/+$/, '').endsWith('/settings/workspace/invitations')
+    ) {
+      const workspaceIdentifier = resolveWorkspaceIdentifier(
+        location.workspaceId,
+      );
+      return workspaceIdentifier
+        ? routePaths.workspaceSettings(workspaceIdentifier, 'members')
+        : pathname;
+    }
+    return pathname;
+  }
   return serializeWorkspaceLocation(
     location,
     resolveWorkspaceIdentifier,

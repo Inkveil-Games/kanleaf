@@ -625,6 +625,34 @@ describe('WorkspaceRouteScreen', () => {
     );
   });
 
+  it('replaces the removed Workspace Invitations route with Members', async () => {
+    renderRouteScreen(
+      '/w/kanleaf-core/settings/workspace/invitations',
+      'workspace-settings',
+      '/w/:workspaceIdentifier/settings/workspace/:section',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/settings/workspace/members',
+      ),
+    );
+  });
+
+  it('replaces the trailing-slash form of the removed Invitations route', async () => {
+    renderRouteScreen(
+      '/w/kanleaf-core/settings/workspace/invitations/',
+      'workspace-settings',
+      '/w/:workspaceIdentifier/settings/workspace/:section',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/settings/workspace/members',
+      ),
+    );
+  });
+
   it('rejects an external Settings return target', async () => {
     renderRouteScreen(
       {

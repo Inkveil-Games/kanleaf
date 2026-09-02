@@ -55,6 +55,7 @@ describe('settings shells', () => {
       screen.getByRole('region', { name: 'Workspace settings' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Profile' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Invitations' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Members' }));
     expect(onSectionChange).toHaveBeenCalledWith('members');
     fireEvent.click(screen.getByRole('button', { name: 'Storage & backup' }));

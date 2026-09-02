@@ -1,22 +1,40 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { UserMinus } from 'lucide-react';
-import { useState } from 'react';
+import { Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ContextMenu } from '../../components/ui/ContextMenu';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
-import { LoadError } from '../settings/SettingsControls';
-import { errorMessage, monogram, titleCase } from '../settings/utils';
 import {
+  ActionMessage,
+  LoadError,
+  type ActionState,
+} from '../settings/SettingsControls';
+import {
+  errorMessage,
+  formatDateTime,
+  monogram,
+  titleCase,
+} from '../settings/utils';
+import {
+  listWorkspaceInvitations,
   listWorkspaceMembers,
   removeWorkspaceMember,
+  renewWorkspaceInvitation,
+  revokeWorkspaceInvitation,
   transferWorkspaceOwnership,
   updateWorkspaceMember,
   type ApiContext,
 } from './api';
+import { InvitePeopleDialog } from './InvitePeopleDialog';
 import { canManageWorkspace } from './permissions';
+import { WorkspaceInvitationList } from './WorkspaceInvitationList';
 import type {
   AssignableWorkspaceRole,
+  IssuedWorkspaceInvitation,
   Workspace,
+  WorkspaceInvitation,
   WorkspaceMember,
+  WorkspaceRole,
 } from './types';
 
 interface WorkspaceMemberSettingsProps {
@@ -26,6 +44,14 @@ interface WorkspaceMemberSettingsProps {
   onWorkspaceUpdated: () => Promise<void>;
 }
 
+const roleOptions = [
+  { value: 'all', label: 'All roles' },
+  { value: 'owner', label: 'Owner' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'member', label: 'Member' },
+  { value: 'guest', label: 'Guest' },
+];
+
 export function WorkspaceMemberSettings({
   context,
   workspace,
@@ -33,17 +59,54 @@ export function WorkspaceMemberSettings({
   onWorkspaceUpdated,
 }: WorkspaceMemberSettingsProps) {
   const queryClient = useQueryClient();
+  const canManage = canManageWorkspace(workspace);
   const members = useQuery({
     queryKey: ['workspace-members', workspace.id],
     queryFn: () => listWorkspaceMembers(context, workspace.id),
   });
-  const [actionError, setActionError] = useState<string | null>(null);
+  const invitations = useQuery({
+    queryKey: ['workspace-invitations', workspace.id],
+    queryFn: () => listWorkspaceInvitations(context, workspace.id),
+    enabled: canManage,
+  });
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<WorkspaceRole | 'all'>('all');
+  const [actionState, setActionState] = useState<ActionState>({
+    status: 'idle',
+  });
   const [busyMember, setBusyMember] = useState<string | null>(null);
-  const canManage = canManageWorkspace(workspace);
+  const [busyInvitation, setBusyInvitation] = useState<string | null>(null);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [issuedInvitation, setIssuedInvitation] =
+    useState<IssuedWorkspaceInvitation | null>(null);
 
-  async function refresh() {
+  const filteredMembers = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase();
+    return (members.data ?? []).filter(
+      (member) =>
+        (roleFilter === 'all' || member.role === roleFilter) &&
+        (!needle ||
+          member.display_name.toLocaleLowerCase().includes(needle) ||
+          member.email.toLocaleLowerCase().includes(needle)),
+    );
+  }, [members.data, roleFilter, search]);
+
+  const pendingInvitations = (invitations.data ?? []).filter(
+    ({ status }) => status === 'pending',
+  );
+  const invitationHistory = (invitations.data ?? []).filter(
+    ({ status }) => status !== 'pending',
+  );
+
+  async function refreshMembers() {
     await queryClient.invalidateQueries({
       queryKey: ['workspace-members', workspace.id],
+    });
+  }
+
+  async function refreshInvitations() {
+    await queryClient.invalidateQueries({
+      queryKey: ['workspace-invitations', workspace.id],
     });
   }
 
@@ -52,12 +115,13 @@ export function WorkspaceMemberSettings({
     role: AssignableWorkspaceRole,
   ) {
     setBusyMember(member.user_id);
-    setActionError(null);
+    setActionState({ status: 'saving' });
     try {
       await updateWorkspaceMember(context, workspace.id, member.user_id, role);
-      await Promise.all([refresh(), onWorkspaceUpdated()]);
+      await Promise.all([refreshMembers(), onWorkspaceUpdated()]);
+      setActionState({ status: 'saved', message: 'Member role updated' });
     } catch (error) {
-      setActionError(errorMessage(error));
+      setActionState({ status: 'error', message: errorMessage(error) });
     } finally {
       setBusyMember(null);
     }
@@ -70,12 +134,13 @@ export function WorkspaceMemberSettings({
       return;
     }
     setBusyMember(member.user_id);
-    setActionError(null);
+    setActionState({ status: 'saving' });
     try {
       await removeWorkspaceMember(context, workspace.id, member.user_id);
-      await refresh();
+      await refreshMembers();
+      setActionState({ status: 'saved', message: 'Member removed' });
     } catch (error) {
-      setActionError(errorMessage(error));
+      setActionState({ status: 'error', message: errorMessage(error) });
     } finally {
       setBusyMember(null);
     }
@@ -90,37 +155,132 @@ export function WorkspaceMemberSettings({
       return;
     }
     setBusyMember(member.user_id);
-    setActionError(null);
+    setActionState({ status: 'saving' });
     try {
       await transferWorkspaceOwnership(context, workspace.id, member.user_id);
-      await Promise.all([refresh(), onWorkspaceUpdated()]);
+      await Promise.all([refreshMembers(), onWorkspaceUpdated()]);
+      setActionState({ status: 'saved', message: 'Ownership transferred' });
     } catch (error) {
-      setActionError(errorMessage(error));
+      setActionState({ status: 'error', message: errorMessage(error) });
     } finally {
       setBusyMember(null);
     }
+  }
+
+  async function renew(invitation: WorkspaceInvitation) {
+    setBusyInvitation(invitation.id);
+    setActionState({ status: 'saving' });
+    try {
+      const issued = await renewWorkspaceInvitation(
+        context,
+        workspace.id,
+        invitation.id,
+      );
+      await refreshInvitations();
+      setIssuedInvitation(issued);
+      setInviteDialogOpen(true);
+      setActionState({ status: 'saved', message: 'Invitation renewed' });
+    } catch (error) {
+      setActionState({ status: 'error', message: errorMessage(error) });
+    } finally {
+      setBusyInvitation(null);
+    }
+  }
+
+  async function revoke(invitation: WorkspaceInvitation) {
+    setBusyInvitation(invitation.id);
+    setActionState({ status: 'saving' });
+    try {
+      await revokeWorkspaceInvitation(context, workspace.id, invitation.id);
+      await refreshInvitations();
+      setActionState({ status: 'saved', message: 'Invitation revoked' });
+    } catch (error) {
+      setActionState({ status: 'error', message: errorMessage(error) });
+    } finally {
+      setBusyInvitation(null);
+    }
+  }
+
+  function openInviteDialog() {
+    setIssuedInvitation(null);
+    setInviteDialogOpen(true);
   }
 
   return (
     <SettingsArticle
       eyebrow="Workspace"
       title="Members"
-      description="People with access to this Workspace and their fixed roles."
+      description="Manage everyone who can enter this Workspace and invitations that have not been accepted yet."
+      className="workspace-members-settings"
     >
-      {actionError && (
-        <p className="settings-error" role="alert">
-          {actionError}
-        </p>
-      )}
+      <div className="members-overview">
+        <div>
+          <strong>
+            {members.isPending
+              ? 'Loading members…'
+              : `${members.data?.length ?? 0} ${(members.data?.length ?? 0) === 1 ? 'member' : 'members'}`}
+          </strong>
+          {canManage && (
+            <span>
+              {invitations.isPending
+                ? 'Loading invitations…'
+                : invitations.error
+                  ? 'Invitations unavailable'
+                  : `${pendingInvitations.length} ${pendingInvitations.length === 1 ? 'pending invitation' : 'pending invitations'}`}
+            </span>
+          )}
+        </div>
+        {canManage && (
+          <button
+            className="primary-button compact-button"
+            type="button"
+            onClick={openInviteDialog}
+          >
+            <UserPlus aria-hidden="true" size={14} /> Invite people
+          </button>
+        )}
+      </div>
+
+      <ActionMessage state={actionState} />
+
+      <div className="member-filters" role="search">
+        <label className="member-search">
+          <Search aria-hidden="true" size={14} />
+          <input
+            type="search"
+            aria-label="Search members"
+            placeholder="Search by name or email"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <Select
+          ariaLabel="Filter members by role"
+          value={roleFilter}
+          options={roleOptions}
+          onValueChange={(value) =>
+            setRoleFilter(value as WorkspaceRole | 'all')
+          }
+        />
+      </div>
+
       {members.isPending ? (
         <p className="settings-muted">Loading members…</p>
       ) : members.error ? (
         <LoadError error={members.error} onRetry={() => members.refetch()} />
+      ) : filteredMembers.length === 0 ? (
+        <div className="settings-empty">
+          <strong>No members match these filters</strong>
+          <p>Try another name, email address, or role.</p>
+        </div>
       ) : (
         <div className="settings-rows member-rows">
-          {members.data.map((member) => {
+          {filteredMembers.map((member) => {
             const isCurrent = member.user_id === userId;
             const mutable = canManage && member.role !== 'owner';
+            const canTransfer =
+              workspace.role === 'owner' && member.role === 'admin';
+            const canRemove = mutable && !isCurrent;
             return (
               <div className="settings-row member-row" key={member.user_id}>
                 <span className="member-monogram" aria-hidden="true">
@@ -133,16 +293,15 @@ export function WorkspaceMemberSettings({
                   </strong>
                   <small>{member.email}</small>
                 </div>
+                <small className="member-joined">
+                  Joined {formatDateTime(member.joined_at)}
+                </small>
                 {mutable ? (
                   <Select
                     ariaLabel={`${member.display_name} role`}
                     value={member.role}
                     disabled={busyMember === member.user_id}
-                    options={[
-                      { value: 'admin', label: 'Admin' },
-                      { value: 'member', label: 'Member' },
-                      { value: 'guest', label: 'Guest' },
-                    ]}
+                    options={roleOptions.slice(2)}
                     onValueChange={(value) =>
                       void changeRole(member, value as AssignableWorkspaceRole)
                     }
@@ -151,26 +310,30 @@ export function WorkspaceMemberSettings({
                   <span className="role-label">{titleCase(member.role)}</span>
                 )}
                 <div className="row-actions">
-                  {workspace.role === 'owner' && member.role === 'admin' && (
-                    <button
-                      className="secondary-button"
-                      type="button"
+                  {(canTransfer || canRemove) && (
+                    <ContextMenu
+                      label={`${member.display_name} actions`}
                       disabled={busyMember === member.user_id}
-                      onClick={() => void transfer(member)}
                     >
-                      Transfer ownership
-                    </button>
-                  )}
-                  {mutable && !isCurrent && (
-                    <button
-                      className="icon-button"
-                      type="button"
-                      disabled={busyMember === member.user_id}
-                      aria-label={`Remove ${member.display_name}`}
-                      onClick={() => void remove(member)}
-                    >
-                      <UserMinus aria-hidden="true" size={15} />
-                    </button>
+                      {canTransfer && (
+                        <button
+                          type="button"
+                          onClick={() => void transfer(member)}
+                        >
+                          <ShieldCheck aria-hidden="true" size={14} /> Transfer
+                          ownership
+                        </button>
+                      )}
+                      {canRemove && (
+                        <button
+                          className="danger-menu-item"
+                          type="button"
+                          onClick={() => void remove(member)}
+                        >
+                          <Trash2 aria-hidden="true" size={14} /> Remove member
+                        </button>
+                      )}
+                    </ContextMenu>
                   )}
                 </div>
               </div>
@@ -178,23 +341,41 @@ export function WorkspaceMemberSettings({
           })}
         </div>
       )}
+
+      {canManage && (
+        <WorkspaceInvitationList
+          query={invitations}
+          pending={pendingInvitations}
+          history={invitationHistory}
+          busyInvitation={busyInvitation}
+          onRenew={renew}
+          onRevoke={revoke}
+        />
+      )}
+
       <RoleGuide />
+
+      {inviteDialogOpen && (
+        <InvitePeopleDialog
+          context={context}
+          workspaceId={workspace.id}
+          initialInvitation={issuedInvitation ?? undefined}
+          onInvitationCreated={refreshInvitations}
+          onClose={() => {
+            setInviteDialogOpen(false);
+            setIssuedInvitation(null);
+          }}
+        />
+      )}
     </SettingsArticle>
   );
 }
 
 function RoleGuide() {
   return (
-    <section
-      className="settings-section role-guide"
-      aria-labelledby="role-guide-heading"
-    >
-      <div className="settings-section-heading">
-        <div>
-          <h2 id="role-guide-heading">Role guide</h2>
-          <p>Project roles refine access for each shared Project.</p>
-        </div>
-      </div>
+    <details className="settings-section settings-disclosure role-guide">
+      <summary>Role guide</summary>
+      <p>Project roles refine access for each shared Project.</p>
       <dl>
         <div>
           <dt>Owner</dt>
@@ -206,13 +387,13 @@ function RoleGuide() {
         </div>
         <div>
           <dt>Member</dt>
-          <dd>Workspace Inbox and assigned project work.</dd>
+          <dd>Workspace Inbox and assigned Project work.</dd>
         </div>
         <div>
           <dt>Guest</dt>
-          <dd>Only projects explicitly shared with them.</dd>
+          <dd>Only Projects explicitly shared with them.</dd>
         </div>
       </dl>
-    </section>
+    </details>
   );
 }

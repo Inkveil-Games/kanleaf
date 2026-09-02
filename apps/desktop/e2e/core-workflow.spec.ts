@@ -180,7 +180,34 @@ test('manages structured work and durable Markdown across reloads', async ({
     page.getByRole('region', { name: 'Workspace settings' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Profile' })).not.toBeVisible();
-  await page.setViewportSize({ width: 960, height: 640 });
+  await page.setViewportSize({ width: 800, height: 640 });
+  await page.getByRole('button', { name: 'Members' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/members$`),
+  );
+  await expect(page.getByText(`invitee-${suffix}@example.com`)).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator('.workspace-members-settings')
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole('button', { name: 'Invitations' }),
+  ).not.toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
+  await page.getByRole('button', { name: 'Invite people' }).click();
+  await page
+    .getByLabel('Email address')
+    .fill(`second-invitee-${suffix}@example.com`);
+  await page.getByRole('button', { name: 'Create invitation' }).click();
+  await expect(page.getByLabel('Issued invitation token')).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(
+    page.getByText(`second-invitee-${suffix}@example.com`),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'States' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/states$`),
