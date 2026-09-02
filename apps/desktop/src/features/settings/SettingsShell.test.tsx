@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { User } from '../../lib/api/types';
@@ -60,6 +60,51 @@ describe('settings shells', () => {
     expect(onSectionChange).toHaveBeenCalledWith('members');
     fireEvent.click(screen.getByRole('button', { name: 'Storage & backup' }));
     expect(onSectionChange).toHaveBeenCalledWith('storage');
+  });
+
+  it('groups Workspace pages into General and Task properties', () => {
+    renderWithClient(
+      <WorkspaceSettingsShell
+        context={context}
+        user={user}
+        workspace={workspace}
+        workspaceCount={2}
+        section="general"
+        onSectionChange={vi.fn()}
+        onClose={vi.fn()}
+        onWorkspaceUpdated={vi.fn()}
+        onConfigurationUpdated={vi.fn()}
+        onProjectsChanged={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+      />,
+    );
+
+    const navigation = screen.getByRole('navigation', {
+      name: 'Workspace settings sections',
+    });
+    const general = within(navigation).getByRole('region', {
+      name: 'General',
+    });
+    const taskProperties = within(navigation).getByRole('region', {
+      name: 'Task properties',
+    });
+
+    expect(
+      within(general)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual([
+      'General',
+      'Members',
+      'Archived Projects',
+      'Storage & backup',
+      'Danger zone',
+    ]);
+    expect(
+      within(taskProperties)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['States', 'Labels', 'Task types']);
   });
 
   it('hides administrative Workspace pages from members', () => {

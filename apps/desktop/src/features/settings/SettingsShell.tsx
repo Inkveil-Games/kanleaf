@@ -125,61 +125,65 @@ export function WorkspaceSettingsShell({
       label="Workspace settings"
       onClose={onClose}
       navigation={
-        <SettingsGroup label={workspace.name}>
-          <SettingsLink
-            active={section === 'general'}
-            icon={<Settings2 aria-hidden="true" size={15} />}
-            label="General"
-            onClick={() => onSectionChange('general')}
-          />
-          <SettingsLink
-            active={section === 'members'}
-            icon={<UsersRound aria-hidden="true" size={15} />}
-            label="Members"
-            onClick={() => onSectionChange('members')}
-          />
-          <SettingsLink
-            active={section === 'states'}
-            icon={<Workflow aria-hidden="true" size={15} />}
-            label="States"
-            onClick={() => onSectionChange('states')}
-          />
-          <SettingsLink
-            active={section === 'labels'}
-            icon={<Tags aria-hidden="true" size={15} />}
-            label="Labels"
-            onClick={() => onSectionChange('labels')}
-          />
-          <SettingsLink
-            active={section === 'task-types'}
-            icon={<Shapes aria-hidden="true" size={15} />}
-            label="Task types"
-            onClick={() => onSectionChange('task-types')}
-          />
-          {workspace.role !== 'guest' && (
+        <>
+          <SettingsGroup label="General">
             <SettingsLink
-              active={section === 'projects'}
-              icon={<ArchiveRestore aria-hidden="true" size={15} />}
-              label="Archived Projects"
-              onClick={() => onSectionChange('projects')}
+              active={section === 'general'}
+              icon={<Settings2 aria-hidden="true" size={15} />}
+              label="General"
+              onClick={() => onSectionChange('general')}
             />
-          )}
-          {canManageWorkspace && (
             <SettingsLink
-              active={section === 'storage'}
-              icon={<Archive aria-hidden="true" size={15} />}
-              label="Storage & backup"
-              onClick={() => onSectionChange('storage')}
+              active={section === 'members'}
+              icon={<UsersRound aria-hidden="true" size={15} />}
+              label="Members"
+              onClick={() => onSectionChange('members')}
             />
-          )}
-          <SettingsLink
-            active={section === 'danger'}
-            icon={<ShieldAlert aria-hidden="true" size={15} />}
-            label="Danger zone"
-            onClick={() => onSectionChange('danger')}
-            danger
-          />
-        </SettingsGroup>
+            {workspace.role !== 'guest' && (
+              <SettingsLink
+                active={section === 'projects'}
+                icon={<ArchiveRestore aria-hidden="true" size={15} />}
+                label="Archived Projects"
+                onClick={() => onSectionChange('projects')}
+              />
+            )}
+            {canManageWorkspace && (
+              <SettingsLink
+                active={section === 'storage'}
+                icon={<Archive aria-hidden="true" size={15} />}
+                label="Storage & backup"
+                onClick={() => onSectionChange('storage')}
+              />
+            )}
+            <SettingsLink
+              active={section === 'danger'}
+              icon={<ShieldAlert aria-hidden="true" size={15} />}
+              label="Danger zone"
+              onClick={() => onSectionChange('danger')}
+              danger
+            />
+          </SettingsGroup>
+          <SettingsGroup label="Task properties">
+            <SettingsLink
+              active={section === 'states'}
+              icon={<Workflow aria-hidden="true" size={15} />}
+              label="States"
+              onClick={() => onSectionChange('states')}
+            />
+            <SettingsLink
+              active={section === 'labels'}
+              icon={<Tags aria-hidden="true" size={15} />}
+              label="Labels"
+              onClick={() => onSectionChange('labels')}
+            />
+            <SettingsLink
+              active={section === 'task-types'}
+              icon={<Shapes aria-hidden="true" size={15} />}
+              label="Task types"
+              onClick={() => onSectionChange('task-types')}
+            />
+          </SettingsGroup>
+        </>
       }
     >
       <WorkspaceSettings
@@ -240,7 +244,7 @@ export function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="settings-nav-group">
+    <section className="settings-nav-group" aria-label={label}>
       <h2>{label}</h2>
       {children}
     </section>
