@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -311,29 +314,25 @@ export function WorkspaceMemberSettings({
                 )}
                 <div className="row-actions">
                   {(canTransfer || canRemove) && (
-                    <ContextMenu
+                    <DropdownMenu
                       label={`${member.display_name} actions`}
                       disabled={busyMember === member.user_id}
                     >
                       {canTransfer && (
-                        <button
-                          type="button"
-                          onClick={() => void transfer(member)}
-                        >
+                        <DropdownMenuItem onClick={() => void transfer(member)}>
                           <ShieldCheck aria-hidden="true" size={14} /> Transfer
                           ownership
-                        </button>
+                        </DropdownMenuItem>
                       )}
                       {canRemove && (
-                        <button
+                        <DropdownMenuItem
                           className="danger-menu-item"
-                          type="button"
                           onClick={() => void remove(member)}
                         >
                           <Trash2 aria-hidden="true" size={14} /> Remove member
-                        </button>
+                        </DropdownMenuItem>
                       )}
-                    </ContextMenu>
+                    </DropdownMenu>
                   )}
                 </div>
               </div>

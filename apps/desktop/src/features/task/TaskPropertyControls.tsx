@@ -1,6 +1,10 @@
 import { Check, Plus, Search } from 'lucide-react';
 import { useState, type FocusEvent, type ReactNode } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+} from '../../components/ui/DropdownMenu';
+import { Popover, PopoverClose } from '../../components/ui/Popover';
 import type {
   ExtendedPropertyKey,
   PropertyKey,
@@ -15,10 +19,10 @@ export function AddPropertyMenu({
   onSelect: (key: ExtendedPropertyKey) => void;
 }) {
   return (
-    <ContextMenu
+    <Popover
       label="Add property"
       className="add-property-menu"
-      popoverRole="dialog"
+      align="start"
       trigger={
         <span>
           <Plus aria-hidden="true" size={14} /> Add property
@@ -26,7 +30,7 @@ export function AddPropertyMenu({
       }
     >
       <PropertyCatalog properties={properties} onSelect={onSelect} />
-    </ContextMenu>
+    </Popover>
   );
 }
 
@@ -64,14 +68,13 @@ function PropertyCatalog({
           </span>
         ) : (
           filtered.map(({ key, label }) => (
-            <button
+            <PopoverClose
               key={key}
-              type="button"
-              aria-label={`Add ${label} property`}
+              ariaLabel={`Add ${label} property`}
               onClick={() => onSelect(key)}
             >
               <Plus aria-hidden="true" size={14} /> {label}
-            </button>
+            </PopoverClose>
           ))
         )}
       </div>
@@ -143,9 +146,10 @@ export function MultiValuePicker({
   if (readOnly)
     return <span className="property-readonly-value">{summary}</span>;
   return (
-    <ContextMenu
+    <DropdownMenu
       label={label}
       className="property-picker"
+      align="start"
       disabled={saving}
       trigger={<span>{summary}</span>}
     >
@@ -155,27 +159,24 @@ export function MultiValuePicker({
         options.map((option) => {
           const selected = values.includes(option.id);
           return (
-            <button
+            <DropdownMenuCheckboxItem
               key={option.id}
-              data-menu-keep-open
-              role="menuitemcheckbox"
-              aria-checked={selected}
-              type="button"
+              checked={selected}
               disabled={saving}
-              onClick={() =>
+              onCheckedChange={(nextSelected) =>
                 void onChange(
-                  selected
-                    ? values.filter((value) => value !== option.id)
-                    : [...values, option.id],
+                  nextSelected
+                    ? [...values, option.id]
+                    : values.filter((value) => value !== option.id),
                 )
               }
             >
               <Check aria-hidden="true" size={14} opacity={selected ? 1 : 0} />
               {option.label}
-            </button>
+            </DropdownMenuCheckboxItem>
           );
         })
       )}
-    </ContextMenu>
+    </DropdownMenu>
   );
 }

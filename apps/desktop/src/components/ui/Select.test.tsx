@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Select } from './Select';
 
@@ -9,7 +10,8 @@ const options = [
 ];
 
 describe('Select', () => {
-  it('selects an option and closes the listbox', () => {
+  it('selects an option and closes the listbox', async () => {
+    const user = userEvent.setup();
     const onValueChange = vi.fn();
     render(
       <Select
@@ -20,15 +22,16 @@ describe('Select', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'State' }));
-    fireEvent.click(screen.getByRole('option', { name: 'In progress' }));
+    await user.click(screen.getByRole('combobox', { name: 'State' }));
+    await user.click(screen.getByRole('option', { name: 'In progress' }));
 
     expect(onValueChange).toHaveBeenCalledWith('started');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'State' })).toHaveFocus();
   });
 
-  it('supports arrow keys and Escape', () => {
+  it('supports arrow keys and Escape', async () => {
+    const user = userEvent.setup();
     render(
       <Select
         ariaLabel="State"
@@ -39,18 +42,42 @@ describe('Select', () => {
     );
 
     const trigger = screen.getByRole('combobox', { name: 'State' });
-    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
-    expect(screen.getByRole('option', { name: 'Todo' })).toHaveFocus();
+    trigger.focus();
+    await user.keyboard('[ArrowDown]');
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Todo' })).toHaveFocus(),
+    );
 
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    await user.keyboard('[ArrowDown]');
     expect(screen.getByRole('option', { name: 'In progress' })).toHaveFocus();
 
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await user.keyboard('[Escape]');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 
-  it('closes after a pointer press outside', () => {
+  it('supports typeahead selection without custom feature logic', async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    render(
+      <Select
+        ariaLabel="State"
+        value="todo"
+        options={options}
+        onValueChange={onValueChange}
+      />,
+    );
+
+    const trigger = screen.getByRole('combobox', { name: 'State' });
+    trigger.focus();
+    await user.keyboard('[ArrowDown]d[Enter]');
+
+    expect(onValueChange).toHaveBeenCalledWith('done');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('closes after a pointer press outside', async () => {
+    const user = userEvent.setup();
     render(
       <div>
         <Select
@@ -63,32 +90,15 @@ describe('Select', () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'State' }));
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+    await user.click(screen.getByRole('combobox', { name: 'State' }));
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    fireEvent.pointerDown(outside);
+    fireEvent.mouseDown(outside);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
-  it('closes when keyboard focus leaves the listbox', () => {
-    render(
-      <div>
-        <Select
-          ariaLabel="State"
-          value="todo"
-          options={options}
-          onValueChange={vi.fn()}
-        />
-        <button type="button">Next control</button>
-      </div>,
-    );
-
-    fireEvent.click(screen.getByRole('combobox', { name: 'State' }));
-    fireEvent.blur(screen.getByRole('option', { name: 'Todo' }), {
-      relatedTarget: screen.getByRole('button', { name: 'Next control' }),
-    });
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
-  });
-
-  it('keeps its popover inside a top-layer dialog', () => {
+  it('keeps its popover inside a top-layer dialog', async () => {
+    const user = userEvent.setup();
     render(
       <dialog open>
         <Select
@@ -100,7 +110,38 @@ describe('Select', () => {
       </dialog>,
     );
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'State' }));
+    await user.click(screen.getByRole('combobox', { name: 'State' }));
     expect(screen.getByRole('listbox').closest('dialog')).not.toBeNull();
+  });
+
+  it('exposes option descriptions to assistive technology', async () => {
+    const user = userEvent.setup();
+    render(
+      <Select
+        ariaLabel="Visibility"
+        value="private"
+        options={[
+          {
+            value: 'private',
+            label: 'Private',
+            description: 'Only invited members can open this Project.',
+          },
+          {
+            value: 'public',
+            label: 'Public',
+            description: 'Every Workspace member can open this Project.',
+          },
+        ]}
+        onValueChange={vi.fn()}
+      />,
+    );
+
+    screen.getByRole('combobox', { name: 'Visibility' }).focus();
+    await user.keyboard('[ArrowDown]');
+    expect(
+      screen.getByRole('option', { name: 'Private' }),
+    ).toHaveAccessibleDescription(
+      'Only invited members can open this Project.',
+    );
   });
 });

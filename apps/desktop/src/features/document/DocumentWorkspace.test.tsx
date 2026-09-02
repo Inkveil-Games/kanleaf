@@ -606,7 +606,7 @@ describe('DocumentWorkspace', () => {
     });
     await screen.findByText('Editor root');
 
-    chooseSelectOption('Library location', 'Kanleaf');
+    await chooseSelectOption('Library location', 'Kanleaf');
 
     await waitFor(() =>
       expect(onSelectDocument).toHaveBeenCalledWith(
@@ -632,7 +632,7 @@ describe('DocumentWorkspace', () => {
     );
     await screen.findByText('Editor project-note');
 
-    chooseSelectOption('Library location', 'Workspace');
+    await chooseSelectOption('Library location', 'Workspace');
 
     await waitFor(() =>
       expect(onSelectDocument).toHaveBeenCalledWith(
@@ -733,7 +733,7 @@ describe('DocumentWorkspace', () => {
     expect(screen.getByText('Editor child')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Release notes/ }));
-    chooseSelectOption('Library parent', 'Architecture');
+    await chooseSelectOption('Library parent', 'Architecture');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/release',
@@ -775,7 +775,7 @@ describe('DocumentWorkspace', () => {
     );
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Architecture/ }));
-    chooseSelectOption('Library location', 'Kanleaf');
+    await chooseSelectOption('Library location', 'Kanleaf');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/root',

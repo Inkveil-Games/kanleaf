@@ -155,7 +155,7 @@ describe('TaskListPane', () => {
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
     fireEvent.click(screen.getByLabelText('Select Write contributor notes'));
     expect(screen.getByText('2 selected')).toBeInTheDocument();
-    chooseSelectOption('Set priority', 'Urgent');
+    await chooseSelectOption('Set priority', 'Urgent');
 
     await waitFor(() =>
       expect(props.onBulkUpdate).toHaveBeenCalledWith({
@@ -171,7 +171,7 @@ describe('TaskListPane', () => {
     });
 
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
-    chooseSelectOption('Set priority', 'Urgent');
+    await chooseSelectOption('Set priority', 'Urgent');
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Server unavailable',
@@ -263,7 +263,7 @@ describe('TaskListPane', () => {
   it('supports inline edits in the table layout', async () => {
     const props = renderList({ layout: 'table' });
 
-    chooseSelectOption('Design the navigation state', 'In Progress');
+    await chooseSelectOption('Design the navigation state', 'In Progress');
 
     await waitFor(() =>
       expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {

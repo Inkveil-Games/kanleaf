@@ -15,7 +15,10 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
 import { canMove, type DocumentSection, type TreeEntry } from './tree';
 import type { WorkspaceDocument } from './types';
 
@@ -271,38 +274,23 @@ function DocumentTreeRow({
         <span>{entry.document.title}</span>
       </button>
       {entry.document.can_edit && (
-        <ContextMenu label={`Actions for ${entry.document.title}`}>
-          <button role="menuitem" type="button" onClick={onCreateChild}>
+        <DropdownMenu label={`Actions for ${entry.document.title}`}>
+          <DropdownMenuItem onClick={onCreateChild}>
             <FilePlus2 aria-hidden="true" size={14} /> Add nested note
-          </button>
-          <button role="menuitem" type="button" onClick={onRename}>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onRename}>
             <Pencil aria-hidden="true" size={14} /> Rename
-          </button>
-          <button
-            role="menuitem"
-            type="button"
-            disabled={!canMoveUp}
-            onClick={onMoveUp}
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!canMoveUp} onClick={onMoveUp}>
             <MoveUp aria-hidden="true" size={14} /> Move up
-          </button>
-          <button
-            role="menuitem"
-            type="button"
-            disabled={!canMoveDown}
-            onClick={onMoveDown}
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!canMoveDown} onClick={onMoveDown}>
             <MoveDown aria-hidden="true" size={14} /> Move down
-          </button>
-          <button
-            className="danger-menu-item"
-            role="menuitem"
-            type="button"
-            onClick={onArchive}
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem className="danger-menu-item" onClick={onArchive}>
             <Archive aria-hidden="true" size={14} /> Archive
-          </button>
-        </ContextMenu>
+          </DropdownMenuItem>
+        </DropdownMenu>
       )}
     </div>
   );

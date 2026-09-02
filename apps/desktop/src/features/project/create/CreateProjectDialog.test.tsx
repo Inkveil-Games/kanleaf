@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { chooseSelectOption } from '../../../test/select';
@@ -58,6 +59,7 @@ const members: WorkspaceMember[] = [
 
 describe('CreateProjectDialog', () => {
   it('submits the reviewed identity, icon, lead, and visibility', async () => {
+    const user = userEvent.setup();
     const onCreate = vi.fn().mockResolvedValue({ id: 'project-1' } as Project);
     const onClose = vi.fn();
     renderDialog(onCreate, onClose);
@@ -79,10 +81,10 @@ describe('CreateProjectDialog', () => {
       screen.getByRole('button', { name: 'Choose Project icon' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Rocket' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Project lead' }));
+    await user.click(screen.getByRole('combobox', { name: 'Project lead' }));
     expect(screen.getByText(/Becomes Project Admin/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('option', { name: 'Minh' }));
-    chooseSelectOption('Project visibility', 'Public');
+    await user.click(screen.getByRole('option', { name: 'Minh' }));
+    await chooseSelectOption('Project visibility', 'Public');
     fireEvent.change(screen.getByLabelText(/Description/), {
       target: { value: 'Ship a focused mobile experience.' },
     });

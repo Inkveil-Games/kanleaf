@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useState } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Popover, PopoverClose } from '../../components/ui/Popover';
 import { errorMessage, formatDateTime } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import {
@@ -69,10 +69,9 @@ export function Notifications({
   }
 
   return (
-    <ContextMenu
+    <Popover
       label="Notifications"
       className="notification-menu"
-      popoverRole="dialog"
       trigger={
         <span className="notification-trigger">
           <Bell aria-hidden="true" size={16} />
@@ -91,7 +90,6 @@ export function Notifications({
         <strong>Notifications</strong>
         <button
           type="button"
-          data-menu-keep-open
           disabled={unreadCount === 0}
           onClick={() => void markAllRead()}
         >
@@ -101,7 +99,6 @@ export function Notifications({
       <div className="notification-filters" aria-label="Notification filter">
         <button
           type="button"
-          data-menu-keep-open
           aria-pressed={filter === 'all'}
           onClick={() => setFilter('all')}
         >
@@ -109,7 +106,6 @@ export function Notifications({
         </button>
         <button
           type="button"
-          data-menu-keep-open
           aria-pressed={filter === 'unread'}
           onClick={() => setFilter('unread')}
         >
@@ -124,11 +120,7 @@ export function Notifications({
         <div className="notification-empty" role="alert">
           <strong>Could not load notifications</strong>
           <span>{errorMessage(notifications.error)}</span>
-          <button
-            type="button"
-            data-menu-keep-open
-            onClick={() => void notifications.refetch()}
-          >
+          <button type="button" onClick={() => void notifications.refetch()}>
             Try again
           </button>
         </div>
@@ -145,9 +137,8 @@ export function Notifications({
       ) : (
         <div className="notification-list">
           {items.map((notification) => (
-            <button
+            <PopoverClose
               key={notification.id}
-              type="button"
               className={notification.read_at ? '' : 'is-unread'}
               onClick={() => void openNotification(notification)}
             >
@@ -159,7 +150,7 @@ export function Notifications({
                   {formatDateTime(notification.created_at)}
                 </small>
               </span>
-            </button>
+            </PopoverClose>
           ))}
         </div>
       )}
@@ -168,7 +159,7 @@ export function Notifications({
           {actionError}
         </p>
       )}
-    </ContextMenu>
+    </Popover>
   );
 }
 

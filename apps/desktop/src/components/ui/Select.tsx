@@ -1,14 +1,6 @@
+import { Select as BaseSelect } from '@base-ui/react/select';
 import { Check, ChevronDown } from 'lucide-react';
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useId, useState } from 'react';
 
 export interface SelectOption {
   value: string;
@@ -26,14 +18,6 @@ interface SelectProps {
   className?: string;
 }
 
-interface PopoverPosition {
-  bottom?: number;
-  left: number;
-  maxHeight: number;
-  top?: number;
-  width: number;
-}
-
 export function Select({
   ariaLabel,
   value,
@@ -42,215 +26,83 @@ export function Select({
   disabled = false,
   className,
 }: SelectProps) {
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<PopoverPosition | null>(null);
-  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
-  const listboxId = useId();
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listboxRef = useRef<HTMLDivElement>(null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
   const selected = options.find((option) => option.value === value);
 
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
-
-    const rect = triggerRef.current.getBoundingClientRect();
-    const root =
-      triggerRef.current.closest<HTMLElement>('dialog') ?? document.body;
-    const rootRect = root.getBoundingClientRect();
-    const constrainToRoot = root !== document.body && rootRect.height > 0;
-    const edge = 8;
-    const gap = 4;
-    const boundaryTop = constrainToRoot ? Math.max(0, rootRect.top) : 0;
-    const boundaryBottom = constrainToRoot
-      ? Math.min(window.innerHeight, rootRect.bottom)
-      : window.innerHeight;
-    const spaceBelow = boundaryBottom - rect.bottom - edge - gap;
-    const spaceAbove = rect.top - boundaryTop - edge - gap;
-    const placeAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
-    const available = Math.max(96, placeAbove ? spaceAbove : spaceBelow);
-    const width = Math.min(
-      Math.max(rect.width, 180),
-      window.innerWidth - edge * 2,
-    );
-
-    setPortalRoot(root);
-    setPosition({
-      ...(placeAbove
-        ? { bottom: window.innerHeight - rect.top + gap }
-        : { top: rect.bottom + gap }),
-      left: Math.max(
-        edge,
-        Math.min(rect.left, window.innerWidth - width - edge),
-      ),
-      maxHeight: Math.min(280, available),
-      width,
-    });
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    function closeOutside(event: PointerEvent) {
-      const target = event.target as Node;
-      if (
-        !triggerRef.current?.contains(target) &&
-        !listboxRef.current?.contains(target)
-      ) {
-        setOpen(false);
-      }
-    }
-
-    function closeWithEscape(event: globalThis.KeyboardEvent) {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
-      triggerRef.current?.focus();
-    }
-
-    function closeAfterViewportChange() {
-      setOpen(false);
-    }
-
-    document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeWithEscape, true);
-    window.addEventListener('resize', closeAfterViewportChange);
-    window.addEventListener('scroll', closeAfterViewportChange, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeWithEscape, true);
-      window.removeEventListener('resize', closeAfterViewportChange);
-      window.removeEventListener('scroll', closeAfterViewportChange, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !position) return;
-    const selectedOption = listboxRef.current?.querySelector<HTMLElement>(
-      '[role="option"][aria-selected="true"]',
-    );
-    const firstOption = listboxRef.current?.querySelector<HTMLElement>(
-      '[role="option"]:not([aria-disabled="true"])',
-    );
-    (selectedOption ?? firstOption)?.focus();
-  }, [open, position]);
-
-  function openWithKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
-    if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) return;
-    event.preventDefault();
-    setOpen(true);
-  }
-
-  function moveOptionFocus(event: KeyboardEvent<HTMLDivElement>) {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const items = [
-      ...(listboxRef.current?.querySelectorAll<HTMLElement>(
-        '[role="option"]:not([aria-disabled="true"])',
-      ) ?? []),
-    ];
-    if (items.length === 0) return;
-
-    event.preventDefault();
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    let next = 0;
-    if (event.key === 'End') next = items.length - 1;
-    if (event.key === 'ArrowDown') next = (current + 1) % items.length;
-    if (event.key === 'ArrowUp') {
-      next = (current - 1 + items.length) % items.length;
-    }
-    items[next]?.focus();
-  }
-
-  function choose(option: SelectOption) {
-    if (option.disabled) return;
-    onValueChange(option.value);
-    setOpen(false);
-    triggerRef.current?.focus();
-  }
-
-  const popoverStyle = position
-    ? ({
-        bottom: position.bottom,
-        left: position.left,
-        maxHeight: position.maxHeight,
-        top: position.top,
-        width: position.width,
-      } satisfies CSSProperties)
-    : undefined;
   return (
     <div className={`kanleaf-select${className ? ` ${className}` : ''}`}>
-      <button
-        ref={triggerRef}
-        className="select-trigger"
-        type="button"
-        role="combobox"
-        aria-label={ariaLabel}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        data-value={value}
+      <BaseSelect.Root
+        value={value}
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={openWithKeyboard}
+        modal={false}
+        items={options}
+        onValueChange={(nextValue) => {
+          if (nextValue !== null) onValueChange(nextValue);
+        }}
       >
-        <span className="select-value">{selected?.label ?? ''}</span>
-        <ChevronDown className="select-chevron" aria-hidden="true" size={14} />
-      </button>
-      {open &&
-        position &&
-        portalRoot &&
-        createPortal(
-          <div
-            ref={listboxRef}
-            id={listboxId}
-            className="select-popover"
-            role="listbox"
-            aria-label={ariaLabel}
-            style={popoverStyle}
-            onBlur={(event) => {
-              const next = event.relatedTarget as Node | null;
-              if (
-                !next ||
-                (!event.currentTarget.contains(next) &&
-                  !triggerRef.current?.contains(next))
-              ) {
-                setOpen(false);
-              }
-            }}
-            onKeyDown={moveOptionFocus}
+        <BaseSelect.Trigger
+          ref={(element) => {
+            setPortalContainer(
+              element?.closest<HTMLElement>('dialog') ?? document.body,
+            );
+          }}
+          className="select-trigger"
+          aria-label={ariaLabel}
+          data-value={value}
+        >
+          <BaseSelect.Value className="select-value">
+            {selected?.label ?? ''}
+          </BaseSelect.Value>
+          <BaseSelect.Icon className="select-chevron">
+            <ChevronDown aria-hidden="true" size={14} />
+          </BaseSelect.Icon>
+        </BaseSelect.Trigger>
+        <BaseSelect.Portal container={portalContainer}>
+          <BaseSelect.Positioner
+            className="select-positioner"
+            align="start"
+            alignItemWithTrigger={false}
+            collisionPadding={8}
+            sideOffset={4}
           >
-            {options.map((option, index) => {
-              const descriptionId = option.description
-                ? `${listboxId}-option-${index}-description`
-                : undefined;
-              return (
-                <button
-                  key={option.value}
-                  className="select-option"
-                  type="button"
-                  role="option"
-                  aria-label={option.label}
-                  aria-selected={option.value === value}
-                  aria-disabled={option.disabled || undefined}
-                  aria-describedby={descriptionId}
-                  disabled={option.disabled}
-                  onClick={() => choose(option)}
-                >
-                  <span className="select-option-copy">
-                    <span>{option.label}</span>
-                    {option.description ? (
-                      <small id={descriptionId}>{option.description}</small>
-                    ) : null}
-                  </span>
-                  {option.value === value && (
-                    <Check aria-hidden="true" size={14} />
-                  )}
-                </button>
-              );
-            })}
-          </div>,
-          portalRoot,
-        )}
+            <BaseSelect.Popup className="select-popover">
+              <BaseSelect.List>
+                {options.map((option) => (
+                  <SelectOptionItem key={option.value} option={option} />
+                ))}
+              </BaseSelect.List>
+            </BaseSelect.Popup>
+          </BaseSelect.Positioner>
+        </BaseSelect.Portal>
+      </BaseSelect.Root>
     </div>
+  );
+}
+
+function SelectOptionItem({ option }: { option: SelectOption }) {
+  const descriptionId = useId();
+
+  return (
+    <BaseSelect.Item
+      className="select-option"
+      value={option.value}
+      aria-label={option.label}
+      aria-describedby={option.description ? descriptionId : undefined}
+      disabled={option.disabled}
+      nativeButton
+      render={<button type="button" />}
+    >
+      <BaseSelect.ItemText className="select-option-copy">
+        <span>{option.label}</span>
+        {option.description ? (
+          <small id={descriptionId}>{option.description}</small>
+        ) : null}
+      </BaseSelect.ItemText>
+      <BaseSelect.ItemIndicator>
+        <Check aria-hidden="true" size={14} />
+      </BaseSelect.ItemIndicator>
+    </BaseSelect.Item>
   );
 }

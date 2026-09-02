@@ -103,7 +103,7 @@ describe('WorkspaceSettings', () => {
     await screen.findByRole('combobox', {
       name: 'Workspace Member role',
     });
-    chooseSelectOption('Workspace Member role', 'Admin');
+    await chooseSelectOption('Workspace Member role', 'Admin');
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -199,7 +199,7 @@ describe('WorkspaceSettings', () => {
         name: 'Manage invitation for invited@example.com',
       }),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Renew invitation' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Renew invitation' }));
 
     expect(
       await screen.findByDisplayValue('renewed-invite-token'),
@@ -226,7 +226,9 @@ describe('WorkspaceSettings', () => {
         name: 'Manage invitation for invited@example.com',
       }),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke invitation' }));
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Revoke invitation' }),
+    );
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(

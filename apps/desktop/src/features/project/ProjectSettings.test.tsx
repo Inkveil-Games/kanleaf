@@ -164,7 +164,7 @@ describe('ProjectSettings', () => {
     fireEvent.change(screen.getByLabelText('Description'), {
       target: { value: 'Focused Core delivery.' },
     });
-    chooseSelectOption(
+    await chooseSelectOption(
       'Visibility',
       'Public — Workspace Members can discover and join',
     );

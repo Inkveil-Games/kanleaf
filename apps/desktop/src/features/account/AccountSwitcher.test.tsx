@@ -25,27 +25,30 @@ describe('AccountSwitcher', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     expect(
-      screen.getByRole('menuitemradio', { name: /Account user-1/ }),
-    ).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(
-      screen.getByRole('menuitemradio', { name: /Account user-2/ }),
-    );
+      screen.getByRole('button', { name: /Account user-1/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /Account user-1/ }));
+    expect(
+      screen.queryByRole('dialog', { name: 'Switch account' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
+    fireEvent.click(screen.getByRole('button', { name: /Account user-2/ }));
     expect(onSwitchAccount).toHaveBeenCalledWith('user-2');
 
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Add another account' }),
+      screen.getByRole('button', { name: 'Add another account' }),
     );
     expect(onAddAccount).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Sign out this account' }),
+      screen.getByRole('button', { name: 'Sign out this account' }),
     );
     expect(onSignOutCurrent).toHaveBeenCalledOnce();
     expect(
-      screen.queryByRole('menuitem', { name: 'Sign out all accounts' }),
+      screen.queryByRole('button', { name: 'Sign out all accounts' }),
     ).not.toBeInTheDocument();
   });
 
@@ -70,7 +73,7 @@ describe('AccountSwitcher', () => {
       'Resolve unsaved Markdown before switching.',
     );
     expect(
-      screen.getByRole('menuitemradio', { name: /Account user-1/ }),
+      screen.getByRole('button', { name: /Account user-1/ }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole('button', { name: 'Dismiss account error' }),
@@ -95,7 +98,7 @@ describe('AccountSwitcher', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Host Console' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Host Console' }));
     expect(onOpenHostConsole).toHaveBeenCalledOnce();
 
     rerender(
@@ -112,7 +115,7 @@ describe('AccountSwitcher', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     expect(
-      screen.queryByRole('menuitem', { name: 'Host Console' }),
+      screen.queryByRole('button', { name: 'Host Console' }),
     ).not.toBeInTheDocument();
   });
 });

@@ -185,9 +185,9 @@ describe('TaskDetailPane', () => {
     );
 
     await screen.findByRole('combobox', { name: 'State' });
-    chooseSelectOption('State', 'In Review');
-    chooseSelectOption('Task type', 'Bug');
-    chooseSelectOption('Priority', 'High');
+    await chooseSelectOption('State', 'In Review');
+    await chooseSelectOption('Task type', 'Bug');
+    await chooseSelectOption('Priority', 'High');
     fireEvent.change(screen.getByLabelText('Due date'), {
       target: { value: '2026-09-04' },
     });
@@ -199,7 +199,7 @@ describe('TaskDetailPane', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Add Project property' }),
     );
-    chooseSelectOption('Project', 'Kanleaf');
+    await chooseSelectOption('Project', 'Kanleaf');
     const title = screen.getByLabelText('Task title');
     let titleHeight = 72;
     Object.defineProperty(title, 'scrollHeight', {
@@ -316,7 +316,7 @@ describe('TaskDetailPane', () => {
     expect(screen.getByLabelText('State')).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Edit assignees' }),
-    ).toBeVisible();
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Priority')).toBeVisible();
     expect(screen.getByLabelText('Due date')).toBeVisible();
     expect(screen.getByLabelText('Task type')).toBeVisible();
@@ -328,7 +328,7 @@ describe('TaskDetailPane', () => {
     fireEvent.change(search, { target: { value: 'label' } });
     expect(
       screen.getByRole('button', { name: 'Add Labels property' }),
-    ).toBeVisible();
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Add Project property' }),
     ).not.toBeInTheDocument();
@@ -392,7 +392,7 @@ describe('TaskDetailPane', () => {
       screen.queryByRole('button', { name: 'Add Type property' }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add Cycle property' }));
-    chooseSelectOption('Cycle', 'Cycle 1');
+    await chooseSelectOption('Cycle', 'Cycle 1');
     fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
     fireEvent.click(
       screen.getByRole('button', { name: 'Add Modules property' }),

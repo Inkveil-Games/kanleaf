@@ -364,8 +364,8 @@ describe('ProjectPlanningPane', () => {
     expect(
       await screen.findByRole('heading', { name: 'Backend', level: 2 }),
     ).toBeInTheDocument();
-    chooseSelectOption('Module status', 'Paused');
-    chooseSelectOption('Module lead', 'Alex Morgan');
+    await chooseSelectOption('Module status', 'Paused');
+    await chooseSelectOption('Module lead', 'Alex Morgan');
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() =>
       expect(updateProjectModule).toHaveBeenCalledWith(

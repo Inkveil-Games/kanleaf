@@ -285,12 +285,14 @@ test('manages Restricted access through the Host Console', async ({
 
     await page.setViewportSize({ width: 700, height: 900 });
     await page.getByRole('button', { name: 'Switch account' }).click();
-    const accountMenu = page.getByRole('menu');
-    await expect(accountMenu).toBeVisible();
-    const menuBounds = await accountMenu.boundingBox();
-    if (!menuBounds) throw new Error('Account menu has no layout bounds');
-    expect(menuBounds.y).toBeGreaterThanOrEqual(0);
-    expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(900);
+    const accountPopover = page.getByRole('dialog', {
+      name: 'Switch account',
+    });
+    await expect(accountPopover).toBeVisible();
+    const popoverBounds = await accountPopover.boundingBox();
+    if (!popoverBounds) throw new Error('Account popover has no layout bounds');
+    expect(popoverBounds.y).toBeGreaterThanOrEqual(0);
+    expect(popoverBounds.y + popoverBounds.height).toBeLessThanOrEqual(900);
   } finally {
     const restored = await replaceAccessPolicy(
       request,

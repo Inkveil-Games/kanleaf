@@ -145,7 +145,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
   await workspaceSelect.click();
-  await page.getByRole('menuitem', { name: 'Settings for Studio' }).click();
+  await page.getByRole('button', { name: 'Settings for Studio' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/general$`),
   );
@@ -156,7 +156,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(workspaceSelect).toContainText('Studio Workspace');
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await page.getByRole('button', { name: 'Switch account' }).click();
-  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/account/profile$`),
   );
@@ -174,7 +174,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await workspaceSelect.click();
   await page
-    .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
+    .getByRole('button', { name: 'Settings for Studio Workspace' })
     .click();
   await expect(
     page.getByRole('region', { name: 'Workspace settings' }),
@@ -602,7 +602,10 @@ let source_is_markdown = true;
   await expectTaskPatch(page, () =>
     chooseSelectOption(page, 'Cycle', 'Cycle 1'),
   );
-  await expect(page.getByLabel('Cycle')).toHaveAttribute('data-value', /.+/);
+  await expect(page.getByRole('combobox', { name: 'Cycle' })).toHaveAttribute(
+    'data-value',
+    /.+/,
+  );
   await addTaskProperty(page, 'Modules');
   await page.getByLabel('Edit Modules').click();
   await expectTaskPatch(page, () =>
@@ -823,7 +826,7 @@ Kanleaf keeps **structured work** beside durable notes.
 
   await workspaceSelect.click();
   await page
-    .getByRole('menuitem', { name: 'Settings for Studio Workspace' })
+    .getByRole('button', { name: 'Settings for Studio Workspace' })
     .click();
   await page.getByRole('button', { name: 'Storage & backup' }).click();
   await page.getByRole('button', { name: 'Scan vault' }).click();
@@ -844,7 +847,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
 
   await workspaceSelect.click();
-  await page.getByRole('menuitem', { name: 'Import workspace' }).click();
+  await page.getByRole('button', { name: 'Import workspace' }).click();
   const importDialog = page.getByRole('dialog', { name: 'Import Workspace' });
   await importDialog.locator('input[type="file"]').setInputFiles(archivePath!);
   await expect(
@@ -892,7 +895,7 @@ test('switches retained accounts without crossing account data', async ({
   await source.fill('# Account one\n\nSaved while switching accounts.');
 
   await page.getByRole('button', { name: 'Switch account' }).click();
-  await page.getByRole('menuitem', { name: 'Add another account' }).click();
+  await page.getByRole('button', { name: 'Add another account' }).click();
   const addAccount = page.getByRole('dialog', {
     name: 'Add another account',
   });
@@ -910,9 +913,7 @@ test('switches retained accounts without crossing account data', async ({
   await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
 
   await accountTrigger.click();
-  await page
-    .getByRole('menuitemradio', { name: new RegExp(firstEmail) })
-    .click();
+  await page.getByRole('button', { name: new RegExp(firstEmail) }).click();
   await expect(accountTrigger).toContainText(firstEmail);
   await page.getByRole('button', { name: 'Inbox' }).click();
   await page.getByText(firstTask, { exact: true }).click();
@@ -928,9 +929,7 @@ test('switches retained accounts without crossing account data', async ({
   ).toBeVisible();
 
   await accountTrigger.click();
-  await page
-    .getByRole('menuitemradio', { name: new RegExp(secondEmail) })
-    .click();
+  await page.getByRole('button', { name: new RegExp(secondEmail) }).click();
   await expect(accountTrigger).toContainText(secondEmail);
   await page.getByRole('button', { name: 'Inbox' }).click();
   await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();

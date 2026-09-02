@@ -9,7 +9,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Popover, PopoverClose } from '../../components/ui/Popover';
 import type { ApiContext } from './api';
 import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace } from './types';
@@ -74,9 +74,11 @@ export function WorkspaceControl({
       <div className="workspace-control-group">
         {navigationVisible && (
           <>
-            <ContextMenu
+            <Popover
               className="workspace-switcher-menu"
               label="Active workspace"
+              align="start"
+              sideOffset={7}
               triggerRef={workspaceSwitcherRef}
               trigger={
                 <>
@@ -119,11 +121,9 @@ export function WorkspaceControl({
                       key={candidate.id}
                       role="presentation"
                     >
-                      <button
+                      <PopoverClose
                         className="workspace-menu-option"
-                        role="menuitemradio"
-                        type="button"
-                        aria-checked={active}
+                        ariaCurrent={active ? 'page' : undefined}
                         onClick={() => {
                           void onSwitchWorkspace(candidate.id);
                         }}
@@ -141,17 +141,15 @@ export function WorkspaceControl({
                           </small>
                         </span>
                         {active && <Check aria-hidden="true" size={14} />}
-                      </button>
+                      </PopoverClose>
                       {active && canManage && (
-                        <button
+                        <PopoverClose
                           className="workspace-menu-settings"
-                          role="menuitem"
-                          type="button"
-                          aria-label={`Settings for ${candidate.name}`}
+                          ariaLabel={`Settings for ${candidate.name}`}
                           onClick={() => onOpenWorkspaceSettings('general')}
                         >
                           <Settings aria-hidden="true" size={14} />
-                        </button>
+                        </PopoverClose>
                       )}
                     </div>
                   );
@@ -159,29 +157,17 @@ export function WorkspaceControl({
               </div>
               <div className="workspace-menu-divider" role="separator" />
               <div className="workspace-menu-actions" role="group">
-                <button
-                  role="menuitem"
-                  type="button"
-                  onClick={() => setCreatingWorkspace(true)}
-                >
+                <PopoverClose onClick={() => setCreatingWorkspace(true)}>
                   <Plus aria-hidden="true" size={14} /> New workspace
-                </button>
-                <button
-                  role="menuitem"
-                  type="button"
-                  onClick={onImportWorkspace}
-                >
+                </PopoverClose>
+                <PopoverClose onClick={onImportWorkspace}>
                   <FileUp aria-hidden="true" size={14} /> Import workspace
-                </button>
-                <button
-                  role="menuitem"
-                  type="button"
-                  onClick={onOpenInvitations}
-                >
+                </PopoverClose>
+                <PopoverClose onClick={onOpenInvitations}>
                   <Mail aria-hidden="true" size={14} /> Workspace invitations
-                </button>
+                </PopoverClose>
               </div>
-            </ContextMenu>
+            </Popover>
             <span className="workspace-control-divider" aria-hidden="true" />
           </>
         )}

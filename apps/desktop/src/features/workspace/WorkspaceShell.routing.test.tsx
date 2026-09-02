@@ -902,9 +902,7 @@ describe('WorkspaceShell routing integration', () => {
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
-    fireEvent.click(
-      screen.getByRole('menuitemradio', { name: /Workspace One/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace One/ }));
 
     await act(async () => workspaceTwo.resolve());
     await waitFor(() =>

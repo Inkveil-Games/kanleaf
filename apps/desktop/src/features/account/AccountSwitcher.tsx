@@ -7,7 +7,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import { Popover, PopoverClose } from '../../components/ui/Popover';
 import type { AccountSession } from '../auth/accountSessionStore';
 
 interface AccountSwitcherProps {
@@ -39,9 +39,10 @@ export function AccountSwitcher({
   const displayName = active?.display_name || active?.email || 'Account';
 
   return (
-    <ContextMenu
+    <Popover
       className="account-switcher-menu"
       label="Switch account"
+      align="start"
       placement="up"
       trigger={
         <>
@@ -67,19 +68,8 @@ export function AccountSwitcher({
       <div className="account-switcher-list" role="group" aria-label="Accounts">
         {accounts.map((account) => {
           const isActive = account.user_id === activeUserId;
-          return (
-            <button
-              key={account.user_id}
-              className="account-switcher-account"
-              type="button"
-              role="menuitemradio"
-              aria-checked={isActive}
-              disabled={transitioning}
-              data-menu-keep-open={!isActive ? '' : undefined}
-              onClick={() => {
-                if (!isActive) onSwitchAccount(account.user_id);
-              }}
-            >
+          const content = (
+            <>
               <span className="member-monogram" aria-hidden="true">
                 {initial(account.display_name || account.email)}
               </span>
@@ -88,6 +78,28 @@ export function AccountSwitcher({
                 <small>{account.email}</small>
               </span>
               {isActive && <Check aria-hidden="true" size={15} />}
+            </>
+          );
+
+          return isActive ? (
+            <PopoverClose
+              key={account.user_id}
+              className="account-switcher-account"
+              ariaPressed
+              disabled={transitioning}
+            >
+              {content}
+            </PopoverClose>
+          ) : (
+            <button
+              key={account.user_id}
+              className="account-switcher-account"
+              type="button"
+              aria-pressed={false}
+              disabled={transitioning}
+              onClick={() => onSwitchAccount(account.user_id)}
+            >
+              {content}
             </button>
           );
         })}
@@ -98,7 +110,6 @@ export function AccountSwitcher({
           <button
             type="button"
             aria-label="Dismiss account error"
-            data-menu-keep-open
             onClick={onDismissError}
           >
             <X aria-hidden="true" size={13} />
@@ -106,24 +117,24 @@ export function AccountSwitcher({
         </div>
       )}
       <div className="account-switcher-divider" />
-      <button role="menuitem" type="button" onClick={onAddAccount}>
+      <PopoverClose onClick={onAddAccount}>
         <UserPlus aria-hidden="true" size={14} /> Add another account
-      </button>
+      </PopoverClose>
       {onOpenHostConsole ? (
-        <button role="menuitem" type="button" onClick={onOpenHostConsole}>
+        <PopoverClose onClick={onOpenHostConsole}>
           <ServerCog aria-hidden="true" size={14} /> Host Console
-        </button>
+        </PopoverClose>
       ) : null}
       {onOpenAccountSettings ? (
-        <button role="menuitem" type="button" onClick={onOpenAccountSettings}>
+        <PopoverClose onClick={onOpenAccountSettings}>
           <Settings aria-hidden="true" size={14} /> Settings
-        </button>
+        </PopoverClose>
       ) : null}
       <div className="account-switcher-divider" />
-      <button role="menuitem" type="button" onClick={onSignOutCurrent}>
+      <PopoverClose onClick={onSignOutCurrent}>
         <LogOut aria-hidden="true" size={14} /> Sign out this account
-      </button>
-    </ContextMenu>
+      </PopoverClose>
+    </Popover>
   );
 }
 

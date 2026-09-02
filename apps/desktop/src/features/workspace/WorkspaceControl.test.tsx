@@ -38,9 +38,7 @@ describe('WorkspaceControl', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
-    fireEvent.click(
-      screen.getByRole('menuitemradio', { name: /Kanleaf Core/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /^Kanleaf Core/ }));
 
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-1');
   });
@@ -74,32 +72,32 @@ describe('WorkspaceControl', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
     expect(screen.getByText('quang@example.com')).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: 'Settings for Kanleaf Core' }),
+      screen.getByRole('button', { name: 'Settings for Kanleaf Core' }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('menuitem', { name: 'Settings for Website' }),
+      screen.queryByRole('button', { name: 'Settings for Website' }),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('menuitemradio', { name: /Website/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Website/ }));
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-2');
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Settings for Kanleaf Core' }),
+      screen.getByRole('button', { name: 'Settings for Kanleaf Core' }),
     );
     expect(onOpenWorkspaceSettings).toHaveBeenCalledWith('general');
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Workspace invitations' }),
+      screen.getByRole('button', { name: 'Workspace invitations' }),
     );
     expect(onOpenInvitations).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Import workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }));
     expect(onImportWorkspace).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Personal notes' },
     });
@@ -153,7 +151,7 @@ describe('WorkspaceControl', () => {
     });
 
     fireEvent.click(workspaceSwitcher);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
     fireEvent.click(
       screen.getByRole('button', { name: 'Close Workspace creation' }),
     );
@@ -172,7 +170,7 @@ describe('WorkspaceControl', () => {
     });
 
     fireEvent.click(workspaceSwitcher);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'New workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Personal notes' },
     });

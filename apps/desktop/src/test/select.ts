@@ -1,9 +1,17 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { expect } from 'vitest';
 
-export function chooseSelectOption(
+export async function chooseSelectOption(
   selectName: string | RegExp,
   optionName: string | RegExp,
 ) {
-  fireEvent.click(screen.getByRole('combobox', { name: selectName }));
-  fireEvent.click(screen.getByRole('option', { name: optionName }));
+  const user = userEvent.setup();
+  const trigger = screen.getByRole('combobox', { name: selectName });
+  await waitFor(() => {
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+  });
+  await user.keyboard('[ArrowDown]');
+  await user.click(await screen.findByRole('option', { name: optionName }));
 }

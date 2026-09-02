@@ -29,7 +29,10 @@ import type {
   TaskState,
   TaskType,
 } from '../workspace/types';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
 import { Select } from '../../components/ui/Select';
 import { TaskActivity } from '../collaboration/TaskActivity';
 import { TaskProperties } from './TaskProperties';
@@ -207,11 +210,9 @@ function SelectedTaskDetail({
         <span className="task-reference">{task.reference}</span>
         <div>
           {canEdit && (
-            <ContextMenu label="Task actions" className="detail-menu">
-              <button
+            <DropdownMenu label="Task actions" className="detail-menu">
+              <DropdownMenuItem
                 className="danger-menu-item"
-                role="menuitem"
-                type="button"
                 onClick={() => {
                   if (window.confirm(`Archive ${task.title}?`)) {
                     void onArchive();
@@ -219,11 +220,9 @@ function SelectedTaskDetail({
                 }}
               >
                 <Archive aria-hidden="true" size={14} /> Archive task
-              </button>
-              <button
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 className="danger-menu-item"
-                role="menuitem"
-                type="button"
                 onClick={() => {
                   const confirmation = window.prompt(
                     `Enter ${task.reference} to permanently delete this Task`,
@@ -236,8 +235,8 @@ function SelectedTaskDetail({
                 }}
               >
                 <Trash2 aria-hidden="true" size={14} /> Delete permanently
-              </button>
-            </ContextMenu>
+              </DropdownMenuItem>
+            </DropdownMenu>
           )}
           <button
             className="icon-button detail-back-button"

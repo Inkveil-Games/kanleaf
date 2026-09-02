@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
   listNotifications,
@@ -39,6 +40,7 @@ const assignment: Notification = {
 
 describe('Notifications', () => {
   it('shows unread work, opens its Task, and closes outside', async () => {
+    const user = userEvent.setup();
     vi.mocked(listNotifications).mockResolvedValue([assignment]);
     vi.mocked(markNotificationRead).mockResolvedValue(undefined);
     const onOpenTask = vi.fn();
@@ -64,8 +66,12 @@ describe('Notifications', () => {
     expect(
       screen.getByRole('dialog', { name: 'Notifications' }),
     ).toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
-    expect(screen.queryByRole('dialog', { name: 'Notifications' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Outside' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Notifications' }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it('filters unread items and marks all as read without closing the popover', async () => {

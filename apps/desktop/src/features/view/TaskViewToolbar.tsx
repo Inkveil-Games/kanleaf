@@ -8,7 +8,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useState } from 'react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
+import { Popover } from '../../components/ui/Popover';
 import { Select } from '../../components/ui/Select';
 import type {
   Project,
@@ -169,7 +174,7 @@ export function TaskViewToolbar({
           />
         </label>
 
-        <ContextMenu
+        <DropdownMenu
           label="Filter tasks"
           className="view-control-menu"
           trigger={<Filter aria-hidden="true" size={14} />}
@@ -410,13 +415,12 @@ export function TaskViewToolbar({
               })
             }
           />
-        </ContextMenu>
+        </DropdownMenu>
 
-        <ContextMenu
+        <Popover
           label="Date and estimate filters"
           className="view-range-menu"
           trigger={<CalendarRange aria-hidden="true" size={14} />}
-          popoverRole="dialog"
         >
           <div className="view-range-filters">
             <DateRangeControl
@@ -480,7 +484,7 @@ export function TaskViewToolbar({
               </label>
             </fieldset>
           </div>
-        </ContextMenu>
+        </Popover>
 
         <label className="view-compact-select">
           <Group aria-hidden="true" size={14} />
@@ -598,7 +602,7 @@ export function TaskViewToolbar({
           </>
         )}
 
-        <ContextMenu
+        <DropdownMenu
           label="Visible task fields"
           className="view-control-menu"
           trigger={<SlidersHorizontal aria-hidden="true" size={14} />}
@@ -616,7 +620,7 @@ export function TaskViewToolbar({
               }
             />
           ))}
-        </ContextMenu>
+        </DropdownMenu>
 
         <span className="view-toolbar-spacer" />
         {activeView ? (
@@ -630,31 +634,21 @@ export function TaskViewToolbar({
                 <Save aria-hidden="true" size={14} /> Save changes
               </button>
             )}
-            <ContextMenu
+            <DropdownMenu
               label="Saved view actions"
               className="view-actions-menu"
             >
               {canManageActiveView && (
-                <button
-                  role="menuitem"
-                  type="button"
-                  onClick={() => setDialog('rename')}
-                >
+                <DropdownMenuItem onClick={() => setDialog('rename')}>
                   Rename
-                </button>
+                </DropdownMenuItem>
               )}
-              <button
-                role="menuitem"
-                type="button"
-                onClick={() => setDialog('duplicate')}
-              >
+              <DropdownMenuItem onClick={() => setDialog('duplicate')}>
                 Duplicate
-              </button>
+              </DropdownMenuItem>
               {canChangeActiveViewVisibility &&
                 (activeView.visibility === 'shared' || canShare) && (
-                  <button
-                    role="menuitem"
-                    type="button"
+                  <DropdownMenuItem
                     onClick={() =>
                       runAction(() =>
                         onUpdateView({
@@ -668,19 +662,17 @@ export function TaskViewToolbar({
                   >
                     Make{' '}
                     {activeView.visibility === 'shared' ? 'personal' : 'shared'}
-                  </button>
+                  </DropdownMenuItem>
                 )}
               {canManageActiveView && (
-                <button
+                <DropdownMenuItem
                   className="danger-menu-item"
-                  role="menuitem"
-                  type="button"
                   onClick={() => runAction(onDeleteView)}
                 >
                   Delete View
-                </button>
+                </DropdownMenuItem>
               )}
-            </ContextMenu>
+            </DropdownMenu>
           </>
         ) : (
           <button
@@ -739,18 +731,15 @@ function CheckMenuItem({
   onClick: () => void;
 }) {
   return (
-    <button
-      data-menu-keep-open
-      role="menuitemcheckbox"
-      aria-checked={checked}
-      type="button"
-      onClick={onClick}
+    <DropdownMenuCheckboxItem
+      checked={checked}
+      onCheckedChange={() => onClick()}
     >
       <span className="view-menu-check" aria-hidden="true">
         {checked ? '✓' : ''}
       </span>
       {label}
-    </button>
+    </DropdownMenuCheckboxItem>
   );
 }
 

@@ -58,12 +58,10 @@ describe('HostConsole', () => {
     renderConsole({ onSwitchAccount });
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
-    fireEvent.click(
-      screen.getByRole('menuitemradio', { name: /Regular Account/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Regular Account/ }));
     expect(onSwitchAccount).toHaveBeenCalledWith('user-2');
     expect(
-      screen.queryByRole('menuitem', { name: 'Settings' }),
+      screen.queryByRole('button', { name: 'Settings' }),
     ).not.toBeInTheDocument();
   });
 });

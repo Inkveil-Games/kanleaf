@@ -1,6 +1,9 @@
 import type { UseQueryResult } from '@tanstack/react-query';
 import { RefreshCw, Trash2 } from 'lucide-react';
-import { ContextMenu } from '../../components/ui/ContextMenu';
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
 import { LoadError } from '../settings/SettingsControls';
 import { formatDateTime, monogram, titleCase } from '../settings/utils';
 import type { WorkspaceInvitation } from './types';
@@ -105,23 +108,22 @@ function InvitationRow({
         {titleCase(invitation.status)}
       </span>
       {invitation.status !== 'accepted' && (
-        <ContextMenu
+        <DropdownMenu
           label={`Manage invitation for ${invitation.email}`}
           disabled={busy}
         >
-          <button type="button" onClick={() => void onRenew(invitation)}>
+          <DropdownMenuItem onClick={() => void onRenew(invitation)}>
             <RefreshCw aria-hidden="true" size={14} /> Renew invitation
-          </button>
+          </DropdownMenuItem>
           {invitation.status === 'pending' && (
-            <button
+            <DropdownMenuItem
               className="danger-menu-item"
-              type="button"
               onClick={() => void onRevoke(invitation)}
             >
               <Trash2 aria-hidden="true" size={14} /> Revoke invitation
-            </button>
+            </DropdownMenuItem>
           )}
-        </ContextMenu>
+        </DropdownMenu>
       )}
     </div>
   );
