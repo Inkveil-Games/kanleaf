@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use marked_yaml::{LoaderOptions, Node, parse_yaml_with_options};
+use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -21,6 +22,19 @@ const OWNED_KEYS: &[&str] = &[
     "Parent",
 ];
 
+#[derive(Clone, Debug, Eq, PartialEq, sqlx::FromRow)]
+pub(crate) struct CustomProperty {
+    pub(crate) name: String,
+    pub(crate) property_type: String,
+    pub(crate) value: Value,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub(crate) struct UndefinedProperty {
+    pub(crate) name: String,
+    pub(crate) value: Value,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TaskProperties {
     pub(crate) kanleaf_id: Uuid,
@@ -38,6 +52,7 @@ pub(crate) struct TaskProperties {
     pub(crate) due_date: Option<NaiveDate>,
     pub(crate) estimate: Option<i32>,
     pub(crate) parent: Option<String>,
+    pub(crate) custom: Vec<CustomProperty>,
 }
 
 #[derive(Debug, Error)]
@@ -70,7 +85,20 @@ pub(super) fn replace_body(source: &str, body: &str) -> Result<String, Frontmatt
 }
 
 pub(crate) fn patch(source: &str, properties: &TaskProperties) -> Result<String, FrontmatterError> {
-    patch_with_source_identity(source, properties.kanleaf_id, properties)
+    patch_with_source_identity(source, properties.kanleaf_id, properties, &[])
+}
+
+pub(crate) fn patch_with_cleanup(
+    source: &str,
+    properties: &TaskProperties,
+    cleanup_property_names: &[String],
+) -> Result<String, FrontmatterError> {
+    patch_with_source_identity(
+        source,
+        properties.kanleaf_id,
+        properties,
+        cleanup_property_names,
+    )
 }
 
 pub(crate) fn remap_identity(
@@ -78,13 +106,14 @@ pub(crate) fn remap_identity(
     source_id: Uuid,
     properties: &TaskProperties,
 ) -> Result<String, FrontmatterError> {
-    patch_with_source_identity(source, source_id, properties)
+    patch_with_source_identity(source, source_id, properties, &[])
 }
 
 fn patch_with_source_identity(
     source: &str,
     source_id: Uuid,
     properties: &TaskProperties,
+    cleanup_property_names: &[String],
 ) -> Result<String, FrontmatterError> {
     let split = split(source)?;
     let document = parse_document(split.frontmatter)?;
@@ -99,7 +128,13 @@ fn patch_with_source_identity(
         return Err(FrontmatterError::IdentityMismatch);
     }
 
-    let preserved = preserved_custom_source(split.frontmatter, mapping)?;
+    let owned_custom_names = properties
+        .custom
+        .iter()
+        .map(|property| property.name.as_str())
+        .chain(cleanup_property_names.iter().map(String::as_str))
+        .collect::<Vec<_>>();
+    let preserved = preserved_custom_source(split.frontmatter, mapping, &owned_custom_names)?;
     let mut patched = String::with_capacity(source.len() + 256);
     patched.push_str(split.opening);
     patched.push_str(&render_properties(properties, split.newline));
@@ -140,7 +175,68 @@ pub(crate) fn read_properties(source: &str) -> Result<TaskProperties, Frontmatte
             .transpose()
             .map_err(|_| FrontmatterError::Invalid)?,
         parent: optional_single(mapping, "Parent")?,
+        custom: Vec::new(),
     })
+}
+
+pub(crate) fn undefined_properties(
+    source: &str,
+    reserved_names: &[String],
+) -> Result<Vec<UndefinedProperty>, FrontmatterError> {
+    let split = split(source)?;
+    let document = parse_document(split.frontmatter)?;
+    let mapping = document.as_mapping().ok_or(FrontmatterError::Invalid)?;
+    validate_owned_shapes(mapping)?;
+    Ok(mapping
+        .iter()
+        .filter(|(key, _)| {
+            !OWNED_KEYS.contains(&key.as_str())
+                && !reserved_names
+                    .iter()
+                    .any(|reserved| reserved.eq_ignore_ascii_case(key.as_str()))
+        })
+        .map(|(key, value)| UndefinedProperty {
+            name: key.as_str().to_owned(),
+            value: node_value(value),
+        })
+        .collect())
+}
+
+fn node_value(node: &Node) -> Value {
+    if let Some(scalar) = node.as_scalar() {
+        if scalar.may_coerce() {
+            if scalar.as_str().is_empty()
+                || matches!(scalar.as_str(), "null" | "Null" | "NULL" | "~")
+            {
+                return Value::Null;
+            }
+            if let Some(value) = scalar.as_bool() {
+                return Value::Bool(value);
+            }
+            if let Some(value) = scalar.as_i64() {
+                return Value::Number(value.into());
+            }
+            if let Some(value) = scalar.as_u64() {
+                return Value::Number(value.into());
+            }
+            if let Some(value) = scalar.as_f64().and_then(serde_json::Number::from_f64) {
+                return Value::Number(value);
+            }
+        }
+        return Value::String(scalar.as_str().to_owned());
+    }
+    if let Some(sequence) = node.as_sequence() {
+        return Value::Array(sequence.iter().map(node_value).collect());
+    }
+    let mapping = node
+        .as_mapping()
+        .expect("marked YAML nodes are scalar, sequence, or mapping");
+    Value::Object(
+        mapping
+            .iter()
+            .map(|(key, value)| (key.as_str().to_owned(), node_value(value)))
+            .collect(),
+    )
 }
 
 fn required_scalar<'a>(
@@ -294,6 +390,7 @@ fn validate_owned_shapes(
 fn preserved_custom_source(
     frontmatter: &str,
     mapping: &marked_yaml::types::MarkedMappingNode,
+    owned_custom_names: &[&str],
 ) -> Result<String, FrontmatterError> {
     let source_lines = lines(frontmatter);
     let mut entries = Vec::with_capacity(mapping.len());
@@ -318,7 +415,11 @@ fn preserved_custom_source(
             .get(index + 1)
             .map_or(frontmatter.len(), |entry| entry.1);
         let block = &frontmatter[*start..end];
-        if OWNED_KEYS.contains(key) {
+        if OWNED_KEYS.contains(key)
+            || owned_custom_names
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(key))
+        {
             preserve_comments(block, &mut preserved);
         } else {
             preserved.push_str(block);
@@ -383,7 +484,52 @@ fn render_properties(properties: &TaskProperties, newline: &str) -> String {
         newline,
     );
     optional_list(&mut output, "Parent", properties.parent.as_deref(), newline);
+    for property in &properties.custom {
+        custom_property(&mut output, property, newline);
+    }
     output
+}
+
+fn custom_property(output: &mut String, property: &CustomProperty, newline: &str) {
+    output.push_str(&yaml_string(&property.name));
+    output.push(':');
+    match property.property_type.as_str() {
+        "number" | "checkbox" => {
+            output.push(' ');
+            output.push_str(&property.value.to_string());
+            output.push_str(newline);
+        }
+        "date" => {
+            output.push(' ');
+            output.push_str(property.value.as_str().unwrap_or_default());
+            output.push_str(newline);
+        }
+        "multi_select" => {
+            let values = property
+                .value
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>();
+            if values.is_empty() {
+                output.push_str(" []");
+                output.push_str(newline);
+            } else {
+                output.push_str(newline);
+                for value in values {
+                    output.push_str("  - ");
+                    output.push_str(&yaml_string(value));
+                    output.push_str(newline);
+                }
+            }
+        }
+        _ => {
+            output.push(' ');
+            output.push_str(&yaml_string(property.value.as_str().unwrap_or_default()));
+            output.push_str(newline);
+        }
+    }
 }
 
 fn scalar(output: &mut String, key: &str, value: &str, newline: &str) {
@@ -497,7 +643,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        TaskProperties, body, patch, read_properties, remap_identity, render_new, replace_body,
+        CustomProperty, TaskProperties, UndefinedProperty, body, patch, patch_with_cleanup,
+        read_properties, remap_identity, render_new, replace_body, undefined_properties,
     };
 
     fn properties() -> TaskProperties {
@@ -517,7 +664,95 @@ mod tests {
             due_date: NaiveDate::from_ymd_opt(2026, 9, 5),
             estimate: Some(3),
             parent: Some("KAN-12".to_owned()),
+            custom: Vec::new(),
         }
+    }
+
+    #[test]
+    fn projects_custom_properties_as_direct_obsidian_fields() {
+        let mut values = properties();
+        values.custom = vec![
+            CustomProperty {
+                name: "Impact".to_owned(),
+                property_type: "single_select".to_owned(),
+                value: serde_json::json!("High"),
+            },
+            CustomProperty {
+                name: "Story points".to_owned(),
+                property_type: "number".to_owned(),
+                value: serde_json::json!(3),
+            },
+            CustomProperty {
+                name: "Approved".to_owned(),
+                property_type: "checkbox".to_owned(),
+                value: serde_json::json!(false),
+            },
+            CustomProperty {
+                name: "Platforms".to_owned(),
+                property_type: "multi_select".to_owned(),
+                value: serde_json::json!(["Web", "Desktop"]),
+            },
+        ];
+
+        let rendered = render_new(&values, "Body\n");
+
+        assert!(rendered.contains("Impact: High\n"));
+        assert!(rendered.contains("Story points: 3\n"));
+        assert!(rendered.contains("Approved: false\n"));
+        assert!(rendered.contains("Platforms:\n  - Web\n  - Desktop\n"));
+        assert!(!rendered.contains("Properties:"));
+    }
+
+    #[test]
+    fn patch_removes_renamed_property_keys_before_rendering_current_values() {
+        let source = format!(
+            "---\nKanleaf ID: {}\nReference: KAN-42\nTitle: Old\nProject: []\nState: [Todo]\nType: [Task]\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\nOld impact: Low\nUnmanaged: keep\n---\n\nBody\n",
+            properties().kanleaf_id
+        );
+        let mut values = properties();
+        values.custom = vec![CustomProperty {
+            name: "Impact".to_owned(),
+            property_type: "single_select".to_owned(),
+            value: serde_json::json!("High"),
+        }];
+
+        let patched = patch_with_cleanup(&source, &values, &["Old impact".to_owned()]).unwrap();
+
+        assert!(!patched.contains("Old impact:"));
+        assert!(patched.contains("Impact: High\n"));
+        assert!(patched.contains("Unmanaged: keep\n"));
+    }
+
+    #[test]
+    fn exposes_only_unowned_top_level_fields_as_raw_values() {
+        let source = format!(
+            "---\nKanleaf ID: {}\nReference: KAN-42\nTitle: Task\nProject: []\nState: [Todo]\nType: [Task]\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\nImpact: High\nStory points: 3\nApproved: false\nContext:\n  customer: Acme\nPlatforms: [Web, Desktop]\n---\n\nBody\n",
+            properties().kanleaf_id
+        );
+
+        let undefined = undefined_properties(&source, &["Impact".to_owned()]).unwrap();
+
+        assert_eq!(
+            undefined,
+            vec![
+                UndefinedProperty {
+                    name: "Story points".to_owned(),
+                    value: serde_json::json!(3),
+                },
+                UndefinedProperty {
+                    name: "Approved".to_owned(),
+                    value: serde_json::json!(false),
+                },
+                UndefinedProperty {
+                    name: "Context".to_owned(),
+                    value: serde_json::json!({ "customer": "Acme" }),
+                },
+                UndefinedProperty {
+                    name: "Platforms".to_owned(),
+                    value: serde_json::json!(["Web", "Desktop"]),
+                },
+            ]
+        );
     }
 
     #[test]

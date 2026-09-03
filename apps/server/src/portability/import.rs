@@ -74,6 +74,8 @@ struct IdMaps {
     states: HashMap<Uuid, Uuid>,
     types: HashMap<Uuid, Uuid>,
     labels: HashMap<Uuid, Uuid>,
+    properties: HashMap<Uuid, Uuid>,
+    property_options: HashMap<Uuid, Uuid>,
     projects: HashMap<Uuid, Uuid>,
     cycles: HashMap<Uuid, Uuid>,
     modules: HashMap<Uuid, Uuid>,
@@ -430,6 +432,15 @@ fn map_ids(validated: &ValidatedImport, maps: &mut IdMaps) {
             .iter()
             .map(|label| (label.id, Uuid::new_v4())),
     );
+    for property in &validated.task_config.properties {
+        maps.properties.insert(property.id, Uuid::new_v4());
+        maps.property_options.extend(
+            property
+                .options
+                .iter()
+                .map(|option| (option.id, Uuid::new_v4())),
+        );
+    }
     for project in &validated.projects {
         maps.projects.insert(project.id, Uuid::new_v4());
         maps.cycles.extend(
@@ -587,6 +598,49 @@ async fn insert_task_configuration(
         .bind(label.archived)
         .execute(&mut **transaction)
         .await?;
+    }
+    for property in &validated.task_config.properties {
+        let property_id = mapped(&maps.properties, property.id)?;
+        sqlx::query(
+            r#"
+            INSERT INTO custom_property_definitions (
+                id, workspace_id, name, property_type, description, position,
+                configuration, archived_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN now() END
+            )
+            "#,
+        )
+        .bind(property_id)
+        .bind(workspace_id)
+        .bind(&property.name)
+        .bind(&property.property_type)
+        .bind(&property.description)
+        .bind(property.position)
+        .bind(&property.configuration)
+        .bind(property.archived)
+        .execute(&mut **transaction)
+        .await?;
+        for option in &property.options {
+            sqlx::query(
+                r#"
+                INSERT INTO custom_property_options (
+                    id, workspace_id, property_id, name, color, position, archived_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END
+                )
+                "#,
+            )
+            .bind(mapped(&maps.property_options, option.id)?)
+            .bind(workspace_id)
+            .bind(property_id)
+            .bind(&option.name)
+            .bind(&option.color)
+            .bind(option.position)
+            .bind(option.archived)
+            .execute(&mut **transaction)
+            .await?;
+        }
     }
     Ok(())
 }
@@ -767,6 +821,29 @@ async fn insert_tasks(
         .execute(&mut **transaction)
         .await?;
 
+        for custom in &task.properties.custom {
+            let property = validated
+                .task_config
+                .properties
+                .iter()
+                .find(|property| property.name.eq_ignore_ascii_case(&custom.name))
+                .ok_or_else(|| anyhow::anyhow!("Task custom property is missing"))?;
+            let value = remap_custom_property_value(custom, property, maps)?;
+            sqlx::query(
+                r#"
+                INSERT INTO task_custom_property_values
+                    (workspace_id, task_id, property_id, value)
+                VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(workspace_id)
+            .bind(mapped(&maps.tasks, task.identity.id)?)
+            .bind(mapped(&maps.properties, property.id)?)
+            .bind(value)
+            .execute(&mut **transaction)
+            .await?;
+        }
+
         for label in &task.properties.labels {
             sqlx::query(
                 "INSERT INTO task_label_assignments (workspace_id, task_id, label_id) VALUES ($1, $2, $3)",
@@ -861,6 +938,51 @@ async fn insert_tasks(
         .await?;
     }
     Ok(())
+}
+
+fn remap_custom_property_value(
+    custom: &crate::task::CustomProperty,
+    property: &super::config::CustomPropertyConfig,
+    maps: &IdMaps,
+) -> anyhow::Result<Value> {
+    match property.property_type.as_str() {
+        "single_select" => {
+            let name = custom
+                .value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Task select property is invalid"))?;
+            let option = property
+                .options
+                .iter()
+                .find(|option| option.name == name)
+                .ok_or_else(|| anyhow::anyhow!("Task select option is missing"))?;
+            Ok(Value::String(
+                mapped(&maps.property_options, option.id)?.to_string(),
+            ))
+        }
+        "multi_select" => Ok(Value::Array(
+            custom
+                .value
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("Task multi-select property is invalid"))?
+                .iter()
+                .map(|value| {
+                    let name = value
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Task multi-select option is invalid"))?;
+                    let option = property
+                        .options
+                        .iter()
+                        .find(|option| option.name == name)
+                        .ok_or_else(|| anyhow::anyhow!("Task multi-select option is missing"))?;
+                    Ok(Value::String(
+                        mapped(&maps.property_options, option.id)?.to_string(),
+                    ))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        )),
+        _ => Ok(custom.value.clone()),
+    }
 }
 
 async fn insert_documents(

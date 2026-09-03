@@ -13,11 +13,15 @@ use uuid::Uuid;
 use zip::ZipArchive;
 
 use crate::{
+    custom_property::{PropertyType, is_reserved_property_name, validate_value_shape},
     domain::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, ProjectDescription,
         ProjectIcon, ProjectIdentifier, ResourceName, TaskTitle, TaskTypeIcon, VaultStorageName,
     },
-    task::{TaskProperties, TaskQuery, TaskQueryScope, read_task_properties},
+    task::{
+        CustomProperty, TaskProperties, TaskQuery, TaskQueryScope, read_task_properties,
+        read_undefined_properties,
+    },
     vault::TaskPath,
 };
 
@@ -260,7 +264,7 @@ pub(super) fn validate_staging(
     let task_config: TaskConfig = load_json(staging_vault, ".kanleaf/task-config.json")?;
     let views: ViewsConfig = load_json(staging_vault, ".kanleaf/views.json")?;
     if workspace.format_version != 1
-        || task_config.format_version != 1
+        || !matches!(task_config.format_version, 1 | 2)
         || views.format_version != 1
         || workspace.workspace_id != manifest.source.workspace_id
         || ResourceName::new(&workspace.name).is_err()
@@ -370,8 +374,25 @@ pub(super) fn validate_staging(
         let (path, project) = task_path(identity, &project_map)?;
         let source = std::fs::read_to_string(staging_vault.join(path.display()))
             .map_err(|_| ImportArchiveError::InvalidMetadata)?;
-        let properties =
+        let mut properties =
             read_task_properties(&source).map_err(|_| ImportArchiveError::InvalidMetadata)?;
+        let raw_custom = read_undefined_properties(&source, &[])
+            .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+        properties.custom = task_config
+            .properties
+            .iter()
+            .filter_map(|definition| {
+                let matches = raw_custom
+                    .iter()
+                    .filter(|value| value.name.eq_ignore_ascii_case(&definition.name))
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [] => None,
+                    [value] => Some(validate_imported_custom_value(definition, &value.value)),
+                    _ => Some(Err(ImportArchiveError::InvalidMetadata)),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if properties.kanleaf_id != identity.id
             || TaskTitle::new(&properties.title).is_err()
             || !reference_matches(&properties.reference, identity, project)
@@ -693,7 +714,99 @@ fn validate_task_config(
             return Err(ImportArchiveError::InvalidMetadata);
         }
     }
+    unique_ids(config.properties.iter().map(|property| property.id))?;
+    let mut property_names = HashSet::new();
+    let mut property_positions = HashSet::new();
+    let mut option_ids = HashSet::new();
+    for property in &config.properties {
+        if ResourceName::new(&property.name).is_err()
+            || is_reserved_property_name(&property.name)
+            || !property_names.insert(property.name.trim().to_lowercase())
+            || ConfigurationDescription::new(&property.description).is_err()
+            || !property
+                .configuration
+                .as_object()
+                .is_some_and(|value| value.is_empty())
+            || property.position < 0
+            || (!property.archived && !property_positions.insert(property.position))
+            || !matches!(
+                property.property_type.as_str(),
+                "text" | "number" | "date" | "single_select" | "multi_select" | "checkbox" | "url"
+            )
+            || (!matches!(
+                property.property_type.as_str(),
+                "single_select" | "multi_select"
+            ) && !property.options.is_empty())
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+        let mut names = HashSet::new();
+        let mut positions = HashSet::new();
+        for option in &property.options {
+            if option.property_id != property.id
+                || !option_ids.insert(option.id)
+                || ResourceName::new(&option.name).is_err()
+                || !names.insert(option.name.trim().to_lowercase())
+                || HexColor::new(&option.color).is_err()
+                || option.position < 0
+                || (!option.archived && !positions.insert(option.position))
+            {
+                return Err(ImportArchiveError::InvalidMetadata);
+            }
+        }
+    }
     Ok(())
+}
+
+fn validate_imported_custom_value(
+    definition: &super::config::CustomPropertyConfig,
+    raw: &serde_json::Value,
+) -> Result<CustomProperty, ImportArchiveError> {
+    let property_type = PropertyType::parse(&definition.property_type)
+        .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+    let value = match property_type {
+        PropertyType::Text
+        | PropertyType::Number
+        | PropertyType::Date
+        | PropertyType::Checkbox
+        | PropertyType::Url => raw.clone(),
+        PropertyType::SingleSelect => raw
+            .as_str()
+            .and_then(|name| {
+                definition
+                    .options
+                    .iter()
+                    .find(|option| option.name == name)
+                    .map(|option| serde_json::Value::String(option.id.to_string()))
+            })
+            .ok_or(ImportArchiveError::InvalidMetadata)?,
+        PropertyType::MultiSelect => {
+            let names = raw.as_array().ok_or(ImportArchiveError::InvalidMetadata)?;
+            serde_json::Value::Array(
+                names
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .and_then(|name| {
+                                definition
+                                    .options
+                                    .iter()
+                                    .find(|option| option.name == name)
+                                    .map(|option| serde_json::Value::String(option.id.to_string()))
+                            })
+                            .ok_or(ImportArchiveError::InvalidMetadata)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        }
+    };
+    validate_value_shape(property_type, value).map_err(|_| ImportArchiveError::InvalidMetadata)?;
+    Ok(CustomProperty {
+        name: definition.name.clone(),
+        property_type: definition.property_type.clone(),
+        value: raw.clone(),
+    })
 }
 
 fn validate_project(

@@ -15,6 +15,7 @@ use crate::{
 };
 
 const CONFIG_FORMAT_VERSION: u16 = 1;
+const TASK_CONFIG_FORMAT_VERSION: u16 = 2;
 const PROJECT_CONFIG_FORMAT_VERSION: u16 = 2;
 const PROJECTION_BATCH_SIZE: i64 = 20;
 const RETRY_DELAY_SECONDS: f64 = 30.0;
@@ -47,6 +48,34 @@ pub(super) struct TaskConfig {
     pub states: Vec<TaskStateConfig>,
     pub types: Vec<TaskTypeConfig>,
     pub labels: Vec<TaskLabelConfig>,
+    #[serde(default)]
+    pub properties: Vec<CustomPropertyConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CustomPropertyConfig {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub property_type: String,
+    pub description: String,
+    pub position: i32,
+    pub configuration: Value,
+    pub archived: bool,
+    #[sqlx(skip)]
+    pub options: Vec<CustomPropertyOptionConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CustomPropertyOptionConfig {
+    pub id: Uuid,
+    pub property_id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub position: i32,
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
@@ -395,11 +424,43 @@ async fn build_snapshot(
     .bind(workspace_id)
     .fetch_all(&mut **transaction)
     .await?;
+    let mut properties = sqlx::query_as::<_, CustomPropertyConfig>(
+        r#"
+        SELECT id, name, property_type, description, position, configuration,
+               archived_at IS NOT NULL AS archived
+        FROM custom_property_definitions
+        WHERE workspace_id = $1
+        ORDER BY archived_at NULLS FIRST, position, id
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let options = sqlx::query_as::<_, CustomPropertyOptionConfig>(
+        r#"
+        SELECT id, property_id, name, color, position,
+               archived_at IS NOT NULL AS archived
+        FROM custom_property_options
+        WHERE workspace_id = $1
+        ORDER BY property_id, archived_at NULLS FIRST, position, id
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    for property in &mut properties {
+        property.options = options
+            .iter()
+            .filter(|option| option.property_id == property.id)
+            .cloned()
+            .collect();
+    }
     let task_config = TaskConfig {
-        format_version: CONFIG_FORMAT_VERSION,
+        format_version: TASK_CONFIG_FORMAT_VERSION,
         states,
         types,
         labels,
+        properties,
     };
 
     let views = sqlx::query_as::<_, ViewConfig>(

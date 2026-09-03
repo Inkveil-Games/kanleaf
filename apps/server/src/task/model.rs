@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
+use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -56,6 +57,12 @@ pub(crate) struct TaskRelationSummary {
     pub relation_type: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct TaskCustomPropertyValue {
+    pub property_id: Uuid,
+    pub value: Value,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TaskResponse {
     pub id: Uuid,
@@ -79,6 +86,7 @@ pub struct TaskResponse {
     pub modules: Vec<TaskPlanningSummary>,
     pub subtasks: Vec<TaskLink>,
     pub relations: Vec<TaskRelationSummary>,
+    pub custom_properties: Vec<TaskCustomPropertyValue>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -145,6 +153,7 @@ impl From<TaskRow> for TaskResponse {
             modules: Vec::new(),
             subtasks: Vec::new(),
             relations: Vec::new(),
+            custom_properties: Vec::new(),
             archived_at: row.archived_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -214,6 +223,27 @@ pub(super) async fn hydrate_tasks(
             name: row.name,
             color: row.color,
         });
+    }
+
+    let property_values = sqlx::query_as::<_, TaskCustomPropertyValueRow>(
+        r#"
+        SELECT task_id, property_id, value
+        FROM task_custom_property_values
+        WHERE workspace_id = $1 AND task_id = ANY($2)
+        ORDER BY task_id, property_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    for row in property_values {
+        tasks[indexes[&row.task_id]]
+            .custom_properties
+            .push(TaskCustomPropertyValue {
+                property_id: row.property_id,
+                value: row.value,
+            });
     }
 
     let cycles = sqlx::query_as::<_, TaskPlanningRow>(
@@ -376,6 +406,13 @@ struct TaskLabelRow {
     id: Uuid,
     name: String,
     color: String,
+}
+
+#[derive(FromRow)]
+struct TaskCustomPropertyValueRow {
+    task_id: Uuid,
+    property_id: Uuid,
+    value: Value,
 }
 
 #[derive(FromRow)]

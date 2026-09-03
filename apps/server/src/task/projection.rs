@@ -136,17 +136,31 @@ async fn apply(
     task_id: Uuid,
 ) -> Result<(), ProjectionFailure> {
     let mut transaction = state.pool.begin().await?;
-    let metadata_version: Option<i64> = sqlx::query_scalar(
-        "SELECT metadata_version FROM tasks WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+    let projection: Option<(i64, Vec<String>)> = sqlx::query_as(
+        r#"
+        SELECT tasks.metadata_version, jobs.cleanup_property_names
+        FROM tasks
+        JOIN task_projection_jobs AS jobs
+          ON jobs.workspace_id = tasks.workspace_id AND jobs.task_id = tasks.id
+        WHERE tasks.workspace_id = $1 AND tasks.id = $2
+        FOR UPDATE OF tasks, jobs
+        "#,
     )
     .bind(workspace_id)
     .bind(task_id)
     .fetch_optional(&mut *transaction)
     .await?;
-    let Some(metadata_version) = metadata_version else {
+    let Some((metadata_version, mut cleanup_property_names)) = projection else {
         transaction.commit().await?;
         return Ok(());
     };
+    let defined_property_names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM custom_property_definitions WHERE workspace_id = $1 ORDER BY id",
+    )
+    .bind(workspace_id)
+    .fetch_all(&mut *transaction)
+    .await?;
+    cleanup_property_names.extend(defined_property_names);
     let row = task_vault_row(&mut transaction, workspace_id, task_id, true)
         .await
         .map_err(ProjectionFailure::Application)?;
@@ -156,8 +170,12 @@ async fn apply(
         .read_task_document(workspace_id, &path)
         .await
         .map_err(|_| ProjectionFailure::Storage)?;
-    let patched = frontmatter::patch(&current.content, &row.properties())
-        .map_err(|_| ProjectionFailure::Properties)?;
+    let patched = frontmatter::patch_with_cleanup(
+        &current.content,
+        &row.properties(),
+        &cleanup_property_names,
+    )
+    .map_err(|_| ProjectionFailure::Properties)?;
     if patched != current.content {
         state
             .vault

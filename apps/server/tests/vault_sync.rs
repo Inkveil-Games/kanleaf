@@ -118,6 +118,20 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     let projects_uri = format!("/api/workspaces/{workspace_id}/projects");
     let first = create(&app, &token, &projects_uri, json!({"name": "First"})).await;
     let second = create(&app, &token, &projects_uri, json!({"name": "Second"})).await;
+    let property = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/properties"),
+        json!({
+            "name": "Impact",
+            "type": "single_select",
+            "options": [
+                {"name": "High", "color": "#EF4444"},
+                {"name": "Low", "color": "#3B82F6"}
+            ]
+        }),
+    )
+    .await;
     let task = create(
         &app,
         &token,
@@ -126,6 +140,18 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     )
     .await;
     let task_id = task["id"].as_str().unwrap();
+    let initial_property = send(
+        &app,
+        "PUT",
+        &format!(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/properties/{}",
+            property["id"].as_str().unwrap()
+        ),
+        Some(json!({"value": property["options"][0]["id"]})),
+        &token,
+    )
+    .await;
+    assert_eq!(initial_property.status(), StatusCode::OK);
     let source_path = task_path(
         &data_dir,
         workspace_id,
@@ -138,6 +164,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
         .replace("Project:\n  - First", "Project:\n  - Second")
         .replace("State:\n  - Todo", "State:\n  - In Progress")
         .replace("Priority: []", "Priority:\n  - High")
+        .replace("Impact: High", "Impact: Low")
         .replacen("---\n\n", "External tool: Obsidian\n---\n\n", 1);
     fs::write(&source_path, format!("{source}# External body\n")).unwrap();
 
@@ -154,7 +181,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     assert_eq!(preview["items"][0]["status"], "valid");
     assert_eq!(
         preview["items"][0]["changes"],
-        json!(["title", "project", "state", "priority"])
+        json!(["title", "project", "state", "priority", "properties"])
     );
 
     let applied = send(
@@ -189,6 +216,10 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     assert_eq!(task_response["project_id"], second["id"]);
     assert_eq!(task_response["state"]["state_group"], "in_progress");
     assert_eq!(task_response["priority"], "high");
+    assert_eq!(
+        task_response["custom_properties"][0]["value"],
+        property["options"][1]["id"]
+    );
     assert!(!source_path.exists());
     let destination = task_path(
         &data_dir,
@@ -200,6 +231,168 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     assert!(projected.contains("Project:\n  - Second\n"));
     assert!(projected.contains("External tool: Obsidian\n"));
     assert!(projected.ends_with("# External body\n"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn invalid_custom_property_blocks_the_entire_sync_item(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "invalid-property-sync@example.com").await;
+    let property = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/properties"),
+        json!({"name": "Notes", "type": "text"}),
+    )
+    .await;
+    let task = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/tasks"),
+        json!({"title": "Canonical title"}),
+    )
+    .await;
+    let task_id = task["id"].as_str().unwrap();
+    let set = send(
+        &app,
+        "PUT",
+        &format!(
+            "/api/workspaces/{workspace_id}/tasks/{task_id}/properties/{}",
+            property["id"].as_str().unwrap()
+        ),
+        Some(json!({"value": "Original"})),
+        &token,
+    )
+    .await;
+    assert_eq!(set.status(), StatusCode::OK);
+    let path = task_path(
+        &data_dir,
+        workspace_id,
+        None,
+        task["storage_name"].as_str().unwrap(),
+    );
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace("Title: Canonical title", "Title: External title")
+        .replace("Notes: Original", "Notes: \"\"");
+    fs::write(&path, source).unwrap();
+
+    let preview = send(
+        &app,
+        "POST",
+        &format!("/api/workspaces/{workspace_id}/vault-syncs/preview"),
+        None,
+        &token,
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::CREATED);
+    let preview = response_json(preview).await;
+    assert_eq!(preview["items"][0]["status"], "invalid");
+    assert_eq!(
+        preview["items"][0]["message"],
+        "Invalid value for Notes property"
+    );
+
+    let unchanged = send(
+        &app,
+        "GET",
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+        None,
+        &token,
+    )
+    .await;
+    let unchanged = response_json(unchanged).await;
+    assert_eq!(unchanged["title"], "Canonical title");
+    assert_eq!(unchanged["custom_properties"][0]["value"], "Original");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn property_change_after_preview_does_not_partially_apply_a_task(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "atomic-property-sync@example.com").await;
+    let property = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/properties"),
+        json!({"name": "Notes", "type": "text"}),
+    )
+    .await;
+    let property_id: Uuid = property["id"].as_str().unwrap().parse().unwrap();
+    let task = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/tasks"),
+        json!({"title": "Canonical title"}),
+    )
+    .await;
+    let task_id = task["id"].as_str().unwrap();
+    let set = send(
+        &app,
+        "PUT",
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/properties/{property_id}"),
+        Some(json!({"value": "Original"})),
+        &token,
+    )
+    .await;
+    assert_eq!(set.status(), StatusCode::OK);
+    let path = task_path(
+        &data_dir,
+        workspace_id,
+        None,
+        task["storage_name"].as_str().unwrap(),
+    );
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace("Title: Canonical title", "Title: External title")
+        .replace("Notes: Original", "Notes: Updated");
+    fs::write(&path, source).unwrap();
+
+    let preview = send(
+        &app,
+        "POST",
+        &format!("/api/workspaces/{workspace_id}/vault-syncs/preview"),
+        None,
+        &token,
+    )
+    .await;
+    let preview = response_json(preview).await;
+    assert_eq!(preview["items"][0]["status"], "valid");
+
+    sqlx::query(
+        "UPDATE custom_property_definitions SET archived_at = now() WHERE workspace_id = $1 AND id = $2",
+    )
+    .bind(workspace_id)
+    .bind(property_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let applied = send(
+        &app,
+        "POST",
+        &format!(
+            "/api/workspaces/{workspace_id}/vault-syncs/{}/apply",
+            preview["id"].as_str().unwrap()
+        ),
+        Some(json!({"revision": preview["revision"], "task_ids": [task_id]})),
+        &token,
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+    assert_eq!(response_json(applied).await["state"], "failed");
+
+    let task = send(
+        &app,
+        "GET",
+        &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+        None,
+        &token,
+    )
+    .await;
+    let task = response_json(task).await;
+    assert_eq!(task["title"], "Canonical title");
+    assert_eq!(task["custom_properties"][0]["value"], "Original");
 }
 
 #[sqlx::test(migrations = "./migrations")]

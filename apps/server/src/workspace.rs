@@ -158,6 +158,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(membership::routes())
         .merge(invitation::routes())
         .merge(task_config::routes())
+        .merge(crate::custom_property::routes())
         .merge(project::routes())
         .merge(saved_view::routes())
         .merge(document::routes())

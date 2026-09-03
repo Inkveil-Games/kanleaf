@@ -5,7 +5,8 @@ mod projection;
 mod query_engine;
 
 pub(crate) use frontmatter::{
-    TaskProperties, read_properties as read_task_properties, remap_identity as remap_task_identity,
+    CustomProperty, TaskProperties, UndefinedProperty, read_properties as read_task_properties,
+    remap_identity as remap_task_identity, undefined_properties as read_undefined_properties,
 };
 pub(crate) use projection::{
     ProjectionHealth, enqueue as enqueue_projection, health as projection_health,
@@ -204,6 +205,8 @@ pub(crate) struct TaskVaultRow {
     estimate: Option<i32>,
     parent_number: Option<i64>,
     parent_project_identifier: Option<String>,
+    #[sqlx(skip)]
+    custom: Vec<frontmatter::CustomProperty>,
 }
 
 impl TaskVaultRow {
@@ -231,6 +234,7 @@ impl TaskVaultRow {
             parent: self.parent_number.map(|number| {
                 model::task_reference(self.parent_project_identifier.as_deref(), number)
             }),
+            custom: self.custom.clone(),
         }
     }
 
@@ -532,6 +536,17 @@ pub(crate) async fn update_task(
     task_id: Uuid,
     request: UpdateTaskRequest,
 ) -> Result<TaskResponse, AppError> {
+    update_task_with_properties(state, actor_id, workspace_id, task_id, request, &[]).await
+}
+
+pub(crate) async fn update_task_with_properties(
+    state: &AppState,
+    actor_id: Uuid,
+    workspace_id: Uuid,
+    task_id: Uuid,
+    request: UpdateTaskRequest,
+    property_values: &[crate::custom_property::PropertyValueMutation],
+) -> Result<TaskResponse, AppError> {
     if request.title.is_none()
         && request.state_id.is_none()
         && request.task_type_id.is_none()
@@ -586,6 +601,13 @@ pub(crate) async fn update_task(
     if project_changed {
         authorize_task_location(&state.pool, actor_id, workspace_id, target_project, true).await?;
     }
+    crate::custom_property::apply_value_mutations(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        property_values,
+    )
+    .await?;
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
     }
@@ -873,6 +895,9 @@ pub(crate) async fn update_task(
     }
     if target_modules != current_modules {
         changed_fields.push("modules");
+    }
+    if !property_values.is_empty() {
+        changed_fields.push("custom_properties");
     }
     if !changed_fields.is_empty() {
         record_activity(
@@ -1705,7 +1730,7 @@ pub(crate) async fn task_vault_row(
     task_id: Uuid,
     include_archived: bool,
 ) -> Result<TaskVaultRow, AppError> {
-    sqlx::query_as::<_, TaskVaultRow>(
+    let mut row = sqlx::query_as::<_, TaskVaultRow>(
         r#"
         SELECT tasks.id AS kanleaf_id, tasks.task_number, tasks.title,
                tasks.storage_name, projects.name AS project_name,
@@ -1776,7 +1801,10 @@ pub(crate) async fn task_vault_row(
     .bind(include_archived)
     .fetch_optional(&mut **transaction)
     .await?
-    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))
+    .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))?;
+    row.custom =
+        crate::custom_property::load_projected_values(transaction, workspace_id, task_id).await?;
+    Ok(row)
 }
 
 fn title_case(value: &str) -> String {
@@ -1786,7 +1814,7 @@ fn title_case(value: &str) -> String {
     })
 }
 
-async fn authorize_task_location(
+pub(crate) async fn authorize_task_location(
     pool: &PgPool,
     user_id: Uuid,
     workspace_id: Uuid,
@@ -1808,7 +1836,7 @@ async fn authorize_task_location(
     Ok(())
 }
 
-async fn lock_task_location(
+pub(crate) async fn lock_task_location(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     task_id: Uuid,

@@ -393,6 +393,25 @@ impl ConfigurationDescription {
 pub struct TaskTypeIcon(String);
 
 impl TaskTypeIcon {
+    const SUPPORTED: &'static [&'static str] = &[
+        "circle-dot",
+        "check-square",
+        "bug",
+        "bookmark",
+        "lightbulb",
+        "sparkles",
+        "flag",
+        "milestone",
+        "target",
+        "list-todo",
+        "book-open",
+        "file-text",
+        "message-square",
+        "wrench",
+        "zap",
+        "puzzle",
+    ];
+
     pub fn new(value: &str) -> Result<Self, ValidationError> {
         let mut characters = value.chars();
         let valid_start = characters
@@ -410,6 +429,16 @@ impl TaskTypeIcon {
             ));
         }
         Ok(Self(value.to_owned()))
+    }
+
+    pub fn new_supported(value: &str) -> Result<Self, ValidationError> {
+        let icon = Self::new(value)?;
+        if !Self::SUPPORTED.contains(&icon.as_str()) {
+            return Err(ValidationError::new(
+                "Choose an icon supported by the Task type icon picker",
+            ));
+        }
+        Ok(icon)
     }
 
     pub fn as_str(&self) -> &str {
@@ -747,6 +776,8 @@ mod tests {
             "check-square"
         );
         assert!(TaskTypeIcon::new("Check Square").is_err());
+        assert!(TaskTypeIcon::new_supported("check-square").is_ok());
+        assert!(TaskTypeIcon::new_supported("unknown-legacy-icon").is_err());
         assert!(ConfigurationDescription::new(&"x".repeat(501)).is_err());
     }
 

@@ -8,15 +8,23 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
+    custom_property::{
+        PropertyDefinitionResponse, PropertyType, PropertyValueMutation,
+        load_definitions as load_custom_property_definitions, validate_value_shape,
+    },
     domain::{NormalizedEmail, TaskPriority, TaskTitle},
     error::AppError,
-    task::{TaskProperties, UpdateTaskRequest, read_task_properties, task_vault_row, update_task},
+    task::{
+        CustomProperty, TaskProperties, UpdateTaskRequest, read_task_properties,
+        read_undefined_properties, task_vault_row, update_task_with_properties,
+    },
     vault::{ScannedTaskFile, TaskVaultScanIssueKind},
     workspace::require_workspace_admin,
 };
@@ -77,6 +85,13 @@ struct ResolvedTaskUpdate {
     label_ids: Vec<Uuid>,
     cycle_id: Option<Uuid>,
     module_ids: Vec<Uuid>,
+    custom_values: Vec<ResolvedCustomValue>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ResolvedCustomValue {
+    property_id: Uuid,
+    value: Option<Value>,
 }
 
 impl ResolvedTaskUpdate {
@@ -277,12 +292,21 @@ async fn apply(
         let update = item.update.ok_or_else(|| {
             AppError::internal(anyhow::anyhow!("valid sync item has no resolved update"))
         })?;
-        if update_task(
+        let custom_values = update
+            .custom_values
+            .iter()
+            .map(|value| PropertyValueMutation {
+                property_id: value.property_id,
+                value: value.value.clone(),
+            })
+            .collect::<Vec<_>>();
+        if update_task_with_properties(
             &state,
             auth.user.id,
             workspace_id,
             item.task_id,
             update.into_request(),
+            &custom_values,
         )
         .await
         .is_err()
@@ -315,6 +339,7 @@ async fn apply(
 }
 
 async fn build_preview(state: &AppState, workspace_id: Uuid) -> Result<StoredSyncResult, AppError> {
+    let custom_definitions = load_custom_property_definitions(&state.pool, workspace_id).await?;
     let project_storage_names: Vec<String> = sqlx::query_scalar(
         "SELECT storage_name FROM projects WHERE workspace_id = $1 ORDER BY storage_name",
     )
@@ -347,7 +372,7 @@ async fn build_preview(state: &AppState, workspace_id: Uuid) -> Result<StoredSyn
     );
     let mut files_by_id: HashMap<Uuid, Vec<ScannedProperties>> = HashMap::new();
     for file in scan.files {
-        match read_task_properties(&file.document.content) {
+        match read_external_properties(&file.document.content, &custom_definitions) {
             Ok(properties) => files_by_id
                 .entry(properties.kanleaf_id)
                 .or_default()
@@ -429,8 +454,15 @@ async fn build_preview(state: &AppState, workspace_id: Uuid) -> Result<StoredSyn
                     item.status = SyncItemStatus::Invalid;
                     item.message = Some("Archived Tasks cannot import metadata".to_owned());
                 } else {
-                    match resolve_update(&state.pool, workspace_id, version.id, &scanned.properties)
-                        .await
+                    match resolve_update(
+                        &state.pool,
+                        workspace_id,
+                        version.id,
+                        &canonical,
+                        &scanned.properties,
+                        &custom_definitions,
+                    )
+                    .await
                     {
                         Ok(update) => {
                             item.status = SyncItemStatus::Valid;
@@ -460,7 +492,9 @@ async fn resolve_update(
     pool: &PgPool,
     workspace_id: Uuid,
     task_id: Uuid,
+    canonical: &TaskProperties,
     properties: &TaskProperties,
+    custom_definitions: &[PropertyDefinitionResponse],
 ) -> Result<ResolvedTaskUpdate, String> {
     let title = TaskTitle::new(&properties.title)
         .map_err(|error| error.to_string())?
@@ -580,6 +614,7 @@ async fn resolve_update(
         None => return Err("Inbox Tasks cannot have Modules".to_owned()),
     };
     let parent_id = resolve_parent(pool, workspace_id, properties.parent.as_deref()).await?;
+    let custom_values = resolve_custom_values(canonical, properties, custom_definitions)?;
     validate_parent_change(pool, workspace_id, task_id, project_id, parent_id).await?;
     let current_project_id: Option<Uuid> =
         sqlx::query_scalar("SELECT project_id FROM tasks WHERE workspace_id = $1 AND id = $2")
@@ -622,6 +657,7 @@ async fn resolve_update(
         label_ids,
         cycle_id,
         module_ids,
+        custom_values,
     })
 }
 
@@ -761,7 +797,130 @@ fn changed_fields(canonical: &TaskProperties, external: &TaskProperties) -> Vec<
     if !optional_name_eq(canonical.parent.as_deref(), external.parent.as_deref()) {
         fields.push("parent");
     }
+    if !custom_properties_eq(&canonical.custom, &external.custom) {
+        fields.push("properties");
+    }
     fields.into_iter().map(str::to_owned).collect()
+}
+
+fn read_external_properties(
+    source: &str,
+    definitions: &[PropertyDefinitionResponse],
+) -> Result<TaskProperties, ()> {
+    let mut properties = read_task_properties(source).map_err(|_| ())?;
+    let raw = read_undefined_properties(source, &[]).map_err(|_| ())?;
+    for definition in definitions {
+        let matching = raw
+            .iter()
+            .filter(|value| value.name.eq_ignore_ascii_case(&definition.name))
+            .collect::<Vec<_>>();
+        match matching.as_slice() {
+            [] => {}
+            [value] => properties.custom.push(CustomProperty {
+                name: definition.name.clone(),
+                property_type: definition.property_type.clone(),
+                value: value.value.clone(),
+            }),
+            _ => return Err(()),
+        }
+    }
+    Ok(properties)
+}
+
+fn custom_properties_eq(left: &[CustomProperty], right: &[CustomProperty]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter().all(|left| {
+        right.iter().any(|right| {
+            left.name.eq_ignore_ascii_case(&right.name)
+                && left.property_type == right.property_type
+                && left.value == right.value
+        })
+    })
+}
+
+fn resolve_custom_values(
+    canonical: &TaskProperties,
+    external: &TaskProperties,
+    definitions: &[PropertyDefinitionResponse],
+) -> Result<Vec<ResolvedCustomValue>, String> {
+    let mut updates = Vec::new();
+    for definition in definitions {
+        let current = canonical
+            .custom
+            .iter()
+            .find(|value| value.name.eq_ignore_ascii_case(&definition.name));
+        let next = external
+            .custom
+            .iter()
+            .find(|value| value.name.eq_ignore_ascii_case(&definition.name));
+        if current.map(|value| &value.value) == next.map(|value| &value.value) {
+            continue;
+        }
+        if definition.archived_at.is_some() && next.is_some() {
+            return Err(format!(
+                "Archived property {} can only be cleared",
+                definition.name
+            ));
+        }
+        let value = next
+            .map(|value| external_custom_value(definition, &value.value))
+            .transpose()?;
+        updates.push(ResolvedCustomValue {
+            property_id: definition.id,
+            value,
+        });
+    }
+    Ok(updates)
+}
+
+fn external_custom_value(
+    definition: &PropertyDefinitionResponse,
+    raw: &Value,
+) -> Result<Value, String> {
+    let invalid = || format!("Invalid value for {} property", definition.name);
+    let property_type = PropertyType::parse(&definition.property_type).map_err(|_| invalid())?;
+    let value = match property_type {
+        PropertyType::Text
+        | PropertyType::Number
+        | PropertyType::Date
+        | PropertyType::Checkbox
+        | PropertyType::Url => raw.clone(),
+        PropertyType::SingleSelect => {
+            let name = raw.as_str().ok_or_else(invalid)?;
+            let option = definition
+                .options
+                .iter()
+                .find(|option| option.archived_at.is_none() && option.name == name)
+                .ok_or_else(invalid)?;
+            Value::String(option.id.to_string())
+        }
+        PropertyType::MultiSelect => {
+            let names = raw
+                .as_array()
+                .filter(|values| !values.is_empty())
+                .ok_or_else(invalid)?;
+            let mut seen = HashSet::new();
+            let values = names
+                .iter()
+                .map(|name| {
+                    let name = name.as_str().ok_or_else(invalid)?;
+                    let option = definition
+                        .options
+                        .iter()
+                        .find(|option| option.archived_at.is_none() && option.name == name)
+                        .ok_or_else(invalid)?;
+                    if !seen.insert(option.id) {
+                        return Err(invalid());
+                    }
+                    Ok(Value::String(option.id.to_string()))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Value::Array(values)
+        }
+    };
+    validate_value_shape(property_type, value).map_err(|_| invalid())
 }
 
 fn name_eq(left: &str, right: &str) -> bool {

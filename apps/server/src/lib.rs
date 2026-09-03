@@ -2,6 +2,7 @@ pub mod account;
 pub mod auth;
 pub mod collaboration;
 pub mod config;
+pub mod custom_property;
 pub mod document;
 pub mod domain;
 pub mod error;

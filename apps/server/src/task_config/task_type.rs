@@ -84,7 +84,7 @@ pub(super) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let icon = TaskTypeIcon::new(&request.icon)
+    let icon = TaskTypeIcon::new_supported(&request.icon)
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let color =
         HexColor::new(&request.color).map_err(|error| AppError::Validation(error.to_string()))?;
@@ -171,7 +171,7 @@ pub(super) async fn update(
     let icon = request
         .icon
         .as_deref()
-        .map(TaskTypeIcon::new)
+        .map(TaskTypeIcon::new_supported)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let color = request

@@ -301,6 +301,18 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         json!({"name": "Vault", "description": "Portable files"}),
     )
     .await;
+    let property = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/properties"),
+        json!({
+            "name": "Impact",
+            "type": "single_select",
+            "description": "Portable custom metadata",
+            "options": [{"name": "High", "color": "#EF4444"}]
+        }),
+    )
+    .await;
     let root_task = create(
         &app,
         &source_token,
@@ -332,6 +344,19 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         }),
     )
     .await;
+    let property_value = send_json(
+        &app,
+        "PUT",
+        &format!(
+            "/api/workspaces/{source_workspace_id}/tasks/{}/properties/{}",
+            root_task["id"].as_str().unwrap(),
+            property["id"].as_str().unwrap()
+        ),
+        Some(json!({"value": property["options"][0]["id"]})),
+        &source_token,
+    )
+    .await;
+    assert_eq!(property_value.status(), StatusCode::OK);
     let relation = send_json(
         &app,
         "POST",
@@ -491,9 +516,41 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         .join(format!("{}.md", imported_tasks[0].2));
     let imported_source = fs::read_to_string(imported_task_path).unwrap();
     assert!(imported_source.contains("Custom property: keep me"));
+    assert!(imported_source.contains("Impact: High"));
     assert!(imported_source.contains("[[Architecture]]"));
     assert!(imported_source.contains(&format!("Kanleaf ID: {}", imported_tasks[0].0)));
     assert!(!imported_source.contains(root_task["id"].as_str().unwrap()));
+
+    let imported_properties = get_json(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/properties"),
+    )
+    .await;
+    assert_eq!(imported_properties.as_array().unwrap().len(), 1);
+    assert_eq!(imported_properties[0]["name"], "Impact");
+    assert_ne!(imported_properties[0]["id"], property["id"]);
+    assert_ne!(
+        imported_properties[0]["options"][0]["id"],
+        property["options"][0]["id"]
+    );
+    let imported_task = get_json(
+        &app,
+        &importer_token,
+        &format!(
+            "/api/workspaces/{imported_workspace_id}/tasks/{}",
+            imported_tasks[0].0
+        ),
+    )
+    .await;
+    assert_eq!(
+        imported_task["custom_properties"][0]["property_id"],
+        imported_properties[0]["id"]
+    );
+    assert_eq!(
+        imported_task["custom_properties"][0]["value"],
+        imported_properties[0]["options"][0]["id"]
+    );
 
     let counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         r#"
