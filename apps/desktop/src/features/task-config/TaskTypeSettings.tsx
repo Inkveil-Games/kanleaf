@@ -1,14 +1,28 @@
 import {
   Archive,
-  ArchiveRestore,
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
   LockKeyhole,
+  Pencil,
   Trash2,
 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
-import { Select } from '../../components/ui/Select';
+import { useState, type CSSProperties, type FormEvent } from 'react';
+import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { IconPicker } from '../../components/ui/IconPicker';
 import { SettingsArticle } from '../settings/SettingsArticle';
+import {
+  SettingsAction,
+  SettingsActionSeparator,
+  SettingsActionsMenu,
+  SettingsEmptyState,
+  SettingsList,
+  SettingsListCell,
+} from '../settings/SettingsList';
+import {
+  SettingsSortableProvider,
+  SettingsSortableRow,
+} from '../settings/SettingsSortable';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import type {
@@ -16,6 +30,9 @@ import type {
   TaskType,
   Workspace,
 } from '../workspace/types';
+import { ArchivedConfigurationList } from './ArchivedConfigurationList';
+import { ConfigurationDeleteDialog } from './ConfigurationDeleteDialog';
+import { ConfigurationSwatch } from './ConfigurationSwatch';
 import {
   createTaskType,
   deleteTaskType,
@@ -23,6 +40,11 @@ import {
   updateTaskDefaults,
   updateTaskType,
 } from './api';
+import { TaskTypeIcon } from './TaskTypeIcon';
+import {
+  TASK_TYPE_ICON_FALLBACK,
+  TASK_TYPE_ICON_OPTIONS,
+} from './taskTypeIcons';
 
 interface TaskTypeSettingsProps {
   context: ApiContext;
@@ -38,6 +60,8 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
   const [icon, setIcon] = useState('circle-dot');
   const [color, setColor] = useState('#64748B');
   const [description, setDescription] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TaskType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const active = props.configuration.task_types.filter(
@@ -47,16 +71,17 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
     (type) => type.archived_at,
   );
 
-  async function create(event: FormEvent) {
+  async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving || !name.trim()) return;
     setSaving(true);
     setError(null);
     try {
       await createTaskType(props.context, props.workspace.id, {
-        name,
+        name: name.trim(),
         icon,
         color,
-        description,
+        description: description.trim(),
       });
       setName('');
       setDescription('');
@@ -73,8 +98,10 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
     try {
       await action();
       await props.onChanged();
+      return true;
     } catch (caught) {
       setError(errorMessage(caught));
+      return false;
     }
   }
 
@@ -92,322 +119,410 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
       className="configuration-settings"
       eyebrow="Workspace"
       title="Task types"
-      description="Use types such as Task, Bug, or Story without turning Kanleaf into a custom workflow engine."
+      description="Define the kinds of work your Workspace tracks."
     >
-      {canManage && (
-        <form
-          className="configuration-create-form type-create-form"
-          onSubmit={(event) => void create(event)}
-        >
-          <label>
-            <span>Name</span>
-            <input
-              aria-label="Task type name"
-              required
-              maxLength={120}
-              value={name}
-              placeholder="Type name"
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>Icon key</span>
-            <input
-              aria-label="Task type icon key"
-              required
-              maxLength={32}
-              pattern="[a-z0-9](?:[a-z0-9_]|-)*"
-              value={icon}
-              onChange={(event) => setIcon(event.target.value)}
-            />
-          </label>
-          <label className="color-field">
-            <span>Color</span>
-            <input
-              type="color"
-              value={color}
-              onChange={(event) => setColor(event.target.value.toUpperCase())}
-            />
-          </label>
-          <label>
-            <span>Description</span>
-            <input
-              maxLength={500}
-              value={description}
-              placeholder="Optional context"
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </label>
-          <button
-            className="primary-button compact-button"
-            type="submit"
-            disabled={saving}
-          >
-            {saving ? 'Adding…' : 'Add type'}
-          </button>
-        </form>
-      )}
-      {error && (
+      {error ? (
         <p className="settings-error configuration-message" role="alert">
           {error}
         </p>
-      )}
-      <div className="configuration-list" aria-label="Active task types">
-        {active.map((taskType, index) => (
-          <TaskTypeRow
-            key={taskType.id}
-            taskType={taskType}
-            taskTypes={active}
-            isDefault={taskType.id === props.configuration.default_task_type_id}
-            canManage={canManage}
-            canMoveUp={index > 0}
-            canMoveDown={index < active.length - 1}
-            onMove={(offset) => move(taskType.id, offset)}
-            onSave={(patch) =>
-              run(() =>
-                updateTaskType(
-                  props.context,
-                  props.workspace.id,
-                  taskType.id,
-                  patch,
-                ),
-              )
-            }
-            onDefault={() =>
-              run(() =>
-                updateTaskDefaults(props.context, props.workspace.id, {
-                  task_type_id: taskType.id,
-                }),
-              )
-            }
-            onArchive={() =>
-              run(() =>
-                updateTaskType(props.context, props.workspace.id, taskType.id, {
-                  archived: true,
-                }),
-              )
-            }
-            onDelete={(replacementId) =>
-              run(() =>
-                deleteTaskType(
-                  props.context,
-                  props.workspace.id,
-                  taskType.id,
-                  replacementId,
-                ),
-              )
-            }
-          />
-        ))}
-      </div>
-      {archived.length > 0 && (
-        <section className="configuration-archive">
-          <h2>Archived</h2>
-          {archived.map((taskType) => (
-            <div className="configuration-archived-row" key={taskType.id}>
-              <span
-                className="configuration-color"
-                style={{ background: taskType.color }}
+      ) : null}
+      <SettingsList
+        ariaLabel="Active task types"
+        className="task-type-settings-grid"
+        header={
+          <>
+            <SettingsListCell>
+              <span className="sr-only">Order</span>
+            </SettingsListCell>
+            <SettingsListCell>Icon</SettingsListCell>
+            <SettingsListCell>Color</SettingsListCell>
+            <SettingsListCell>Name</SettingsListCell>
+            <SettingsListCell>Description</SettingsListCell>
+            <SettingsListCell>Status</SettingsListCell>
+            <SettingsListCell>
+              <span className="sr-only">Actions</span>
+            </SettingsListCell>
+          </>
+        }
+      >
+        {canManage ? (
+          <form
+            className="settings-list-row settings-list-create-row"
+            role="listitem"
+            aria-label="Create Task type"
+            onSubmit={(event) => void create(event)}
+          >
+            <SettingsListCell className="settings-grid-placeholder" />
+            <SettingsListCell className="settings-visual-cell">
+              <IconPicker
+                ariaLabel="Choose Task type icon"
+                dialogLabel="Task type icons"
+                fallbackIcon={TASK_TYPE_ICON_FALLBACK}
+                options={TASK_TYPE_ICON_OPTIONS}
+                value={icon}
+                disabled={saving}
+                onChange={setIcon}
               />
-              <span>
-                <strong>{taskType.name}</strong>
-                <small>{taskType.description || taskType.icon}</small>
-              </span>
-              {canManage && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() =>
-                    void run(() =>
-                      updateTaskType(
-                        props.context,
-                        props.workspace.id,
-                        taskType.id,
-                        { archived: false },
-                      ),
-                    )
-                  }
-                >
-                  <ArchiveRestore size={13} /> Restore
-                </button>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-      {!canManage && (
+            </SettingsListCell>
+            <SettingsListCell className="settings-visual-cell">
+              <ColorSwatchPicker
+                ariaLabel="Choose new Task type color"
+                disabled={saving}
+                value={color}
+                onChange={setColor}
+              />
+            </SettingsListCell>
+            <SettingsListCell>
+              <input
+                aria-label="Task type name"
+                required
+                maxLength={120}
+                value={name}
+                placeholder="Type name"
+                disabled={saving}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </SettingsListCell>
+            <SettingsListCell>
+              <input
+                aria-label="Task type description"
+                maxLength={500}
+                value={description}
+                placeholder="Optional description"
+                disabled={saving}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </SettingsListCell>
+            <SettingsListCell className="settings-create-hint">
+              Added to the end
+            </SettingsListCell>
+            <SettingsListCell className="settings-list-actions-cell">
+              <button
+                className="primary-button compact-button"
+                type="submit"
+                disabled={saving || !name.trim()}
+              >
+                {saving ? 'Adding…' : 'Add type'}
+              </button>
+            </SettingsListCell>
+          </form>
+        ) : null}
+        {active.length === 0 ? (
+          <SettingsEmptyState
+            title="No active Task types"
+            description="Create a type to describe the work this Workspace tracks."
+          />
+        ) : null}
+        <SettingsSortableProvider
+          ids={active.map(({ id }) => id)}
+          disabled={!canManage || editingId !== null}
+          onReorder={(ids) =>
+            run(() =>
+              reorderTaskTypes(props.context, props.workspace.id, ids),
+            ).then(() => undefined)
+          }
+        >
+          {active.map((taskType, index) =>
+            editingId === taskType.id ? (
+              <TaskTypeEditRow
+                key={taskType.id}
+                taskType={taskType}
+                onCancel={() => setEditingId(null)}
+                onSave={async (patch) => {
+                  const saved = await run(() =>
+                    updateTaskType(
+                      props.context,
+                      props.workspace.id,
+                      taskType.id,
+                      patch,
+                    ),
+                  );
+                  if (saved) setEditingId(null);
+                }}
+              />
+            ) : (
+              <SettingsSortableRow
+                key={taskType.id}
+                id={taskType.id}
+                index={index}
+                label={taskType.name}
+                disabled={!canManage}
+              >
+                <SettingsListCell className="settings-visual-cell">
+                  <span
+                    className="task-type-icon-swatch"
+                    style={
+                      { '--task-type-color': taskType.color } as CSSProperties
+                    }
+                  >
+                    <TaskTypeIcon iconKey={taskType.icon} />
+                  </span>
+                </SettingsListCell>
+                <SettingsListCell className="settings-visual-cell">
+                  <ConfigurationSwatch color={taskType.color} />
+                </SettingsListCell>
+                <SettingsListCell primary>{taskType.name}</SettingsListCell>
+                <SettingsListCell className="settings-description-cell">
+                  {taskType.description || 'No description'}
+                </SettingsListCell>
+                <SettingsListCell>
+                  <span className="settings-status-stack">
+                    {taskType.is_protected ? (
+                      <span className="settings-status-badge">
+                        <LockKeyhole aria-hidden="true" size={11} /> Protected
+                      </span>
+                    ) : null}
+                    {taskType.id ===
+                    props.configuration.default_task_type_id ? (
+                      <span className="settings-status-badge is-accent">
+                        <CheckCircle2 aria-hidden="true" size={11} /> Default
+                      </span>
+                    ) : null}
+                    {!taskType.is_protected &&
+                    taskType.id !== props.configuration.default_task_type_id ? (
+                      <span className="settings-status-text">Available</span>
+                    ) : null}
+                  </span>
+                </SettingsListCell>
+                <SettingsListCell className="settings-list-actions-cell">
+                  {canManage ? (
+                    <SettingsActionsMenu label={`Actions for ${taskType.name}`}>
+                      <SettingsAction
+                        icon={<Pencil aria-hidden="true" size={14} />}
+                        onClick={() => setEditingId(taskType.id)}
+                      >
+                        Edit
+                      </SettingsAction>
+                      {taskType.id !==
+                      props.configuration.default_task_type_id ? (
+                        <SettingsAction
+                          icon={<CheckCircle2 aria-hidden="true" size={14} />}
+                          onClick={() =>
+                            void run(() =>
+                              updateTaskDefaults(
+                                props.context,
+                                props.workspace.id,
+                                { task_type_id: taskType.id },
+                              ),
+                            )
+                          }
+                        >
+                          Make default
+                        </SettingsAction>
+                      ) : null}
+                      <SettingsAction
+                        disabled={index === 0}
+                        icon={<ArrowUp aria-hidden="true" size={14} />}
+                        onClick={() => void move(taskType.id, -1)}
+                      >
+                        Move up
+                      </SettingsAction>
+                      <SettingsAction
+                        disabled={index === active.length - 1}
+                        icon={<ArrowDown aria-hidden="true" size={14} />}
+                        onClick={() => void move(taskType.id, 1)}
+                      >
+                        Move down
+                      </SettingsAction>
+                      {!taskType.is_protected ? (
+                        <>
+                          <SettingsActionSeparator />
+                          <SettingsAction
+                            disabled={
+                              taskType.id ===
+                              props.configuration.default_task_type_id
+                            }
+                            icon={<Archive aria-hidden="true" size={14} />}
+                            onClick={() =>
+                              void run(() =>
+                                updateTaskType(
+                                  props.context,
+                                  props.workspace.id,
+                                  taskType.id,
+                                  { archived: true },
+                                ),
+                              )
+                            }
+                          >
+                            Archive
+                          </SettingsAction>
+                          <SettingsAction
+                            destructive
+                            icon={<Trash2 aria-hidden="true" size={14} />}
+                            onClick={() => setDeleteTarget(taskType)}
+                          >
+                            Delete
+                          </SettingsAction>
+                        </>
+                      ) : null}
+                    </SettingsActionsMenu>
+                  ) : null}
+                </SettingsListCell>
+              </SettingsSortableRow>
+            ),
+          )}
+        </SettingsSortableProvider>
+      </SettingsList>
+      <ArchivedConfigurationList
+        ariaLabel="Archived task types"
+        canManage={canManage}
+        className="task-type-archive-list"
+        items={archived.map((taskType) => ({
+          id: taskType.id,
+          name: taskType.name,
+          detail: taskType.description || 'No description',
+          visual: (
+            <span
+              className="task-type-icon-swatch"
+              style={{ '--task-type-color': taskType.color } as CSSProperties}
+            >
+              <TaskTypeIcon iconKey={taskType.icon} />
+            </span>
+          ),
+        }))}
+        onRestore={(taskTypeId) =>
+          run(() =>
+            updateTaskType(props.context, props.workspace.id, taskTypeId, {
+              archived: false,
+            }),
+          )
+        }
+      />
+      {!canManage ? (
         <p className="settings-muted">
-          Only Workspace Owners and Admins can change task types.
+          Only Workspace Owners and Admins can change Task types.
         </p>
-      )}
+      ) : null}
+      {deleteTarget ? (
+        <ConfigurationDeleteDialog
+          entityName={deleteTarget.name}
+          entityType="Task type"
+          explanation="Choose a replacement for tasks that still use this type."
+          replacementOptions={[
+            { value: '', label: 'No replacement' },
+            ...active
+              .filter(({ id }) => id !== deleteTarget.id)
+              .map((taskType) => ({
+                value: taskType.id,
+                label: taskType.name,
+              })),
+          ]}
+          onClose={() => setDeleteTarget(null)}
+          onDelete={async (replacementId) => {
+            await deleteTaskType(
+              props.context,
+              props.workspace.id,
+              deleteTarget.id,
+              replacementId,
+            );
+            await props.onChanged();
+          }}
+        />
+      ) : null}
     </SettingsArticle>
   );
 }
 
-function TaskTypeRow({
+function TaskTypeEditRow({
   taskType,
-  taskTypes,
-  isDefault,
-  canManage,
-  canMoveUp,
-  canMoveDown,
-  onMove,
+  onCancel,
   onSave,
-  onDefault,
-  onArchive,
-  onDelete,
 }: {
   taskType: TaskType;
-  taskTypes: TaskType[];
-  isDefault: boolean;
-  canManage: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMove: (offset: -1 | 1) => Promise<void>;
+  onCancel: () => void;
   onSave: (
     patch: Pick<TaskType, 'name' | 'icon' | 'color' | 'description'>,
   ) => Promise<void>;
-  onDefault: () => Promise<void>;
-  onArchive: () => Promise<void>;
-  onDelete: (replacementId?: string) => Promise<void>;
 }) {
   const [name, setName] = useState(taskType.name);
   const [icon, setIcon] = useState(taskType.icon);
   const [color, setColor] = useState(taskType.color);
   const [description, setDescription] = useState(taskType.description);
-  const replacements = taskTypes.filter(({ id }) => id !== taskType.id);
-  const [replacementId, setReplacementId] = useState(replacements[0]?.id ?? '');
-  const dirty =
-    name.trim() !== taskType.name ||
-    icon.trim() !== taskType.icon ||
-    color !== taskType.color ||
-    description.trim() !== taskType.description;
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+    setSaving(true);
+    try {
+      await onSave({
+        name: name.trim(),
+        icon,
+        color,
+        description: description.trim(),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="configuration-row type-configuration-row">
-      <div className="configuration-order">
+    <form
+      className="settings-list-row settings-list-edit-row"
+      role="listitem"
+      aria-label={`Edit ${taskType.name}`}
+      onSubmit={(event) => void submit(event)}
+    >
+      <SettingsListCell className="settings-grid-placeholder" />
+      <SettingsListCell className="settings-visual-cell">
+        <IconPicker
+          ariaLabel={`Change icon for ${taskType.name}`}
+          dialogLabel="Task type icons"
+          fallbackIcon={TASK_TYPE_ICON_FALLBACK}
+          options={TASK_TYPE_ICON_OPTIONS}
+          value={icon}
+          disabled={saving}
+          onChange={setIcon}
+        />
+      </SettingsListCell>
+      <SettingsListCell className="settings-visual-cell">
+        <ColorSwatchPicker
+          ariaLabel={`Change color for ${taskType.name}`}
+          disabled={saving}
+          value={color}
+          onChange={setColor}
+        />
+      </SettingsListCell>
+      <SettingsListCell>
+        <input
+          autoFocus
+          aria-label={`${taskType.name} name`}
+          maxLength={120}
+          disabled={saving}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </SettingsListCell>
+      <SettingsListCell>
+        <input
+          aria-label={`${taskType.name} description`}
+          maxLength={500}
+          disabled={saving}
+          value={description}
+          placeholder="No description"
+          onChange={(event) => setDescription(event.target.value)}
+        />
+      </SettingsListCell>
+      <SettingsListCell className="settings-status-text">
+        Editing
+      </SettingsListCell>
+      <SettingsListCell className="settings-edit-actions">
         <button
+          className="text-button"
           type="button"
-          aria-label={`Move ${taskType.name} up`}
-          disabled={!canManage || !canMoveUp}
-          onClick={() => void onMove(-1)}
+          disabled={saving}
+          onClick={onCancel}
         >
-          <ArrowUp size={13} />
+          Cancel
         </button>
         <button
-          type="button"
-          aria-label={`Move ${taskType.name} down`}
-          disabled={!canManage || !canMoveDown}
-          onClick={() => void onMove(1)}
+          className="primary-button compact-button"
+          type="submit"
+          disabled={saving || !name.trim()}
         >
-          <ArrowDown size={13} />
+          {saving ? 'Saving…' : 'Save'}
         </button>
-      </div>
-      <input
-        className="configuration-color-input"
-        aria-label={`${taskType.name} color`}
-        type="color"
-        disabled={!canManage}
-        value={color}
-        onChange={(event) => setColor(event.target.value.toUpperCase())}
-      />
-      <input
-        aria-label={`${taskType.name} name`}
-        disabled={!canManage}
-        maxLength={120}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <input
-        aria-label={`${taskType.name} icon key`}
-        disabled={!canManage}
-        maxLength={32}
-        value={icon}
-        onChange={(event) => setIcon(event.target.value)}
-      />
-      <input
-        aria-label={`${taskType.name} description`}
-        disabled={!canManage}
-        maxLength={500}
-        value={description}
-        placeholder="No description"
-        onChange={(event) => setDescription(event.target.value)}
-      />
-      <div className="configuration-row-actions">
-        {taskType.is_protected && (
-          <span className="configuration-default">
-            <LockKeyhole size={11} /> Protected
-          </span>
-        )}
-        {isDefault ? (
-          <span className="configuration-default">Workspace default</span>
-        ) : (
-          canManage && (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => void onDefault()}
-            >
-              Make default
-            </button>
-          )
-        )}
-        {canManage && dirty && (
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void onSave({ name, icon, color, description })}
-          >
-            Save
-          </button>
-        )}
-        {canManage && !taskType.is_protected && (
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={`Archive ${taskType.name}`}
-            onClick={() => void onArchive()}
-          >
-            <Archive size={14} />
-          </button>
-        )}
-      </div>
-      {canManage && !taskType.is_protected && (
-        <details className="configuration-delete">
-          <summary aria-label={`Delete ${taskType.name}`}>
-            <Trash2 size={14} />
-          </summary>
-          <div>
-            <strong>Delete task type</strong>
-            <p>Choose a replacement when this type is in use.</p>
-            <label>
-              <span className="sr-only">Replacement for {taskType.name}</span>
-              <Select
-                ariaLabel={`Replacement for ${taskType.name}`}
-                value={replacementId}
-                options={[
-                  { value: '', label: 'No replacement' },
-                  ...replacements.map((replacement) => ({
-                    value: replacement.id,
-                    label: replacement.name,
-                  })),
-                ]}
-                onValueChange={setReplacementId}
-              />
-            </label>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={() => {
-                if (window.confirm(`Delete ${taskType.name}?`))
-                  void onDelete(replacementId || undefined);
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </details>
-      )}
-    </div>
+      </SettingsListCell>
+    </form>
   );
 }

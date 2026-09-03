@@ -6,7 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { chooseSelectOption } from '../../test/select';
 import type {
   TaskConfiguration,
   TaskState,
@@ -30,6 +32,7 @@ afterEach(() => {
 
 describe('TaskConfigurationSettings', () => {
   it('shows server validation and reorders the complete active state set', async () => {
+    const user = userEvent.setup();
     mockApi({ rejectCreate: true });
     renderSettings();
 
@@ -42,7 +45,8 @@ describe('TaskConfigurationSettings', () => {
       'An active state already uses this name',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move Done up' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Done' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Move up' }));
     await waitFor(() => {
       const reorder = requests.find(
         ({ method, url }) =>
@@ -58,16 +62,18 @@ describe('TaskConfigurationSettings', () => {
   });
 
   it('requires an intentional replacement choice before deleting a used state', async () => {
+    const user = userEvent.setup();
     mockApi({ rejectCreate: false });
     renderSettings();
 
-    fireEvent.click(await screen.findByLabelText('Delete Todo'));
-    const replacement = screen.getByLabelText('Replacement for Todo');
-    fireEvent.change(replacement, {
-      target: { value: 'state-ready' },
-    });
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for Todo' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete Todo' });
+    await chooseSelectOption('Replacement for Todo', 'Ready');
     fireEvent.click(
-      within(replacement.closest('details')!).getByRole('button', {
+      within(dialog).getByRole('button', {
         name: 'Delete',
       }),
     );
@@ -83,9 +89,53 @@ describe('TaskConfigurationSettings', () => {
     );
     expect(window.confirm).toHaveBeenCalledWith('Delete Todo?');
   });
+
+  it('uses readable display rows and opens a label editor on demand', async () => {
+    const user = userEvent.setup();
+    mockApi({ rejectCreate: false });
+    renderSettings('labels');
+
+    expect(await screen.findByText('Documentation')).toBeVisible();
+    expect(
+      screen.queryByRole('textbox', { name: 'Documentation name' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Documentation' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+
+    expect(
+      screen.getByRole('textbox', { name: 'Documentation name' }),
+    ).toHaveValue('Documentation');
+    expect(
+      screen.getByRole('button', {
+        name: 'Change color for Documentation',
+      }),
+    ).toBeVisible();
+  });
+
+  it('uses a visual Task type icon picker and hides internal icon keys', async () => {
+    const user = userEvent.setup();
+    mockApi({ rejectCreate: false });
+    renderSettings('task-types');
+
+    expect(
+      await screen.findByRole('button', { name: 'Choose Task type icon' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('textbox', { name: /icon key/i }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Actions for Task' }));
+    expect(
+      screen.queryByRole('menuitem', { name: 'Delete' }),
+    ).not.toBeInTheDocument();
+  });
 });
 
-function renderSettings() {
+function renderSettings(
+  section: 'states' | 'labels' | 'task-types' = 'states',
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
@@ -94,7 +144,7 @@ function renderSettings() {
       <TaskConfigurationSettings
         context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
         workspace={workspace}
-        section="states"
+        section={section}
         onConfigurationUpdated={vi.fn().mockResolvedValue(undefined)}
       />
     </QueryClientProvider>,
@@ -168,7 +218,18 @@ const configuration: TaskConfiguration = {
     state('state-progress', 'In Progress', 'in_progress', 2),
     state('state-done', 'Done', 'done', 3),
   ],
-  labels: [],
+  labels: [
+    {
+      id: 'label-docs',
+      workspace_id: workspace.id,
+      name: 'Documentation',
+      color: '#3B82F6',
+      description: 'Docs and guides',
+      archived_at: null,
+      created_at: '2026-08-27T01:00:00Z',
+      updated_at: '2026-08-27T01:00:00Z',
+    },
+  ],
   task_types: [
     {
       id: 'type-task',

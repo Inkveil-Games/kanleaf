@@ -1,13 +1,27 @@
 import {
   Archive,
-  ArchiveRestore,
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
+  Pencil,
   Trash2,
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
+import {
+  SettingsAction,
+  SettingsActionSeparator,
+  SettingsActionsMenu,
+  SettingsEmptyState,
+  SettingsList,
+  SettingsListCell,
+} from '../settings/SettingsList';
+import {
+  SettingsSortableProvider,
+  SettingsSortableRow,
+} from '../settings/SettingsSortable';
 import { errorMessage, titleCase } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import type {
@@ -16,6 +30,9 @@ import type {
   TaskStateGroup,
   Workspace,
 } from '../workspace/types';
+import { ArchivedConfigurationList } from './ArchivedConfigurationList';
+import { ConfigurationDeleteDialog } from './ConfigurationDeleteDialog';
+import { ConfigurationSwatch } from './ConfigurationSwatch';
 import {
   createTaskState,
   deleteTaskState,
@@ -35,8 +52,11 @@ export function StateSettings(props: StateSettingsProps) {
   const canManage =
     props.workspace.role === 'owner' || props.workspace.role === 'admin';
   const [name, setName] = useState('');
-  const [color, setColor] = useState('#64748B');
+  const [color, setColor] = useState(STATE_GROUP_COLORS.todo);
+  const [colorChanged, setColorChanged] = useState(false);
   const [group, setGroup] = useState<TaskStateGroup>('todo');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TaskState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const active = props.configuration.states.filter(
@@ -46,22 +66,38 @@ export function StateSettings(props: StateSettingsProps) {
     (state) => state.archived_at,
   );
 
-  async function create(event: FormEvent) {
+  async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving || !name.trim()) return;
     setSaving(true);
     setError(null);
     try {
       await createTaskState(props.context, props.workspace.id, {
-        name,
+        name: name.trim(),
         color,
         state_group: group,
       });
       setName('');
+      setGroup('todo');
+      setColor(STATE_GROUP_COLORS.todo);
+      setColorChanged(false);
       await props.onChanged();
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function run(action: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await action();
+      await props.onChanged();
+      return true;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      return false;
     }
   }
 
@@ -74,320 +110,361 @@ export function StateSettings(props: StateSettingsProps) {
     await run(() => reorderTaskStates(props.context, props.workspace.id, ids));
   }
 
-  async function run(action: () => Promise<unknown>) {
-    setError(null);
-    try {
-      await action();
-      await props.onChanged();
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
-  }
-
   return (
     <SettingsArticle
       className="configuration-settings"
       eyebrow="Workspace"
       title="States"
-      description="Name the steps work moves through. Semantic groups keep views and completion behavior consistent."
+      description="Define the steps work moves through."
     >
-      {canManage && (
-        <form
-          className="configuration-create-form state-create-form"
-          onSubmit={(event) => void create(event)}
-        >
-          <label>
-            <span>Name</span>
-            <input
-              required
-              maxLength={120}
-              value={name}
-              placeholder="State name"
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label className="color-field">
-            <span>Color</span>
-            <input
-              type="color"
-              value={color}
-              onChange={(event) => setColor(event.target.value.toUpperCase())}
-            />
-          </label>
-          <label>
-            <span>Group</span>
-            <Select
-              ariaLabel="State group"
-              value={group}
-              options={STATE_GROUPS.map((value) => ({
-                value,
-                label: groupLabel(value),
-              }))}
-              onValueChange={(value) => setGroup(value as TaskStateGroup)}
-            />
-          </label>
-          <button
-            className="primary-button compact-button"
-            type="submit"
-            disabled={saving}
-          >
-            {saving ? 'Adding…' : 'Add state'}
-          </button>
-        </form>
-      )}
-      {error && (
+      {error ? (
         <p className="settings-error configuration-message" role="alert">
           {error}
         </p>
-      )}
-      <div className="configuration-list" aria-label="Active task states">
-        {active.map((state, index) => (
-          <StateRow
-            key={state.id}
-            state={state}
-            states={active}
-            isDefault={state.id === props.configuration.default_state_id}
-            canManage={canManage}
-            canMoveUp={index > 0}
-            canMoveDown={index < active.length - 1}
-            onMove={(offset) => move(state.id, offset)}
-            onSave={(patch) =>
-              run(() =>
-                updateTaskState(
-                  props.context,
-                  props.workspace.id,
-                  state.id,
-                  patch,
-                ),
-              )
-            }
-            onDefault={() =>
-              run(() =>
-                updateTaskDefaults(props.context, props.workspace.id, {
-                  state_id: state.id,
-                }),
-              )
-            }
-            onArchive={() =>
-              run(() =>
-                updateTaskState(props.context, props.workspace.id, state.id, {
-                  archived: true,
-                }),
-              )
-            }
-            onDelete={(replacementId) =>
-              run(() =>
-                deleteTaskState(
-                  props.context,
-                  props.workspace.id,
-                  state.id,
-                  replacementId,
-                ),
-              )
-            }
-          />
-        ))}
-      </div>
-      {archived.length > 0 && (
-        <section className="configuration-archive">
-          <h2>Archived</h2>
-          {archived.map((state) => (
-            <div className="configuration-archived-row" key={state.id}>
-              <span
-                className="configuration-color"
-                style={{ background: state.color }}
+      ) : null}
+      <SettingsList
+        ariaLabel="Active task states"
+        className="state-settings-grid"
+        header={
+          <>
+            <SettingsListCell>
+              <span className="sr-only">Order</span>
+            </SettingsListCell>
+            <SettingsListCell>Color</SettingsListCell>
+            <SettingsListCell>Name</SettingsListCell>
+            <SettingsListCell>Group</SettingsListCell>
+            <SettingsListCell>Status</SettingsListCell>
+            <SettingsListCell>
+              <span className="sr-only">Actions</span>
+            </SettingsListCell>
+          </>
+        }
+      >
+        {canManage ? (
+          <form
+            className="settings-list-row settings-list-create-row"
+            role="listitem"
+            aria-label="Create state"
+            onSubmit={(event) => void create(event)}
+          >
+            <SettingsListCell className="settings-grid-placeholder" />
+            <SettingsListCell className="settings-visual-cell">
+              <ColorSwatchPicker
+                ariaLabel="Choose new state color"
+                disabled={saving}
+                value={color}
+                onChange={(value) => {
+                  setColor(value);
+                  setColorChanged(true);
+                }}
               />
-              <span>
-                <strong>{state.name}</strong>
-                <small>{groupLabel(state.state_group)}</small>
-              </span>
-              {canManage && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() =>
-                    void run(() =>
-                      updateTaskState(
-                        props.context,
-                        props.workspace.id,
-                        state.id,
-                        { archived: false },
-                      ),
-                    )
-                  }
-                >
-                  <ArchiveRestore aria-hidden="true" size={13} /> Restore
-                </button>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-      {!canManage && (
+            </SettingsListCell>
+            <SettingsListCell>
+              <input
+                aria-label="State name"
+                required
+                maxLength={120}
+                value={name}
+                placeholder="State name"
+                disabled={saving}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </SettingsListCell>
+            <SettingsListCell>
+              <Select
+                ariaLabel="State group"
+                disabled={saving}
+                value={group}
+                options={stateGroupOptions()}
+                onValueChange={(value) => {
+                  const nextGroup = value as TaskStateGroup;
+                  setGroup(nextGroup);
+                  if (!colorChanged) setColor(STATE_GROUP_COLORS[nextGroup]);
+                }}
+              />
+            </SettingsListCell>
+            <SettingsListCell className="settings-create-hint">
+              Added to the end
+            </SettingsListCell>
+            <SettingsListCell className="settings-list-actions-cell">
+              <button
+                className="primary-button compact-button"
+                type="submit"
+                disabled={saving || !name.trim()}
+              >
+                {saving ? 'Adding…' : 'Add state'}
+              </button>
+            </SettingsListCell>
+          </form>
+        ) : null}
+        {active.length === 0 ? (
+          <SettingsEmptyState
+            title="No active states"
+            description="Create a state to define the path work follows."
+          />
+        ) : null}
+        <SettingsSortableProvider
+          ids={active.map(({ id }) => id)}
+          disabled={!canManage || editingId !== null}
+          onReorder={(ids) =>
+            run(() =>
+              reorderTaskStates(props.context, props.workspace.id, ids),
+            ).then(() => undefined)
+          }
+        >
+          {active.map((state, index) =>
+            editingId === state.id ? (
+              <StateEditRow
+                key={state.id}
+                state={state}
+                onCancel={() => setEditingId(null)}
+                onSave={async (patch) => {
+                  const saved = await run(() =>
+                    updateTaskState(
+                      props.context,
+                      props.workspace.id,
+                      state.id,
+                      patch,
+                    ),
+                  );
+                  if (saved) setEditingId(null);
+                }}
+              />
+            ) : (
+              <SettingsSortableRow
+                key={state.id}
+                id={state.id}
+                index={index}
+                label={state.name}
+                disabled={!canManage}
+              >
+                <SettingsListCell className="settings-visual-cell">
+                  <ConfigurationSwatch color={state.color} />
+                </SettingsListCell>
+                <SettingsListCell primary>{state.name}</SettingsListCell>
+                <SettingsListCell>
+                  {groupLabel(state.state_group)}
+                </SettingsListCell>
+                <SettingsListCell>
+                  {state.id === props.configuration.default_state_id ? (
+                    <span className="settings-status-badge is-accent">
+                      <CheckCircle2 aria-hidden="true" size={12} /> Inbox
+                      default
+                    </span>
+                  ) : (
+                    <span className="settings-status-text">Available</span>
+                  )}
+                </SettingsListCell>
+                <SettingsListCell className="settings-list-actions-cell">
+                  {canManage ? (
+                    <SettingsActionsMenu label={`Actions for ${state.name}`}>
+                      <SettingsAction
+                        icon={<Pencil aria-hidden="true" size={14} />}
+                        onClick={() => setEditingId(state.id)}
+                      >
+                        Edit
+                      </SettingsAction>
+                      {state.id !== props.configuration.default_state_id ? (
+                        <SettingsAction
+                          icon={<CheckCircle2 aria-hidden="true" size={14} />}
+                          onClick={() =>
+                            void run(() =>
+                              updateTaskDefaults(
+                                props.context,
+                                props.workspace.id,
+                                { state_id: state.id },
+                              ),
+                            )
+                          }
+                        >
+                          Make default
+                        </SettingsAction>
+                      ) : null}
+                      <SettingsAction
+                        disabled={index === 0}
+                        icon={<ArrowUp aria-hidden="true" size={14} />}
+                        onClick={() => void move(state.id, -1)}
+                      >
+                        Move up
+                      </SettingsAction>
+                      <SettingsAction
+                        disabled={index === active.length - 1}
+                        icon={<ArrowDown aria-hidden="true" size={14} />}
+                        onClick={() => void move(state.id, 1)}
+                      >
+                        Move down
+                      </SettingsAction>
+                      <SettingsActionSeparator />
+                      <SettingsAction
+                        disabled={
+                          state.id === props.configuration.default_state_id
+                        }
+                        icon={<Archive aria-hidden="true" size={14} />}
+                        onClick={() =>
+                          void run(() =>
+                            updateTaskState(
+                              props.context,
+                              props.workspace.id,
+                              state.id,
+                              { archived: true },
+                            ),
+                          )
+                        }
+                      >
+                        Archive
+                      </SettingsAction>
+                      <SettingsAction
+                        destructive
+                        icon={<Trash2 aria-hidden="true" size={14} />}
+                        onClick={() => setDeleteTarget(state)}
+                      >
+                        Delete
+                      </SettingsAction>
+                    </SettingsActionsMenu>
+                  ) : null}
+                </SettingsListCell>
+              </SettingsSortableRow>
+            ),
+          )}
+        </SettingsSortableProvider>
+      </SettingsList>
+      <ArchivedConfigurationList
+        ariaLabel="Archived task states"
+        canManage={canManage}
+        className="state-archive-list"
+        items={archived.map((state) => ({
+          id: state.id,
+          name: state.name,
+          detail: groupLabel(state.state_group),
+          visual: <ConfigurationSwatch color={state.color} />,
+        }))}
+        onRestore={(stateId) =>
+          run(() =>
+            updateTaskState(props.context, props.workspace.id, stateId, {
+              archived: false,
+            }),
+          ).then(() => undefined)
+        }
+      />
+      {!canManage ? (
         <p className="settings-muted">
           Only Workspace Owners and Admins can change task states.
         </p>
-      )}
+      ) : null}
+      {deleteTarget ? (
+        <ConfigurationDeleteDialog
+          entityName={deleteTarget.name}
+          entityType="state"
+          explanation="Choose a state from the same group for any tasks or defaults that still use this state."
+          replacementOptions={[
+            { value: '', label: 'No replacement' },
+            ...active
+              .filter(
+                (state) =>
+                  state.id !== deleteTarget.id &&
+                  state.state_group === deleteTarget.state_group,
+              )
+              .map((state) => ({ value: state.id, label: state.name })),
+          ]}
+          onClose={() => setDeleteTarget(null)}
+          onDelete={async (replacementId) => {
+            await deleteTaskState(
+              props.context,
+              props.workspace.id,
+              deleteTarget.id,
+              replacementId,
+            );
+            await props.onChanged();
+          }}
+        />
+      ) : null}
     </SettingsArticle>
   );
 }
 
-function StateRow({
+function StateEditRow({
   state,
-  states,
-  isDefault,
-  canManage,
-  canMoveUp,
-  canMoveDown,
-  onMove,
+  onCancel,
   onSave,
-  onDefault,
-  onArchive,
-  onDelete,
 }: {
   state: TaskState;
-  states: TaskState[];
-  isDefault: boolean;
-  canManage: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMove: (offset: -1 | 1) => Promise<void>;
+  onCancel: () => void;
   onSave: (
     patch: Pick<TaskState, 'name' | 'color' | 'state_group'>,
   ) => Promise<void>;
-  onDefault: () => Promise<void>;
-  onArchive: () => Promise<void>;
-  onDelete: (replacementId?: string) => Promise<void>;
 }) {
   const [name, setName] = useState(state.name);
   const [color, setColor] = useState(state.color);
   const [group, setGroup] = useState(state.state_group);
-  const replacements = states.filter(
-    ({ id, state_group }) =>
-      id !== state.id && state_group === state.state_group,
-  );
-  const [replacementId, setReplacementId] = useState(replacements[0]?.id ?? '');
-  const dirty =
-    name.trim() !== state.name ||
-    color !== state.color ||
-    group !== state.state_group;
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), color, state_group: group });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="configuration-row">
-      <div className="configuration-order">
+    <form
+      className="settings-list-row settings-list-edit-row"
+      role="listitem"
+      aria-label={`Edit ${state.name}`}
+      onSubmit={(event) => void submit(event)}
+    >
+      <SettingsListCell className="settings-grid-placeholder" />
+      <SettingsListCell className="settings-visual-cell">
+        <ColorSwatchPicker
+          ariaLabel={`Change color for ${state.name}`}
+          disabled={saving}
+          value={color}
+          onChange={setColor}
+        />
+      </SettingsListCell>
+      <SettingsListCell>
+        <input
+          autoFocus
+          aria-label={`${state.name} name`}
+          maxLength={120}
+          disabled={saving}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </SettingsListCell>
+      <SettingsListCell>
+        <Select
+          ariaLabel={`${state.name} group`}
+          disabled={saving}
+          value={group}
+          options={stateGroupOptions()}
+          onValueChange={(value) => setGroup(value as TaskStateGroup)}
+        />
+      </SettingsListCell>
+      <SettingsListCell className="settings-status-text">
+        Editing
+      </SettingsListCell>
+      <SettingsListCell className="settings-edit-actions">
         <button
+          className="text-button"
           type="button"
-          aria-label={`Move ${state.name} up`}
-          disabled={!canManage || !canMoveUp}
-          onClick={() => void onMove(-1)}
+          disabled={saving}
+          onClick={onCancel}
         >
-          <ArrowUp size={13} />
+          Cancel
         </button>
         <button
-          type="button"
-          aria-label={`Move ${state.name} down`}
-          disabled={!canManage || !canMoveDown}
-          onClick={() => void onMove(1)}
+          className="primary-button compact-button"
+          type="submit"
+          disabled={saving || !name.trim()}
         >
-          <ArrowDown size={13} />
+          {saving ? 'Saving…' : 'Save'}
         </button>
-      </div>
-      <input
-        className="configuration-color-input"
-        aria-label={`${state.name} color`}
-        type="color"
-        disabled={!canManage}
-        value={color}
-        onChange={(event) => setColor(event.target.value.toUpperCase())}
-      />
-      <input
-        aria-label={`${state.name} name`}
-        disabled={!canManage}
-        maxLength={120}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <Select
-        ariaLabel={`${state.name} group`}
-        disabled={!canManage}
-        value={group}
-        options={STATE_GROUPS.map((value) => ({
-          value,
-          label: groupLabel(value),
-        }))}
-        onValueChange={(value) => setGroup(value as TaskStateGroup)}
-      />
-      <div className="configuration-row-actions">
-        {isDefault ? (
-          <span className="configuration-default">Inbox default</span>
-        ) : (
-          canManage && (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => void onDefault()}
-            >
-              Make default
-            </button>
-          )
-        )}
-        {canManage && dirty && (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void onSave({ name, color, state_group: group })}
-          >
-            Save
-          </button>
-        )}
-        {canManage && (
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={`Archive ${state.name}`}
-            onClick={() => void onArchive()}
-          >
-            <Archive size={14} />
-          </button>
-        )}
-      </div>
-      {canManage && (
-        <details className="configuration-delete">
-          <summary aria-label={`Delete ${state.name}`}>
-            <Trash2 size={14} />
-          </summary>
-          <div>
-            <strong>Delete state</strong>
-            <p>Choose a same-group replacement when this state is in use.</p>
-            <label>
-              <span className="sr-only">Replacement for {state.name}</span>
-              <Select
-                ariaLabel={`Replacement for ${state.name}`}
-                value={replacementId}
-                options={[
-                  { value: '', label: 'No replacement' },
-                  ...replacements.map((replacement) => ({
-                    value: replacement.id,
-                    label: replacement.name,
-                  })),
-                ]}
-                onValueChange={setReplacementId}
-              />
-            </label>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={() => {
-                if (window.confirm(`Delete ${state.name}?`))
-                  void onDelete(replacementId || undefined);
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </details>
-      )}
-    </div>
+      </SettingsListCell>
+    </form>
   );
 }
 
@@ -398,6 +475,18 @@ const STATE_GROUPS: TaskStateGroup[] = [
   'done',
   'canceled',
 ];
+
+const STATE_GROUP_COLORS: Record<TaskStateGroup, string> = {
+  backlog: '#6B7280',
+  todo: '#64748B',
+  in_progress: '#3B82F6',
+  done: '#22C55E',
+  canceled: '#6B7280',
+};
+
+function stateGroupOptions() {
+  return STATE_GROUPS.map((value) => ({ value, label: groupLabel(value) }));
+}
 
 function groupLabel(group: TaskStateGroup) {
   return titleCase(group.replace('_', ' '));
