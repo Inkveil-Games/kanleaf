@@ -177,6 +177,9 @@ RED behaviors:
 - definitions create/list/edit/reorder/archive/restore within one Workspace;
 - type cannot change after creation;
 - names remain case-insensitively unique across active and archived definitions;
+- names cannot collide case-insensitively with fixed Kanleaf frontmatter keys or
+  unowned top-level keys discovered in Task Markdown;
+- permanent deletion releases a definition name for immediate reuse;
 - only Owner/Admin mutates definitions; members can read definitions needed for
   authorized Task UI; Guests receive only data allowed by existing Workspace
   access rules;
@@ -216,6 +219,7 @@ Files:
 - extend `apps/server/src/task/model.rs` hydration and Task response;
 - register targeted value routes beside current Task routes;
 - extend activity/projection enqueue behavior through existing helpers;
+- extend Task projection jobs with durable, unioned old-property-key cleanup;
 - add value/lifecycle cases to `apps/server/tests/custom_properties.rs` and
   adjacent Task authorization tests.
 
@@ -230,7 +234,11 @@ RED behaviors:
 - Task response hydrates compact ordered `{ property_id, value }` records;
 - archiving preserves values while blocking new assignment;
 - permanent property deletion requires exact-name confirmation, clears every
-  value in the transaction, and returns/projections identify all affected Tasks;
+  value in the transaction, releases the name, and enqueues old-key cleanup for
+  every affected Task;
+- a newly created value using the same name survives an older pending cleanup
+  because projection removes queued keys before rendering current canonical
+  values;
 - permanent option deletion clears single-select values and removes only that
   UUID from multi-select values;
 - concurrent reorder/archive/value/delete operations cannot leave invalid
@@ -244,6 +252,8 @@ Implementation constraints:
   boundary;
 - keep explicit false checkbox values;
 - use `url::Url` and allow only HTTP/HTTPS;
+- keep pending cleanup names durable until successful projection and treat them
+  as owned stale keys during collision discovery;
 - no filter/query integration.
 
 Focused checks:
@@ -269,22 +279,34 @@ Files:
 - extend `apps/server/src/task/frontmatter.rs`, `TaskVaultRow`, hydration queries,
   and projection tests;
 - extend `apps/server/src/portability/sync.rs` and Vault Sync tests;
+- add an expiring, revision-checked undefined-property discovery/define operation
+  using the existing `workspace_operations` pattern;
 - version and extend `portability/config.rs`, archive validation, export, import,
   ID maps, and round-trip tests;
 - add property/option config projection triggers in migration 0021.
 
 RED behaviors:
 
-- each value renders as top-level `Kanleaf · <name>` YAML, never nested JSON;
+- each value renders under the definition's direct top-level display name,
+  never a nested map or prefixed raw-JSON field;
 - Obsidian-compatible scalar/list types round-trip without changing body,
   newline style, or unrelated YAML;
 - dynamic names/values are safely quoted;
-- a pre-existing unowned dynamic-key collision is reported, not overwritten;
+- fixed system keys and active/archived definition names remain reserved;
+- unowned top-level keys are preserved, grouped as Undefined by name/count, and
+  block normal create/rename rather than being overwritten;
+- Define rechecks Task metadata and file revisions, manually converts every raw
+  value, and adopts all values atomically or none;
+- Text adoption stringifies scalar/list/mapping values; other types validate
+  strictly, and select types require manually configured options covering the
+  raw names;
+- no type inference or automatic option creation occurs;
 - definition/option rename and deletion reproject all affected Tasks;
 - Vault Sync previews valid changes and applies them through the same typed Task
   value use case;
-- missing keys clear values; invalid type/options/unknown names remain
-  non-applicable issues; clearing an archived value is allowed;
+- missing defined keys clear values; invalid type/options remain non-applicable
+  issues; unknown names remain raw Undefined fields; clearing an archived value
+  is allowed;
 - task-config format carries definitions/options and remaps UUIDs;
 - old archives without properties still validate/import;
 - new archives round-trip definitions, options, values, archive state, and
@@ -294,7 +316,8 @@ RED behaviors:
 Implementation constraints:
 
 - never serialize the JSONB storage representation directly into Markdown;
-- the reserved prefix owns configured fields only and preserves other YAML;
+- only fixed keys, defined names, and projection-job cleanup keys are owned;
+- remove queued old keys before writing current values so name reuse is safe;
 - insert/remap definitions and options before importing Tasks;
 - do not duplicate Task values into task-config JSON.
 
@@ -329,16 +352,23 @@ Files:
   hooks or owning screen as appropriate to current feature patterns;
 - add the Properties list, create/edit dialog, delete confirmations, and shared
   `SelectOptionEditor`;
+- add Defined/Undefined views and the discovery-backed Define dialog;
 - wire the route through `WorkspaceSettings.tsx` and `WorkspaceShell.tsx` without
   introducing a second source of section state;
+- add the Owner/Admin-only plus action beside the Task properties sidebar
+  heading;
 - add focused feature tests and CSS using the shared Settings primitives.
 
 RED behaviors:
 
 - `/settings/workspace/properties` survives refresh/Back/Forward and is selected
   in the Task properties sidebar group;
+- `?define=<property-name>` opens the matching Define dialog on refresh and
+  closing it removes only the query parameter;
 - loading/error/retry/empty/permission states use common Settings treatment;
 - New property dialog exposes only fields relevant to the selected type;
+- entering an Undefined name redirects the user into Define instead of creating
+  a duplicate; Define requires explicit type and explicit select options;
 - all seven property types create successfully and duplicate/invalid input stays
   visible with the server message;
 - single/multi types share the same option editor, color picker, reorder, and
@@ -366,6 +396,7 @@ Commit: `feat(properties): add workspace properties settings`
 Files:
 
 - extend Workspace/custom-property API types and TanStack Query ownership;
+- add the authorized Task-scoped undefined-frontmatter read endpoint and query;
 - update `features/task/taskPropertyModel.ts`, `TaskProperties.tsx`, and focused
   controls without merging system and custom domain types prematurely;
 - update `TaskDetailPane` composition and tests;
@@ -381,6 +412,10 @@ RED behaviors:
   stable option UUIDs;
 - archived definitions/options preserve existing display, cannot be newly
   selected, and can be cleared;
+- unowned Markdown keys render read-only as raw stringified values with an
+  `Undefined` badge and never enter the value API implicitly;
+- Owner/Admin `Define property` flushes pending Markdown through
+  `DocumentSaveCoordinator`, then uses the typed Settings route/query;
 - one pending property does not disable unrelated fields;
 - failed save preserves/reverts the visible server value and reports the
   structured error;

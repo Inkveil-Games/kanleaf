@@ -13,7 +13,10 @@ Workspace custom Properties will be added as a complete vertical capability.
 Workspace Admins define ordered fields and select options; authorized Task
 editors assign type-checked values; PostgreSQL remains canonical for structured
 metadata; and each value is projected to an Obsidian-compatible, top-level YAML
-property. Definitions, options, and values use stable UUIDs internally.
+property using its visible definition name. Definitions, options, and values
+use stable UUIDs internally. Unowned top-level Markdown properties remain
+intact, appear as raw `Undefined` fields in Task detail, and can be deliberately
+adopted through a revision-checked definition flow in Workspace Settings.
 
 The first release supports `text`, `number`, `date`, `single_select`,
 `multi_select`, `checkbox`, and `url`. It does not add formulas, relations,
@@ -78,6 +81,10 @@ They do not justify a generic settings schema renderer or a second UI system.
   Settings.
 - Preserve the Markdown-first portability of Task bodies and the existing
   PostgreSQL/Markdown ownership boundary.
+- Preserve unowned Markdown properties exactly, surface them without pretending
+  they are typed Kanleaf data, and let Admins define them intentionally.
+- Allow a permanently deleted property name to be reused without stale
+  projection work deleting the new property's Markdown value.
 - Keep Settings usable in the supported desktop minimum and narrower web
   viewports with keyboard and assistive technology.
 
@@ -92,6 +99,8 @@ They do not justify a generic settings schema renderer or a second UI system.
   property templates, property permissions, or conditional fields.
 - Custom-property filters, saved-view predicates, list columns, bulk editing,
   automation, or an analytics/query engine.
+- Automatic type inference or automatic select-option creation from undefined
+  Markdown properties.
 - Arbitrary uploaded icons or colors as a new asset system.
 - Changing Task Markdown bodies or treating Markdown frontmatter as an atomic
   transaction participant with PostgreSQL.
@@ -161,7 +170,7 @@ GENERAL
   Storage & backup
   Danger zone
 
-TASK PROPERTIES
+TASK PROPERTIES                         +
   States
   Labels
   Task types
@@ -170,7 +179,9 @@ TASK PROPERTIES
 
 `Properties` is a typed route section under the existing
 `/w/:workspaceIdentifier/settings/workspace/:section` route. Route builders,
-parsers, labels, icons, and tests are updated together.
+parsers, labels, icons, and tests are updated together. The section-level plus
+button is available to Workspace Owners/Admins and opens the same property
+definition dialog used by the Properties page.
 
 ## Shared Settings components
 
@@ -374,10 +385,12 @@ The new migration adds three Workspace-scoped tables.
 - `archived_at`, `created_at`, and `updated_at`;
 - composite identity/foreign-key support matching existing tenant tables.
 
-Names are unique case-insensitively across all definitions in one Workspace,
-including archived definitions. This is stricter than active-only State/Label
-names because the Markdown property name is part of the human-readable sync
-contract. A name can be reused after permanent deletion.
+Names are unique case-insensitively across all active and archived definitions
+in one Workspace. Creation also rejects every fixed Kanleaf frontmatter key and
+every currently discovered unowned top-level key, including values not shown in
+the normal Task UI. This is stricter than active-only State/Label names because
+the visible definition name is also the Markdown key. Permanent deletion
+releases the name for immediate reuse.
 
 Property type is immutable after creation. Type conversion is not silently
 attempted. The initial configuration object is empty for every supported type;
@@ -416,15 +429,15 @@ clears values, records the change, and enqueues their projections.
 
 The wire/storage value is untagged because the definition is the discriminator:
 
-| Property type | JSON value | Validation |
-| --- | --- | --- |
-| `text` | string | trimmed length limit; empty clears the value |
-| `number` | JSON number | finite integer or decimal |
-| `date` | `YYYY-MM-DD` string | valid calendar date |
-| `single_select` | option UUID string | exactly one option owned by the property |
-| `multi_select` | unique option UUID array | every option owned by the property |
-| `checkbox` | boolean | strict boolean, not truthy strings/numbers |
-| `url` | string | valid absolute HTTP or HTTPS URL |
+| Property type   | JSON value               | Validation                                   |
+| --------------- | ------------------------ | -------------------------------------------- |
+| `text`          | string                   | trimmed length limit; empty clears the value |
+| `number`        | JSON number              | finite integer or decimal                    |
+| `date`          | `YYYY-MM-DD` string      | valid calendar date                          |
+| `single_select` | option UUID string       | exactly one option owned by the property     |
+| `multi_select`  | unique option UUID array | every option owned by the property           |
+| `checkbox`      | boolean                  | strict boolean, not truthy strings/numbers   |
+| `url`           | string                   | valid absolute HTTP or HTTPS URL             |
 
 The Rust feature converts `serde_json::Value` into a typed internal enum after
 loading and locking the definition. URL parsing uses the maintained `url` crate
@@ -454,8 +467,17 @@ newly selected. Restore appends it to option order.
 Permanent property deletion uses two confirmation stages: impact summary, then
 exact property-name entry. The server locks the Workspace, rechecks the exact
 name, gathers affected Task IDs, deletes their values and the definition in one
-transaction, and projects those Tasks. The field disappears rather than
-leaving a displayed `None` row.
+transaction, enqueues removal of the old Markdown key, and releases the name.
+The field disappears rather than leaving a displayed `None` row. A later
+definition may immediately reuse that name.
+
+Projection cleanup is durable and value-aware. Each affected Task projection
+job carries the old property names it must remove; coalescing jobs unions these
+cleanup names. The projector removes queued old keys first and then writes the
+current canonical property values. Therefore a newly created property that
+reuses the same name wins even if an older deletion projection has not run yet.
+Cleanup metadata is removed only with successful projection. Pending cleanup
+keys are treated as owned stale data, not as undefined-name collisions.
 
 Permanent option deletion uses the same two stages. For single select, affected
 Task values are cleared. For multi select, only the deleted UUID is removed;
@@ -467,9 +489,13 @@ reference remains.
 
 The Properties route uses the same page and list system, with description “Add
 custom fields for structured Task information.” The page header owns a
-`New property` button. The display list shows ordered active definitions as
-name, readable type, lifecycle/usage metadata, and overflow actions. Archived
-definitions use the shared archived section.
+`New property` button. `Defined` and `Undefined` views keep configured fields
+distinct from unowned Markdown. The Defined list shows ordered active
+definitions as name, readable type, lifecycle/usage metadata, and overflow
+actions. Archived definitions use the shared archived section. The Undefined
+list is an on-demand Workspace scan grouped case-insensitively by raw property
+name and shows only the name and affected Task count until the user chooses to
+define it.
 
 Create and Edit use the established Settings dialog pattern. Create contains:
 
@@ -480,11 +506,26 @@ Create and Edit use the established Settings dialog pattern. Create contains:
 - a shared option editor for single/multi select;
 - Cancel and Create actions with stable pending/error behavior.
 
+Typing a name already present in the current Undefined inventory does not
+create a competing definition. The dialog changes to the Define flow and asks
+the user to review the discovered field instead. A normal create/rename that
+collides with an undefined field outside the current preview fails with a
+structured conflict and prompts a refreshed scan.
+
 Edit keeps Type read-only and permits name, description, and select options.
 `SelectOptionEditor` is one custom-property component used by both select types.
 It composes the shared Settings option grid, sortable behavior,
 `ColorSwatchPicker`, inline option editing, validation, and action menu. It is
 not duplicated for single and multi select.
+
+Undefined rows expose `Define property`. That action opens a deliberate
+definition dialog with the existing name locked, a manually chosen type, an
+optional description, and manually entered select options when applicable. No
+type or option is inferred. Text adoption stringifies parsed scalar, list, and
+mapping values; lists and mappings use compact JSON text. Other types must
+validate every discovered value before apply. Single-select options must cover
+all raw scalar names and multi-select options must cover all raw list entries.
+An incompatible set blocks the operation without partially adopting values.
 
 ## HTTP API
 
@@ -510,11 +551,21 @@ POST   /api/workspaces/:workspace_id/properties/:property_id/options/reorder
 DELETE /api/workspaces/:workspace_id/properties/:property_id/options/:option_id
 ```
 
+Undefined discovery and adoption:
+
+```text
+POST   /api/workspaces/:workspace_id/properties/discovery
+GET    /api/workspaces/:workspace_id/properties/discovery/:operation_id
+POST   /api/workspaces/:workspace_id/properties/discovery/:operation_id/define
+DELETE /api/workspaces/:workspace_id/properties/discovery/:operation_id
+```
+
 Task values:
 
 ```text
 PUT    /api/workspaces/:workspace_id/tasks/:task_id/properties/:property_id
 DELETE /api/workspaces/:workspace_id/tasks/:task_id/properties/:property_id
+GET    /api/workspaces/:workspace_id/tasks/:task_id/properties/undefined
 ```
 
 The definition list includes active and archived definitions/options plus
@@ -525,13 +576,23 @@ client-only assumption.
 `TaskResponse` adds a compact ordered array of `{ property_id, value }`. It does
 not repeat names/types/options on every Task. A separate TanStack Query entry
 loads Workspace definitions after fresh Workspace access succeeds; Task detail
-joins values to that cache. Feature API modules own all endpoint calls and
+joins values to that cache. The Task-scoped undefined endpoint reads only that
+authorized Task's frontmatter and returns unowned names plus parsed raw values;
+it does not persist them. Feature API modules own all endpoint calls and
 invalidation.
 
 Definition creation may include initial select options and commits them with the
 definition. Reorder requests carry the complete active ordered ID set and use
 the established Workspace-lock pattern. Structured Conflict/Validation errors
 replace raw database errors.
+
+Discovery reuses the existing expiring `workspace_operations` preview model.
+The stored preview records each matching Task ID, parsed raw value, metadata
+version, and Markdown source revision. Apply requires both operation revision
+and exact property name, then rechecks every Task/database/file revision before
+creating the definition and typed values in one database transaction. A changed
+Task makes the preview stale; the user refreshes instead of overwriting an
+Obsidian edit. The response never includes Task bodies or unrelated properties.
 
 ## Task detail integration
 
@@ -541,7 +602,13 @@ labeled Custom section, ordered by definition position.
 
 Active custom properties with values are shown. Empty active properties can be
 revealed from Add property. Archived properties appear only when the Task still
-has a value. Controls are:
+has a value. Unowned top-level fields from that Task's Markdown are appended as
+read-only raw values with an `Undefined` badge. Workspace Owners/Admins also see
+`Define property`; it flushes pending Markdown through
+`DocumentSaveCoordinator` and navigates with the typed router to
+`/w/:workspaceIdentifier/settings/workspace/properties?define=<property-name>`.
+Refresh preserves the dialog; closing it removes only the query parameter.
+Controls for defined properties are:
 
 - text input for text;
 - numeric input for number;
@@ -563,45 +630,56 @@ saved views in this release.
 
 Nested YAML is deliberately not used because Obsidian's normal Properties UI
 does not support nested properties. Each stored custom value is projected as a
-top-level property with the reserved prefix `Kanleaf · `:
+top-level property using the definition's display name directly:
 
 ```yaml
-Kanleaf · Priority: High
-Kanleaf · Estimate: 3
-Kanleaf · Due for review: 2026-09-10
-Kanleaf · Approved: true
-Kanleaf · Platforms:
+Impact: High
+Story points: 3
+Due for review: 2026-09-10
+Approved: true
+Platforms:
   - Web
   - Desktop
-Kanleaf · Customer URL: https://example.com
+Customer URL: https://example.com
 ```
 
 This produces normal Obsidian text, number, date, checkbox, and list properties.
 Obsidian has no native select-option or URL property type, so single select and
-URL remain text there. The prefix makes Kanleaf ownership visible and avoids
-claiming existing unprefixed user keys. Existing fixed owned keys such as
-`Kanleaf ID` remain distinct.
+URL remain text there. PostgreSQL UUIDs retain stable identity across a rename;
+the visible Markdown key intentionally follows the current display name.
 
 The frontmatter renderer safely quotes dynamic YAML names/values. Projection
-owns only fixed keys and configured `Kanleaf · <name>` keys. All unrelated
-top-level YAML, source body, newline style, and safe formatting remain
-preserved. Before first ownership of a dynamic key, an existing collision that
-cannot be proven to be Kanleaf-managed fails as a visible sync conflict rather
-than being overwritten silently.
+owns only fixed keys, currently defined names, and durable old-name cleanup keys
+attached to the Task's projection job. All other top-level YAML, source body,
+newline style, and safe formatting remain preserved exactly. Property creation
+rejects fixed system keys including `Kanleaf ID`, `Reference`, `Title`,
+`Project`, `State`, `Type`, `Priority`, `Assignees`, `Labels`, `Cycle`,
+`Modules`, `Start date`, `Due date`, `Estimate`, and `Parent`. The reserved set
+is shared by validation, discovery, projection, import, and tests.
+
+A top-level key that is neither fixed nor matched case-insensitively to an
+active/archived definition remains unowned. Kanleaf preserves it, exposes its
+parsed raw scalar/list/mapping in the owning Task detail with an `Undefined`
+badge, and includes its name/count in the Settings discovery preview. It is not
+automatically written, cleared, typed, or inserted into PostgreSQL. Mappings and
+other values Obsidian renders as raw data remain raw until a user explicitly
+defines the field.
 
 PostgreSQL stores property and option UUIDs. Markdown stores human-readable
 property and option names as a portable projection. Definition/option rename
 collects affected Tasks and projects the new names. Workspace-wide uniqueness
 makes reverse lookup unambiguous.
 
-Vault Sync recognizes the reserved prefix and validates external edits against
-the current definitions:
+Vault Sync recognizes current definition names and validates external edits
+against their types:
 
 - missing previously stored key clears the value;
 - valid changed values update PostgreSQL and are reprojected canonically;
-- unknown property names, invalid types, unknown/foreign options, duplicate
-  multi-select values, and newly assigned archived definitions/options produce
-  a non-destructive sync issue;
+- unknown property names are preserved and surfaced as Undefined rather than
+  treated as invalid;
+- invalid types, unknown/foreign options, duplicate multi-select values, and
+  newly assigned archived definitions/options produce a non-destructive sync
+  issue;
 - clearing an archived value remains allowed;
 - malformed custom values never partially update the Task or leak raw parser or
   database details.
@@ -617,10 +695,11 @@ their old version contract.
 Import validates names, types, configuration, option ownership, positions, and
 uniqueness before changing canonical data. It remaps definition and option UUIDs
 alongside existing State/Type/Label maps, inserts definitions/options before
-Tasks, and resolves each `Kanleaf ·` frontmatter value against the imported
-configuration. Export/config projection triggers include definition and option
-changes. Task values remain in Task Markdown and are not duplicated into the
-Workspace configuration file.
+Tasks, and resolves each matching top-level frontmatter value against the
+imported configuration. Unmatched fields remain untouched and Undefined.
+Export/config projection triggers include definition and option changes. Task
+values remain in Task Markdown and are not duplicated into the Workspace
+configuration file.
 
 ## Authorization and isolation
 
@@ -642,6 +721,8 @@ Workspace configuration file.
 Domain errors use concise actionable messages, including:
 
 - `A property already uses this name.`
+- `This name is already present in Task Markdown. Define that field instead.`
+- `A Task changed after this property preview. Refresh and try again.`
 - `This value must be a number.`
 - `Select an option from this property.`
 - `This option belongs to another property.`
@@ -692,7 +773,9 @@ Frontend component tests cover:
 - Task type protected/default and icon behavior;
 - Property dialog type-specific fields and shared option editor;
 - Task detail controls for every property type, archived values, pending/error,
-  and cache-access gating.
+  and cache-access gating;
+- raw Undefined values, admin-only Define actions, typed routed dialog state,
+  refresh/close behavior, and pending-save coordination.
 
 Rust unit/integration tests cover:
 
@@ -704,6 +787,9 @@ Rust unit/integration tests cover:
 - cross-property/cross-Workspace option rejection;
 - Task/Project permission denial and non-disclosure;
 - deletion impact and transactional value cleanup semantics;
+- immediate deleted-name reuse while an older cleanup projection is pending;
+- undefined discovery grouping, fixed/defined/archived name collisions,
+  operation revision checks, manual conversion, and all-or-nothing adoption;
 - State, Label, and Task type behavior retained during UI/API refactoring;
 - frontmatter render/read/patch preservation and collision behavior;
 - valid/invalid external Vault Sync;
@@ -745,6 +831,10 @@ project-local frontend/backend/UI skills are updated only with durable rules:
 - system Task metadata remains dedicated domain behavior;
 - custom property IDs/options are stable database identities and Markdown names
   are a human-readable projection.
+- unowned top-level Markdown fields remain raw and are adopted only through a
+  revision-checked explicit Define flow;
+- property projection jobs carry durable old-key cleanup so deleted names can
+  be reused safely.
 
 The final diff explicitly reports every agent-guidance change.
 
@@ -759,6 +849,10 @@ The work is complete only when:
 - backend validation and Workspace/Project isolation tests cover negative cases;
 - archive/delete/value cleanup and Markdown projection are transactional where
   PostgreSQL permits and safely compensated/projected across the filesystem;
+- undefined Markdown fields remain visible/preserved, can be explicitly defined
+  without racing file edits, and never become definitions through inference;
+- a permanently deleted name is reusable before old cleanup jobs drain, with
+  the current canonical value winning projection;
 - new and old portable Workspaces validate/import correctly;
 - frontend format, typecheck, lint, tests, production build, and Tauri check
   pass;
