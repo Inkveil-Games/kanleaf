@@ -373,7 +373,7 @@ the owning server use case.
 
 The new migration adds three Workspace-scoped tables.
 
-### `task_property_definitions`
+### `custom_property_definitions`
 
 - `id UUID`;
 - `workspace_id UUID`;
@@ -397,7 +397,7 @@ attempted. The initial configuration object is empty for every supported type;
 select options remain normalized rows instead of embedded JSON. The column is a
 versioned extension point, not a license for untyped arbitrary settings.
 
-### `task_property_options`
+### `custom_property_options`
 
 - `id UUID`;
 - `workspace_id UUID`;
@@ -410,14 +410,15 @@ Options exist only for single- and multi-select definitions. Names are unique
 case-insensitively across active and archived options for a property so a
 Markdown value always resolves unambiguously.
 
-### `task_property_values`
+### `task_custom_property_values`
 
 - `workspace_id UUID`;
 - `task_id UUID`;
 - `property_id UUID`;
 - `value JSONB NOT NULL`;
 - `created_at` and `updated_at`;
-- primary key `(workspace_id, task_id, property_id)`;
+- primary key `(task_id, property_id)` plus Workspace-scoped composite foreign
+  keys;
 - composite foreign keys to the Task and definition.
 
 This is one row per Task/property, not one schema column per custom field.
@@ -431,7 +432,7 @@ The wire/storage value is untagged because the definition is the discriminator:
 
 | Property type   | JSON value               | Validation                                   |
 | --------------- | ------------------------ | -------------------------------------------- |
-| `text`          | string                   | trimmed length limit; empty clears the value |
+| `text`          | string                   | non-empty length limit                        |
 | `number`        | JSON number              | finite integer or decimal                    |
 | `date`          | `YYYY-MM-DD` string      | valid calendar date                          |
 | `single_select` | option UUID string       | exactly one option owned by the property     |
@@ -442,8 +443,8 @@ The wire/storage value is untagged because the definition is the discriminator:
 The Rust feature converts `serde_json::Value` into a typed internal enum after
 loading and locking the definition. URL parsing uses the maintained `url` crate
 rather than a handwritten parser. Size/count limits apply before persistence.
-Empty text, date, URL, single selection, or multi selection clear the row;
-explicit `false` remains a valid stored checkbox value.
+Clearing uses the dedicated `DELETE` endpoint rather than an ambiguous empty
+payload. Explicit `false` remains a valid stored checkbox value.
 
 The server authorizes the Task location before looking up the property or
 returning ownership/type detail. It validates Workspace ownership, property
@@ -479,11 +480,12 @@ reuses the same name wins even if an older deletion projection has not run yet.
 Cleanup metadata is removed only with successful projection. Pending cleanup
 keys are treated as owned stale data, not as undefined-name collisions.
 
-Permanent option deletion uses the same two stages. For single select, affected
-Task values are cleared. For multi select, only the deleted UUID is removed;
-an empty resulting selection clears the value row. Other selections remain.
-The operation gathers and projects every affected Task. No orphaned JSON option
-reference remains.
+Permanent option deletion requires an explicit impact confirmation. For single
+select, affected Task values are cleared. For multi select, only the deleted
+UUID is removed; an empty resulting selection clears the value row. Other
+selections remain. The operation gathers and projects every affected Task. No
+orphaned JSON option reference remains, and the deleted option name can be
+reused immediately.
 
 ## Properties Settings page
 
@@ -538,7 +540,7 @@ Definitions:
 GET    /api/workspaces/:workspace_id/properties
 POST   /api/workspaces/:workspace_id/properties
 PATCH  /api/workspaces/:workspace_id/properties/:property_id
-POST   /api/workspaces/:workspace_id/properties/reorder
+PUT    /api/workspaces/:workspace_id/properties/reorder
 DELETE /api/workspaces/:workspace_id/properties/:property_id
 ```
 
@@ -547,17 +549,21 @@ Options:
 ```text
 POST   /api/workspaces/:workspace_id/properties/:property_id/options
 PATCH  /api/workspaces/:workspace_id/properties/:property_id/options/:option_id
-POST   /api/workspaces/:workspace_id/properties/:property_id/options/reorder
+PUT    /api/workspaces/:workspace_id/properties/:property_id/options/reorder
 DELETE /api/workspaces/:workspace_id/properties/:property_id/options/:option_id
 ```
+
+The property `PATCH` accepts the complete option collection when the editor
+saves a select property. Definition fields, option create/edit/archive/restore,
+ordering, and permanent removals then commit in one Workspace-locked
+transaction. The smaller option endpoints remain useful for focused API
+operations, but the editor must not chain them into a partially saved form.
 
 Undefined discovery and adoption:
 
 ```text
-POST   /api/workspaces/:workspace_id/properties/discovery
-GET    /api/workspaces/:workspace_id/properties/discovery/:operation_id
-POST   /api/workspaces/:workspace_id/properties/discovery/:operation_id/define
-DELETE /api/workspaces/:workspace_id/properties/discovery/:operation_id
+GET    /api/workspaces/:workspace_id/properties/undefined
+POST   /api/workspaces/:workspace_id/properties/define
 ```
 
 Task values:
@@ -586,13 +592,14 @@ definition. Reorder requests carry the complete active ordered ID set and use
 the established Workspace-lock pattern. Structured Conflict/Validation errors
 replace raw database errors.
 
-Discovery reuses the existing expiring `workspace_operations` preview model.
-The stored preview records each matching Task ID, parsed raw value, metadata
-version, and Markdown source revision. Apply requires both operation revision
-and exact property name, then rechecks every Task/database/file revision before
-creating the definition and typed values in one database transaction. A changed
-Task makes the preview stale; the user refreshes instead of overwriting an
-Obsidian edit. The response never includes Task bodies or unrelated properties.
+Undefined inventory is read on demand and returns only each field name and Task
+count. Define deliberately rescans the Workspace, locks the affected Task rows,
+validates every current raw value, creates the definition and typed values in
+one database transaction, then rechecks each Markdown source revision before
+commit. A concurrent Obsidian edit makes the request fail rather than overwrite
+the file. A persisted preview operation is unnecessary because this UI exposes
+no raw-value preview and the apply endpoint must validate current files anyway.
+Responses never include Task bodies or unrelated properties.
 
 ## Task detail integration
 
@@ -729,8 +736,9 @@ Domain errors use concise actionable messages, including:
 - `Restore this property before assigning a new value.`
 - existing State/default and Task type/protection messages.
 
-Delete dialogs show the current usage count and exact consequence. Property and
-option permanent deletion require a second exact-name confirmation. State and
+Delete dialogs show the current usage count and exact consequence. Property
+deletion requires an exact-name confirmation after the initial destructive
+action; option deletion requires an explicit impact confirmation. State and
 Task type replacement dialogs retain their current replacement semantics.
 Label deletion confirms assignment removal. Destructive menu entries are
 separated and styled consistently.

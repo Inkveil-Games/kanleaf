@@ -39,6 +39,7 @@ User ──< Session
                                       ├────< TaskState
                                       ├────< TaskLabel
                                       ├────< TaskType
+                                      ├────< CustomProperty ──< PropertyOption
                                       ├────< SavedView
                                       ├────< Document
                                       ├────< Project ────< ProjectMembership
@@ -47,6 +48,7 @@ User ──< Session
                                       │          └───────< ProjectModule
                                       └────< Task ──< TaskAssignee
                                                 ├──< TaskLabelAssignment
+                                                ├──< TaskPropertyValue
                                                 ├─── TaskCycleAssignment
                                                 ├──< TaskModuleAssignment
                                                 ├──< TaskRelation >── Task
@@ -80,6 +82,11 @@ User ──< Session
 - States and task types are workspace vocabulary. Each workspace starts with
   one state per semantic group and a protected `Task` type; projects select
   defaults and enabled types from the same tenant.
+- Custom property definitions and select options use stable UUIDs and remain
+  Workspace-scoped. Task values reference those identities and are validated
+  against the definition type and option ownership at the server boundary.
+  Active and archived definitions reserve names case-insensitively; permanent
+  deletion removes values and releases the name for reuse.
 - A task belongs to one workspace and optionally one project, with required
   state and type references guarded by composite workspace foreign keys.
 - Each task receives a monotonic workspace number under a workspace row lock.
@@ -225,6 +232,15 @@ body alone, so a Kanleaf metadata projection does not create a false editing
 conflict. A body write rereads the latest complete file, replaces only its body,
 and still uses a complete-file revision for the final atomic filesystem write.
 
+Workspace-defined custom properties project beside the system fields as direct
+top-level YAML keys using their display names; select values project as option
+names for readable Obsidian properties while PostgreSQL keeps option UUIDs.
+Unknown top-level fields remain untouched and are exposed as raw undefined
+properties. Defining one is an explicit admin action that validates every
+matching raw value, checks source revisions, stores typed values, and only then
+claims the field for normal projection. Text definition stringifies a non-string
+raw value instead of silently inferring a richer type.
+
 Every structured metadata mutation increments a per-Task version and coalesces
 one projection job in the same PostgreSQL transaction. After commit, the
 request attempts the atomic YAML patch immediately. A bounded Tokio worker
@@ -248,7 +264,8 @@ scoped and expire without deleting Markdown.
 Portable Workspace configuration is projected into versioned JSON below
 `.kanleaf/`. PostgreSQL triggers increment one coalescing Workspace version in
 the same transaction as changes to Workspace metadata, membership references,
-Projects, Task vocabulary, planning, shared Views, Tasks, or Library identity.
+Projects, Task vocabulary, custom property definitions/options, planning,
+shared Views, Tasks, or Library identity.
 A startup/periodic worker writes `workspace.json`, `task-config.json`,
 `views.json`, `projects/<project-id>.json`, then publishes `manifest.json` last
 as the snapshot commit marker. User profile changes fan out only display
