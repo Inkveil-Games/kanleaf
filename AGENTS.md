@@ -99,6 +99,11 @@ owning feature instead of scattering it through unrelated handlers.
   out of normal feature code unless a real native capability is required.
 - Reuse existing components, tokens, interaction patterns, and explicit
   loading/error/empty states. Preserve keyboard access, focus, and ARIA names.
+- Workspace Settings structured lists use the shared SettingsArticle/List,
+  action-menu, sortable-row, ColorSwatchPicker, and IconPicker primitives. A
+  page defines its semantic CSS grid once; its header, create state, and data
+  rows must share that definition. Select custom properties reuse the shared
+  SelectOptionEditor rather than inventing page-specific color or reorder UI.
 - Keep TypeScript strict. Avoid `any`, non-null assertions that hide lifecycle
   bugs, and abstractions with only one speculative caller.
 
@@ -152,6 +157,16 @@ owning feature instead of scattering it through unrelated handlers.
 
 Keep raw HTML disabled in Markdown preview unless an equally strong sanitation
 design replaces it.
+
+Custom Task properties have stable PostgreSQL definition, option, and value
+identities, but project into ordinary top-level Markdown frontmatter fields
+using their display names. Never replace that projection with a nested JSON
+blob or store select values by label in PostgreSQL. Preserve unknown imported
+top-level fields verbatim as undefined properties until a Workspace admin
+explicitly defines them; definition must validate and revision-check the source
+Markdown before claiming ownership. Active and archived definitions reserve
+their names, while permanent deletion cleans projected fields and releases the
+name for reuse.
 
 ## Testing and definition of done
 
