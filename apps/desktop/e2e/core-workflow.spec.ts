@@ -67,6 +67,38 @@ async function textGeometry(locator: Locator, text: string) {
   }, text);
 }
 
+async function settingsPageGeometry(page: Page) {
+  const settings = page.getByRole('region', { name: 'Workspace settings' });
+  const articleLocator = settings.locator('.settings-article:visible');
+  await expect(articleLocator).toBeVisible();
+  return articleLocator.evaluate((article) => {
+    const header = article.querySelector('.settings-header');
+    const title = article.querySelector('h1');
+    if (!header || !title) throw new Error('Settings page header is missing');
+    const articleRect = article.getBoundingClientRect();
+    const headerRect = header.getBoundingClientRect();
+    const titleRect = title.getBoundingClientRect();
+    return {
+      articleX: articleRect.x,
+      headerX: headerRect.x,
+      headerWidth: headerRect.width,
+      titleX: titleRect.x,
+      titleY: titleRect.y,
+    };
+  });
+}
+
+function expectSameSettingsGeometry(
+  actual: Awaited<ReturnType<typeof settingsPageGeometry>>,
+  expected: Awaited<ReturnType<typeof settingsPageGeometry>>,
+) {
+  expect(actual.articleX).toBeCloseTo(expected.articleX, 0);
+  expect(actual.headerX).toBeCloseTo(expected.headerX, 0);
+  expect(actual.headerWidth).toBeCloseTo(expected.headerWidth, 0);
+  expect(actual.titleX).toBeCloseTo(expected.titleX, 0);
+  expect(actual.titleY).toBeCloseTo(expected.titleY, 0);
+}
+
 async function registerAccountThroughSetup(
   page: Page,
   authSurface: Locator,
@@ -149,7 +181,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/general$`),
   );
-  await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'General', level: 1 }),
+  ).toBeVisible();
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
   await expect(page.getByText('Workspace updated')).toBeVisible();
@@ -215,15 +249,46 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByPlaceholder('State name').fill('Review');
   await chooseSelectOption(page, 'State group', 'In progress');
   await page.getByRole('button', { name: 'Add state' }).click();
-  await expect(page.getByLabel('Review name')).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Active task states' }),
+  ).toContainText('Review');
+  const statesGeometry = await settingsPageGeometry(page);
+  await page.getByRole('button', { name: 'Labels' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/labels$`),
+  );
+  await expect(
+    page.getByRole('list', { name: 'Active task labels' }),
+  ).toBeVisible();
+  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
   await page.getByRole('button', { name: 'Task types' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/task-types$`),
   );
   await page.getByPlaceholder('Type name').fill('Bug');
-  await page.getByLabel('Task type icon key').fill('bug');
+  await page.getByRole('button', { name: 'Choose Task type icon' }).click();
+  await page.getByRole('button', { name: 'Bug', exact: true }).click();
   await page.getByRole('button', { name: 'Add type' }).click();
-  await expect(page.getByLabel('Bug name')).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Active task types' }),
+  ).toContainText('Bug');
+  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
+  await page.getByRole('button', { name: 'Properties' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await page.getByRole('button', { name: 'New property' }).click();
+  const propertyDialog = page.getByRole('dialog', { name: 'Create property' });
+  await propertyDialog.getByLabel('Name').fill('Story points');
+  await chooseSelectOption(page, 'Property type', 'Number');
+  await propertyDialog
+    .getByLabel('Description')
+    .fill('Relative delivery effort.');
+  await propertyDialog.getByRole('button', { name: 'Create property' }).click();
+  await expect(
+    page.getByRole('list', { name: 'Custom properties' }),
+  ).toContainText('Story points');
+  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await page.goBack();
@@ -597,6 +662,20 @@ let source_is_markdown = true;
   await expect(taskDetail.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
   );
+
+  await addTaskProperty(page, 'Story points');
+  const storyPoints = page.getByLabel('Story points');
+  await storyPoints.fill('3');
+  const propertyUpdated = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'PUT' &&
+      /\/api\/workspaces\/[^/]+\/tasks\/[^/]+\/properties\/[^/]+$/.test(path)
+    );
+  });
+  await storyPoints.press('Enter');
+  expect((await propertyUpdated).ok()).toBe(true);
+  await expect(storyPoints).toHaveValue('3');
 
   await addTaskProperty(page, 'Cycle');
   await expectTaskPatch(page, () =>

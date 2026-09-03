@@ -6,6 +6,8 @@ import {
   KeyRound,
   Mail,
   Palette,
+  Plus,
+  SlidersHorizontal,
   Shapes,
   Settings2,
   ShieldAlert,
@@ -14,7 +16,7 @@ import {
   UsersRound,
   Workflow,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { User } from '../../lib/api/types';
 import { AccountSettings } from '../account/AccountSettings';
 import type { AccountSettingsSection } from '../account/settingsSections';
@@ -102,6 +104,7 @@ interface WorkspaceSettingsShellProps {
   onConfigurationUpdated: () => Promise<void>;
   onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
+  definePropertyName?: string;
 }
 
 export function WorkspaceSettingsShell({
@@ -116,9 +119,11 @@ export function WorkspaceSettingsShell({
   onConfigurationUpdated,
   onProjectsChanged,
   onRemoveWorkspace,
+  definePropertyName,
 }: WorkspaceSettingsShellProps) {
   const canManageWorkspace =
     workspace.role === 'owner' || workspace.role === 'admin';
+  const [propertyCreateRequest, setPropertyCreateRequest] = useState(0);
 
   return (
     <SettingsFrame
@@ -163,7 +168,26 @@ export function WorkspaceSettingsShell({
               danger
             />
           </SettingsGroup>
-          <SettingsGroup label="Task properties">
+          <SettingsGroup
+            label="Task properties"
+            action={
+              canManageWorkspace ? (
+                <button
+                  className="settings-group-action"
+                  type="button"
+                  aria-label="New property"
+                  title="New property"
+                  onClick={() => {
+                    setPropertyCreateRequest((current) => current + 1);
+                    onSectionChange('properties');
+                  }}
+                >
+                  <Plus aria-hidden="true" size={14} />
+                  <span className="sr-only">New property</span>
+                </button>
+              ) : undefined
+            }
+          >
             <SettingsLink
               active={section === 'states'}
               icon={<Workflow aria-hidden="true" size={15} />}
@@ -182,6 +206,12 @@ export function WorkspaceSettingsShell({
               label="Task types"
               onClick={() => onSectionChange('task-types')}
             />
+            <SettingsLink
+              active={section === 'properties'}
+              icon={<SlidersHorizontal aria-hidden="true" size={15} />}
+              label="Properties"
+              onClick={() => onSectionChange('properties')}
+            />
           </SettingsGroup>
         </>
       }
@@ -197,6 +227,10 @@ export function WorkspaceSettingsShell({
         onConfigurationUpdated={onConfigurationUpdated}
         onProjectsChanged={onProjectsChanged}
         onRemoveWorkspace={onRemoveWorkspace}
+        propertyCreateRequest={propertyCreateRequest}
+        onPropertyCreateRequestHandled={() => setPropertyCreateRequest(0)}
+        definePropertyName={definePropertyName}
+        onDefinePropertyClosed={() => onSectionChange('properties')}
       />
     </SettingsFrame>
   );
@@ -239,13 +273,18 @@ export function SettingsFrame({
 export function SettingsGroup({
   label,
   children,
+  action,
 }: {
   label: string;
   children: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <section className="settings-nav-group" aria-label={label}>
-      <h2>{label}</h2>
+      <div className="settings-nav-group-header">
+        <h2>{label}</h2>
+        {action}
+      </div>
       {children}
     </section>
   );

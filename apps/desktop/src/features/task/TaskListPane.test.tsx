@@ -120,7 +120,7 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('lets an open menu consume Escape before clearing the task detail', () => {
+  it('lets an open menu consume Escape before clearing the task detail', async () => {
     const onClearSelection = vi.fn();
     renderList({ selectedTaskId: 'task-1', onClearSelection });
 
@@ -129,7 +129,9 @@ describe('TaskListPane', () => {
     );
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument(),
+    );
     expect(onClearSelection).not.toHaveBeenCalled();
   });
 

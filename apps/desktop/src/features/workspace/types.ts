@@ -210,6 +210,57 @@ export interface TaskConfiguration {
   default_task_type_id: string;
 }
 
+export type CustomPropertyType =
+  | 'text'
+  | 'number'
+  | 'date'
+  | 'single_select'
+  | 'multi_select'
+  | 'checkbox'
+  | 'url';
+
+export interface CustomPropertyOption {
+  id: string;
+  workspace_id: string;
+  property_id: string;
+  name: string;
+  color: string;
+  position: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomPropertyDefinition {
+  id: string;
+  workspace_id: string;
+  name: string;
+  type: CustomPropertyType;
+  description: string;
+  position: number;
+  configuration: Record<string, never>;
+  options: CustomPropertyOption[];
+  usage_count: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskCustomPropertyValue {
+  property_id: string;
+  value: string | number | boolean | string[];
+}
+
+export interface UndefinedTaskProperty {
+  name: string;
+  value: unknown;
+}
+
+export interface UndefinedPropertySummary {
+  name: string;
+  task_count: number;
+}
+
 export interface Task {
   id: string;
   workspace_id: string;
@@ -231,6 +282,7 @@ export interface Task {
   modules: TaskPlanningLink[];
   subtasks: TaskLink[];
   relations: TaskRelation[];
+  custom_properties?: TaskCustomPropertyValue[];
   archived_at: string | null;
   created_at: string;
   updated_at: string;

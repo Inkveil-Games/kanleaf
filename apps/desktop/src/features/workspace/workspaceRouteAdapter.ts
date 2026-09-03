@@ -46,9 +46,9 @@ export function workspaceLocationPath(
       if (!isWorkspaceSettingsSection(location.section)) {
         throw new Error('Invalid Workspace Settings section');
       }
-      return routePaths.workspaceSettings(
-        workspaceIdentifier,
-        location.section,
+      return withDefineProperty(
+        routePaths.workspaceSettings(workspaceIdentifier, location.section),
+        location.definePropertyName,
       );
     case 'project-settings':
       if (!isProjectSettingsSection(location.section)) {
@@ -154,10 +154,15 @@ export function workspaceLocationFromRoute(
       };
     case 'workspace-settings': {
       const section = requiredParameter(params, 'section');
+      const defineValues = new URLSearchParams(search).getAll('define');
       return {
         kind,
         workspaceId,
         section: section === 'invitations' ? 'members' : section,
+        definePropertyName:
+          defineValues.length === 1 && defineValues[0]
+            ? defineValues[0]
+            : undefined,
         returnTo,
       };
     }
@@ -170,6 +175,11 @@ export function workspaceLocationFromRoute(
         returnTo,
       };
   }
+}
+
+function withDefineProperty(path: string, name?: string) {
+  if (!name) return path;
+  return `${path}?${new URLSearchParams({ define: name }).toString()}`;
 }
 
 function taskSelection(search: string) {

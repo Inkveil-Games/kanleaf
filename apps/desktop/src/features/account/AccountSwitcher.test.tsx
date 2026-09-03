@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '../auth/accountSessionStore';
 import { AccountSwitcher } from './AccountSwitcher';
 
 describe('AccountSwitcher', () => {
-  it('switches explicitly and exposes account actions', () => {
+  it('switches explicitly and exposes account actions', async () => {
     const onSwitchAccount = vi.fn();
     const onAddAccount = vi.fn();
     const onOpenAccountSettings = vi.fn();
@@ -28,9 +28,11 @@ describe('AccountSwitcher', () => {
       screen.getByRole('button', { name: /Account user-1/ }),
     ).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: /Account user-1/ }));
-    expect(
-      screen.queryByRole('dialog', { name: 'Switch account' }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Switch account' }),
+      ).not.toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     fireEvent.click(screen.getByRole('button', { name: /Account user-2/ }));
     expect(onSwitchAccount).toHaveBeenCalledWith('user-2');

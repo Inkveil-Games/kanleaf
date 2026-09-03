@@ -65,6 +65,199 @@ describe('WorkspaceSettings', () => {
     expect(screen.getByLabelText('Workspace ID')).toHaveAttribute('readonly');
   });
 
+  it('renders custom Properties as a shared structured settings list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse([
+          {
+            id: 'property-1',
+            workspace_id: workspace.id,
+            name: 'Impact',
+            type: 'single_select',
+            description: 'Expected customer impact',
+            position: 0,
+            configuration: {},
+            options: [],
+            usage_count: 0,
+            archived_at: null,
+            created_at: '2026-09-03T01:00:00Z',
+            updated_at: '2026-09-03T01:00:00Z',
+          },
+        ]),
+      ),
+    );
+
+    renderSettings(workspace, 'properties', owner.user_id);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Properties' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('Impact')).toBeInTheDocument();
+    expect(screen.getByText('Single select')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'New property' }),
+    ).toBeInTheDocument();
+  });
+
+  it('saves a property and its options in one atomic request', async () => {
+    const property = {
+      id: 'property-1',
+      workspace_id: workspace.id,
+      name: 'Platforms',
+      type: 'multi_select',
+      description: '',
+      position: 0,
+      configuration: {},
+      options: [
+        {
+          id: 'web-option',
+          workspace_id: workspace.id,
+          property_id: 'property-1',
+          name: 'Web',
+          color: '#3B82F6',
+          position: 0,
+          archived_at: null,
+          created_at: '2026-09-03T01:00:00Z',
+          updated_at: '2026-09-03T01:00:00Z',
+        },
+        {
+          id: 'desktop-option',
+          workspace_id: workspace.id,
+          property_id: 'property-1',
+          name: 'Desktop',
+          color: '#8B5CF6',
+          position: 1,
+          archived_at: null,
+          created_at: '2026-09-03T01:00:00Z',
+          updated_at: '2026-09-03T01:00:00Z',
+        },
+      ],
+      usage_count: 2,
+      archived_at: null,
+      created_at: '2026-09-03T01:00:00Z',
+      updated_at: '2026-09-03T01:00:00Z',
+    };
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        jsonResponse(init?.method === 'PATCH' ? property : [property]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderSettings(workspace, 'properties', owner.user_id);
+
+    await screen.findByText('Platforms');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Platforms' }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Web' }));
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/properties/property-1',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: 'Platforms',
+            description: '',
+            options: [
+              {
+                id: 'desktop-option',
+                name: 'Desktop',
+                color: '#8B5CF6',
+                archived: false,
+              },
+            ],
+          }),
+        }),
+      ),
+    );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        input.toString().includes('/options/'),
+      ),
+    ).toBe(false);
+  });
+
+  it('lists undefined Markdown fields and opens a routed Define property flow', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/properties/undefined')) {
+        return jsonResponse([{ name: 'External score', task_count: 2 }]);
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      'External score',
+    );
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Define External score' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('External score');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Undefined' }));
+    expect(await screen.findByText('External score')).toBeInTheDocument();
+    expect(screen.getByText('2 Tasks')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Define External score' }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Define External score' }),
+    );
+    await chooseSelectOption('Property type', 'Number');
+    fireEvent.click(screen.getByRole('button', { name: 'Define property' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/properties/define',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'External score',
+            type: 'number',
+            description: '',
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('ignores a copied Define-property route for non-admin members', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])));
+
+    renderSettings(
+      { ...workspace, role: 'member' },
+      'properties',
+      member.user_id,
+      undefined,
+      'External score',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Properties' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Define External score' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Undefined' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'New property' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps membership actions read-only for a Workspace Member', async () => {
     vi.stubGlobal(
       'fetch',
@@ -326,6 +519,7 @@ function renderSettings(
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void> = async (
     remove,
   ) => remove(),
+  definePropertyName?: string,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -338,6 +532,7 @@ function renderSettings(
         userId={userId}
         workspaceCount={2}
         section={section}
+        definePropertyName={definePropertyName}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
         onProjectsChanged={vi.fn()}

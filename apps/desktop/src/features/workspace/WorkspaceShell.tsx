@@ -37,6 +37,12 @@ import {
 import { TaskDetailPane } from '../task/TaskDetailPane';
 import { TaskListPane } from '../task/TaskListPane';
 import { getTaskConfiguration } from '../task-config/api';
+import {
+  clearTaskPropertyValue,
+  listProperties,
+  listTaskUndefinedProperties,
+  setTaskPropertyValue,
+} from '../custom-properties/api';
 import type { SessionResponse, User } from '../../lib/api/types';
 import {
   createSavedView,
@@ -82,6 +88,7 @@ import type {
   TaskBulkPatch,
   TaskPatch,
   TaskRelationType,
+  TaskCustomPropertyValue,
   Workspace,
 } from './types';
 import {
@@ -395,6 +402,11 @@ export function WorkspaceShell({
     queryFn: () => getTaskConfiguration(context, workspaceId!),
     enabled: hasSettledWorkspaceAccess,
   });
+  const customProperties = useQuery({
+    queryKey: ['custom-properties', workspaceId],
+    queryFn: () => listProperties(context, workspaceId!),
+    enabled: hasSettledWorkspaceAccess,
+  });
   const workspaceViews = useQuery({
     queryKey: ['saved-views', workspaceId, null],
     queryFn: () => listSavedViews(context, workspaceId!, null),
@@ -422,6 +434,18 @@ export function WorkspaceShell({
       visibleSurface === 'tasks',
     ),
     retry: false,
+  });
+  const undefinedTaskProperties = useQuery({
+    queryKey: ['task-undefined-properties', workspaceId, selectedTaskId],
+    queryFn: () =>
+      listTaskUndefinedProperties(context, workspaceId!, selectedTaskId!),
+    enabled: Boolean(
+      workspaceId &&
+      selectedTaskId &&
+      task.data &&
+      hasSettledCollectionAccess &&
+      visibleSurface === 'tasks',
+    ),
   });
   const selectedProjectId =
     task.data?.project_id ??
@@ -838,6 +862,31 @@ export function WorkspaceShell({
     const updated = await updateTask(context, workspaceId, taskId, patch);
     queryClient.setQueryData(['task', workspaceId, taskId], updated);
     await refreshTaskCaches();
+  }
+
+  async function changeTaskProperty(
+    taskId: string,
+    propertyId: string,
+    value?: TaskCustomPropertyValue['value'],
+  ) {
+    if (!workspaceId) return;
+    if (value === undefined) {
+      await clearTaskPropertyValue(context, workspaceId, taskId, propertyId);
+    } else {
+      await setTaskPropertyValue(
+        context,
+        workspaceId,
+        taskId,
+        propertyId,
+        value,
+      );
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['task', workspaceId, taskId],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
+    ]);
   }
 
   async function removeTask() {
@@ -1402,7 +1451,10 @@ export function WorkspaceShell({
 
   function changeWorkspaceSettingsSection(section: WorkspaceSettingsSection) {
     if (!location || location.kind !== 'workspace-settings') return;
-    void navigateSafely({ ...location, section }, { replace: true });
+    void navigateSafely(
+      { ...location, section, definePropertyName: undefined },
+      { replace: true },
+    );
   }
 
   function changeProjectSettingsSection(section: ProjectSettingsSection) {
@@ -1884,10 +1936,51 @@ export function WorkspaceShell({
             loading={Boolean(selectedTaskId) && task.isPending}
             error={task.error ? errorMessage(task.error) : null}
             canEdit={selectedTask ? canEditTask(selectedTask) : false}
+            canManageProperties={
+              activeWorkspace.role === 'owner' ||
+              activeWorkspace.role === 'admin'
+            }
+            customProperties={customProperties.data ?? []}
+            customPropertiesLoading={customProperties.isPending}
+            customPropertiesError={
+              customProperties.error
+                ? errorMessage(customProperties.error)
+                : null
+            }
+            onRetryCustomProperties={() => void customProperties.refetch()}
+            undefinedProperties={undefinedTaskProperties.data ?? []}
+            undefinedPropertiesLoading={undefinedTaskProperties.isPending}
+            undefinedPropertiesError={
+              undefinedTaskProperties.error
+                ? errorMessage(undefinedTaskProperties.error)
+                : null
+            }
+            onRetryUndefinedProperties={() =>
+              void undefinedTaskProperties.refetch()
+            }
             currentUserId={user.id}
             canComment={selectedTask ? canCommentTask(selectedTask) : false}
             canModerate={selectedTask ? canModerateTask(selectedTask) : false}
             onPatch={(patch) => patchTask(selectedTaskId!, patch)}
+            onCustomPropertyChange={(propertyId, value) =>
+              changeTaskProperty(selectedTaskId!, propertyId, value)
+            }
+            onDefineProperty={async (name) => {
+              if (!workspaceId) return;
+              setActionError(null);
+              try {
+                await flushDocumentSaves();
+                onNavigate({
+                  kind: 'workspace-settings',
+                  workspaceId,
+                  section: 'properties',
+                  definePropertyName: name,
+                  returnTo: presentation?.content ?? null,
+                });
+              } catch (caught) {
+                setActionError(errorMessage(caught));
+              }
+            }}
             onArchive={removeTask}
             onDelete={permanentlyDeleteTask}
             onAddRelation={addRelation}
@@ -1931,6 +2024,7 @@ export function WorkspaceShell({
               workspace={activeWorkspace}
               workspaceCount={workspaces.data?.length ?? 0}
               section={location.section}
+              definePropertyName={location.definePropertyName}
               onSectionChange={changeWorkspaceSettingsSection}
               onClose={closeSettings}
               onWorkspaceUpdated={refreshWorkspace}

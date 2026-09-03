@@ -58,9 +58,7 @@ describe('SettingsList', () => {
     );
 
     const list = screen.getByRole('list', { name: 'Custom properties' });
-    expect(
-      within(list).getByText('No custom properties yet'),
-    ).toBeVisible();
+    expect(within(list).getByText('No custom properties yet')).toBeVisible();
     expect(within(list).getByRole('status')).toBeInTheDocument();
   });
 });

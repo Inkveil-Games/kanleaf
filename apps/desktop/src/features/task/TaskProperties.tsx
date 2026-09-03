@@ -11,6 +11,9 @@ import type {
   TaskPriority,
   TaskState,
   TaskType,
+  CustomPropertyDefinition,
+  TaskCustomPropertyValue,
+  UndefinedTaskProperty,
 } from '../workspace/types';
 import {
   AddPropertyMenu,
@@ -38,7 +41,21 @@ interface TaskPropertiesProps {
   assigneeCandidates: TaskAssignee[];
   taskCandidates: Task[];
   canEdit: boolean;
+  canManageProperties: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
+  customProperties: CustomPropertyDefinition[];
+  customPropertiesLoading: boolean;
+  customPropertiesError: string | null;
+  onRetryCustomProperties: () => void;
+  undefinedProperties: UndefinedTaskProperty[];
+  undefinedPropertiesLoading: boolean;
+  undefinedPropertiesError: string | null;
+  onRetryUndefinedProperties: () => void;
+  onCustomPropertyChange: (
+    propertyId: string,
+    value?: TaskCustomPropertyValue['value'],
+  ) => Promise<void>;
+  onDefineProperty: (name: string) => Promise<void>;
 }
 
 export function TaskProperties({
@@ -52,7 +69,18 @@ export function TaskProperties({
   assigneeCandidates,
   taskCandidates,
   canEdit,
+  canManageProperties,
   onPatch,
+  customProperties,
+  customPropertiesLoading,
+  customPropertiesError,
+  onRetryCustomProperties,
+  undefinedProperties,
+  undefinedPropertiesLoading,
+  undefinedPropertiesError,
+  onRetryUndefinedProperties,
+  onCustomPropertyChange,
+  onDefineProperty,
 }: TaskPropertiesProps) {
   const [revealed, setRevealed] = useState<Set<ExtendedPropertyKey>>(
     () => new Set(),
@@ -66,6 +94,12 @@ export function TaskProperties({
     () => new Set(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [revealedCustom, setRevealedCustom] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [savingCustom, setSavingCustom] = useState<Set<string>>(
+    () => new Set(),
+  );
   const listRef = useRef<HTMLDListElement>(null);
   const savingRef = useRef<Set<PropertyKey>>(new Set());
   const activeProject = projects.find(({ id }) => id === task.project_id);
@@ -95,10 +129,73 @@ export function TaskProperties({
   const availableProperties = EXTENDED_PROPERTIES.filter(
     ({ key }) => isAvailable(key) && !isVisible(key),
   );
+  const customValues = new Map(
+    (task.custom_properties ?? []).map((value) => [
+      value.property_id,
+      value.value,
+    ]),
+  );
+  const visibleCustomProperties = customProperties.filter(
+    (property) =>
+      customValues.has(property.id) ||
+      (!property.archived_at && revealedCustom.has(property.id)),
+  );
+  const availableCustomProperties = customProperties.filter(
+    (property) =>
+      !property.archived_at &&
+      !customValues.has(property.id) &&
+      !revealedCustom.has(property.id),
+  );
+  const showCustomSection = Boolean(
+    customPropertiesLoading ||
+    undefinedPropertiesLoading ||
+    customPropertiesError ||
+    undefinedPropertiesError ||
+    visibleCustomProperties.length > 0 ||
+    undefinedProperties.length > 0,
+  );
 
   function reveal(key: ExtendedPropertyKey) {
     setRevealed((current) => new Set(current).add(key));
     setFocusProperty(key);
+  }
+
+  function revealCustom(propertyId: string) {
+    setRevealedCustom((current) => new Set(current).add(propertyId));
+    if (
+      customProperties.find(({ id }) => id === propertyId)?.type === 'checkbox'
+    ) {
+      void changeCustomProperty(propertyId, false);
+    }
+  }
+
+  async function changeCustomProperty(
+    propertyId: string,
+    value?: TaskCustomPropertyValue['value'],
+  ): Promise<boolean> {
+    setError(null);
+    setSavingCustom((current) => new Set(current).add(propertyId));
+    try {
+      await onCustomPropertyChange(propertyId, value);
+      if (value === undefined) {
+        setRevealedCustom((current) => {
+          const next = new Set(current);
+          next.delete(propertyId);
+          return next;
+        });
+      }
+      return true;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setRevealedCustom((current) => new Set(current).add(propertyId));
+      return false;
+    } finally {
+      setSavingCustom((current) => {
+        const next = new Set(current);
+        next.delete(propertyId);
+        return next;
+      });
+    }
   }
 
   function dismissEmpty(key: ExtendedPropertyKey) {
@@ -456,13 +553,112 @@ export function TaskProperties({
           </PropertyRow>
         )}
 
+        {showCustomSection ? (
+          <div className="task-property-section-heading">
+            <dt>Custom</dt>
+            <dd>Workspace properties</dd>
+          </div>
+        ) : null}
+
+        {customPropertiesLoading || undefinedPropertiesLoading ? (
+          <PropertyRow label="Custom" propertyKey="custom-loading">
+            <span className="property-readonly-value">Loading properties…</span>
+          </PropertyRow>
+        ) : null}
+
+        {customPropertiesError || undefinedPropertiesError ? (
+          <PropertyRow label="Custom" propertyKey="custom-error">
+            <span className="custom-property-load-error" role="alert">
+              {customPropertiesError ?? undefinedPropertiesError}
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => {
+                  if (customPropertiesError) onRetryCustomProperties();
+                  if (undefinedPropertiesError) onRetryUndefinedProperties();
+                }}
+              >
+                Try again
+              </button>
+            </span>
+          </PropertyRow>
+        ) : null}
+
+        {visibleCustomProperties.map((property) => {
+          const value = customValues.get(property.id);
+          return (
+            <PropertyRow
+              key={property.id}
+              label={property.name}
+              propertyKey={`custom-${property.id}`}
+            >
+              <div className="custom-property-control">
+                {property.archived_at ? (
+                  <span className="property-readonly-value">
+                    {formatCustomValue(property, value)}
+                    <span className="settings-status-badge">Archived</span>
+                  </span>
+                ) : (
+                  <CustomPropertyInput
+                    property={property}
+                    value={value}
+                    disabled={!canEdit || savingCustom.has(property.id)}
+                    onChange={(nextValue) =>
+                      changeCustomProperty(property.id, nextValue)
+                    }
+                  />
+                )}
+                {canEdit && value !== undefined ? (
+                  <button
+                    className="icon-button custom-property-clear"
+                    type="button"
+                    aria-label={`Clear ${property.name}`}
+                    disabled={savingCustom.has(property.id)}
+                    onClick={() => void changeCustomProperty(property.id)}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            </PropertyRow>
+          );
+        })}
+
+        {undefinedProperties.map((property) => (
+          <PropertyRow
+            key={property.name}
+            label={property.name}
+            propertyKey={`undefined-${property.name}`}
+          >
+            <div className="undefined-property-value">
+              <code>{formatUndefinedValue(property.value)}</code>
+              <span className="settings-status-badge">Undefined</span>
+              {canManageProperties ? (
+                <button
+                  className="text-button"
+                  type="button"
+                  aria-label={`Define ${property.name}`}
+                  onClick={() => void onDefineProperty(property.name)}
+                >
+                  Define property
+                </button>
+              ) : null}
+            </div>
+          </PropertyRow>
+        ))}
+
         {canEdit && (
           <div className="add-property-row">
             <dt>Property</dt>
             <dd>
               <AddPropertyMenu
                 properties={availableProperties}
+                customProperties={availableCustomProperties.map((property) => ({
+                  key: property.id,
+                  label: property.name,
+                }))}
                 onSelect={reveal}
+                onSelectCustom={revealCustom}
               />
             </dd>
           </div>
@@ -475,6 +671,161 @@ export function TaskProperties({
       )}
     </section>
   );
+}
+
+function CustomPropertyInput({
+  property,
+  value,
+  disabled,
+  onChange,
+}: {
+  property: CustomPropertyDefinition;
+  value: TaskCustomPropertyValue['value'] | undefined;
+  disabled: boolean;
+  onChange: (
+    value?: TaskCustomPropertyValue['value'],
+  ) => Promise<boolean | void>;
+}) {
+  if (property.type === 'checkbox') {
+    return (
+      <label className="custom-checkbox-property">
+        <input
+          aria-label={property.name}
+          type="checkbox"
+          disabled={disabled}
+          checked={value === true}
+          onChange={(event) => void onChange(event.target.checked)}
+        />
+        {value === true ? 'Checked' : 'Unchecked'}
+      </label>
+    );
+  }
+  if (property.type === 'single_select') {
+    return (
+      <Select
+        ariaLabel={property.name}
+        disabled={disabled}
+        value={typeof value === 'string' ? value : ''}
+        options={[
+          { value: '', label: 'None' },
+          ...property.options
+            .filter((option) => !option.archived_at || option.id === value)
+            .map((option) => ({ value: option.id, label: option.name })),
+        ]}
+        onValueChange={(next) => void onChange(next || undefined)}
+      />
+    );
+  }
+  if (property.type === 'multi_select') {
+    const values = Array.isArray(value) ? value : [];
+    return (
+      <MultiValuePicker
+        label={`Edit ${property.name}`}
+        emptyLabel="None"
+        readOnly={disabled}
+        saving={disabled}
+        values={values}
+        options={property.options
+          .filter((option) => !option.archived_at || values.includes(option.id))
+          .map((option) => ({ id: option.id, label: option.name }))}
+        onChange={async (next) => {
+          await onChange(next.length > 0 ? next : undefined);
+        }}
+      />
+    );
+  }
+  return (
+    <CustomScalarInput
+      key={JSON.stringify(value)}
+      property={property}
+      value={value}
+      disabled={disabled}
+      onChange={onChange}
+    />
+  );
+}
+
+function CustomScalarInput({
+  property,
+  value,
+  disabled,
+  onChange,
+}: {
+  property: CustomPropertyDefinition;
+  value: TaskCustomPropertyValue['value'] | undefined;
+  disabled: boolean;
+  onChange: (
+    value?: TaskCustomPropertyValue['value'],
+  ) => Promise<boolean | void>;
+}) {
+  const [draft, setDraft] = useState(value === undefined ? '' : String(value));
+  return (
+    <input
+      aria-label={property.name}
+      type={
+        property.type === 'number'
+          ? 'number'
+          : property.type === 'date'
+            ? 'date'
+            : property.type === 'url'
+              ? 'url'
+              : 'text'
+      }
+      disabled={disabled}
+      value={draft}
+      placeholder={`No ${property.name.toLocaleLowerCase()}`}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setDraft(value === undefined ? '' : String(value));
+          event.currentTarget.blur();
+        }
+      }}
+      onBlur={() => {
+        const saved = !draft
+          ? onChange()
+          : property.type === 'number'
+            ? onChange(Number(draft))
+            : draft !== value
+              ? onChange(draft)
+              : Promise.resolve(true);
+        void saved.then((success) => {
+          if (success === false) {
+            setDraft(value === undefined ? '' : String(value));
+          }
+        });
+      }}
+    />
+  );
+}
+
+function formatCustomValue(
+  property: CustomPropertyDefinition,
+  value: TaskCustomPropertyValue['value'] | undefined,
+) {
+  if (value === undefined) return 'None';
+  if (property.type === 'checkbox') return value ? 'Checked' : 'Unchecked';
+  if (property.type === 'single_select') {
+    return (
+      property.options.find((option) => option.id === value)?.name ??
+      'Unknown option'
+    );
+  }
+  if (property.type === 'multi_select' && Array.isArray(value)) {
+    return value
+      .map(
+        (id) =>
+          property.options.find((option) => option.id === id)?.name ??
+          'Unknown option',
+      )
+      .join(', ');
+  }
+  return String(value);
+}
+
+function formatUndefinedValue(value: unknown) {
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 function errorMessage(error: unknown) {

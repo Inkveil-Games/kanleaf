@@ -28,7 +28,10 @@ describe('IconPicker', () => {
     await user.click(
       screen.getByRole('button', { name: 'Change icon for Task' }),
     );
-    await user.type(screen.getByRole('searchbox', { name: 'Search icons' }), 'bug');
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search icons' }),
+      'bug',
+    );
     await user.click(screen.getByRole('button', { name: 'Bug' }));
 
     expect(onChange).toHaveBeenCalledWith('bug');

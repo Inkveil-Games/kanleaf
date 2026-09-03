@@ -20,6 +20,7 @@ import type { Workspace, WorkspaceAccent } from './types';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
 import { ArchivedProjectsSettings } from '../project/ArchivedProjectsSettings';
+import { PropertiesSettings } from '../custom-properties/PropertiesSettings';
 
 export type { WorkspaceSettingsSection } from './settingsSections';
 
@@ -33,6 +34,10 @@ interface WorkspaceSettingsProps {
   onConfigurationUpdated: () => Promise<void>;
   onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
+  propertyCreateRequest?: number;
+  onPropertyCreateRequestHandled?: () => void;
+  definePropertyName?: string;
+  onDefinePropertyClosed?: () => void;
 }
 
 export function WorkspaceSettings({
@@ -45,6 +50,10 @@ export function WorkspaceSettings({
   onConfigurationUpdated,
   onProjectsChanged,
   onRemoveWorkspace,
+  propertyCreateRequest,
+  onPropertyCreateRequestHandled,
+  definePropertyName,
+  onDefinePropertyClosed,
 }: WorkspaceSettingsProps) {
   if (section === 'general') {
     return (
@@ -85,6 +94,19 @@ export function WorkspaceSettings({
         context={context}
         workspace={workspace}
         onConfigurationUpdated={onConfigurationUpdated}
+      />
+    );
+  }
+  if (section === 'properties') {
+    return (
+      <PropertiesSettings
+        key={`${workspace.id}:${propertyCreateRequest ?? 0}:${definePropertyName ?? ''}`}
+        context={context}
+        workspace={workspace}
+        createRequested={propertyCreateRequest}
+        onCreateRequestHandled={onPropertyCreateRequestHandled}
+        definePropertyName={definePropertyName}
+        onDefinePropertyClosed={onDefinePropertyClosed}
       />
     );
   }

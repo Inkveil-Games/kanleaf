@@ -28,6 +28,9 @@ import type {
   TaskRelationType,
   TaskState,
   TaskType,
+  CustomPropertyDefinition,
+  TaskCustomPropertyValue,
+  UndefinedTaskProperty,
 } from '../workspace/types';
 import {
   DropdownMenu,
@@ -59,10 +62,24 @@ interface TaskDetailPaneProps {
   loading: boolean;
   error: string | null;
   canEdit: boolean;
+  canManageProperties?: boolean;
+  customProperties?: CustomPropertyDefinition[];
+  customPropertiesLoading?: boolean;
+  customPropertiesError?: string | null;
+  onRetryCustomProperties?: () => void;
+  undefinedProperties?: UndefinedTaskProperty[];
+  undefinedPropertiesLoading?: boolean;
+  undefinedPropertiesError?: string | null;
+  onRetryUndefinedProperties?: () => void;
   currentUserId?: string;
   canComment?: boolean;
   canModerate?: boolean;
   onPatch: (patch: TaskPatch) => Promise<void>;
+  onCustomPropertyChange?: (
+    propertyId: string,
+    value?: TaskCustomPropertyValue['value'],
+  ) => Promise<void>;
+  onDefineProperty?: (name: string) => Promise<void>;
   onArchive: () => Promise<void>;
   onDelete: (reference: string) => Promise<void>;
   onAddRelation: (
@@ -124,6 +141,17 @@ function SelectedTaskDetail({
   token,
   workspaceId,
   canEdit,
+  canManageProperties = false,
+  customProperties = [],
+  customPropertiesLoading = false,
+  customPropertiesError = null,
+  onRetryCustomProperties = () => undefined,
+  undefinedProperties = [],
+  undefinedPropertiesLoading = false,
+  undefinedPropertiesError = null,
+  onRetryUndefinedProperties = () => undefined,
+  onCustomPropertyChange = async () => undefined,
+  onDefineProperty = async () => undefined,
   currentUserId = '',
   canComment = false,
   canModerate = false,
@@ -194,7 +222,18 @@ function SelectedTaskDetail({
         assigneeCandidates={assigneeCandidates}
         taskCandidates={taskCandidates}
         canEdit={canEdit}
+        canManageProperties={canManageProperties}
         onPatch={onPatch}
+        customProperties={customProperties}
+        customPropertiesLoading={customPropertiesLoading}
+        customPropertiesError={customPropertiesError}
+        onRetryCustomProperties={onRetryCustomProperties}
+        undefinedProperties={undefinedProperties}
+        undefinedPropertiesLoading={undefinedPropertiesLoading}
+        undefinedPropertiesError={undefinedPropertiesError}
+        onRetryUndefinedProperties={onRetryUndefinedProperties}
+        onCustomPropertyChange={onCustomPropertyChange}
+        onDefineProperty={onDefineProperty}
       />
       {error && (
         <p className="detail-error" role="alert">

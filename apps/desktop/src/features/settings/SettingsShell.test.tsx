@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { User } from '../../lib/api/types';
 import type { Workspace } from '../workspace/types';
@@ -104,7 +104,50 @@ describe('settings shells', () => {
       within(taskProperties)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['States', 'Labels', 'Task types']);
+    ).toEqual(['New property', 'States', 'Labels', 'Task types', 'Properties']);
+  });
+
+  it('opens the property editor after the sidebar shortcut changes sections', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    );
+
+    function Harness() {
+      const [section, setSection] = useState<'general' | 'properties'>(
+        'general',
+      );
+      return (
+        <WorkspaceSettingsShell
+          context={context}
+          user={user}
+          workspace={workspace}
+          workspaceCount={2}
+          section={section}
+          onSectionChange={(next) =>
+            setSection(next as 'general' | 'properties')
+          }
+          onClose={vi.fn()}
+          onWorkspaceUpdated={vi.fn()}
+          onConfigurationUpdated={vi.fn()}
+          onProjectsChanged={vi.fn()}
+          onRemoveWorkspace={vi.fn()}
+        />
+      );
+    }
+
+    renderWithClient(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'New property' }));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Create property' }),
+    ).toBeInTheDocument();
   });
 
   it('hides administrative Workspace pages from members', () => {

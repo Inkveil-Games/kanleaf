@@ -26,7 +26,9 @@ describe('Select', () => {
     await user.click(screen.getByRole('option', { name: 'In progress' }));
 
     expect(onValueChange).toHaveBeenCalledWith('started');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    );
     expect(screen.getByRole('combobox', { name: 'State' })).toHaveFocus();
   });
 
@@ -52,7 +54,9 @@ describe('Select', () => {
     expect(screen.getByRole('option', { name: 'In progress' })).toHaveFocus();
 
     await user.keyboard('[Escape]');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    );
     expect(trigger).toHaveFocus();
   });
 
@@ -73,7 +77,9 @@ describe('Select', () => {
     await user.keyboard('[ArrowDown]d[Enter]');
 
     expect(onValueChange).toHaveBeenCalledWith('done');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    );
   });
 
   it('closes after a pointer press outside', async () => {
@@ -94,7 +100,9 @@ describe('Select', () => {
     const outside = screen.getByRole('button', { name: 'Outside' });
     fireEvent.pointerDown(outside);
     fireEvent.mouseDown(outside);
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    );
   });
 
   it('keeps its popover inside a top-layer dialog', async () => {

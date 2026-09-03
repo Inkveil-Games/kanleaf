@@ -297,6 +297,7 @@ describe('Settings section contracts', () => {
     ['states', true],
     ['labels', true],
     ['task-types', true],
+    ['properties', true],
     ['invitations', false],
     ['storage', true],
     ['danger', true],

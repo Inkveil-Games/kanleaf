@@ -147,6 +147,275 @@ const modules: ProjectModule[] = [
 ];
 
 describe('TaskDetailPane', () => {
+  it('preserves undefined Markdown fields as raw values and offers Define', async () => {
+    const onDefineProperty = vi.fn();
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={task}
+        customProperties={[]}
+        undefinedProperties={[
+          {
+            name: 'External context',
+            value: { source: 'Obsidian', score: 9 },
+          },
+        ]}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        canManageProperties
+        onPatch={vi.fn()}
+        onDefineProperty={onDefineProperty}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Undefined')).toBeInTheDocument();
+    expect(
+      screen.getByText('{"source":"Obsidian","score":9}'),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Define External context' }),
+    );
+    expect(onDefineProperty).toHaveBeenCalledWith('External context');
+  });
+
+  it('does not offer property definition to a non-admin Task editor', async () => {
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={task}
+        customProperties={[]}
+        undefinedProperties={[{ name: 'External context', value: 'Raw' }]}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Undefined')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Define External context' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('edits defined custom properties and keeps archived values visible', async () => {
+    const onCustomPropertyChange = vi.fn().mockResolvedValue(undefined);
+    const properties = [
+      {
+        id: 'impact-property',
+        workspace_id: 'workspace-1',
+        name: 'Impact',
+        type: 'single_select' as const,
+        description: 'Expected customer impact',
+        position: 0,
+        configuration: {},
+        options: [
+          {
+            id: 'high-option',
+            workspace_id: 'workspace-1',
+            property_id: 'impact-property',
+            name: 'High',
+            color: '#EF4444',
+            position: 0,
+            archived_at: null,
+            created_at: '2026-09-03T01:00:00Z',
+            updated_at: '2026-09-03T01:00:00Z',
+          },
+        ],
+        usage_count: 0,
+        archived_at: null,
+        created_at: '2026-09-03T01:00:00Z',
+        updated_at: '2026-09-03T01:00:00Z',
+      },
+      {
+        id: 'legacy-property',
+        workspace_id: 'workspace-1',
+        name: 'Legacy note',
+        type: 'text' as const,
+        description: '',
+        position: 1,
+        configuration: {},
+        options: [],
+        usage_count: 1,
+        archived_at: '2026-09-03T02:00:00Z',
+        created_at: '2026-09-03T01:00:00Z',
+        updated_at: '2026-09-03T02:00:00Z',
+      },
+      {
+        id: 'approved-property',
+        workspace_id: 'workspace-1',
+        name: 'Approved',
+        type: 'checkbox' as const,
+        description: '',
+        position: 2,
+        configuration: {},
+        options: [],
+        usage_count: 0,
+        archived_at: null,
+        created_at: '2026-09-03T01:00:00Z',
+        updated_at: '2026-09-03T01:00:00Z',
+      },
+    ];
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={{
+          ...task,
+          custom_properties: [
+            { property_id: 'legacy-property', value: 'Keep this' },
+          ],
+        }}
+        customProperties={properties}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn()}
+        onCustomPropertyChange={onCustomPropertyChange}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Keep this')).toBeInTheDocument();
+    expect(screen.getByText('Archived')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Impact property' }),
+    );
+    await chooseSelectOption('Impact', 'High');
+
+    await waitFor(() =>
+      expect(onCustomPropertyChange).toHaveBeenCalledWith(
+        'impact-property',
+        'high-option',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add Approved property' }),
+    );
+    await waitFor(() =>
+      expect(onCustomPropertyChange).toHaveBeenCalledWith(
+        'approved-property',
+        false,
+      ),
+    );
+  });
+
+  it('restores a scalar custom-property draft when saving fails', async () => {
+    const onCustomPropertyChange = vi
+      .fn()
+      .mockRejectedValue(new Error('Property update failed'));
+    const note = {
+      id: 'note-property',
+      workspace_id: 'workspace-1',
+      name: 'Release note',
+      type: 'text' as const,
+      description: '',
+      position: 0,
+      configuration: {},
+      options: [],
+      usage_count: 1,
+      archived_at: null,
+      created_at: '2026-09-03T01:00:00Z',
+      updated_at: '2026-09-03T01:00:00Z',
+    };
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={{
+          ...task,
+          custom_properties: [
+            { property_id: 'note-property', value: 'Original' },
+          ],
+        }}
+        customProperties={[note]}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn()}
+        onCustomPropertyChange={onCustomPropertyChange}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Release note' });
+    fireEvent.change(input, { target: { value: 'Unsaved' } });
+    fireEvent.blur(input);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Property update failed',
+    );
+    expect(input).toHaveValue('Original');
+  });
+
   it('edits structured task fields directly in the detail pane', async () => {
     const patch = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);

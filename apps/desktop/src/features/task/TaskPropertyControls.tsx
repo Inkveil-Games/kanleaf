@@ -13,10 +13,14 @@ import type {
 
 export function AddPropertyMenu({
   properties,
+  customProperties = [],
   onSelect,
+  onSelectCustom,
 }: {
   properties: TaskPropertyDefinition[];
+  customProperties?: { key: string; label: string }[];
   onSelect: (key: ExtendedPropertyKey) => void;
+  onSelectCustom?: (key: string) => void;
 }) {
   return (
     <Popover
@@ -29,21 +33,33 @@ export function AddPropertyMenu({
         </span>
       }
     >
-      <PropertyCatalog properties={properties} onSelect={onSelect} />
+      <PropertyCatalog
+        properties={properties}
+        customProperties={customProperties}
+        onSelect={onSelect}
+        onSelectCustom={onSelectCustom}
+      />
     </Popover>
   );
 }
 
 function PropertyCatalog({
   properties,
+  customProperties,
   onSelect,
+  onSelectCustom,
 }: {
   properties: TaskPropertyDefinition[];
+  customProperties: { key: string; label: string }[];
   onSelect: (key: ExtendedPropertyKey) => void;
+  onSelectCustom?: (key: string) => void;
 }) {
   const [search, setSearch] = useState('');
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filtered = properties.filter(({ label }) =>
+    label.toLocaleLowerCase().includes(normalizedSearch),
+  );
+  const filteredCustom = customProperties.filter(({ label }) =>
     label.toLocaleLowerCase().includes(normalizedSearch),
   );
   return (
@@ -60,22 +76,33 @@ function PropertyCatalog({
         />
       </label>
       <div className="property-catalog-list">
-        {filtered.length === 0 ? (
+        {filtered.length === 0 && filteredCustom.length === 0 ? (
           <span className="menu-empty-state">
-            {properties.length === 0
+            {properties.length === 0 && customProperties.length === 0
               ? 'All properties are shown'
               : 'No matching properties'}
           </span>
         ) : (
-          filtered.map(({ key, label }) => (
-            <PopoverClose
-              key={key}
-              ariaLabel={`Add ${label} property`}
-              onClick={() => onSelect(key)}
-            >
-              <Plus aria-hidden="true" size={14} /> {label}
-            </PopoverClose>
-          ))
+          <>
+            {filtered.map(({ key, label }) => (
+              <PopoverClose
+                key={key}
+                ariaLabel={`Add ${label} property`}
+                onClick={() => onSelect(key)}
+              >
+                <Plus aria-hidden="true" size={14} /> {label}
+              </PopoverClose>
+            ))}
+            {filteredCustom.map(({ key, label }) => (
+              <PopoverClose
+                key={key}
+                ariaLabel={`Add ${label} property`}
+                onClick={() => onSelectCustom?.(key)}
+              >
+                <Plus aria-hidden="true" size={14} /> {label}
+              </PopoverClose>
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -89,7 +116,7 @@ export function PropertyRow({
   onLeaveEmpty,
 }: {
   label: string;
-  propertyKey: PropertyKey;
+  propertyKey: PropertyKey | string;
   children: ReactNode;
   onLeaveEmpty?: () => void;
 }) {

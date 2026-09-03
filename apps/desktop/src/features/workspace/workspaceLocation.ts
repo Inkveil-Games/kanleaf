@@ -62,9 +62,16 @@ export type WorkspaceContentLocation =
 
 export type WorkspaceSettingsLocation =
   | {
-      kind: 'account-settings' | 'workspace-settings';
+      kind: 'account-settings';
       workspaceId: string;
       section: string;
+      returnTo: WorkspaceContentLocation | null;
+    }
+  | {
+      kind: 'workspace-settings';
+      workspaceId: string;
+      section: string;
+      definePropertyName?: string;
       returnTo: WorkspaceContentLocation | null;
     }
   | {

@@ -228,6 +228,16 @@ describe('workspaceLocationPath', () => {
     ],
     [
       {
+        kind: 'workspace-settings',
+        workspaceId: 'workspace-1',
+        section: 'properties',
+        definePropertyName: 'External score',
+        returnTo: null,
+      },
+      '/w/kanleaf-core/settings/workspace/properties?define=External+score',
+    ],
+    [
+      {
         kind: 'project-settings',
         workspaceId: 'workspace-1',
         projectId: 'project-1',
@@ -420,6 +430,19 @@ describe('workspaceLocationFromRoute', () => {
         kind: 'workspace-settings',
         workspaceId: 'workspace-1',
         section: 'members',
+        returnTo: null,
+      },
+    ],
+    [
+      'workspace-settings',
+      { workspaceId: 'workspace-1', section: 'properties' },
+      '?define=External+score',
+      null,
+      {
+        kind: 'workspace-settings',
+        workspaceId: 'workspace-1',
+        section: 'properties',
+        definePropertyName: 'External score',
         returnTo: null,
       },
     ],
