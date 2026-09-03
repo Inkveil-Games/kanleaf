@@ -10,6 +10,7 @@ import {
 
 interface PopoverProps {
   label: string;
+  contentLabel?: string;
   children: ReactNode;
   align?: 'start' | 'end';
   disabled?: boolean;
@@ -18,6 +19,8 @@ interface PopoverProps {
   trigger?: ReactNode;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   sideOffset?: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface PopoverCloseProps {
@@ -32,6 +35,7 @@ interface PopoverCloseProps {
 
 export function Popover({
   label,
+  contentLabel,
   children,
   align = 'end',
   disabled = false,
@@ -40,6 +44,8 @@ export function Popover({
   trigger,
   triggerRef,
   sideOffset = 4,
+  open,
+  onOpenChange,
 }: PopoverProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
@@ -48,7 +54,7 @@ export function Popover({
   const positionerClassName = `context-menu-positioner context-menu-${placement}${className ? ` ${className}` : ''}`;
 
   return (
-    <BasePopover.Root modal={false}>
+    <BasePopover.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <div className={triggerClassName}>
         <BasePopover.Trigger
           ref={(element: HTMLElement | null) => {
@@ -74,7 +80,9 @@ export function Popover({
           collisionPadding={8}
         >
           <BasePopover.Popup className="context-menu-popover">
-            <BasePopover.Title className="sr-only">{label}</BasePopover.Title>
+            <BasePopover.Title className="sr-only">
+              {contentLabel ?? label}
+            </BasePopover.Title>
             {children}
           </BasePopover.Popup>
         </BasePopover.Positioner>

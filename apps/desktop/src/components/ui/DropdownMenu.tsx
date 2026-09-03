@@ -27,6 +27,10 @@ interface DropdownMenuCheckboxItemProps {
   onCheckedChange: (checked: boolean) => void;
 }
 
+export function DropdownMenuSeparator() {
+  return <Menu.Separator className="context-menu-separator" />;
+}
+
 export function DropdownMenu({
   label,
   children,

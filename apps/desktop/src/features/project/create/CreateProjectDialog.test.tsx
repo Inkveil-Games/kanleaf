@@ -77,10 +77,15 @@ describe('CreateProjectDialog', () => {
     });
     expect(screen.getByLabelText('Project ID')).toHaveValue('mobile-client');
 
-    fireEvent.click(
+    await user.click(
       screen.getByRole('button', { name: 'Choose Project icon' }),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Rocket' }));
+    await user.click(screen.getByRole('button', { name: 'Rocket' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Rocket' }),
+      ).not.toBeInTheDocument(),
+    );
     await user.click(screen.getByRole('combobox', { name: 'Project lead' }));
     expect(screen.getByText(/Becomes Project Admin/)).toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: 'Minh' }));
@@ -124,7 +129,7 @@ describe('CreateProjectDialog', () => {
     );
   });
 
-  it('supports keyboard navigation and returns focus when the icon picker closes', () => {
+  it('supports keyboard navigation and returns focus when the icon picker closes', async () => {
     renderDialog(vi.fn(), vi.fn());
     const trigger = screen.getByRole('button', {
       name: 'Choose Project icon',
@@ -138,10 +143,12 @@ describe('CreateProjectDialog', () => {
     expect(screen.getByRole('button', { name: 'Target' })).toHaveFocus();
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
 
-    expect(
-      screen.queryByRole('dialog', { name: 'Project icons' }),
-    ).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Project icons' }),
+      ).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    });
   });
 
   it('submits from the description shortcut and blocks duplicate dismissal while busy', async () => {
