@@ -135,6 +135,39 @@ async fn create_document(
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn concurrent_document_creation_allocates_distinct_numbers(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "concurrent-pages@example.com").await;
+    let mut creates = tokio::task::JoinSet::new();
+
+    for index in 0..8 {
+        let app = app.clone();
+        let token = token.clone();
+        creates.spawn(async move {
+            create_document(
+                &app,
+                &token,
+                workspace_id,
+                &format!("Page {index}"),
+                None,
+                None,
+            )
+            .await["document_number"]
+                .as_i64()
+                .unwrap()
+        });
+    }
+
+    let mut numbers = Vec::new();
+    while let Some(result) = creates.join_next().await {
+        numbers.push(result.unwrap());
+    }
+    numbers.sort_unstable();
+    assert_eq!(numbers, (1..=8).collect::<Vec<_>>());
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
@@ -150,6 +183,7 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     )
     .await;
     let root_id: Uuid = root["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(root["document_number"], 1);
     let child = create_document(
         &app,
         &token,
@@ -160,6 +194,7 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     )
     .await;
     let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(child["document_number"], 2);
     let project_storage_name: String =
         sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
             .bind(project_id)
@@ -252,6 +287,7 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     assert_eq!(moved.status(), StatusCode::OK);
     let moved = body(moved).await;
     assert_eq!(moved["title"], "System architecture");
+    assert_eq!(moved["document_number"], 1);
     assert_eq!(moved["storage_name"], "architecture");
     assert_eq!(moved["library_path"], "Wiki/architecture.md");
     assert!(root_path.exists());
@@ -279,6 +315,23 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     let second_root =
         create_document(&app, &token, workspace_id, "Release notes", None, None).await;
     let second_root_id: Uuid = second_root["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(second_root["document_number"], 3);
+
+    let resolved = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!(
+                "/api/workspaces/{workspace_id}/documents/by-number/{}",
+                moved["document_number"]
+            ),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resolved.status(), StatusCode::OK);
+    assert_eq!(body(resolved).await["id"], root_id.to_string());
     let reordered = app
         .clone()
         .oneshot(request(
@@ -338,6 +391,9 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
     assert!(!root_path.exists());
     assert!(!child_path.exists());
+
+    let after_delete = create_document(&app, &token, workspace_id, "Postmortem", None, None).await;
+    assert_eq!(after_delete["document_number"], 4);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -630,8 +686,13 @@ async fn document_access_follows_project_roles_and_tenant_boundaries(pool: PgPoo
     let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
     let (contributor_token, contributor_id, _) = register(&app, "contributor@example.com").await;
     let (viewer_token, viewer_id, _) = register(&app, "viewer@example.com").await;
+    let (member_token, member_id, _) = register(&app, "member@example.com").await;
     let (outsider_token, _, _) = register(&app, "outsider@example.com").await;
-    for (user_id, role) in [(contributor_id, "member"), (viewer_id, "guest")] {
+    for (user_id, role) in [
+        (contributor_id, "member"),
+        (viewer_id, "guest"),
+        (member_id, "member"),
+    ] {
         sqlx::query(
             "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)",
         )
@@ -665,6 +726,7 @@ async fn document_access_follows_project_roles_and_tenant_boundaries(pool: PgPoo
     )
     .await;
     let document_id = document["id"].as_str().unwrap();
+    let document_number = document["document_number"].as_i64().unwrap();
 
     let viewer_read = app
         .clone()
@@ -677,6 +739,28 @@ async fn document_access_follows_project_roles_and_tenant_boundaries(pool: PgPoo
         .await
         .unwrap();
     assert_eq!(viewer_read.status(), StatusCode::OK);
+    let viewer_resolved = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/by-number/{document_number}"),
+            None,
+            &viewer_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(viewer_resolved.status(), StatusCode::OK);
+    let inaccessible_member_resolved = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/by-number/{document_number}"),
+            None,
+            &member_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(inaccessible_member_resolved.status(), StatusCode::NOT_FOUND);
     let viewer_edit = app
         .clone()
         .oneshot(request(
@@ -710,6 +794,63 @@ async fn document_access_follows_project_roles_and_tenant_boundaries(pool: PgPoo
         .await
         .unwrap();
     assert_eq!(outsider_read.status(), StatusCode::NOT_FOUND);
+    let outsider_resolved = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/by-number/{document_number}"),
+            None,
+            &outsider_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(outsider_resolved.status(), StatusCode::NOT_FOUND);
+    let workspace_document = create_document(
+        &app,
+        &owner_token,
+        workspace_id,
+        "Workspace page",
+        None,
+        None,
+    )
+    .await;
+    let workspace_document_number = workspace_document["document_number"].as_i64().unwrap();
+    let guest_workspace_resolved = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!(
+                "/api/workspaces/{workspace_id}/documents/by-number/{workspace_document_number}"
+            ),
+            None,
+            &viewer_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(guest_workspace_resolved.status(), StatusCode::NOT_FOUND);
+    let malformed_number = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/by-number/0"),
+            None,
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(malformed_number.status(), StatusCode::NOT_FOUND);
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/workspaces/{workspace_id}/documents/by-number/{document_number}"
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
     let guest_workspace_page = app
         .oneshot(request(
             "POST",

@@ -54,6 +54,7 @@ const task = {
 
 const note: WorkspaceDocument = {
   id: 'document-1',
+  document_number: 1,
   workspace_id: 'workspace-1',
   project_id: 'project-1',
   parent_id: null,

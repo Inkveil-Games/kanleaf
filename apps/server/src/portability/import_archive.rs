@@ -244,8 +244,9 @@ pub(super) fn extract_and_validate(
 pub(super) fn validate_staging(
     staging_vault: &Path,
 ) -> Result<ValidatedImport, ImportArchiveError> {
-    let manifest: ImportManifest = load_json(staging_vault, ".kanleaf/manifest.json")?;
+    let mut manifest: ImportManifest = load_json(staging_vault, ".kanleaf/manifest.json")?;
     validate_manifest_shape(&manifest)?;
+    normalize_document_numbers(&mut manifest.source)?;
     let inventory = manifest_inventory(&manifest)?;
     for expected in inventory.values() {
         let path = staging_vault.join(&expected.path);
@@ -429,6 +430,17 @@ pub(super) fn validate_staging(
     if document_ids.len() != manifest.source.documents.len() {
         return Err(ImportArchiveError::InvalidMetadata);
     }
+    let document_numbers = manifest
+        .source
+        .documents
+        .iter()
+        .filter_map(|document| document.number)
+        .collect::<HashSet<_>>();
+    if document_numbers.len() != manifest.source.documents.len()
+        || document_numbers.iter().any(|number| *number <= 0)
+    {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
     let document_paths = document_paths(&manifest.source.documents, &project_map)?;
     let mut expected_payloads = HashSet::new();
     expected_payloads.extend(tasks.values().map(|task| task.path.display()));
@@ -545,7 +557,7 @@ pub(super) fn validate_staging(
 
 fn validate_manifest_shape(manifest: &ImportManifest) -> Result<(), ImportArchiveError> {
     if manifest.format_version != 1
-        || manifest.source.format_version != 1
+        || !matches!(manifest.source.format_version, 1 | 2)
         || manifest.source.layout_version != 2
     {
         return Err(ImportArchiveError::UnsupportedSchema);
@@ -595,6 +607,31 @@ fn validate_manifest_shape(manifest: &ImportManifest) -> Result<(), ImportArchiv
         return Err(ImportArchiveError::InvalidMetadata);
     }
     Ok(())
+}
+
+fn normalize_document_numbers(manifest: &mut LiveManifest) -> Result<(), ImportArchiveError> {
+    match manifest.format_version {
+        1 => {
+            let mut ordered_ids = manifest
+                .documents
+                .iter()
+                .map(|document| document.id)
+                .collect::<Vec<_>>();
+            ordered_ids.sort_unstable();
+            let numbers = ordered_ids
+                .into_iter()
+                .enumerate()
+                .map(|(index, id)| (id, index as i64 + 1))
+                .collect::<HashMap<_, _>>();
+            for document in &mut manifest.documents {
+                document.number = numbers.get(&document.id).copied();
+            }
+            manifest.format_version = 2;
+            Ok(())
+        }
+        2 => Ok(()),
+        _ => Err(ImportArchiveError::UnsupportedSchema),
+    }
 }
 
 fn manifest_inventory(

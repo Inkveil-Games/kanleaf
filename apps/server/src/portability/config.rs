@@ -15,6 +15,7 @@ use crate::{
 };
 
 const CONFIG_FORMAT_VERSION: u16 = 1;
+const LIVE_MANIFEST_FORMAT_VERSION: u16 = 2;
 const TASK_CONFIG_FORMAT_VERSION: u16 = 2;
 const PROJECT_CONFIG_FORMAT_VERSION: u16 = 2;
 const PROJECTION_BATCH_SIZE: i64 = 20;
@@ -254,6 +255,8 @@ pub(super) struct TaskIdentity {
 #[serde(deny_unknown_fields)]
 pub(super) struct DocumentIdentity {
     pub id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<i64>,
     pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,
     pub title: String,
@@ -529,7 +532,7 @@ async fn build_snapshot(
     .await?;
     let documents = sqlx::query_as::<_, DocumentIdentity>(
         r#"
-        SELECT id, project_id, parent_id, title, storage_name, position,
+        SELECT id, document_number AS number, project_id, parent_id, title, storage_name, position,
                archived_at IS NOT NULL AS archived
         FROM documents WHERE workspace_id = $1 ORDER BY id
         "#,
@@ -554,7 +557,7 @@ async fn build_snapshot(
     }));
     config_files.sort_by(|left, right| left.path.cmp(&right.path));
     let manifest = LiveManifest {
-        format_version: CONFIG_FORMAT_VERSION,
+        format_version: LIVE_MANIFEST_FORMAT_VERSION,
         layout_version: workspace.vault_layout_version,
         config_version: workspace.config_version,
         generated_at: Utc::now(),

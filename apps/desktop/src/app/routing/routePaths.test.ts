@@ -15,7 +15,9 @@ import {
   routePaths,
   routePatterns,
   setupPathForStage,
+  withPage,
   withTask,
+  withoutPage,
   withoutTask,
 } from './routePaths';
 
@@ -40,7 +42,7 @@ describe('routePatterns', () => {
       workspaceTasks: '/w/:workspaceIdentifier/tasks',
       workspaceView: '/w/:workspaceIdentifier/views/:viewId',
       workspaceLibrary: '/w/:workspaceIdentifier/library',
-      workspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
+      legacyWorkspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
       project: '/w/:workspaceIdentifier/p/:projectIdentifier',
       projectWorkItems:
         '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
@@ -51,7 +53,7 @@ describe('routePatterns', () => {
       projectModule:
         '/w/:workspaceIdentifier/p/:projectIdentifier/modules/:moduleId',
       projectLibrary: '/w/:workspaceIdentifier/p/:projectIdentifier/library',
-      projectDocument:
+      legacyProjectDocument:
         '/w/:workspaceIdentifier/p/:projectIdentifier/library/:documentId',
       projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
       projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
@@ -74,6 +76,15 @@ describe('routePaths', () => {
     expect(withTask('/w/kanleaf-core/p/desktop/work-items', '42')).toBe(
       '/w/kanleaf-core/p/desktop/work-items?task=42',
     );
+  });
+
+  it('adds and removes a numeric Page locator without losing other URL state', () => {
+    expect(
+      withPage('/w/kanleaf-core/library?filter=recent#content', '42'),
+    ).toBe('/w/kanleaf-core/library?filter=recent&page=42#content');
+    expect(
+      withoutPage('/w/kanleaf-core/library?filter=recent&page=42#content'),
+    ).toBe('/w/kanleaf-core/library?filter=recent#content');
   });
 
   it.each<{
@@ -134,11 +145,6 @@ describe('routePaths', () => {
       expected: '/w/workspace-id/library',
     },
     {
-      label: 'Workspace Library note',
-      actual: () => routePaths.workspaceDocument('workspace-id', 'document-id'),
-      expected: '/w/workspace-id/library/document-id',
-    },
-    {
       label: 'Project Overview',
       actual: () => routePaths.project('workspace-id', 'project-id'),
       expected: '/w/workspace-id/p/project-id',
@@ -176,12 +182,6 @@ describe('routePaths', () => {
       expected: '/w/workspace-id/p/project-id/library',
     },
     {
-      label: 'Project Library note',
-      actual: () =>
-        routePaths.projectDocument('workspace-id', 'project-id', 'document-id'),
-      expected: '/w/workspace-id/p/project-id/library/document-id',
-    },
-    {
       label: 'Project Saved Views',
       actual: () => routePaths.projectViews('workspace-id', 'project-id'),
       expected: '/w/workspace-id/p/project-id/views',
@@ -214,14 +214,12 @@ describe('routePaths', () => {
 
   it('encodes every resource path segment', () => {
     expect(
-      routePaths.projectDocument(
+      routePaths.projectModule(
         'workspace/with space',
         'project?#',
-        'document%2Fid',
+        'module%2Fid',
       ),
-    ).toBe(
-      '/w/workspace%2Fwith%20space/p/project%3F%23/library/document%252Fid',
-    );
+    ).toBe('/w/workspace%2Fwith%20space/p/project%3F%23/modules/module%252Fid');
   });
 
   it.each([

@@ -35,6 +35,30 @@ export function createDocument(
   );
 }
 
+export function getDocument(
+  context: ApiContext,
+  workspaceId: string,
+  documentId: string,
+) {
+  return apiRequest<WorkspaceDocument>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/documents/${documentId}`,
+    { token: context.token },
+  );
+}
+
+export function getDocumentByNumber(
+  context: ApiContext,
+  workspaceId: string,
+  documentNumber: number,
+) {
+  return apiRequest<WorkspaceDocument>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/documents/by-number/${documentNumber}`,
+    { token: context.token },
+  );
+}
+
 export function updateDocument(
   context: ApiContext,
   workspaceId: string,

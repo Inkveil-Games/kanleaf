@@ -22,6 +22,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../lib/api/client';
 import type { User } from '../../lib/api/types';
+import type { WorkspaceDocument } from '../document/types';
 import type { WorkspaceImportOperation } from './portabilityApi';
 import { createTaskQuery, type SavedView } from '../view/types';
 import type { Project, Task, TaskConfiguration, Workspace } from './types';
@@ -39,6 +40,8 @@ const mocks = vi.hoisted(() => ({
   getSavedView: vi.fn(),
   getTask: vi.fn(),
   getTaskByNumber: vi.fn(),
+  getDocument: vi.fn(),
+  getDocumentByNumber: vi.fn(),
   getTaskConfiguration: vi.fn(),
   listProjectCycles: vi.fn(),
   listProjectMembers: vi.fn(),
@@ -81,6 +84,11 @@ vi.mock('../view/api', () => ({
   listSavedViews: mocks.listSavedViews,
   queryTasks: mocks.queryTasks,
   updateSavedView: vi.fn(),
+}));
+
+vi.mock('../document/api', () => ({
+  getDocument: mocks.getDocument,
+  getDocumentByNumber: mocks.getDocumentByNumber,
 }));
 
 vi.mock('../task-config/api', () => ({
@@ -246,6 +254,7 @@ vi.mock('../document/DocumentWorkspace', () => ({
     onSelectDocument: (
       document: {
         id: string;
+        document_number: number;
         project_id: string | null;
       },
       navigation?: { replace?: boolean },
@@ -261,6 +270,7 @@ vi.mock('../document/DocumentWorkspace', () => ({
         onClick={() =>
           void onSelectDocument({
             id: 'document-1',
+            document_number: 1,
             project_id: 'project-1',
           })
         }
@@ -271,7 +281,11 @@ vi.mock('../document/DocumentWorkspace', () => ({
         type="button"
         onClick={() =>
           void onSelectDocument(
-            { id: 'document-1', project_id: 'project-1' },
+            {
+              id: 'document-1',
+              document_number: 1,
+              project_id: 'project-1',
+            },
             { replace: true },
           )
         }
@@ -285,7 +299,7 @@ vi.mock('../document/DocumentWorkspace', () => ({
         type="button"
         onClick={() =>
           void onSelectDocument(
-            { id: 'document-1', project_id: null },
+            { id: 'document-1', document_number: 1, project_id: null },
             { replace: true },
           )
         }
@@ -493,6 +507,13 @@ const task: Task = {
   updated_at: '2026-09-01T00:00:00Z',
 };
 
+const document = {
+  id: 'document-1',
+  document_number: 1,
+  workspace_id: 'workspace-1',
+  project_id: 'project-1',
+} as WorkspaceDocument;
+
 const savedView: SavedView = {
   id: 'view-1',
   workspace_id: 'workspace-1',
@@ -549,6 +570,8 @@ beforeEach(() => {
   });
   mocks.archiveTask.mockResolvedValue(undefined);
   mocks.getTaskByNumber.mockResolvedValue(task);
+  mocks.getDocument.mockResolvedValue(document);
+  mocks.getDocumentByNumber.mockResolvedValue(document);
   mocks.createSavedView.mockResolvedValue({
     ...savedView,
     id: 'view-created',
@@ -1339,7 +1362,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/w/workspace-1/p/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library?page=1',
       ),
     );
   });
@@ -1347,7 +1370,7 @@ describe('WorkspaceShell routing integration', () => {
   it('replaces a direct aggregate Library URL with its Project-scoped URL', async () => {
     mocks.listProjects.mockResolvedValue([disabledViewsProject]);
     renderWorkspaceRoutes({
-      initialEntries: ['/sentinel', '/w/workspace-1/library/document-1'],
+      initialEntries: ['/sentinel', '/w/workspace-1/library?page=1'],
     });
 
     fireEvent.click(
@@ -1358,7 +1381,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/w/workspace-1/p/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library?page=1',
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
@@ -1374,7 +1397,7 @@ describe('WorkspaceShell routing integration', () => {
     renderWorkspaceRoutes({
       initialEntries: [
         '/sentinel',
-        '/w/workspace-1/p/project-1/library/document-1',
+        '/w/workspace-1/p/project-1/library?page=1',
       ],
     });
 
@@ -1384,7 +1407,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/w/workspace-1/library/document-1',
+        '/w/workspace-1/library?page=1',
       ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
@@ -1399,7 +1422,7 @@ describe('WorkspaceShell routing integration', () => {
     {
       name: 'document',
       settingsPath: '/w/workspace-1/settings/workspace/general',
-      returnTo: '/w/workspace-1/library/document-1',
+      returnTo: '/w/workspace-1/library?page=1',
       invalidation: 'Invalidate document background',
       expectedReturnTo: '/w/workspace-1/library',
     },
@@ -1804,7 +1827,7 @@ describe('WorkspaceShell routing integration', () => {
       .fn()
       .mockRejectedValue(new Error('Document save failed'));
     renderWorkspaceRoutes({
-      initialEntries: ['/w/workspace-1/library/document-1'],
+      initialEntries: ['/w/workspace-1/library?page=1'],
       flushDocumentSaves,
     });
 
@@ -1816,7 +1839,7 @@ describe('WorkspaceShell routing integration', () => {
       'Document save failed',
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/w/workspace-1/library/document-1',
+      '/w/workspace-1/library?page=1',
     );
     expect(flushDocumentSaves).toHaveBeenCalledOnce();
   });

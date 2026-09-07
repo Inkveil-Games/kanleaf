@@ -367,12 +367,34 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.locator('.document-detail-pane')).toBeVisible();
   await page.getByRole('button', { name: 'New Library note' }).click();
   await page.getByLabel('Note title').fill('Project handbook');
+  const pageCreated = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'POST' &&
+      /\/api\/workspaces\/[^/]+\/documents$/.test(path)
+    );
+  });
   await page.getByRole('button', { name: 'Create note' }).click();
+  const createdPage = (await (await pageCreated).json()) as {
+    id: string;
+    document_number: number;
+  };
   await expect(page).toHaveURL(
     new RegExp(
-      `/w/${workspaceIdentifier}/p/${projectIdentifier}/library/[^/?]+$`,
+      `/w/${workspaceIdentifier}/p/${projectIdentifier}/library\\?page=\\d+$`,
     ),
   );
+  await page.goto(
+    `/w/${workspaceIdentifier}/p/${projectIdentifier}/library/${createdPage.id}#legacy-page`,
+  );
+  await expect(page).toHaveURL(
+    `/w/${workspaceIdentifier}/p/${projectIdentifier}/library?page=${createdPage.document_number}#legacy-page`,
+  );
+  await expect(
+    page
+      .locator('.document-detail-header')
+      .getByRole('heading', { name: 'Project handbook' }),
+  ).toBeVisible();
   const pageMarkdown = `# Project handbook
 
 This note is stored as a durable **Markdown file**.
@@ -714,9 +736,13 @@ let source_is_markdown = true;
   await expectTaskPatch(page, () =>
     page.getByLabel('Start date').fill('2026-09-01'),
   );
-  page.once('dialog', (dialog) => void dialog.accept());
+  await chooseSelectOption(page, 'Project', 'Inbox');
+  const moveTaskDialog = page.getByRole('alertdialog', {
+    name: 'Move this Task?',
+  });
+  await expect(moveTaskDialog).toBeVisible();
   await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'Project', 'Inbox'),
+    moveTaskDialog.getByRole('button', { name: 'Move Task' }).click(),
   );
 
   await page.getByRole('button', { name: 'My Work' }).click();

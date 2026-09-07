@@ -80,11 +80,11 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/w/workspace-1/library/document-1',
+      '/w/workspace-1/library?page=42',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
-        documentId: 'document-1',
+        documentId: '42',
       },
     ],
     [
@@ -123,12 +123,12 @@ describe('Workspace content path parsing', () => {
       },
     ],
     [
-      '/w/workspace-1/p/project-1/library/document-1',
+      '/w/workspace-1/p/project-1/library?page=42',
       {
         kind: 'project-library',
         workspaceId: 'workspace-1',
         projectId: 'project-1',
-        documentId: 'document-1',
+        documentId: '42',
       },
     ],
     [
@@ -174,6 +174,10 @@ describe('Workspace content path parsing', () => {
     '/w/workspace-1/settings/account/profile',
     '/w/workspace-1/p/project-1/settings/general',
     '/w/workspace-1/library?task=task-1',
+    '/w/workspace-1/my-work?page=42',
+    '/w/workspace-1/library?page=',
+    '/w/workspace-1/library?page=1&page=2',
+    '/w/workspace-1/library/document-1',
     '/w/workspace-1/my-work?filter=open',
     '/w/workspace-1/my-work?task=one&task=two',
     '/w/workspace-1/my-work?task=',
@@ -184,6 +188,22 @@ describe('Workspace content path parsing', () => {
     '/w/workspace-1/p/../work-items',
   ])('rejects unsafe or non-canonical return target %s', (path) => {
     expect(parseWorkspaceContentPath(path, resolveWorkspaceId)).toBeNull();
+  });
+
+  it('resolves a public Page number to the internal document UUID', () => {
+    expect(
+      parseWorkspaceContentPath(
+        '/w/workspace-1/library?page=42',
+        resolveWorkspaceId,
+        undefined,
+        undefined,
+        (number) => (number === '42' ? 'document-uuid' : null),
+      ),
+    ).toEqual({
+      kind: 'workspace-library',
+      workspaceId: 'workspace-1',
+      documentId: 'document-uuid',
+    });
   });
 });
 

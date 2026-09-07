@@ -351,7 +351,7 @@ test('permanently deletes a Workspace through both Host confirmations', async ({
       })
       .click();
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('alertdialog');
     await expect(
       dialog.getByRole('heading', {
         name: `Delete “${victim.workspace.name}” (/${victim.workspace.identifier})?`,
@@ -363,18 +363,19 @@ test('permanently deletes a Workspace through both Host confirmations', async ({
 
     await expect(
       dialog.getByRole('heading', {
-        name: `Confirm permanent deletion of “${victim.workspace.name}” (/${victim.workspace.identifier})`,
+        name: `Confirm permanent deletion of “${victim.workspace.name}”`,
       }),
     ).toBeVisible();
-    await dialog
-      .getByLabel('Workspace ID')
-      .fill(`${victim.workspace.identifier}-wrong`);
+    const identifierInput = dialog.getByRole('textbox', {
+      name: `Enter ${victim.workspace.identifier} without the slash`,
+    });
+    await identifierInput.fill(`${victim.workspace.identifier}-wrong`);
     await dialog.getByLabel('Host password', { exact: true }).fill(password);
     const deleteButton = dialog.getByRole('button', {
-      name: `Permanently delete “${victim.workspace.name}” (/${victim.workspace.identifier})`,
+      name: 'Permanently delete Workspace',
     });
     await expect(deleteButton).toBeDisabled();
-    await dialog.getByLabel('Workspace ID').fill(victim.workspace.identifier);
+    await identifierInput.fill(victim.workspace.identifier);
 
     const deletion = page.waitForResponse(
       (response) =>
@@ -545,8 +546,14 @@ async function saveAccessPolicy(page: Page) {
       response.request().method() === 'PUT' &&
       new URL(response.url()).pathname === '/api/host/access',
   );
-  page.once('dialog', (dialog) => void dialog.accept());
   await page.getByRole('button', { name: 'Save access policy' }).click();
+  const confirmation = page.getByRole('alertdialog', {
+    name: 'Save Restricted access?',
+  });
+  await expect(confirmation).toBeVisible();
+  await confirmation
+    .getByRole('button', { name: 'Save access policy' })
+    .click();
   expect((await saved).status()).toBe(200);
   await expect(page.getByRole('status')).toHaveText('Access policy saved');
 }

@@ -1,6 +1,6 @@
 import type { WorkspaceDocument } from '../document/types';
 import type { SavedView } from '../view/types';
-import { routePaths, withTask } from '../../app/routing/routePaths';
+import { routePaths, withPage, withTask } from '../../app/routing/routePaths';
 import type { Project, Task, Workspace } from './types';
 
 export type TaskCollectionLocation =
@@ -91,6 +91,7 @@ export function parseWorkspaceContentPath(
   resolveProjectId: (projectIdentifier: string) => string | null = (value) =>
     value,
   resolveTaskId: (taskNumber: string) => string | null = (value) => value,
+  resolveDocumentId: (pageNumber: string) => string | null = (value) => value,
 ): WorkspaceContentLocation | null {
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('#')) {
     return null;
@@ -100,12 +101,16 @@ export function parseWorkspaceContentPath(
   const pathname = searchIndex === -1 ? value : value.slice(0, searchIndex);
   const search = searchIndex === -1 ? '' : value.slice(searchIndex + 1);
   const parameters = new URLSearchParams(search);
-  if ([...parameters.keys()].some((key) => key !== 'task')) {
+  if ([...parameters.keys()].some((key) => key !== 'task' && key !== 'page')) {
     return null;
   }
 
   const taskValues = parameters.getAll('task');
   if (taskValues.length > 1 || taskValues[0] === '') {
+    return null;
+  }
+  const pageValues = parameters.getAll('page');
+  if (pageValues.length > 1 || pageValues[0] === '') {
     return null;
   }
 
@@ -141,16 +146,21 @@ export function parseWorkspaceContentPath(
     workspaceIdentifier,
   );
   const publicTaskNumber = taskValues[0] ?? null;
+  const publicPageNumber = pageValues[0] ?? null;
   if (
     !publicLocation ||
-    (publicTaskNumber !== null && !hasTask(publicLocation))
+    (publicTaskNumber !== null && !hasTask(publicLocation)) ||
+    (publicPageNumber !== null && !hasDocument(publicLocation)) ||
+    (publicTaskNumber !== null && publicPageNumber !== null)
   ) {
     return null;
   }
 
   const publicSelection = hasTask(publicLocation)
     ? { ...publicLocation, taskId: publicTaskNumber }
-    : publicLocation;
+    : hasDocument(publicLocation)
+      ? { ...publicLocation, documentId: publicPageNumber }
+      : publicLocation;
   if (workspaceContentPath(publicSelection, workspaceIdentifier) !== value) {
     return null;
   }
@@ -163,11 +173,16 @@ export function parseWorkspaceContentPath(
   if (projectIdentifier && !projectId) return null;
   const taskId = publicTaskNumber ? resolveTaskId(publicTaskNumber) : null;
   if (publicTaskNumber && !taskId) return null;
+  const documentId = publicPageNumber
+    ? resolveDocumentId(publicPageNumber)
+    : null;
+  if (publicPageNumber && !documentId) return null;
   return {
     ...publicSelection,
     workspaceId,
     ...(projectId ? { projectId } : {}),
     ...(hasTask(publicSelection) ? { taskId } : {}),
+    ...(hasDocument(publicSelection) ? { documentId } : {}),
   };
 }
 
@@ -177,15 +192,22 @@ export function workspaceContentPath(
   resolveProjectIdentifier: (projectId: string) => string | null = (value) =>
     value,
   resolveTaskNumber: (taskId: string) => string | null = (value) => value,
+  resolveDocumentNumber: (documentId: string) => string | null = (value) =>
+    value,
 ) {
-  const path = contentPathWithoutTask(
+  const path = contentPathWithoutSelection(
     location,
     workspaceIdentifier,
     resolveProjectIdentifier,
   );
   return hasTask(location) && location.taskId
     ? withTask(path, resolveTaskNumber(location.taskId) ?? location.taskId)
-    : path;
+    : hasDocument(location) && location.documentId
+      ? withPage(
+          path,
+          resolveDocumentNumber(location.documentId) ?? location.documentId,
+        )
+      : path;
 }
 
 export type Resolution<T> =
@@ -612,6 +634,17 @@ function hasTask(
   );
 }
 
+function hasDocument(
+  location: WorkspaceLocation,
+): location is Extract<
+  WorkspaceContentLocation,
+  { kind: 'workspace-library' | 'project-library' }
+> {
+  return (
+    location.kind === 'workspace-library' || location.kind === 'project-library'
+  );
+}
+
 function projectId(location: WorkspaceContentLocation): string | null {
   return 'projectId' in location ? location.projectId : null;
 }
@@ -853,7 +886,7 @@ function contentLocationFromSegments(
   }
 }
 
-function contentPathWithoutTask(
+function contentPathWithoutSelection(
   location: WorkspaceContentLocation,
   workspaceIdentifier: string,
   resolveProjectIdentifier: (projectId: string) => string | null,
@@ -870,9 +903,7 @@ function contentPathWithoutTask(
     case 'workspace-view':
       return routePaths.workspaceView(workspaceIdentifier, location.viewId);
     case 'workspace-library':
-      return location.documentId
-        ? routePaths.workspaceDocument(workspaceIdentifier, location.documentId)
-        : routePaths.workspaceLibrary(workspaceIdentifier);
+      return routePaths.workspaceLibrary(workspaceIdentifier);
     case 'project-overview':
       return routePaths.project(
         workspaceIdentifier,
@@ -906,16 +937,10 @@ function contentPathWithoutTask(
             publicProjectId(location.projectId),
           );
     case 'project-library':
-      return location.documentId
-        ? routePaths.projectDocument(
-            workspaceIdentifier,
-            publicProjectId(location.projectId),
-            location.documentId,
-          )
-        : routePaths.projectLibrary(
-            workspaceIdentifier,
-            publicProjectId(location.projectId),
-          );
+      return routePaths.projectLibrary(
+        workspaceIdentifier,
+        publicProjectId(location.projectId),
+      );
     case 'project-views':
       return routePaths.projectViews(
         workspaceIdentifier,

@@ -31,13 +31,14 @@ use crate::{
 use persistence::{
     authorize_scope, available_storage_name, cleanup_unattached_page,
     ensure_storage_name_available, find_authorized_document, library_path, lock_document,
-    lock_workspace_documents, map_vault_create_error, next_position, restore_library_trash,
-    unique_ids, validate_parent,
+    lock_workspace_documents, map_vault_create_error, next_position,
+    resolve_authorized_document_number, restore_library_trash, unique_ids, validate_parent,
 };
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct DocumentResponse {
     pub id: Uuid,
+    pub document_number: i64,
     pub workspace_id: Uuid,
     pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,
@@ -99,6 +100,10 @@ pub(crate) fn routes() -> Router<AppState> {
             axum::routing::put(reorder),
         )
         .route(
+            "/api/workspaces/{workspace_id}/documents/by-number/{document_number}",
+            get(detail_by_number),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/documents/{document_id}",
             get(detail).patch(update).delete(archive),
         )
@@ -138,7 +143,8 @@ async fn list(
             JOIN document_paths AS parent ON child.parent_id = parent.id
             WHERE child.workspace_id = $2
         )
-        SELECT documents.id, documents.workspace_id, documents.project_id,
+        SELECT documents.id, documents.document_number, documents.workspace_id,
+               documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
                CASE
                    WHEN documents.project_id IS NULL THEN 'Wiki/'
@@ -202,6 +208,23 @@ async fn detail(
     Ok(Json(document))
 }
 
+async fn detail_by_number(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<(Uuid, i64)>, PathRejection>,
+) -> Result<Json<DocumentResponse>, AppError> {
+    let Path((workspace_id, document_number)) = path.map_err(AppError::from)?;
+    if document_number <= 0 {
+        return Err(AppError::NotFound("Document not found".to_owned()));
+    }
+    let document_id =
+        resolve_authorized_document_number(&state, auth.user.id, workspace_id, document_number)
+            .await?;
+    Ok(Json(
+        find_authorized_document(&state, auth.user.id, workspace_id, document_id).await?,
+    ))
+}
+
 async fn create(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
@@ -239,13 +262,24 @@ async fn create(
     )
     .await?;
     let document_id = Uuid::new_v4();
+    let document_number: i64 = sqlx::query_scalar(
+        r#"
+        UPDATE workspaces
+        SET next_document_number = next_document_number + 1
+        WHERE id = $1
+        RETURNING next_document_number - 1
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&mut *transaction)
+    .await?;
     sqlx::query(
         r#"
         INSERT INTO documents (
             id, workspace_id, project_id, parent_id, title, storage_name,
-            storage_layout_version, position
+            storage_layout_version, position, document_number
         )
-        VALUES ($1, $2, $3, $4, $5, $6, 1, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)
         "#,
     )
     .bind(document_id)
@@ -255,6 +289,7 @@ async fn create(
     .bind(title.as_str())
     .bind(storage_name.as_str())
     .bind(position)
+    .bind(document_number)
     .execute(&mut *transaction)
     .await?;
 

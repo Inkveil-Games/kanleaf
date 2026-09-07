@@ -19,12 +19,19 @@ const mocks = vi.hoisted(() => ({
   listWorkspaces: vi.fn(),
   listProjects: vi.fn(),
   getTaskByNumber: vi.fn(),
+  getDocument: vi.fn(),
+  getDocumentByNumber: vi.fn(),
 }));
 
 vi.mock('../../features/workspace/api', () => ({
   listWorkspaces: mocks.listWorkspaces,
   listProjects: mocks.listProjects,
   getTaskByNumber: mocks.getTaskByNumber,
+}));
+
+vi.mock('../../features/document/api', () => ({
+  getDocument: mocks.getDocument,
+  getDocumentByNumber: mocks.getDocumentByNumber,
 }));
 
 const workspaces = [
@@ -43,6 +50,8 @@ beforeEach(() => {
   mocks.listWorkspaces.mockReset();
   mocks.listProjects.mockReset();
   mocks.getTaskByNumber.mockReset();
+  mocks.getDocument.mockReset();
+  mocks.getDocumentByNumber.mockReset();
   mocks.listWorkspaces.mockResolvedValue(workspaces);
   mocks.listProjects.mockResolvedValue([
     {
@@ -57,6 +66,21 @@ beforeEach(() => {
     project_id: 'project-1',
     task_number: 42,
   });
+  mocks.getDocument.mockResolvedValue({
+    id: 'document-1',
+    document_number: 42,
+    workspace_id: 'workspace-1',
+    project_id: null,
+  });
+  mocks.getDocumentByNumber.mockImplementation(
+    (_context, _workspaceId, documentNumber: number) =>
+      Promise.resolve({
+        id: 'document-1',
+        document_number: documentNumber,
+        workspace_id: 'workspace-1',
+        project_id: documentNumber === 43 ? 'project-1' : null,
+      }),
+  );
 });
 
 describe('AuthenticatedRoutes Workspace tree', () => {
@@ -126,7 +150,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/w/kanleaf-core/library/document-1',
+      '/w/kanleaf-core/library?page=42',
       {
         kind: 'workspace-library',
         workspaceId: 'workspace-1',
@@ -196,7 +220,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
-      '/w/kanleaf-core/p/project-one/library/document-1',
+      '/w/kanleaf-core/p/project-one/library?page=43',
       {
         kind: 'project-library',
         workspaceId: 'workspace-1',
@@ -317,8 +341,8 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       '/w/kanleaf-core/p/project-one/work-items?task=42#details',
     ],
     [
-      '/w/workspace-1/projects/project-1/library/document-1#note',
-      '/w/kanleaf-core/p/project-one/library/document-1#note',
+      '/w/workspace-1/projects/project-1/library/c1e959d6-2174-4901-bd55-772d8ce4eb37#note',
+      '/w/kanleaf-core/library?page=42#note',
     ],
   ])('upgrades the legacy Project URL %s', async (path, expected) => {
     renderAuthenticatedRoutes(path);

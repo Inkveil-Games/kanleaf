@@ -24,7 +24,7 @@ export const routePatterns = {
   workspaceTasks: '/w/:workspaceIdentifier/tasks',
   workspaceView: '/w/:workspaceIdentifier/views/:viewId',
   workspaceLibrary: '/w/:workspaceIdentifier/library',
-  workspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
+  legacyWorkspaceDocument: '/w/:workspaceIdentifier/library/:documentId',
   project: '/w/:workspaceIdentifier/p/:projectIdentifier',
   projectWorkItems: '/w/:workspaceIdentifier/p/:projectIdentifier/work-items',
   projectCycles: '/w/:workspaceIdentifier/p/:projectIdentifier/cycles',
@@ -33,7 +33,7 @@ export const routePatterns = {
   projectModule:
     '/w/:workspaceIdentifier/p/:projectIdentifier/modules/:moduleId',
   projectLibrary: '/w/:workspaceIdentifier/p/:projectIdentifier/library',
-  projectDocument:
+  legacyProjectDocument:
     '/w/:workspaceIdentifier/p/:projectIdentifier/library/:documentId',
   projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
   projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
@@ -70,8 +70,6 @@ export const routePaths = {
     `${workspacePath(workspaceIdentifier)}/views/${segment(viewId)}`,
   workspaceLibrary: (workspaceIdentifier: string) =>
     `${workspacePath(workspaceIdentifier)}/library`,
-  workspaceDocument: (workspaceIdentifier: string, documentId: string) =>
-    `${workspacePath(workspaceIdentifier)}/library/${segment(documentId)}`,
   project: (workspaceIdentifier: string, projectId: string) =>
     projectPath(workspaceIdentifier, projectId),
   projectWorkItems: (workspaceIdentifier: string, projectId: string) =>
@@ -94,12 +92,6 @@ export const routePaths = {
     `${projectPath(workspaceIdentifier, projectId)}/modules/${segment(moduleId)}`,
   projectLibrary: (workspaceIdentifier: string, projectId: string) =>
     `${projectPath(workspaceIdentifier, projectId)}/library`,
-  projectDocument: (
-    workspaceIdentifier: string,
-    projectId: string,
-    documentId: string,
-  ) =>
-    `${projectPath(workspaceIdentifier, projectId)}/library/${segment(documentId)}`,
   projectViews: (workspaceIdentifier: string, projectId: string) =>
     `${projectPath(workspaceIdentifier, projectId)}/views`,
   projectView: (
@@ -138,14 +130,26 @@ export function setupPathForStage(stage: Exclude<SetupStage, 'complete'>) {
 }
 
 export function withTask(path: string, taskId: string) {
-  return updateTask(path, taskId);
+  return updateSearchParameter(path, 'task', taskId);
 }
 
 export function withoutTask(path: string) {
-  return updateTask(path);
+  return updateSearchParameter(path, 'task');
 }
 
-function updateTask(path: string, taskId?: string) {
+export function withPage(path: string, pageNumber: string) {
+  return updateSearchParameter(path, 'page', pageNumber);
+}
+
+export function withoutPage(path: string) {
+  return updateSearchParameter(path, 'page');
+}
+
+function updateSearchParameter(
+  path: string,
+  name: 'task' | 'page',
+  value?: string,
+) {
   const hashIndex = path.indexOf('#');
   const hash = hashIndex === -1 ? '' : path.slice(hashIndex);
   const pathAndSearch = hashIndex === -1 ? path : path.slice(0, hashIndex);
@@ -155,10 +159,10 @@ function updateTask(path: string, taskId?: string) {
   const search = searchIndex === -1 ? '' : pathAndSearch.slice(searchIndex + 1);
   const parameters = new URLSearchParams(search);
 
-  if (taskId === undefined) {
-    parameters.delete('task');
+  if (value === undefined) {
+    parameters.delete(name);
   } else {
-    parameters.set('task', taskId);
+    parameters.set(name, value);
   }
 
   const nextSearch = parameters.toString();

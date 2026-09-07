@@ -141,6 +141,7 @@ export interface WorkspaceShellProps {
     options?: { replace?: boolean },
   ) => void;
   flushDocumentSaves: () => Promise<void>;
+  routeActionError?: string | null;
 }
 
 interface TaskViewDraft {
@@ -170,6 +171,7 @@ export function WorkspaceShell({
   workspaceAccessVerified,
   onNavigate,
   flushDocumentSaves,
+  routeActionError = null,
 }: WorkspaceShellProps) {
   const queryClient = useQueryClient();
   const context = useMemo(() => ({ serverUrl, token }), [serverUrl, token]);
@@ -190,6 +192,7 @@ export function WorkspaceShell({
   );
   const [taskDraft, setTaskDraft] = useState<TaskViewDraft | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const shownRouteActionError = useRef<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [deleteViewTarget, setDeleteViewTarget] = useState<SavedView | null>(
@@ -208,6 +211,18 @@ export function WorkspaceShell({
   } | null>(null);
   const canonicalReplacement = useRef<string | null>(null);
   const paneLayout = useWorkspacePaneLayout();
+
+  useEffect(() => {
+    if (!routeActionError) {
+      shownRouteActionError.current = null;
+      return;
+    }
+    if (shownRouteActionError.current === routeActionError) {
+      return;
+    }
+    shownRouteActionError.current = routeActionError;
+    setActionError(routeActionError);
+  }, [routeActionError]);
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
 
   const enqueueWorkspaceIntent = useCallback(
@@ -1391,6 +1406,16 @@ export function WorkspaceShell({
   const selectDocument = useCallback(
     (document: WorkspaceDocument | null, options?: { replace?: boolean }) => {
       if (!workspaceId) return Promise.resolve(false);
+      if (document) {
+        queryClient.setQueryData(
+          ['document', workspaceId, document.id],
+          document,
+        );
+        queryClient.setQueriesData<WorkspaceDocument>(
+          { queryKey: ['routed-document', workspaceId] },
+          (current) => (current?.id === document.id ? document : current),
+        );
+      }
       const documentProjectId =
         document === null ? activeProjectId : document.project_id;
       const nextLocation: WorkspaceContentLocation = documentProjectId
@@ -1410,7 +1435,7 @@ export function WorkspaceShell({
         options,
       );
     },
-    [activeProjectId, location, navigateSafely, workspaceId],
+    [activeProjectId, location, navigateSafely, queryClient, workspaceId],
   );
   const rejectDocumentSelection = useCallback(() => {
     if (!workspaceId) return;

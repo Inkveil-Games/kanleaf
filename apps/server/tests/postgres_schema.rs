@@ -199,7 +199,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
 
     let document_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Note', 'note', 1)",
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version, document_number) VALUES ($1, $2, 'Note', 'note', 1, 1)",
     )
     .bind(document_id)
     .bind(first_workspace)
@@ -207,7 +207,7 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     .await
     .unwrap();
     let duplicate_library_name = sqlx::query(
-        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Duplicate', 'note', 1)",
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version, document_number) VALUES ($1, $2, 'Duplicate', 'note', 1, 2)",
     )
     .bind(Uuid::new_v4())
     .bind(first_workspace)
@@ -215,13 +215,29 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     .await;
     assert!(duplicate_library_name.is_err());
     let unsafe_library_name = sqlx::query(
-        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version) VALUES ($1, $2, 'Unsafe', '../escape', 1)",
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version, document_number) VALUES ($1, $2, 'Unsafe', '../escape', 1, 2)",
     )
     .bind(Uuid::new_v4())
     .bind(first_workspace)
     .execute(&pool)
     .await;
     assert!(unsafe_library_name.is_err());
+    let duplicate_document_number = sqlx::query(
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version, document_number) VALUES ($1, $2, 'Duplicate number', 'duplicate_number', 1, 1)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_workspace)
+    .execute(&pool)
+    .await;
+    assert!(duplicate_document_number.is_err());
+    let invalid_document_number = sqlx::query(
+        "INSERT INTO documents (id, workspace_id, title, storage_name, storage_layout_version, document_number) VALUES ($1, $2, 'Invalid number', 'invalid_number', 1, 0)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_workspace)
+    .execute(&pool)
+    .await;
+    assert!(invalid_document_number.is_err());
 
     let cross_workspace_task_id = Uuid::new_v4();
     let cross_workspace_storage =
@@ -506,4 +522,136 @@ async fn task_configuration_migration_preserves_and_maps_existing_tasks(pool: Pg
             .await
             .unwrap();
     assert_eq!(next_task_number, 4);
+}
+
+#[sqlx::test(migrations = false)]
+async fn document_number_migration_backfills_existing_pages_per_workspace(pool: PgPool) {
+    for migration in [
+        include_str!("../migrations/0001_initial_schema.sql"),
+        include_str!("../migrations/0002_account_settings.sql"),
+        include_str!("../migrations/0003_workspace_access.sql"),
+        include_str!("../migrations/0004_task_configuration.sql"),
+        include_str!("../migrations/0005_project_access.sql"),
+        include_str!("../migrations/0006_task_workflow.sql"),
+        include_str!("../migrations/0007_project_planning.sql"),
+        include_str!("../migrations/0008_saved_views.sql"),
+        include_str!("../migrations/0009_collaboration_notifications.sql"),
+        include_str!("../migrations/0010_documents.sql"),
+        include_str!("../migrations/0011_library_storage.sql"),
+        include_str!("../migrations/0012_portable_vault_identity.sql"),
+        include_str!("../migrations/0013_vault_projection.sql"),
+        include_str!("../migrations/0014_workspace_operations.sql"),
+        include_str!("../migrations/0015_workspace_config_projection.sql"),
+        include_str!("../migrations/0016_workspace_archive_restore_map.sql"),
+        include_str!("../migrations/0017_instance_access.sql"),
+        include_str!("../migrations/0018_account_setup_workspace_identifiers.sql"),
+        include_str!("../migrations/0019_project_public_identity.sql"),
+        include_str!("../migrations/0020_release_deleted_workspace_identifiers.sql"),
+        include_str!("../migrations/0021_workspace_custom_properties.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
+
+    let workspace_id = Uuid::new_v4();
+    let state_id = Uuid::new_v4();
+    let task_type_id = Uuid::new_v4();
+    let identifier = format!("workspace-{}", workspace_id.simple());
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
+    )
+    .bind(&identifier)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO workspaces (
+            id, name, identifier, default_inbox_state_id, default_task_type_id
+        ) VALUES ($1, 'Existing Library', $2, $3, $4)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(identifier)
+    .bind(state_id)
+    .bind(task_type_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO task_states (
+            id, workspace_id, name, color, state_group, position
+        ) VALUES ($1, $2, 'Todo', '#64748B', 'todo', 0)
+        "#,
+    )
+    .bind(state_id)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO task_types (
+            id, workspace_id, name, icon, color, position, is_protected
+        ) VALUES ($1, $2, 'Task', 'check-square', '#64748B', 0, true)
+        "#,
+    )
+    .bind(task_type_id)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+
+    let older_id = Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+    let first_tied_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+    let second_tied_id = Uuid::parse_str("33333333-3333-4333-8333-333333333333").unwrap();
+    for (id, title, created_at) in [
+        (first_tied_id, "Tie one", "2026-01-02T00:00:00Z"),
+        (older_id, "Older", "2026-01-01T00:00:00Z"),
+        (second_tied_id, "Tie two", "2026-01-02T00:00:00Z"),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO documents (
+                id, workspace_id, title, storage_name, storage_layout_version,
+                position, created_at
+            ) VALUES ($1, $2, $3, $4, 1, 0, $5::timestamptz)
+            "#,
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(title)
+        .bind(id.simple().to_string())
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    sqlx::raw_sql(include_str!("../migrations/0022_document_numbers.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let numbered: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT id, document_number FROM documents WHERE workspace_id = $1 ORDER BY document_number",
+    )
+    .bind(workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        numbered,
+        [(older_id, 1), (first_tied_id, 2), (second_tied_id, 3)]
+    );
+    let next_number: i64 =
+        sqlx::query_scalar("SELECT next_document_number FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(next_number, 4);
 }

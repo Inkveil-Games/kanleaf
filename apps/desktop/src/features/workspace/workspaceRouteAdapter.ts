@@ -33,6 +33,8 @@ export function workspaceLocationPath(
   resolveProjectIdentifier: (projectId: string) => string | null = (value) =>
     value,
   resolveTaskNumber: (taskId: string) => string | null = (value) => value,
+  resolveDocumentNumber: (documentId: string) => string | null = (value) =>
+    value,
 ): string {
   switch (location.kind) {
     case 'root':
@@ -65,6 +67,7 @@ export function workspaceLocationPath(
         workspaceIdentifier,
         resolveProjectIdentifier,
         resolveTaskNumber,
+        resolveDocumentNumber,
       );
   }
 }
@@ -82,6 +85,7 @@ export function workspaceLocationFromRoute(
     throw new Error('Missing resolved Workspace ID');
   }
   const taskId = taskSelection(search);
+  const documentId = pageSelection(search);
 
   switch (kind) {
     case 'my-work':
@@ -100,7 +104,7 @@ export function workspaceLocationFromRoute(
       return {
         kind,
         workspaceId,
-        documentId: params.documentId ?? null,
+        documentId: documentId ?? params.documentId ?? null,
       };
     case 'project-overview':
     case 'project-views':
@@ -135,7 +139,7 @@ export function workspaceLocationFromRoute(
         kind,
         workspaceId,
         projectId: requiredParameter(params, 'projectId'),
-        documentId: params.documentId ?? null,
+        documentId: documentId ?? params.documentId ?? null,
       };
     case 'project-view':
       return {
@@ -184,6 +188,11 @@ function withDefineProperty(path: string, name?: string) {
 
 function taskSelection(search: string) {
   const values = new URLSearchParams(search).getAll('task');
+  return values.length === 1 && values[0] ? values[0] : null;
+}
+
+function pageSelection(search: string) {
+  const values = new URLSearchParams(search).getAll('page');
   return values.length === 1 && values[0] ? values[0] : null;
 }
 

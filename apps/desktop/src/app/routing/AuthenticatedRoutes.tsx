@@ -157,7 +157,7 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         element={workspaceScreen('workspace-library')}
       />
       <Route
-        path={routePatterns.workspaceDocument}
+        path={routePatterns.legacyWorkspaceDocument}
         element={workspaceScreen('workspace-library')}
       />
       <Route
@@ -189,7 +189,7 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         element={workspaceScreen('project-library')}
       />
       <Route
-        path={routePatterns.projectDocument}
+        path={routePatterns.legacyProjectDocument}
         element={workspaceScreen('project-library')}
       />
       <Route

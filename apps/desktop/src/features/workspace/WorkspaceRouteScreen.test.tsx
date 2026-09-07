@@ -15,7 +15,9 @@ import {
   type InitialEntry,
 } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../lib/api/client';
 import type { Project, Task, Workspace } from './types';
+import type { WorkspaceDocument } from '../document/types';
 import type { WorkspaceReplacementLocation } from './workspaceLocation';
 import { WorkspaceRouteScreen } from './WorkspaceRouteScreen';
 import {
@@ -28,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   listProjects: vi.fn(),
   getTask: vi.fn(),
   getTaskByNumber: vi.fn(),
+  getDocument: vi.fn(),
+  getDocumentByNumber: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -37,11 +41,17 @@ vi.mock('./api', () => ({
   getTaskByNumber: mocks.getTaskByNumber,
 }));
 
+vi.mock('../document/api', () => ({
+  getDocument: mocks.getDocument,
+  getDocumentByNumber: mocks.getDocumentByNumber,
+}));
+
 vi.mock('./WorkspaceShell', () => ({
   WorkspaceShell: ({
     location,
     onNavigate,
     workspaceAccessVerified,
+    routeActionError,
   }: {
     location: WorkspaceReplacementLocation | null;
     onNavigate: (
@@ -49,6 +59,7 @@ vi.mock('./WorkspaceShell', () => ({
       options?: { replace?: boolean },
     ) => void;
     workspaceAccessVerified: boolean;
+    routeActionError?: string | null;
   }) => (
     <div>
       <output aria-label="Workspace location">
@@ -57,6 +68,7 @@ vi.mock('./WorkspaceShell', () => ({
       <output aria-label="Workspace access verified">
         {String(workspaceAccessVerified)}
       </output>
+      <output aria-label="Route action error">{routeActionError}</output>
       <button
         type="button"
         onClick={() => {
@@ -185,15 +197,26 @@ const task = {
   task_number: 42,
 } as Task;
 
+const document = {
+  id: 'document-1',
+  document_number: 42,
+  workspace_id: 'workspace-1',
+  project_id: null,
+} as WorkspaceDocument;
+
 beforeEach(() => {
   mocks.listWorkspaces.mockReset();
   mocks.listProjects.mockReset();
   mocks.getTask.mockReset();
   mocks.getTaskByNumber.mockReset();
+  mocks.getDocument.mockReset();
+  mocks.getDocumentByNumber.mockReset();
   mocks.listWorkspaces.mockResolvedValue(workspaces);
   mocks.listProjects.mockResolvedValue(projects);
   mocks.getTask.mockResolvedValue(task);
   mocks.getTaskByNumber.mockResolvedValue(task);
+  mocks.getDocument.mockResolvedValue(document);
+  mocks.getDocumentByNumber.mockResolvedValue(document);
 });
 
 describe('workspaceLocationPath', () => {
@@ -515,6 +538,123 @@ describe('workspaceLocationFromRoute', () => {
 });
 
 describe('WorkspaceRouteScreen', () => {
+  it('resolves a public Page number before exposing the document UUID', async () => {
+    renderRouteScreen(
+      '/w/kanleaf-core/library?page=42',
+      'workspace-library',
+      '/w/:workspaceIdentifier/library',
+    );
+
+    expect(await workspaceLocationOutput()).toHaveTextContent(
+      JSON.stringify({
+        kind: 'workspace-library',
+        workspaceId: 'workspace-1',
+        documentId: 'document-1',
+      }),
+    );
+    expect(mocks.getDocumentByNumber).toHaveBeenCalledWith(
+      { serverUrl: 'https://kanleaf.example.com', token: 'token' },
+      'workspace-1',
+      42,
+    );
+  });
+
+  it('upgrades a legacy Page UUID path to its public Page number', async () => {
+    const legacyDocumentId = 'c1e959d6-2174-4901-bd55-772d8ce4eb37';
+    mocks.getDocument.mockResolvedValueOnce({
+      ...document,
+      id: legacyDocumentId,
+    });
+
+    renderRouteScreen(
+      `/w/kanleaf-core/library/${legacyDocumentId}`,
+      'workspace-library',
+      '/w/:workspaceIdentifier/library/:documentId',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/library?page=42',
+      ),
+    );
+  });
+
+  it('moves a Page opened under the wrong Project to its owning Library route', async () => {
+    mocks.getDocumentByNumber.mockResolvedValueOnce({
+      ...document,
+      project_id: 'project-2',
+    });
+
+    renderRouteScreen(
+      '/w/kanleaf-core/p/project-one/library?page=42',
+      'project-library',
+      '/w/:workspaceIdentifier/p/:projectIdentifier/library',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        '/w/kanleaf-core/p/project-two/library?page=42',
+      ),
+    );
+  });
+
+  it.each(['?page=', '?page=0', '?page=one', '?page=1&page=2'])(
+    'clears the malformed Page locator %s without requesting it',
+    async (search) => {
+      renderRouteScreen(
+        `/w/kanleaf-core/library${search}`,
+        'workspace-library',
+        '/w/:workspaceIdentifier/library',
+      );
+
+      await waitFor(() =>
+        expect(browserLocationOutput()).toHaveTextContent(
+          /^\/w\/kanleaf-core\/library$/,
+        ),
+      );
+      expect(mocks.getDocumentByNumber).not.toHaveBeenCalled();
+      expect(mocks.getDocument).not.toHaveBeenCalled();
+    },
+  );
+
+  it('clears a missing Page and exposes a non-disclosing notice', async () => {
+    mocks.getDocumentByNumber.mockRejectedValueOnce(
+      new ApiError(404, 'not_found', 'Document not found'),
+    );
+    renderRouteScreen(
+      '/w/kanleaf-core/library?page=404',
+      'workspace-library',
+      '/w/:workspaceIdentifier/library',
+    );
+
+    await waitFor(() =>
+      expect(browserLocationOutput()).toHaveTextContent(
+        /^\/w\/kanleaf-core\/library$/,
+      ),
+    );
+    expect(screen.getByLabelText('Route action error')).toHaveTextContent(
+      'That Page is unavailable or you no longer have access.',
+    );
+  });
+
+  it('keeps a Page URL and offers retry after a transient resolver error', async () => {
+    mocks.getDocumentByNumber.mockRejectedValueOnce(
+      new Error('Page resolver failed'),
+    );
+    renderRouteScreen(
+      '/w/kanleaf-core/library?page=42',
+      'workspace-library',
+      '/w/:workspaceIdentifier/library',
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Page resolver failed',
+    );
+    expect(browserLocationOutput()).toHaveTextContent(
+      '/w/kanleaf-core/library?page=42',
+    );
+  });
+
   it('resolves the public identifier before exposing the UUID location', async () => {
     renderRouteScreen(
       '/w/kanleaf-core/my-work?task=42',

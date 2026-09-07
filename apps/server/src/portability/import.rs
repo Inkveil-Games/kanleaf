@@ -483,7 +483,7 @@ async fn insert_workspace(
 ) -> anyhow::Result<()> {
     let identifier = WorkspaceIdentifier::from_workspace_id(workspace_id);
     reserve_workspace_identifier(transaction, &identifier, workspace_id).await?;
-    let max_number = validated
+    let max_task_number = validated
         .manifest
         .source
         .tasks
@@ -491,12 +491,20 @@ async fn insert_workspace(
         .map(|task| task.number)
         .max()
         .unwrap_or(0);
+    let max_document_number = validated
+        .manifest
+        .source
+        .documents
+        .iter()
+        .filter_map(|document| document.number)
+        .max()
+        .unwrap_or(0);
     sqlx::query(
         r#"
         INSERT INTO workspaces (
             id, name, identifier, accent, default_inbox_state_id, default_task_type_id,
-            next_task_number, vault_layout_version
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 2)
+            next_task_number, next_document_number, vault_layout_version
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2)
         "#,
     )
     .bind(workspace_id)
@@ -508,7 +516,8 @@ async fn insert_workspace(
         &maps.types,
         validated.workspace.default_task_type_id,
     )?)
-    .bind(max_number + 1)
+    .bind(max_task_number + 1)
+    .bind(max_document_number + 1)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
@@ -992,6 +1001,9 @@ async fn insert_documents(
     maps: &IdMaps,
 ) -> anyhow::Result<()> {
     for document in &validated.manifest.source.documents {
+        let document_number = document
+            .number
+            .ok_or_else(|| anyhow::anyhow!("Validated document number is missing"))?;
         let project_id = document
             .project_id
             .map(|id| mapped(&maps.projects, id))
@@ -1000,9 +1012,9 @@ async fn insert_documents(
             r#"
             INSERT INTO documents (
                 id, workspace_id, project_id, title, position, storage_name,
-                storage_layout_version, archived_at
+                storage_layout_version, document_number, archived_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, 1, CASE WHEN $7 THEN now() END
+                $1, $2, $3, $4, $5, $6, 1, $7, CASE WHEN $8 THEN now() END
             )
             "#,
         )
@@ -1012,6 +1024,7 @@ async fn insert_documents(
         .bind(&document.title)
         .bind(document.position)
         .bind(&document.storage_name)
+        .bind(document_number)
         .bind(document.archived)
         .execute(&mut **transaction)
         .await?;

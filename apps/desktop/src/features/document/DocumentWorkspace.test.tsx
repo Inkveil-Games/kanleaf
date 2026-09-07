@@ -52,6 +52,7 @@ function document(
 ): WorkspaceDocument {
   return {
     id,
+    document_number: 1,
     workspace_id: 'workspace-1',
     project_id: null,
     parent_id: null,

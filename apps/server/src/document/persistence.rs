@@ -47,7 +47,8 @@ pub(super) async fn find_authorized_document(
             SELECT array_to_string(segments, '/') AS relative_path
             FROM ancestors WHERE parent_id IS NULL
         )
-        SELECT documents.id, documents.workspace_id, documents.project_id,
+        SELECT documents.id, documents.document_number, documents.workspace_id,
+               documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
                CASE
                    WHEN documents.project_id IS NULL THEN 'Wiki/'
@@ -91,6 +92,50 @@ pub(super) async fn find_authorized_document(
     .bind(user_id)
     .bind(workspace_id)
     .bind(document_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))
+}
+
+pub(super) async fn resolve_authorized_document_number(
+    state: &AppState,
+    user_id: Uuid,
+    workspace_id: Uuid,
+    document_number: i64,
+) -> Result<Uuid, AppError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT documents.id
+        FROM documents
+        JOIN workspace_memberships
+          ON workspace_memberships.workspace_id = documents.workspace_id
+         AND workspace_memberships.user_id = $1
+        LEFT JOIN projects
+          ON projects.workspace_id = documents.workspace_id
+         AND projects.id = documents.project_id
+        LEFT JOIN project_memberships
+          ON project_memberships.workspace_id = documents.workspace_id
+         AND project_memberships.project_id = documents.project_id
+         AND project_memberships.user_id = $1
+        WHERE documents.workspace_id = $2
+          AND documents.document_number = $3
+          AND documents.archived_at IS NULL
+          AND (
+              (documents.project_id IS NULL AND workspace_memberships.role <> 'guest')
+              OR (
+                  documents.project_id IS NOT NULL
+                  AND projects.archived_at IS NULL
+                  AND (
+                      workspace_memberships.role IN ('owner', 'admin')
+                      OR project_memberships.user_id IS NOT NULL
+                  )
+              )
+          )
+        "#,
+    )
+    .bind(user_id)
+    .bind(workspace_id)
+    .bind(document_number)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))

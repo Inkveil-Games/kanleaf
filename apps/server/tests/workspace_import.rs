@@ -568,8 +568,8 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     .await
     .unwrap();
     assert_eq!(counts, (1, 0, 1, 1, 1, 1));
-    let documents: Vec<(String, Option<Uuid>)> = sqlx::query_as(
-        "SELECT title, parent_id FROM documents WHERE workspace_id = $1 ORDER BY position, id",
+    let documents: Vec<(String, i64, Option<Uuid>)> = sqlx::query_as(
+        "SELECT title, document_number, parent_id FROM documents WHERE workspace_id = $1 ORDER BY document_number",
     )
     .bind(imported_workspace_id)
     .fetch_all(&pool)
@@ -579,8 +579,22 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     assert!(
         documents
             .iter()
-            .any(|(title, parent)| title == "Storage" && parent.is_some())
+            .any(|(title, _, parent)| title == "Storage" && parent.is_some())
     );
+    assert_eq!(
+        documents
+            .iter()
+            .map(|(_, number, _)| *number)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    let next_document_number: i64 =
+        sqlx::query_scalar("SELECT next_document_number FROM workspaces WHERE id = $1")
+            .bind(imported_workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(next_document_number, 3);
     let view_query: Value =
         sqlx::query_scalar("SELECT query FROM saved_views WHERE workspace_id = $1")
             .bind(imported_workspace_id)
@@ -602,6 +616,92 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     let second = apply_import(&app, &importer_token, &second_preview).await;
     assert_eq!(second["state"], "completed", "{second:#}");
     assert_ne!(second["workspace_id"], imported["workspace_id"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn document_numbers_are_validated_and_legacy_archives_receive_stable_numbers(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (source_token, _, source_workspace_id) = register(&app, "pages-source@example.com").await;
+    for title in ["First page", "Second page"] {
+        create(
+            &app,
+            &source_token,
+            &format!("/api/workspaces/{source_workspace_id}/documents"),
+            json!({"title": title}),
+        )
+        .await;
+    }
+    let archive = export_workspace(&app, &source_token, source_workspace_id).await;
+    let (importer_token, _, _) = register(&app, "pages-importer@example.com").await;
+
+    let missing_number = rewrite_archive(&archive, |path, content| {
+        if path != ".kanleaf/manifest.json" {
+            return content;
+        }
+        let mut manifest: Value = serde_json::from_slice(&content).unwrap();
+        manifest["source"]["documents"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("number");
+        serde_json::to_vec_pretty(&manifest).unwrap()
+    });
+    let rejected = preview_import(&app, &importer_token, &missing_number).await;
+    assert_eq!(rejected["state"], "failed");
+    assert_eq!(rejected["error"]["code"], "invalid_metadata");
+
+    let duplicate_number = rewrite_archive(&archive, |path, content| {
+        if path != ".kanleaf/manifest.json" {
+            return content;
+        }
+        let mut manifest: Value = serde_json::from_slice(&content).unwrap();
+        let number = manifest["source"]["documents"][0]["number"].clone();
+        manifest["source"]["documents"][1]["number"] = number;
+        serde_json::to_vec_pretty(&manifest).unwrap()
+    });
+    let rejected = preview_import(&app, &importer_token, &duplicate_number).await;
+    assert_eq!(rejected["state"], "failed");
+    assert_eq!(rejected["error"]["code"], "invalid_metadata");
+
+    let legacy_archive = rewrite_archive(&archive, |path, content| {
+        if path != ".kanleaf/manifest.json" {
+            return content;
+        }
+        let mut manifest: Value = serde_json::from_slice(&content).unwrap();
+        assert_eq!(manifest["source"]["format_version"], 2);
+        let mut numbers = manifest["source"]["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|document| document["number"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        numbers.sort_unstable();
+        assert_eq!(numbers, [1, 2]);
+        manifest["source"]["format_version"] = json!(1);
+        for document in manifest["source"]["documents"].as_array_mut().unwrap() {
+            document.as_object_mut().unwrap().remove("number");
+        }
+        serde_json::to_vec_pretty(&manifest).unwrap()
+    });
+    let preview = preview_import(&app, &importer_token, &legacy_archive).await;
+    assert_eq!(preview["state"], "ready", "{preview:#}");
+    let imported = apply_import(&app, &importer_token, &preview).await;
+    let imported_workspace_id: Uuid = imported["workspace_id"].as_str().unwrap().parse().unwrap();
+    let numbers: Vec<i64> = sqlx::query_scalar(
+        "SELECT document_number FROM documents WHERE workspace_id = $1 ORDER BY document_number",
+    )
+    .bind(imported_workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(numbers, [1, 2]);
+    let next_number: i64 =
+        sqlx::query_scalar("SELECT next_document_number FROM workspaces WHERE id = $1")
+            .bind(imported_workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(next_number, 3);
 }
 
 #[sqlx::test(migrations = "./migrations")]
