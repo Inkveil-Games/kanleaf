@@ -929,6 +929,10 @@ export function WorkspaceShell({
     }
     await flushDocumentSaves();
     await deleteTask(context, workspaceId, selectedTaskId, reference);
+    queryClient.setQueriesData<Task[]>(
+      { queryKey: ['tasks', workspaceId] },
+      (cachedTasks) => cachedTasks?.filter(({ id }) => id !== selectedTaskId),
+    );
     queryClient.removeQueries({
       queryKey: ['task', workspaceId, selectedTaskId],
     });

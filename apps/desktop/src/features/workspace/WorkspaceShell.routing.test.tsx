@@ -227,7 +227,7 @@ vi.mock('../task/TaskDetailPane', () => ({
         </button>
         <button
           type="button"
-          onClick={() => void onDelete('KAN-1').catch(() => undefined)}
+          onClick={() => void onDelete('#1').catch(() => undefined)}
         >
           Delete Task
         </button>
@@ -1903,6 +1903,39 @@ describe('WorkspaceShell routing integration', () => {
       '/w/workspace-1/tasks?task=1',
     );
     expect(screen.getByRole('button', { name: 'Delete Task' })).toBeVisible();
+  });
+
+  it('removes a permanently deleted Task from every cached Workspace list', async () => {
+    const refresh = deferred<Task[]>();
+    mocks.queryTasks
+      .mockResolvedValueOnce([task])
+      .mockReturnValueOnce(refresh.promise);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
+    });
+
+    await waitFor(() => expect(mocks.queryTasks).toHaveBeenCalledOnce());
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Task' }));
+
+    await waitFor(() =>
+      expect(mocks.deleteTask).toHaveBeenCalledWith(
+        { serverUrl: 'http://server.test', token: 'token' },
+        'workspace-1',
+        'task-1',
+        '#1',
+      ),
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/tasks',
+    );
+    expect(
+      queryClient
+        .getQueriesData<Task[]>({ queryKey: ['tasks', 'workspace-1'] })
+        .flatMap(([, tasks]) => tasks ?? [])
+        .some(({ id }) => id === task.id),
+    ).toBe(false);
+
+    await act(async () => refresh.resolve([]));
   });
 
   it('does not delete the active Saved View when its Markdown save fails', async () => {

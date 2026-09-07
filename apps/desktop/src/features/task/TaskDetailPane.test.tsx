@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
@@ -147,6 +148,59 @@ const modules: ProjectModule[] = [
 ];
 
 describe('TaskDetailPane', () => {
+  it('uses the shared typed confirmation dialog for permanent deletion', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={task}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[task]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={onDelete}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Task actions' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete permanently' }),
+    );
+
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Delete Draft the architecture permanently?',
+    });
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    const deleteButton = screen.getByRole('button', { name: 'Delete Task' });
+    expect(deleteButton).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/Type #1 to confirm/), '#1');
+    await user.click(deleteButton);
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledOnce());
+    expect(onDelete).toHaveBeenCalledWith('#1');
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    nativeConfirm.mockRestore();
+  });
+
   it('preserves undefined Markdown fields as raw values and offers Define', async () => {
     const onDefineProperty = vi.fn();
     render(
