@@ -42,7 +42,6 @@ describe('SelectOptionEditor', () => {
 
   it('archives, restores, and confirms deletion of a persisted option', () => {
     const onChange = vi.fn();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
     const { rerender } = render(
       <SelectOptionEditor
         disabled={false}
@@ -76,16 +75,14 @@ describe('SelectOptionEditor', () => {
     fireEvent.click(
       screen.getByRole('menuitem', { name: 'Delete permanently' }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onChange).not.toHaveBeenCalled();
 
-    confirm.mockReturnValueOnce(true);
     fireEvent.click(screen.getByRole('button', { name: 'Actions for High' }));
     fireEvent.click(
       screen.getByRole('menuitem', { name: 'Delete permanently' }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete option' }));
     expect(onChange).toHaveBeenCalledWith([]);
-    expect(confirm).toHaveBeenLastCalledWith(
-      'Delete High? It will be removed from every Task when you save.',
-    );
   });
 });

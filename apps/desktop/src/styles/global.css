@@ -1391,57 +1391,6 @@ select {
   font-size: 0.72rem;
 }
 
-.archived-project-delete {
-  display: grid;
-  gap: var(--space-3);
-  margin-top: var(--space-6);
-  padding: var(--space-4);
-  border: 1px solid
-    color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
-  border-radius: var(--radius-md);
-  background: var(--color-danger-muted);
-}
-
-.archived-project-delete > header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.archived-project-delete h2,
-.archived-project-delete p {
-  margin: 0;
-}
-
-.archived-project-delete h2 {
-  font-size: var(--font-size-md);
-}
-
-.archived-project-delete p {
-  max-width: 68ch;
-  margin-top: 4px;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-}
-
-.archived-project-delete > header > button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  background: transparent;
-}
-
-.archived-project-delete > .danger-button {
-  justify-self: start;
-}
-
 @media (max-width: 680px) {
   .icon-picker-grid {
     grid-template-columns: repeat(5, 1fr);
@@ -5594,36 +5543,6 @@ button.document-tree-toggle:hover {
   white-space: nowrap;
 }
 
-.document-archive-confirm {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: 7px var(--space-5);
-  border-bottom: 1px solid var(--color-danger);
-  background: var(--color-danger-muted);
-  font-size: 0.72rem;
-}
-
-.document-archive-confirm > div {
-  display: flex;
-  gap: 5px;
-}
-
-.document-archive-confirm button {
-  min-height: 27px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  font-size: 0.68rem;
-}
-
-.document-archive-confirm .danger-button {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
-
 .library-document-editor {
   min-height: 0;
   flex: 1;
@@ -6628,89 +6547,6 @@ button.document-tree-toggle:hover {
   margin-left: auto;
 }
 
-.host-delete-dialog {
-  width: min(520px, calc(100vw - 32px));
-  max-width: none;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-popover);
-}
-
-.host-delete-dialog::backdrop {
-  background: rgb(20 22 18 / 42%);
-}
-
-.host-delete-window > header,
-.host-delete-window > footer {
-  display: flex;
-  min-height: 62px;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.host-delete-window > header > div {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 2px;
-}
-
-.host-delete-window > header h2 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.host-delete-window > header > button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  background: transparent;
-}
-
-.host-delete-window > header > button:hover:not(:disabled) {
-  color: var(--color-text);
-  background: var(--color-surface-hover);
-}
-
-.host-delete-warning-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--color-danger);
-  background: var(--color-danger-muted);
-}
-
-.host-delete-content {
-  display: grid;
-  gap: var(--space-4);
-  margin: 0;
-  padding: var(--space-5) var(--space-4);
-}
-
-.host-delete-content > p {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  line-height: 1.55;
-}
-
 .host-delete-impact {
   display: grid;
   gap: var(--space-1);
@@ -6755,13 +6591,6 @@ button.document-tree-toggle:hover {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: var(--font-size-sm);
-}
-
-.host-delete-window > footer {
-  justify-content: flex-end;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 0;
-  background: var(--color-canvas);
 }
 
 .host-access-form {
@@ -9471,16 +9300,6 @@ button.document-tree-toggle:hover {
 
   .host-console .settings-article {
     padding: var(--space-6) var(--space-4) 48px;
-  }
-
-  .host-delete-window > footer {
-    flex-wrap: wrap;
-  }
-
-  .host-delete-window > footer > .danger-button[form] {
-    width: 100%;
-    max-width: 100%;
-    flex: 1 0 100%;
   }
 
   .host-policy-section {

@@ -20,10 +20,6 @@ const requests: Array<{ method: string; url: string; body?: string }> = [];
 
 beforeEach(() => {
   requests.length = 0;
-  vi.stubGlobal(
-    'confirm',
-    vi.fn(() => true),
-  );
 });
 
 afterEach(() => {
@@ -70,7 +66,7 @@ describe('TaskConfigurationSettings', () => {
       await screen.findByRole('button', { name: 'Actions for Todo' }),
     );
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    const dialog = screen.getByRole('dialog', { name: 'Delete Todo' });
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Todo?' });
     await chooseSelectOption('Replacement for Todo', 'Ready');
     fireEvent.click(
       within(dialog).getByRole('button', {
@@ -87,7 +83,6 @@ describe('TaskConfigurationSettings', () => {
         ),
       ).toBe(true),
     );
-    expect(window.confirm).toHaveBeenCalledWith('Delete Todo?');
   });
 
   it('uses readable display rows and opens a label editor on demand', async () => {

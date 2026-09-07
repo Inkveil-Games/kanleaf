@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
+import { PasswordField } from '../../components/ui/PasswordField';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import type { ApiContext } from '../workspace/api';
@@ -9,11 +11,13 @@ import {
   listHostWorkspaces,
   type HostWorkspace,
 } from './api';
-import { HostWorkspaceDeleteDialog } from './HostWorkspaceDeleteDialog';
 
 export function HostWorkspaces({ context }: { context: ApiContext }) {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<HostWorkspace | null>(null);
+  const [confirmationTarget, setConfirmationTarget] =
+    useState<HostWorkspace | null>(null);
+  const [password, setPassword] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const workspaces = useQuery({
     queryKey: ['host-workspaces', context.serverUrl, context.token],
@@ -66,32 +70,111 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
           {announcement}
         </p>
       )}
-      {deleteTarget && (
-        <HostWorkspaceDeleteDialog
-          workspace={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onDelete={async (identifier, password) => {
-            await deleteHostWorkspace(context, deleteTarget.id, {
-              identifier,
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        type="confirm"
+        variant="danger"
+        size="md"
+        title={`Delete “${deleteTarget?.name ?? 'Workspace'}”${deleteTarget ? ` (/${deleteTarget.identifier})` : ''}?`}
+        description={
+          deleteTarget
+            ? `This removes the Workspace owned by ${deleteTarget.owner.display_name} and revokes access for every member.`
+            : undefined
+        }
+        confirmLabel="Continue"
+        onConfirm={() => {
+          if (deleteTarget) setConfirmationTarget(deleteTarget);
+        }}
+      >
+        {deleteTarget ? (
+          <>
+            <div className="host-delete-impact">
+              <strong>This cannot be undone.</strong>
+              <p>
+                Structured data, memberships, Tasks, Projects, Library notes,
+                and every managed Markdown file will be permanently removed.
+              </p>
+            </div>
+            <dl className="host-delete-target">
+              <div>
+                <dt>Workspace</dt>
+                <dd>{deleteTarget.name}</dd>
+              </div>
+              <div>
+                <dt>Workspace ID</dt>
+                <dd>/{deleteTarget.identifier}</dd>
+              </div>
+              <div>
+                <dt>Owner</dt>
+                <dd>{deleteTarget.owner.email}</dd>
+              </div>
+            </dl>
+          </>
+        ) : null}
+      </AppDialog>
+      <AppDialog
+        open={confirmationTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmationTarget(null);
+            setPassword('');
+          }
+        }}
+        type="typed-confirm"
+        variant="danger"
+        size="md"
+        title={`Confirm permanent deletion of “${confirmationTarget?.name ?? 'Workspace'}”`}
+        description="Type the exact Workspace ID and re-enter your Host password. This confirms the target and your current Host session independently."
+        confirmationText={confirmationTarget?.identifier ?? ''}
+        confirmationLabel={
+          <>
+            Enter <strong>{confirmationTarget?.identifier}</strong> without the
+            slash
+          </>
+        }
+        confirmLabel="Permanently delete Workspace"
+        loadingLabel="Deleting…"
+        confirmDisabled={!password}
+        onConfirm={async () => {
+          if (!confirmationTarget) return;
+          const target = confirmationTarget;
+          try {
+            await deleteHostWorkspace(context, target.id, {
+              identifier: target.identifier,
               password,
             });
-            queryClient.setQueryData<HostWorkspace[]>(
-              ['host-workspaces', context.serverUrl, context.token],
-              (current) =>
-                current?.filter(
-                  (workspace) => workspace.id !== deleteTarget.id,
-                ) ?? [],
-            );
-            setAnnouncement(
-              `${deleteTarget.name} (/${deleteTarget.identifier}) was permanently deleted`,
-            );
-            void queryClient.invalidateQueries({
-              queryKey: ['host-workspaces', context.serverUrl, context.token],
-              refetchType: 'none',
-            });
-          }}
-        />
-      )}
+          } catch (error) {
+            setPassword('');
+            throw error;
+          }
+          queryClient.setQueryData<HostWorkspace[]>(
+            ['host-workspaces', context.serverUrl, context.token],
+            (current) =>
+              current?.filter((workspace) => workspace.id !== target.id) ?? [],
+          );
+          setAnnouncement(
+            `${target.name} (/${target.identifier}) was permanently deleted`,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ['host-workspaces', context.serverUrl, context.token],
+            refetchType: 'none',
+          });
+        }}
+      >
+        <label className="settings-field">
+          <span>Host password</span>
+          <PasswordField
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            visibilityLabel="Host password"
+            autoComplete="current-password"
+          />
+        </label>
+      </AppDialog>
     </SettingsArticle>
   );
 }

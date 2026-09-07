@@ -8,8 +8,10 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useState, type CSSProperties, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
 import { IconPicker } from '../../components/ui/IconPicker';
+import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   SettingsAction,
@@ -31,7 +33,6 @@ import type {
   Workspace,
 } from '../workspace/types';
 import { ArchivedConfigurationList } from './ArchivedConfigurationList';
-import { ConfigurationDeleteDialog } from './ConfigurationDeleteDialog';
 import { ConfigurationSwatch } from './ConfigurationSwatch';
 import {
   createTaskType,
@@ -62,6 +63,7 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
   const [description, setDescription] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TaskType | null>(null);
+  const [replacementId, setReplacementId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const active = props.configuration.task_types.filter(
@@ -393,32 +395,51 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
           Only Workspace Owners and Admins can change Task types.
         </p>
       ) : null}
-      {deleteTarget ? (
-        <ConfigurationDeleteDialog
-          entityName={deleteTarget.name}
-          entityType="Task type"
-          explanation="Choose a replacement for tasks that still use this type."
-          replacementOptions={[
-            { value: '', label: 'No replacement' },
-            ...active
-              .filter(({ id }) => id !== deleteTarget.id)
-              .map((taskType) => ({
-                value: taskType.id,
-                label: taskType.name,
-              })),
-          ]}
-          onClose={() => setDeleteTarget(null)}
-          onDelete={async (replacementId) => {
-            await deleteTaskType(
-              props.context,
-              props.workspace.id,
-              deleteTarget.id,
-              replacementId,
-            );
-            await props.onChanged();
-          }}
-        />
-      ) : null}
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setReplacementId('');
+          }
+        }}
+        type="confirm"
+        variant="danger"
+        size="md"
+        title={`Delete ${deleteTarget?.name ?? 'Task type'}?`}
+        description="Choose a replacement for tasks that still use this type."
+        confirmLabel="Delete"
+        loadingLabel="Deleting…"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteTaskType(
+            props.context,
+            props.workspace.id,
+            deleteTarget.id,
+            replacementId || undefined,
+          );
+          await props.onChanged();
+        }}
+      >
+        <label className="settings-field">
+          Replacement for {deleteTarget?.name ?? 'Task type'}
+          <Select
+            ariaLabel={`Replacement for ${deleteTarget?.name ?? 'Task type'}`}
+            value={replacementId}
+            options={[
+              { value: '', label: 'No replacement' },
+              ...active
+                .filter(({ id }) => id !== deleteTarget?.id)
+                .map((taskType) => ({
+                  value: taskType.id,
+                  label: taskType.name,
+                })),
+            ]}
+            onValueChange={setReplacementId}
+          />
+          <small>Used tasks are moved to this Task type.</small>
+        </label>
+      </AppDialog>
     </SettingsArticle>
   );
 }

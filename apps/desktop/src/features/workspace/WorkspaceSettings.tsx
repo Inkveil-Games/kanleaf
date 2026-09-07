@@ -1,5 +1,6 @@
 import { Trash2, UserMinus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { TaskConfigurationSettings } from '../task-config/TaskConfigurationSettings';
 import {
@@ -235,33 +236,32 @@ function DangerSettings({
   WorkspaceSettingsProps,
   'context' | 'workspace' | 'workspaceCount' | 'onRemoveWorkspace'
 >) {
-  const [confirmation, setConfirmation] = useState('');
   const [password, setPassword] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [state, setState] = useState<ActionState>({ status: 'idle' });
 
   async function leave() {
-    if (!window.confirm(`Leave ${workspace.name}?`)) return;
     setState({ status: 'saving' });
     try {
       await onRemoveWorkspace(() => leaveWorkspace(context, workspace.id));
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
+      throw error;
     }
   }
 
-  async function remove(event: FormEvent) {
-    event.preventDefault();
-    if (!window.confirm(`Permanently delete ${workspace.name}?`)) return;
+  async function remove() {
     setState({ status: 'saving' });
     try {
       await onRemoveWorkspace(() =>
         deleteWorkspace(context, workspace.id, {
-          name: confirmation,
+          name: workspace.name,
           password,
         }),
       );
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
+      throw error;
     }
   }
 
@@ -280,40 +280,14 @@ function DangerSettings({
               vault. This cannot be undone.
             </p>
           </div>
-          <form
-            className="settings-form"
-            onSubmit={(event) => void remove(event)}
+          <button
+            className="danger-button"
+            type="button"
+            disabled={state.status === 'saving'}
+            onClick={() => setDialogOpen(true)}
           >
-            <label className="settings-field">
-              <span>Type {workspace.name} to confirm</span>
-              <input
-                required
-                value={confirmation}
-                onChange={(event) => setConfirmation(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label className="settings-field">
-              <span>Current password</span>
-              <input
-                required
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-              />
-            </label>
-            <button
-              className="danger-button"
-              type="submit"
-              disabled={
-                state.status === 'saving' || confirmation !== workspace.name
-              }
-            >
-              <Trash2 aria-hidden="true" size={14} /> Delete Workspace
-            </button>
-            <ActionMessage state={state} />
-          </form>
+            <Trash2 aria-hidden="true" size={14} /> Delete Workspace
+          </button>
         </section>
       ) : (
         <section className="danger-section">
@@ -327,7 +301,7 @@ function DangerSettings({
             className="danger-button"
             type="button"
             disabled={state.status === 'saving' || workspaceCount <= 1}
-            onClick={() => void leave()}
+            onClick={() => setDialogOpen(true)}
           >
             <UserMinus aria-hidden="true" size={14} /> Leave Workspace
           </button>
@@ -336,8 +310,49 @@ function DangerSettings({
               Join or create another Workspace before leaving this one.
             </p>
           )}
-          <ActionMessage state={state} />
         </section>
+      )}
+      <ActionMessage state={state} />
+      {workspace.role === 'owner' ? (
+        <AppDialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setPassword('');
+          }}
+          type="typed-confirm"
+          variant="danger"
+          title={`Delete ${workspace.name} permanently?`}
+          description="Permanently removes structured data and the Workspace Markdown vault. This cannot be undone."
+          confirmationText={workspace.name}
+          confirmLabel="Delete Workspace"
+          loadingLabel="Deleting…"
+          confirmDisabled={!password}
+          onConfirm={remove}
+        >
+          <label className="settings-field">
+            <span>Current password</span>
+            <input
+              required
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+        </AppDialog>
+      ) : (
+        <AppDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          type="confirm"
+          variant="danger"
+          title={`Leave ${workspace.name}?`}
+          description="Your tasks remain, but you will lose access to this Workspace."
+          confirmLabel="Leave Workspace"
+          loadingLabel="Leaving…"
+          onConfirm={leave}
+        />
       )}
     </SettingsArticle>
   );

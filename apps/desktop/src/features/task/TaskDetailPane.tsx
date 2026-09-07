@@ -36,6 +36,7 @@ import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import { TaskActivity } from '../collaboration/TaskActivity';
 import { TaskProperties } from './TaskProperties';
@@ -164,6 +165,9 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
+  const [confirmation, setConfirmation] = useState<'archive' | 'delete' | null>(
+    null,
+  );
 
   const fitTitle = useCallback(() => {
     const input = titleRef.current;
@@ -252,26 +256,13 @@ function SelectedTaskDetail({
             <DropdownMenu label="Task actions" className="detail-menu">
               <DropdownMenuItem
                 className="danger-menu-item"
-                onClick={() => {
-                  if (window.confirm(`Archive ${task.title}?`)) {
-                    void onArchive();
-                  }
-                }}
+                onClick={() => setConfirmation('archive')}
               >
                 <Archive aria-hidden="true" size={14} /> Archive task
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="danger-menu-item"
-                onClick={() => {
-                  const confirmation = window.prompt(
-                    `Enter ${task.reference} to permanently delete this Task`,
-                  );
-                  if (confirmation === task.reference) {
-                    void onDelete(task.reference).catch((caught: unknown) =>
-                      setError(errorMessage(caught)),
-                    );
-                  }
-                }}
+                onClick={() => setConfirmation('delete')}
               >
                 <Trash2 aria-hidden="true" size={14} /> Delete permanently
               </DropdownMenuItem>
@@ -455,6 +446,33 @@ function SelectedTaskDetail({
           canModerate={canModerate}
         />
       </div>
+      <AppDialog
+        open={confirmation === 'archive'}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        type="confirm"
+        variant="warning"
+        title={`Archive ${task.title}?`}
+        description="The Task can be restored later from archived Tasks."
+        confirmLabel="Archive Task"
+        loadingLabel="Archiving…"
+        onConfirm={onArchive}
+      />
+      <AppDialog
+        open={confirmation === 'delete'}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        type="typed-confirm"
+        variant="danger"
+        title={`Delete ${task.title} permanently?`}
+        description="This removes the Task and its Markdown file. This cannot be undone."
+        confirmationText={task.reference}
+        confirmLabel="Delete Task"
+        loadingLabel="Deleting…"
+        onConfirm={() => onDelete(task.reference)}
+      />
     </section>
   );
 }

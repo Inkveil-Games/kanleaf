@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import type {
   Project,
@@ -100,6 +101,9 @@ export function TaskProperties({
   const [savingCustom, setSavingCustom] = useState<Set<string>>(
     () => new Set(),
   );
+  const [pendingProjectId, setPendingProjectId] = useState<
+    string | null | undefined
+  >(undefined);
   const listRef = useRef<HTMLDListElement>(null);
   const savingRef = useRef<Set<PropertyKey>>(new Set());
   const activeProject = projects.find(({ id }) => id === task.project_id);
@@ -217,6 +221,7 @@ export function TaskProperties({
     key: PropertyKey,
     patch: TaskPatch,
     hasNextValue = true,
+    rethrow = false,
   ) {
     setError(null);
     setFailedProperties((current) => {
@@ -242,6 +247,7 @@ export function TaskProperties({
         setRevealed((current) => new Set(current).add(key));
       }
       setError(errorMessage(caught));
+      if (rethrow) throw caught;
     } finally {
       savingRef.current.delete(key);
       setSavingProperties(new Set(savingRef.current));
@@ -355,18 +361,7 @@ export function TaskProperties({
                   label: project.name,
                 })),
               ]}
-              onValueChange={(value) => {
-                const projectId = value || null;
-                const cleanup = window.confirm(
-                  'Move this Task and remove incompatible assignees, type, hierarchy, Cycle, or Modules if needed?',
-                );
-                if (!cleanup) return;
-                void patchProperty(
-                  'project',
-                  { project_id: projectId, cleanup_invalid: true },
-                  Boolean(projectId),
-                );
-              }}
+              onValueChange={(value) => setPendingProjectId(value || null)}
             />
           </PropertyRow>
         )}
@@ -669,6 +664,27 @@ export function TaskProperties({
           {error}
         </p>
       )}
+      <AppDialog
+        open={pendingProjectId !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPendingProjectId(undefined);
+        }}
+        type="confirm"
+        variant="warning"
+        title="Move this Task?"
+        description="Incompatible assignees, type, hierarchy, Cycle, or Modules will be removed."
+        confirmLabel="Move Task"
+        loadingLabel="Moving…"
+        onConfirm={() => {
+          if (pendingProjectId === undefined) return;
+          return patchProperty(
+            'project',
+            { project_id: pendingProjectId, cleanup_invalid: true },
+            Boolean(pendingProjectId),
+            true,
+          );
+        }}
+      />
     </section>
   );
 }

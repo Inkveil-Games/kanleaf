@@ -10,14 +10,6 @@ vi.mock('./api', () => ({
   listHostWorkspaces: vi.fn(),
 }));
 
-HTMLDialogElement.prototype.showModal = function showModal() {
-  this.open = true;
-};
-
-HTMLDialogElement.prototype.close = function close() {
-  this.open = false;
-};
-
 const context = {
   serverUrl: 'https://kanleaf.example.com',
   token: 'host-token',
@@ -99,25 +91,28 @@ describe('HostWorkspaces', () => {
     );
 
     expect(
-      screen.getByRole('dialog', {
+      screen.getByRole('alertdialog', {
         name: 'Delete “Kanleaf Core” (/kanleaf-labs)?',
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(
-      screen.getByRole('dialog', {
-        name: 'Confirm permanent deletion of “Kanleaf Core” (/kanleaf-labs)',
+      screen.getByRole('alertdialog', {
+        name: 'Confirm permanent deletion of “Kanleaf Core”',
       }),
     ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Workspace ID'), {
-      target: { value: 'kanleaf-labs' },
-    });
+    fireEvent.change(
+      screen.getByLabelText('Enter kanleaf-labs without the slash'),
+      {
+        target: { value: 'kanleaf-labs' },
+      },
+    );
     fireEvent.change(screen.getByLabelText('Host password'), {
       target: { value: 'host-password' },
     });
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Permanently delete “Kanleaf Core” (/kanleaf-labs)',
+        name: 'Permanently delete Workspace',
       }),
     );
 
@@ -138,7 +133,7 @@ describe('HostWorkspaces', () => {
         name: 'Delete Workspace “Kanleaf Core” (/kanleaf-core)',
       }),
     );
-    const dialog = screen.getByRole('dialog', {
+    const dialog = screen.getByRole('alertdialog', {
       name: 'Delete “Kanleaf Core” (/kanleaf-core)?',
     });
     expect(dialog).toHaveTextContent('Quang Tran');
@@ -148,17 +143,20 @@ describe('HostWorkspaces', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(
       screen.getByRole('heading', {
-        name: 'Confirm permanent deletion of “Kanleaf Core” (/kanleaf-core)',
+        name: 'Confirm permanent deletion of “Kanleaf Core”',
       }),
     ).toBeInTheDocument();
     const remove = screen.getByRole('button', {
-      name: 'Permanently delete “Kanleaf Core” (/kanleaf-core)',
+      name: 'Permanently delete Workspace',
     });
     expect(remove).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText('Workspace ID'), {
-      target: { value: 'kanleaf-core' },
-    });
+    fireEvent.change(
+      screen.getByLabelText('Enter kanleaf-core without the slash'),
+      {
+        target: { value: 'kanleaf-core' },
+      },
+    );
     fireEvent.change(screen.getByLabelText('Host password'), {
       target: { value: 'host-password' },
     });
@@ -179,7 +177,7 @@ describe('HostWorkspaces', () => {
     );
   });
 
-  it('supports Back and preserves the identifier while clearing a failed password', async () => {
+  it('preserves the identifier while clearing a failed password', async () => {
     vi.mocked(listHostWorkspaces).mockResolvedValue([workspace]);
     vi.mocked(deleteHostWorkspace).mockRejectedValue(
       new Error('Password is incorrect'),
@@ -192,21 +190,15 @@ describe('HostWorkspaces', () => {
       }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(
-      screen.getByRole('heading', {
-        name: 'Delete “Kanleaf Core” (/kanleaf-core)?',
-      }),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    const identifier = screen.getByLabelText('Workspace ID');
+    const identifier = screen.getByLabelText(
+      'Enter kanleaf-core without the slash',
+    );
     const password = screen.getByLabelText('Host password');
     fireEvent.change(identifier, { target: { value: 'kanleaf-core' } });
     fireEvent.change(password, { target: { value: 'wrong-password' } });
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Permanently delete “Kanleaf Core” (/kanleaf-core)',
+        name: 'Permanently delete Workspace',
       }),
     );
 
@@ -216,8 +208,8 @@ describe('HostWorkspaces', () => {
     expect(identifier).toHaveValue('kanleaf-core');
     expect(password).toHaveValue('');
     expect(
-      screen.getByRole('dialog', {
-        name: 'Confirm permanent deletion of “Kanleaf Core” (/kanleaf-core)',
+      screen.getByRole('alertdialog', {
+        name: 'Confirm permanent deletion of “Kanleaf Core”',
       }),
     ).toBeInTheDocument();
   });
@@ -239,30 +231,31 @@ describe('HostWorkspaces', () => {
       }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.change(screen.getByLabelText('Workspace ID'), {
-      target: { value: 'kanleaf-core' },
-    });
+    fireEvent.change(
+      screen.getByLabelText('Enter kanleaf-core without the slash'),
+      {
+        target: { value: 'kanleaf-core' },
+      },
+    );
     fireEvent.change(screen.getByLabelText('Host password'), {
       target: { value: 'host-password' },
     });
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Permanently delete “Kanleaf Core” (/kanleaf-core)',
+        name: 'Permanently delete Workspace',
       }),
     );
 
-    const dialog = screen.getByRole('dialog', {
-      name: 'Confirm permanent deletion of “Kanleaf Core” (/kanleaf-core)',
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Confirm permanent deletion of “Kanleaf Core”',
     });
     expect(
       screen.getByRole('button', {
-        name: 'Deleting “Kanleaf Core” (/kanleaf-core)…',
+        name: 'Deleting…',
       }),
     ).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    fireEvent(dialog, new Event('cancel', { cancelable: true }));
-    fireEvent.click(dialog);
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(dialog).toBeInTheDocument();
     expect(deleteHostWorkspace).toHaveBeenCalledTimes(1);
 

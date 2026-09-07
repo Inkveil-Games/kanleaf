@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { WorkspaceSettingsSection } from './settingsSections';
@@ -143,7 +149,6 @@ describe('WorkspaceSettings', () => {
         jsonResponse(init?.method === 'PATCH' ? property : [property]),
     );
     vi.stubGlobal('fetch', fetchMock);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderSettings(workspace, 'properties', owner.user_id);
 
     await screen.findByText('Platforms');
@@ -155,7 +160,18 @@ describe('WorkspaceSettings', () => {
     fireEvent.click(
       screen.getByRole('menuitem', { name: 'Delete permanently' }),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    const optionDialog = screen.getByRole('alertdialog', {
+      name: 'Delete Web?',
+    });
+    fireEvent.click(
+      within(optionDialog).getByRole('button', { name: 'Delete option' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Save changes' }),
+    );
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -456,28 +472,34 @@ describe('WorkspaceSettings', () => {
     ).toBeNull();
   });
 
-  it('requires the exact name and confirmation before deletion', async () => {
+  it('requires the exact name and password before deletion', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const onRemoveWorkspace = vi.fn(async (remove: () => Promise<void>) =>
       remove(),
     );
     renderSettings(workspace, 'danger', owner.user_id, onRemoveWorkspace);
 
-    const deleteButton = screen.getByRole('button', {
+    const openDeleteDialog = screen.getByRole('button', {
+      name: 'Delete Workspace',
+    });
+    fireEvent.click(openDeleteDialog);
+    const dialog = screen.getByRole('alertdialog', {
+      name: `Delete ${workspace.name} permanently?`,
+    });
+    const deleteButton = within(dialog).getByRole('button', {
       name: 'Delete Workspace',
     });
     expect(deleteButton).toBeDisabled();
     fireEvent.change(
-      screen.getByLabelText(`Type ${workspace.name} to confirm`),
+      within(dialog).getByLabelText(`Type ${workspace.name} to confirm`),
       {
         target: { value: workspace.name },
       },
     );
-    fireEvent.change(screen.getByLabelText('Current password'), {
+    fireEvent.change(within(dialog).getByLabelText('Current password'), {
       target: { value: 'correct horse battery' },
     });
     expect(deleteButton).toBeEnabled();
@@ -494,9 +516,6 @@ describe('WorkspaceSettings', () => {
           }),
         }),
       ),
-    );
-    expect(window.confirm).toHaveBeenCalledWith(
-      `Permanently delete ${workspace.name}?`,
     );
     expect(onRemoveWorkspace).toHaveBeenCalledWith(expect.any(Function));
   });

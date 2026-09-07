@@ -1,5 +1,6 @@
 import { Archive, Pencil, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -19,7 +20,6 @@ import type {
   Workspace,
 } from '../workspace/types';
 import { ArchivedConfigurationList } from './ArchivedConfigurationList';
-import { ConfigurationDeleteDialog } from './ConfigurationDeleteDialog';
 import { ConfigurationSwatch } from './ConfigurationSwatch';
 import { createTaskLabel, deleteTaskLabel, updateTaskLabel } from './api';
 
@@ -248,22 +248,27 @@ export function LabelSettings(props: LabelSettingsProps) {
           Only Workspace Owners and Admins can change labels.
         </p>
       ) : null}
-      {deleteTarget ? (
-        <ConfigurationDeleteDialog
-          entityName={deleteTarget.name}
-          entityType="label"
-          explanation="This permanently removes the label from every task. This cannot be undone."
-          onClose={() => setDeleteTarget(null)}
-          onDelete={async () => {
-            await deleteTaskLabel(
-              props.context,
-              props.workspace.id,
-              deleteTarget.id,
-            );
-            await props.onChanged();
-          }}
-        />
-      ) : null}
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        type="confirm"
+        variant="danger"
+        title={`Delete ${deleteTarget?.name ?? 'label'}?`}
+        description="This permanently removes the label from every task. This cannot be undone."
+        confirmLabel="Delete"
+        loadingLabel="Deleting…"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteTaskLabel(
+            props.context,
+            props.workspace.id,
+            deleteTarget.id,
+          );
+          await props.onChanged();
+        }}
+      />
     </SettingsArticle>
   );
 }

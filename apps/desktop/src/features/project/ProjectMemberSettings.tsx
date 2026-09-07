@@ -1,6 +1,7 @@
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { UserMinus } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -44,6 +45,9 @@ export function ProjectMemberSettings({
   const [candidateId, setCandidateId] = useState('');
   const [role, setRole] = useState<ProjectRole>('contributor');
   const [busyMember, setBusyMember] = useState<string | null>(null);
+  const [removingMember, setRemovingMember] = useState<ProjectMember | null>(
+    null,
+  );
   const [state, setState] = useState<ActionState>({ status: 'idle' });
   const members = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
   const workspaceMembers = useMemo(
@@ -117,8 +121,6 @@ export function ProjectMemberSettings({
   }
 
   async function remove(member: ProjectMember) {
-    if (!window.confirm(`Remove ${member.display_name} from ${project.name}?`))
-      return;
     setBusyMember(member.user_id);
     setState({ status: 'idle' });
     try {
@@ -131,6 +133,7 @@ export function ProjectMemberSettings({
       await refresh();
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
+      throw error;
     } finally {
       setBusyMember(null);
     }
@@ -264,7 +267,7 @@ export function ProjectMemberSettings({
                       type="button"
                       disabled={busyMember === member.user_id}
                       aria-label={`Remove ${member.display_name}`}
-                      onClick={() => void remove(member)}
+                      onClick={() => setRemovingMember(member)}
                     >
                       <UserMinus aria-hidden="true" size={15} />
                     </button>
@@ -305,6 +308,22 @@ export function ProjectMemberSettings({
           </div>
         </dl>
       </section>
+      <AppDialog
+        open={removingMember !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemovingMember(null);
+        }}
+        type="confirm"
+        variant="danger"
+        title={`Remove ${removingMember?.display_name ?? 'member'}?`}
+        description={`They will lose access to ${project.name}.`}
+        confirmLabel="Remove member"
+        loadingLabel="Removing…"
+        onConfirm={() => {
+          if (!removingMember) return;
+          return remove(removingMember);
+        }}
+      />
     </SettingsArticle>
   );
 }

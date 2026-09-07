@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getHostAccess, updateHostAccess } from './api';
 import { HostAccessSettings } from './HostAccessSettings';
@@ -205,13 +211,16 @@ describe('HostAccessSettings', () => {
   });
 
   it('does not save when Restricted confirmation is cancelled', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderSettings();
 
     fireEvent.click(
       await screen.findByRole('checkbox', { name: /Restricted access/ }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Save Restricted access?',
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
     expect(updateHostAccess).not.toHaveBeenCalled();
   });

@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
@@ -34,7 +35,7 @@ export function DocumentDetail({
   onPatch: (patch: DocumentPatch) => Promise<void>;
   onRequestArchive: () => void;
   onCancelArchive: () => void;
-  onConfirmArchive: () => void;
+  onConfirmArchive: () => Promise<boolean | void>;
   onBack: () => void;
 }) {
   const descendants = descendantIds(documents, document.id);
@@ -74,27 +75,19 @@ export function DocumentDetail({
         )}
       </header>
 
-      {confirmingArchive && (
-        <div
-          className="document-archive-confirm"
-          role="alertdialog"
-          aria-label="Archive Library note"
-        >
-          <span>This archives the note and every nested note below it.</span>
-          <div>
-            <button type="button" onClick={onCancelArchive}>
-              Cancel
-            </button>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={onConfirmArchive}
-            >
-              Archive
-            </button>
-          </div>
-        </div>
-      )}
+      <AppDialog
+        open={confirmingArchive}
+        onOpenChange={(open) => {
+          if (!open) onCancelArchive();
+        }}
+        type="confirm"
+        variant="warning"
+        title="Archive Library note?"
+        description="This archives the note and every nested note below it."
+        confirmLabel="Archive note"
+        loadingLabel="Archiving…"
+        onConfirm={onConfirmArchive}
+      />
 
       <div className="document-metadata-bar">
         <label>

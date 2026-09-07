@@ -225,13 +225,14 @@ export function DocumentWorkspace({
   }
 
   async function confirmArchive(documentId: string) {
+    if (!(await onPrepareDocumentMutation())) return false;
     await run(async () => {
-      if (!(await onPrepareDocumentMutation())) return;
       await archiveDocument(context, workspaceId, documentId);
       setArchiveCandidateId(null);
       await refresh();
       await onSelectDocument(null, { replace: true });
     });
+    return true;
   }
 
   async function toggleCollapsed(documentId: string) {
@@ -317,9 +318,7 @@ export function DocumentWorkspace({
             onPatch={(patch) => patchDocument(selected.id, patch)}
             onRequestArchive={() => setArchiveCandidateId(selected.id)}
             onCancelArchive={() => setArchiveCandidateId(null)}
-            onConfirmArchive={() => {
-              void confirmArchive(selected.id).catch(() => undefined);
-            }}
+            onConfirmArchive={() => confirmArchive(selected.id)}
             onBack={() => {
               void onSelectDocument(null, { replace: true });
             }}

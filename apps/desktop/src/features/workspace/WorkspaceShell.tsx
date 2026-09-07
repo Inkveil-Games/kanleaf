@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
@@ -191,6 +192,9 @@ export function WorkspaceShell({
   const [actionError, setActionError] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [deleteViewTarget, setDeleteViewTarget] = useState<SavedView | null>(
+    null,
+  );
   const [joiningProject, setJoiningProject] = useState(false);
   const activationAttempt = useRef<string | null>(null);
   const activationGeneration = useRef(0);
@@ -1100,12 +1104,16 @@ export function WorkspaceShell({
 
   async function removeSavedView() {
     if (!workspaceId || !activeView) return;
-    if (!window.confirm(`Delete the View “${activeView.name}”?`)) return;
-    const projectId = activeView.project_id;
+    setDeleteViewTarget(activeView);
+  }
+
+  async function confirmRemoveSavedView() {
+    if (!workspaceId || !deleteViewTarget) return;
+    const projectId = deleteViewTarget.project_id;
     await flushDocumentSaves();
-    await deleteSavedView(context, workspaceId, activeView.id);
+    await deleteSavedView(context, workspaceId, deleteViewTarget.id);
     queryClient.removeQueries({
-      queryKey: ['saved-view', workspaceId, activeView.id],
+      queryKey: ['saved-view', workspaceId, deleteViewTarget.id],
     });
     onNavigate(
       projectId
@@ -2098,6 +2106,19 @@ export function WorkspaceShell({
           </button>
         </div>
       )}
+      <AppDialog
+        open={deleteViewTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteViewTarget(null);
+        }}
+        type="confirm"
+        variant="danger"
+        title={`Delete the View “${deleteViewTarget?.name ?? ''}”?`}
+        description="This removes the saved View configuration. It does not delete its Tasks."
+        confirmLabel="Delete View"
+        loadingLabel="Deleting…"
+        onConfirm={confirmRemoveSavedView}
+      />
     </main>
   );
 }

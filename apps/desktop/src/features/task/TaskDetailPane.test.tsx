@@ -418,7 +418,6 @@ describe('TaskDetailPane', () => {
 
   it('edits structured task fields directly in the detail pane', async () => {
     const patch = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(
       <TaskDetailPane
         serverUrl="https://kanleaf.example.com"
@@ -469,6 +468,7 @@ describe('TaskDetailPane', () => {
       screen.getByRole('button', { name: 'Add Project property' }),
     );
     await chooseSelectOption('Project', 'Kanleaf');
+    fireEvent.click(screen.getByRole('button', { name: 'Move Task' }));
     const title = screen.getByLabelText('Task title');
     let titleHeight = 72;
     Object.defineProperty(title, 'scrollHeight', {

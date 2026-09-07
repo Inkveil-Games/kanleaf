@@ -1,6 +1,7 @@
 import { Archive, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import {
@@ -340,20 +341,39 @@ export function PropertiesSettings({
         />
       ) : null}
 
-      {deleteTarget ? (
-        <PropertyDeleteDialog
-          property={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onDelete={() =>
-            deleteProperty(
-              context,
-              workspace.id,
-              deleteTarget.id,
-              deleteTarget.name,
-            ).then(refresh)
-          }
-        />
-      ) : null}
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        type="typed-confirm"
+        variant="danger"
+        title={`Delete ${deleteTarget?.name ?? 'property'}?`}
+        description={
+          deleteTarget ? (
+            <>
+              {deleteTarget.usage_count === 0
+                ? 'No Tasks currently use this property.'
+                : `${deleteTarget.usage_count} ${deleteTarget.usage_count === 1 ? 'Task uses' : 'Tasks use'} this property.`}{' '}
+              Values are removed, the Markdown field is cleaned up, and the name
+              becomes available again.
+            </>
+          ) : undefined
+        }
+        confirmationText={deleteTarget?.name ?? ''}
+        confirmLabel="Delete property"
+        loadingLabel="Deleting…"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteProperty(
+            context,
+            workspace.id,
+            deleteTarget.id,
+            deleteTarget.name,
+          );
+          await refresh();
+        }}
+      />
     </SettingsArticle>
   );
 }
@@ -425,102 +445,6 @@ function UndefinedPropertiesList({
         ))
       )}
     </SettingsList>
-  );
-}
-
-function PropertyDeleteDialog({
-  property,
-  onClose,
-  onDelete,
-}: {
-  property: CustomPropertyDefinition;
-  onClose: () => void;
-  onDelete: () => Promise<void>;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [confirmation, setConfirmation] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (
-      saving ||
-      confirmation !== property.name ||
-      !window.confirm(`Permanently delete ${property.name}?`)
-    )
-      return;
-    setSaving(true);
-    setError(null);
-    try {
-      await onDelete();
-      onClose();
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="configuration-dialog"
-      aria-label={`Delete ${property.name}`}
-    >
-      <form onSubmit={(event) => void submit(event)}>
-        <header>
-          <div>
-            <span className="dialog-step-label">Permanent action</span>
-            <h2>Delete {property.name}</h2>
-            <p>
-              {property.usage_count === 0
-                ? 'No Tasks currently use this property.'
-                : `${property.usage_count} ${property.usage_count === 1 ? 'Task uses' : 'Tasks use'} this property.`}{' '}
-              Values are removed, the Markdown field is cleaned up, and the name
-              becomes available again.
-            </p>
-          </div>
-        </header>
-        <label className="settings-field">
-          Type {property.name} to confirm
-          <input
-            value={confirmation}
-            disabled={saving}
-            onChange={(event) => setConfirmation(event.target.value)}
-          />
-        </label>
-        {error ? (
-          <p className="settings-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <footer>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={saving}
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            className="danger-button"
-            type="submit"
-            disabled={saving || confirmation !== property.name}
-          >
-            {saving ? 'Deleting…' : 'Delete property'}
-          </button>
-        </footer>
-      </form>
-    </dialog>
   );
 }
 

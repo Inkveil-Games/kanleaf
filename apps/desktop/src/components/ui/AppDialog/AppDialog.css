@@ -1,0 +1,164 @@
+.app-dialog-backdrop {
+  position: fixed;
+  z-index: 400;
+  inset: 0;
+  background: var(--color-overlay);
+}
+
+.app-dialog-viewport {
+  position: fixed;
+  z-index: 401;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  padding: var(--space-4);
+  place-items: center;
+}
+
+.app-dialog-popup {
+  --app-dialog-intent: var(--color-text-muted);
+  --app-dialog-intent-muted: var(--color-surface-muted);
+
+  width: min(100%, 420px);
+  max-height: calc(100vh - (2 * var(--space-4)));
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.app-dialog-popup[data-variant='info'] {
+  --app-dialog-intent: var(--color-info);
+  --app-dialog-intent-muted: var(--color-info-muted);
+}
+
+.app-dialog-popup[data-variant='success'] {
+  --app-dialog-intent: var(--color-success);
+  --app-dialog-intent-muted: var(--color-success-muted);
+}
+
+.app-dialog-popup[data-variant='warning'] {
+  --app-dialog-intent: var(--color-warning);
+  --app-dialog-intent-muted: var(--color-warning-muted);
+}
+
+.app-dialog-popup[data-variant='danger'] {
+  --app-dialog-intent: var(--color-danger);
+  --app-dialog-intent-muted: var(--color-danger-muted);
+}
+
+.app-dialog-popup.app-dialog-md {
+  width: min(100%, 520px);
+}
+
+.app-dialog-popup.app-dialog-lg {
+  width: min(100%, 680px);
+}
+
+.app-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.app-dialog-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--app-dialog-intent);
+  background: var(--app-dialog-intent-muted);
+}
+
+.app-dialog-heading {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.app-dialog-title,
+.app-dialog-description,
+.app-dialog-error {
+  margin: 0;
+}
+
+.app-dialog-title {
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.app-dialog-description {
+  max-width: 54ch;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.app-dialog-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.app-dialog-confirmation-field {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.app-dialog-confirmation-field input {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-canvas);
+}
+
+.app-dialog-confirmation-field input:focus-visible {
+  border-color: var(--color-focus);
+  outline: 2px solid color-mix(in srgb, var(--color-focus) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.app-dialog-error {
+  color: var(--color-danger);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.app-dialog-footer {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-canvas);
+}
+
+.app-dialog-footer button {
+  min-width: 76px;
+}
+
+@media (max-width: 520px) {
+  .app-dialog-viewport {
+    padding: var(--space-3);
+  }
+
+  .app-dialog-popup {
+    max-height: calc(100vh - (2 * var(--space-3)));
+  }
+}

@@ -1906,7 +1906,6 @@ describe('WorkspaceShell routing integration', () => {
   });
 
   it('does not delete the active Saved View when its Markdown save fails', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const flushDocumentSaves = vi
       .fn()
       .mockRejectedValue(new Error('Task document save failed'));
@@ -1918,6 +1917,7 @@ describe('WorkspaceShell routing integration', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'Delete Saved View' }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete View' }));
 
     await waitFor(() => expect(flushDocumentSaves).toHaveBeenCalledOnce());
     expect(mocks.deleteSavedView).not.toHaveBeenCalled();

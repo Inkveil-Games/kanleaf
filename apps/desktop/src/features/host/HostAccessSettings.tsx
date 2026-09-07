@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LockKeyhole, Mail, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
@@ -64,6 +65,8 @@ function AccessPolicyForm({
   const allowedEmails = policy.allowed_emails;
   const [emailDraft, setEmailDraft] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [pendingRestrictedPolicy, setPendingRestrictedPolicy] =
+    useState<HostAccessPolicy | null>(null);
   const [state, setState] = useState<ActionState>({ status: 'idle' });
   const saving = state.status === 'saving';
   const policyDirty = Boolean(
@@ -117,6 +120,24 @@ function AccessPolicyForm({
     setState({ status: 'idle' });
   }
 
+  async function savePolicy(draft: HostAccessPolicy, rethrow = false) {
+    stagePolicy(draft);
+    setEmailDraft('');
+    setEmailError(null);
+    setState({ status: 'saving' });
+    try {
+      const saved = await updateHostAccess(context, draft);
+      queryClient.setQueryData(accessQueryKey(context), saved);
+      setPolicyDraft(null);
+      setEmailDraft('');
+      setEmailError(null);
+      setState({ status: 'saved', message: 'Access policy saved' });
+    } catch (error) {
+      setState({ status: 'error', message: errorMessage(error) });
+      if (rethrow) throw error;
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!dirty || saving) return;
@@ -131,30 +152,12 @@ function AccessPolicyForm({
       nextAllowedEmails = [...allowedEmails, parsed.email];
     }
 
-    if (
-      restricted &&
-      !window.confirm(
-        'Saving Restricted access will immediately sign out accounts that are not approved. Continue?',
-      )
-    ) {
+    const draft = { restricted, allowed_emails: nextAllowedEmails };
+    if (restricted) {
+      setPendingRestrictedPolicy(draft);
       return;
     }
-
-    const draft = { restricted, allowed_emails: nextAllowedEmails };
-    stagePolicy(draft);
-    setEmailDraft('');
-    setEmailError(null);
-    setState({ status: 'saving' });
-    try {
-      const saved = await updateHostAccess(context, draft);
-      queryClient.setQueryData(accessQueryKey(context), saved);
-      setPolicyDraft(null);
-      setEmailDraft('');
-      setEmailError(null);
-      setState({ status: 'saved', message: 'Access policy saved' });
-    } catch (error) {
-      setState({ status: 'error', message: errorMessage(error) });
-    }
+    await savePolicy(draft);
   }
 
   return (
@@ -345,6 +348,22 @@ function AccessPolicyForm({
         ) : null}
         <ActionMessage state={state} />
       </div>
+      <AppDialog
+        open={pendingRestrictedPolicy !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRestrictedPolicy(null);
+        }}
+        type="confirm"
+        variant="warning"
+        title="Save Restricted access?"
+        description="Accounts that are not approved will be signed out immediately."
+        confirmLabel="Save access policy"
+        loadingLabel="Saving…"
+        onConfirm={async () => {
+          if (!pendingRestrictedPolicy) return;
+          await savePolicy(pendingRestrictedPolicy, true);
+        }}
+      />
     </form>
   );
 }

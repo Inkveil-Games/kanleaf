@@ -1,5 +1,6 @@
 import { Archive, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import type { RefCallback } from 'react';
+import { useState, type RefCallback } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
 import {
   SettingsDragHandle,
@@ -29,6 +30,8 @@ export function SelectOptionEditor({
   options: SelectOptionDraft[];
   onChange: (options: SelectOptionDraft[]) => void;
 }) {
+  const [deletingOption, setDeletingOption] =
+    useState<SelectOptionDraft | null>(null);
   const activeOptions = options.filter((option) => !option.archived);
   const archivedOptions = options.filter((option) => option.archived);
 
@@ -96,7 +99,7 @@ export function SelectOptionEditor({
                         option={option}
                         disabled={disabled}
                         onArchive={() => update(option.key, { archived: true })}
-                        onDelete={() => deleteOption(options, option, onChange)}
+                        onDelete={() => setDeletingOption(option)}
                       />
                     ) : (
                       <button
@@ -145,7 +148,7 @@ export function SelectOptionEditor({
                 <SettingsAction
                   destructive
                   icon={<Trash2 aria-hidden="true" size={14} />}
-                  onClick={() => deleteOption(options, option, onChange)}
+                  onClick={() => setDeletingOption(option)}
                 >
                   Delete permanently
                 </SettingsAction>
@@ -171,6 +174,21 @@ export function SelectOptionEditor({
       >
         <Plus aria-hidden="true" size={14} /> Add option
       </button>
+      <AppDialog
+        open={deletingOption !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingOption(null);
+        }}
+        type="confirm"
+        variant="danger"
+        title={`Delete ${deletingOption?.name || 'this option'}?`}
+        description="It will be removed from every Task when you save the property."
+        confirmLabel="Delete option"
+        onConfirm={() => {
+          if (!deletingOption) return;
+          onChange(options.filter(({ key }) => key !== deletingOption.key));
+        }}
+      />
     </fieldset>
   );
 }
@@ -207,22 +225,6 @@ function OptionActions({
       </SettingsAction>
     </SettingsActionsMenu>
   );
-}
-
-function deleteOption(
-  options: SelectOptionDraft[],
-  option: SelectOptionDraft,
-  onChange: (options: SelectOptionDraft[]) => void,
-) {
-  if (
-    option.id &&
-    !window.confirm(
-      `Delete ${option.name || 'this option'}? It will be removed from every Task when you save.`,
-    )
-  ) {
-    return;
-  }
-  onChange(options.filter(({ key }) => key !== option.key));
 }
 
 function optionsInOrder(options: SelectOptionDraft[], ids: string[]) {

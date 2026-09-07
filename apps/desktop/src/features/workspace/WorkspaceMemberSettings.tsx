@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -80,6 +81,10 @@ export function WorkspaceMemberSettings({
   const [busyMember, setBusyMember] = useState<string | null>(null);
   const [busyInvitation, setBusyInvitation] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [memberConfirmation, setMemberConfirmation] = useState<{
+    type: 'remove' | 'transfer';
+    member: WorkspaceMember;
+  } | null>(null);
   const [issuedInvitation, setIssuedInvitation] =
     useState<IssuedWorkspaceInvitation | null>(null);
 
@@ -131,11 +136,6 @@ export function WorkspaceMemberSettings({
   }
 
   async function remove(member: WorkspaceMember) {
-    if (
-      !window.confirm(`Remove ${member.display_name} from ${workspace.name}?`)
-    ) {
-      return;
-    }
     setBusyMember(member.user_id);
     setActionState({ status: 'saving' });
     try {
@@ -144,19 +144,13 @@ export function WorkspaceMemberSettings({
       setActionState({ status: 'saved', message: 'Member removed' });
     } catch (error) {
       setActionState({ status: 'error', message: errorMessage(error) });
+      throw error;
     } finally {
       setBusyMember(null);
     }
   }
 
   async function transfer(member: WorkspaceMember) {
-    if (
-      !window.confirm(
-        `Transfer ownership of ${workspace.name} to ${member.display_name}? You will become an Admin.`,
-      )
-    ) {
-      return;
-    }
     setBusyMember(member.user_id);
     setActionState({ status: 'saving' });
     try {
@@ -165,6 +159,7 @@ export function WorkspaceMemberSettings({
       setActionState({ status: 'saved', message: 'Ownership transferred' });
     } catch (error) {
       setActionState({ status: 'error', message: errorMessage(error) });
+      throw error;
     } finally {
       setBusyMember(null);
     }
@@ -319,7 +314,14 @@ export function WorkspaceMemberSettings({
                       disabled={busyMember === member.user_id}
                     >
                       {canTransfer && (
-                        <DropdownMenuItem onClick={() => void transfer(member)}>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            setMemberConfirmation({
+                              type: 'transfer',
+                              member,
+                            })
+                          }
+                        >
                           <ShieldCheck aria-hidden="true" size={14} /> Transfer
                           ownership
                         </DropdownMenuItem>
@@ -327,7 +329,9 @@ export function WorkspaceMemberSettings({
                       {canRemove && (
                         <DropdownMenuItem
                           className="danger-menu-item"
-                          onClick={() => void remove(member)}
+                          onClick={() =>
+                            setMemberConfirmation({ type: 'remove', member })
+                          }
                         >
                           <Trash2 aria-hidden="true" size={14} /> Remove member
                         </DropdownMenuItem>
@@ -366,6 +370,40 @@ export function WorkspaceMemberSettings({
           }}
         />
       )}
+      <AppDialog
+        open={memberConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setMemberConfirmation(null);
+        }}
+        type="confirm"
+        variant={memberConfirmation?.type === 'transfer' ? 'warning' : 'danger'}
+        title={
+          memberConfirmation?.type === 'transfer'
+            ? `Transfer ownership to ${memberConfirmation.member.display_name}?`
+            : `Remove ${memberConfirmation?.member.display_name ?? 'member'}?`
+        }
+        description={
+          memberConfirmation?.type === 'transfer'
+            ? `They will become the Owner of ${workspace.name}, and you will become an Admin.`
+            : `They will lose access to ${workspace.name}.`
+        }
+        confirmLabel={
+          memberConfirmation?.type === 'transfer'
+            ? 'Transfer ownership'
+            : 'Remove member'
+        }
+        loadingLabel={
+          memberConfirmation?.type === 'transfer'
+            ? 'Transferring…'
+            : 'Removing…'
+        }
+        onConfirm={() => {
+          if (!memberConfirmation) return;
+          return memberConfirmation.type === 'transfer'
+            ? transfer(memberConfirmation.member)
+            : remove(memberConfirmation.member);
+        }}
+      />
     </SettingsArticle>
   );
 }

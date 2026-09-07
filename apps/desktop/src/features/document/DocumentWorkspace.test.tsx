@@ -438,7 +438,7 @@ describe('DocumentWorkspace', () => {
     await screen.findByText('Editor root');
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive note' }));
 
     await waitFor(() =>
       expect(onPrepareDocumentMutation).toHaveBeenCalledTimes(1),
@@ -467,14 +467,14 @@ describe('DocumentWorkspace', () => {
     await screen.findByText('Editor root');
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive note' }));
 
     await waitFor(() =>
       expect(onPrepareDocumentMutation).toHaveBeenCalledTimes(1),
     );
     expect(screen.getByText('Editor root')).toBeInTheDocument();
     expect(
-      screen.getByRole('alertdialog', { name: 'Archive Library note' }),
+      screen.getByRole('alertdialog', { name: 'Archive Library note?' }),
     ).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([, request]) => request?.method === 'DELETE'),
@@ -788,9 +788,9 @@ describe('DocumentWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
     expect(
-      screen.getByRole('alertdialog', { name: 'Archive Library note' }),
+      screen.getByRole('alertdialog', { name: 'Archive Library note?' }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Archive$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive note' }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/root',

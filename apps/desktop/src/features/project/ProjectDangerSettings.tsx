@@ -1,5 +1,6 @@
 import { Archive, Trash2 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { ActionMessage, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -23,33 +24,33 @@ export function ProjectDangerSettings({
   project,
   onRemoved,
 }: ProjectDangerSettingsProps) {
-  const [identifier, setIdentifier] = useState('');
+  const [dialog, setDialog] = useState<'archive' | 'delete' | null>(null);
   const [state, setState] = useState<ActionState>({ status: 'idle' });
 
   async function archive() {
-    if (
-      !window.confirm(
-        `Archive ${project.name}? Its tasks, documents, and settings will stay intact.`,
-      )
-    )
-      return;
     setState({ status: 'saving' });
     try {
       await archiveProject(context, workspace.id, project.id);
       await onRemoved();
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
+      throw error;
     }
   }
 
-  async function remove(event: FormEvent) {
-    event.preventDefault();
+  async function remove() {
     setState({ status: 'saving' });
     try {
-      await deleteProject(context, workspace.id, project.id, identifier);
+      await deleteProject(
+        context,
+        workspace.id,
+        project.id,
+        project.identifier,
+      );
       await onRemoved();
     } catch (error) {
       setState({ status: 'error', message: errorMessage(error) });
+      throw error;
     }
   }
 
@@ -70,15 +71,13 @@ export function ProjectDangerSettings({
         <button
           className="secondary-button"
           type="button"
-          onClick={() => void archive()}
+          disabled={state.status === 'saving'}
+          onClick={() => setDialog('archive')}
         >
           <Archive aria-hidden="true" size={14} /> Archive Project
         </button>
       </section>
-      <form
-        className="danger-section project-delete-form"
-        onSubmit={(event) => void remove(event)}
-      >
+      <section className="danger-section project-delete-form">
         <div>
           <h2>Delete Project permanently</h2>
           <p>
@@ -86,24 +85,43 @@ export function ProjectDangerSettings({
             membership, setting, and Markdown file. This cannot be recovered.
           </p>
         </div>
-        <label className="settings-field">
-          <span>Type {project.identifier} to confirm</span>
-          <input
-            value={identifier}
-            onChange={(event) => setIdentifier(event.target.value)}
-          />
-        </label>
         <button
           className="danger-button"
-          type="submit"
-          disabled={
-            identifier !== project.identifier || state.status === 'saving'
-          }
+          type="button"
+          disabled={state.status === 'saving'}
+          onClick={() => setDialog('delete')}
         >
           <Trash2 aria-hidden="true" size={14} /> Delete Project
         </button>
-        <ActionMessage state={state} />
-      </form>
+      </section>
+      <ActionMessage state={state} />
+      <AppDialog
+        open={dialog === 'archive'}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+        type="confirm"
+        variant="warning"
+        title={`Archive ${project.name}?`}
+        description="Its tasks, documents, and settings will stay intact and can be restored later."
+        confirmLabel="Archive Project"
+        loadingLabel="Archiving…"
+        onConfirm={archive}
+      />
+      <AppDialog
+        open={dialog === 'delete'}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+        type="typed-confirm"
+        variant="danger"
+        title={`Delete ${project.name} permanently?`}
+        description="Removes every Project Task, document, view, planning record, membership, setting, and Markdown file. This cannot be recovered."
+        confirmationText={project.identifier}
+        confirmLabel="Delete Project"
+        loadingLabel="Deleting…"
+        onConfirm={remove}
+      />
     </SettingsArticle>
   );
 }

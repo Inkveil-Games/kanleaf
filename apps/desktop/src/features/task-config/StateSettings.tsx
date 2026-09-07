@@ -7,6 +7,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
@@ -31,7 +32,6 @@ import type {
   Workspace,
 } from '../workspace/types';
 import { ArchivedConfigurationList } from './ArchivedConfigurationList';
-import { ConfigurationDeleteDialog } from './ConfigurationDeleteDialog';
 import { ConfigurationSwatch } from './ConfigurationSwatch';
 import {
   createTaskState,
@@ -57,6 +57,7 @@ export function StateSettings(props: StateSettingsProps) {
   const [group, setGroup] = useState<TaskStateGroup>('todo');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TaskState | null>(null);
+  const [replacementId, setReplacementId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const active = props.configuration.states.filter(
@@ -351,33 +352,52 @@ export function StateSettings(props: StateSettingsProps) {
           Only Workspace Owners and Admins can change task states.
         </p>
       ) : null}
-      {deleteTarget ? (
-        <ConfigurationDeleteDialog
-          entityName={deleteTarget.name}
-          entityType="state"
-          explanation="Choose a state from the same group for any tasks or defaults that still use this state."
-          replacementOptions={[
-            { value: '', label: 'No replacement' },
-            ...active
-              .filter(
-                (state) =>
-                  state.id !== deleteTarget.id &&
-                  state.state_group === deleteTarget.state_group,
-              )
-              .map((state) => ({ value: state.id, label: state.name })),
-          ]}
-          onClose={() => setDeleteTarget(null)}
-          onDelete={async (replacementId) => {
-            await deleteTaskState(
-              props.context,
-              props.workspace.id,
-              deleteTarget.id,
-              replacementId,
-            );
-            await props.onChanged();
-          }}
-        />
-      ) : null}
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setReplacementId('');
+          }
+        }}
+        type="confirm"
+        variant="danger"
+        size="md"
+        title={`Delete ${deleteTarget?.name ?? 'state'}?`}
+        description="Choose a state from the same group for any tasks or defaults that still use this state."
+        confirmLabel="Delete"
+        loadingLabel="Deleting…"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteTaskState(
+            props.context,
+            props.workspace.id,
+            deleteTarget.id,
+            replacementId || undefined,
+          );
+          await props.onChanged();
+        }}
+      >
+        <label className="settings-field">
+          Replacement for {deleteTarget?.name ?? 'state'}
+          <Select
+            ariaLabel={`Replacement for ${deleteTarget?.name ?? 'state'}`}
+            value={replacementId}
+            options={[
+              { value: '', label: 'No replacement' },
+              ...active
+                .filter(
+                  (state) =>
+                    state.id !== deleteTarget?.id &&
+                    state.state_group === deleteTarget?.state_group,
+                )
+                .map((state) => ({ value: state.id, label: state.name })),
+            ]}
+            onValueChange={setReplacementId}
+          />
+          <small>Used tasks are moved to this state.</small>
+        </label>
+      </AppDialog>
     </SettingsArticle>
   );
 }

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, CalendarRange, Layers3, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import {
   archiveProjectCycle,
@@ -52,6 +53,9 @@ export function ProjectPlanningPane({
 }: ProjectPlanningPaneProps) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<
+    ProjectCycle | ProjectModule | null
+  >(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const canEdit =
     project.effective_role === 'admin' ||
@@ -155,11 +159,21 @@ export function ProjectPlanningPane({
   }
 
   async function archiveSelected() {
-    if (!selected || !window.confirm(`Archive ${selected.name}?`)) return;
+    if (!archiveTarget) return;
     if (kind === 'cycles') {
-      await archiveProjectCycle(context, workspaceId, project.id, selected.id);
+      await archiveProjectCycle(
+        context,
+        workspaceId,
+        project.id,
+        archiveTarget.id,
+      );
     } else {
-      await archiveProjectModule(context, workspaceId, project.id, selected.id);
+      await archiveProjectModule(
+        context,
+        workspaceId,
+        project.id,
+        archiveTarget.id,
+      );
     }
     onSelectId(null, { replace: true });
     await refreshPlanning();
@@ -280,7 +294,7 @@ export function ProjectPlanningPane({
                   className="icon-button"
                   type="button"
                   aria-label={`Archive ${selected.name}`}
-                  onClick={() => void run(archiveSelected)}
+                  onClick={() => setArchiveTarget(selected)}
                 >
                   <Archive aria-hidden="true" size={15} />
                 </button>
@@ -351,6 +365,19 @@ export function ProjectPlanningPane({
           </div>
         )}
       </section>
+      <AppDialog
+        open={archiveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setArchiveTarget(null);
+        }}
+        type="confirm"
+        variant="warning"
+        title={`Archive ${archiveTarget?.name ?? (kind === 'cycles' ? 'Cycle' : 'Module')}?`}
+        description={`This ${kind === 'cycles' ? 'Cycle' : 'Module'} will no longer appear in active planning.`}
+        confirmLabel="Archive"
+        loadingLabel="Archiving…"
+        onConfirm={archiveSelected}
+      />
     </section>
   );
 }

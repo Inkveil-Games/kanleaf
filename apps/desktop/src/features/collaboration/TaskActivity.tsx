@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { MarkdownPreview } from '../markdown/MarkdownPreview';
 import { errorMessage, formatDateTime } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -82,6 +83,9 @@ export function TaskActivity({
   const [watching, setWatching] = useState(false);
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [deletingComment, setDeletingComment] = useState<TaskComment | null>(
+    null,
+  );
 
   const entries = useMemo(() => {
     const data = feed.data;
@@ -145,19 +149,10 @@ export function TaskActivity({
   }
 
   async function removeComment(comment: TaskComment) {
-    if (
-      !window.confirm('Delete this comment? Its history remains available.')
-    ) {
-      return;
-    }
     setActionError(null);
-    try {
-      await deleteComment(context, workspaceId, taskId, comment.id);
-      if (draft.editingId === comment.id) setDraft(emptyDraft);
-      await refreshFeed();
-    } catch (caught) {
-      setActionError(errorMessage(caught));
-    }
+    await deleteComment(context, workspaceId, taskId, comment.id);
+    if (draft.editingId === comment.id) setDraft(emptyDraft);
+    await refreshFeed();
   }
 
   async function toggleWatch() {
@@ -268,7 +263,7 @@ export function TaskActivity({
                 taskId={taskId}
                 onReply={reply}
                 onEdit={edit}
-                onDelete={(comment) => void removeComment(comment)}
+                onDelete={setDeletingComment}
                 onToggleHistory={(commentId) =>
                   setHistoryId((current) =>
                     current === commentId ? null : commentId,
@@ -360,6 +355,22 @@ export function TaskActivity({
           {actionError}
         </p>
       )}
+      <AppDialog
+        open={deletingComment !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingComment(null);
+        }}
+        type="confirm"
+        variant="danger"
+        title="Delete this comment?"
+        description="Its revision history remains available."
+        confirmLabel="Delete comment"
+        loadingLabel="Deleting…"
+        onConfirm={() => {
+          if (!deletingComment) return;
+          return removeComment(deletingComment);
+        }}
+      />
     </section>
   );
 }

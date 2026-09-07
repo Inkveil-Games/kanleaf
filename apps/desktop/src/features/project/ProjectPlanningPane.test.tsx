@@ -292,12 +292,12 @@ describe('ProjectPlanningPane', () => {
   });
 
   it('returns an archived selection to the parent route with replace intent', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const selectId = vi.fn();
     renderPlanning('modules', vi.fn(), projectModule.id, selectId);
 
     await screen.findByRole('heading', { name: 'Backend', level: 2 });
     fireEvent.click(screen.getByRole('button', { name: 'Archive Backend' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
     await waitFor(() =>
       expect(selectId).toHaveBeenCalledWith(null, { replace: true }),
@@ -358,7 +358,6 @@ describe('ProjectPlanningPane', () => {
   });
 
   it('updates Module status and lead and restricts archive to Project Admin', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPlanning('modules', vi.fn());
 
     expect(
@@ -378,6 +377,7 @@ describe('ProjectPlanningPane', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive Backend' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     await waitFor(() =>
       expect(archiveProjectModule).toHaveBeenCalledWith(
         expect.anything(),

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArchiveRestore, Trash2, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { ArchiveRestore, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import {
@@ -30,7 +31,6 @@ export function ArchivedProjectsSettings({
   });
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
-  const [confirmation, setConfirmation] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
 
   async function restore(project: Project) {
@@ -46,18 +46,17 @@ export function ArchivedProjectsSettings({
     }
   }
 
-  async function remove(event: FormEvent) {
-    event.preventDefault();
-    if (!deleteTarget || confirmation !== deleteTarget.identifier) return;
+  async function remove() {
+    if (!deleteTarget) return;
     setBusyProjectId(deleteTarget.id);
-    setActionError(null);
     try {
-      await deleteProject(context, workspace.id, deleteTarget.id, confirmation);
-      setDeleteTarget(null);
-      setConfirmation('');
+      await deleteProject(
+        context,
+        workspace.id,
+        deleteTarget.id,
+        deleteTarget.identifier,
+      );
       await Promise.all([archived.refetch(), onProjectsChanged()]);
-    } catch (error) {
-      setActionError(errorMessage(error));
     } finally {
       setBusyProjectId(null);
     }
@@ -117,7 +116,6 @@ export function ArchivedProjectsSettings({
                     disabled={busyProjectId !== null}
                     onClick={() => {
                       setDeleteTarget(project);
-                      setConfirmation('');
                       setActionError(null);
                     }}
                   >
@@ -130,49 +128,20 @@ export function ArchivedProjectsSettings({
         </div>
       )}
 
-      {deleteTarget ? (
-        <form
-          className="archived-project-delete"
-          onSubmit={(event) => void remove(event)}
-        >
-          <header>
-            <div>
-              <h2>Delete {deleteTarget.name} permanently?</h2>
-              <p>
-                Every Task, document, view, planning record, membership, and
-                Markdown file owned by this Project will be removed.
-              </p>
-            </div>
-            <button
-              type="button"
-              aria-label="Cancel permanent Project deletion"
-              onClick={() => setDeleteTarget(null)}
-            >
-              <X aria-hidden="true" size={15} />
-            </button>
-          </header>
-          <label className="settings-field">
-            <span>
-              Enter <strong>{deleteTarget.identifier}</strong> to confirm
-            </span>
-            <input
-              autoFocus
-              autoComplete="off"
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          </label>
-          <button
-            className="danger-button"
-            type="submit"
-            disabled={
-              confirmation !== deleteTarget.identifier || busyProjectId !== null
-            }
-          >
-            <Trash2 aria-hidden="true" size={14} /> Delete Project permanently
-          </button>
-        </form>
-      ) : null}
+      <AppDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        type="typed-confirm"
+        variant="danger"
+        title={`Delete ${deleteTarget?.name ?? 'Project'} permanently?`}
+        description="Every Task, document, view, planning record, membership, and Markdown file owned by this Project will be removed."
+        confirmationText={deleteTarget?.identifier ?? ''}
+        confirmLabel="Delete Project permanently"
+        loadingLabel="Deleting…"
+        onConfirm={remove}
+      />
       {actionError ? (
         <p className="settings-error" role="alert">
           {actionError}
