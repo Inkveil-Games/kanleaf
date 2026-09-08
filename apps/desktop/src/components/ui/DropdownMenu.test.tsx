@@ -66,6 +66,7 @@ describe('DropdownMenu', () => {
 
     const trigger = screen.getByRole('button', { name: 'Item actions' });
     await user.click(trigger);
+    await waitFor(() => expect(screen.getByRole('menu')).toHaveFocus());
     await user.keyboard('[Escape]');
 
     await waitFor(() => {
