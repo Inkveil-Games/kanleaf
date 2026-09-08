@@ -1,5 +1,10 @@
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { Checkbox } from '../../components/ui/Checkbox';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import type {
   Project,
@@ -314,7 +319,7 @@ export function TaskProperties({
         </PropertyRow>
 
         <PropertyRow label="Due date" propertyKey="due-date">
-          <input
+          <Input
             aria-label="Due date"
             type="date"
             disabled={disabled('due-date')}
@@ -402,7 +407,7 @@ export function TaskProperties({
             propertyKey="start-date"
             onLeaveEmpty={() => dismissEmpty('start-date')}
           >
-            <input
+            <Input
               aria-label="Start date"
               type="date"
               disabled={disabled('start-date')}
@@ -425,7 +430,7 @@ export function TaskProperties({
             propertyKey="estimate"
             onLeaveEmpty={() => dismissEmpty('estimate')}
           >
-            <input
+            <Input
               aria-label="Estimate"
               type="number"
               min={0}
@@ -565,8 +570,9 @@ export function TaskProperties({
           <PropertyRow label="Custom" propertyKey="custom-error">
             <span className="custom-property-load-error" role="alert">
               {customPropertiesError ?? undefinedPropertiesError}
-              <button
-                className="text-button"
+              <Button
+                variant="text"
+                size="sm"
                 type="button"
                 onClick={() => {
                   if (customPropertiesError) onRetryCustomProperties();
@@ -574,7 +580,7 @@ export function TaskProperties({
                 }}
               >
                 Try again
-              </button>
+              </Button>
             </span>
           </PropertyRow>
         ) : null}
@@ -604,15 +610,17 @@ export function TaskProperties({
                   />
                 )}
                 {canEdit && value !== undefined ? (
-                  <button
-                    className="icon-button custom-property-clear"
+                  <IconButton
+                    className="custom-property-clear"
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     aria-label={`Clear ${property.name}`}
                     disabled={savingCustom.has(property.id)}
                     onClick={() => void changeCustomProperty(property.id)}
                   >
-                    ×
-                  </button>
+                    <X aria-hidden="true" size={13} />
+                  </IconButton>
                 ) : null}
               </div>
             </PropertyRow>
@@ -629,14 +637,15 @@ export function TaskProperties({
               <code>{formatUndefinedValue(property.value)}</code>
               <span className="settings-status-badge">Undefined</span>
               {canManageProperties ? (
-                <button
-                  className="text-button"
+                <Button
+                  variant="text"
+                  size="sm"
                   type="button"
                   aria-label={`Define ${property.name}`}
                   onClick={() => void onDefineProperty(property.name)}
                 >
                   Define property
-                </button>
+                </Button>
               ) : null}
             </div>
           </PropertyRow>
@@ -704,16 +713,15 @@ function CustomPropertyInput({
 }) {
   if (property.type === 'checkbox') {
     return (
-      <label className="custom-checkbox-property">
-        <input
+      <div className="custom-checkbox-property">
+        <Checkbox
           aria-label={property.name}
-          type="checkbox"
           disabled={disabled}
           checked={value === true}
-          onChange={(event) => void onChange(event.target.checked)}
+          onCheckedChange={(checked) => void onChange(checked)}
         />
         {value === true ? 'Checked' : 'Unchecked'}
-      </label>
+      </div>
     );
   }
   if (property.type === 'single_select') {
@@ -776,7 +784,7 @@ function CustomScalarInput({
 }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
   return (
-    <input
+    <Input
       aria-label={property.name}
       type={
         property.type === 'number'

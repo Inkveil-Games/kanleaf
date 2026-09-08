@@ -1,5 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { LoadError } from '../settings/SettingsControls';
 import { errorMessage, formatDateTime, titleCase } from '../settings/utils';
 import {
@@ -164,24 +167,24 @@ export function WorkspaceJoinPanel({
                 </small>
               </div>
               <div className="row-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={busyInvitationId !== null || tokenBusy}
                   aria-label={`Decline invitation to ${invitation.workspace_name} (/${invitation.workspace_identifier})`}
                   onClick={() => void decline(invitation.id)}
                 >
                   Decline
-                </button>
-                <button
-                  className="primary-button compact-button"
-                  type="button"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={busyInvitationId !== null || tokenBusy}
                   aria-label={`Accept invitation to ${invitation.workspace_name} (/${invitation.workspace_identifier})`}
                   onClick={() => void accept(invitation)}
                 >
                   {busyInvitationId === invitation.id ? 'Joining…' : 'Accept'}
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -191,23 +194,25 @@ export function WorkspaceJoinPanel({
         className="settings-form token-form"
         onSubmit={(event) => void acceptToken(event)}
       >
-        <label className="settings-field">
-          <span>Invitation token</span>
-          <input
+        <FormField label="Invitation token" required>
+          <Input
             required
             value={token}
             onChange={(event) => setToken(event.target.value)}
             autoComplete="off"
             disabled={tokenBusy || busyInvitationId !== null}
           />
-        </label>
-        <button
-          className="primary-button compact-button"
+        </FormField>
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
-          disabled={tokenBusy || busyInvitationId !== null}
+          loading={tokenBusy}
+          disabled={busyInvitationId !== null}
+          loadingLabel="Joining…"
         >
-          {tokenBusy ? 'Joining…' : 'Accept token'}
-        </button>
+          Accept token
+        </Button>
       </form>
       {error ? (
         <p className="settings-error" role="alert">

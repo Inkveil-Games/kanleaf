@@ -2,6 +2,7 @@ import { Archive, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import {
@@ -180,13 +181,13 @@ export function PropertiesSettings({
       description="Add custom fields for structured task information."
       action={
         canManage ? (
-          <button
-            className="primary-button"
+          <Button
+            variant="primary"
             type="button"
             onClick={() => onDetailChange('new', { history: 'push' })}
           >
             <Plus aria-hidden="true" size={14} /> New property
-          </button>
+          </Button>
         ) : undefined
       }
     >
@@ -266,8 +267,9 @@ export function PropertiesSettings({
               >
                 <SettingsListCell primary>
                   {canManage ? (
-                    <button
-                      className="text-button"
+                    <Button
+                      variant="text"
+                      size="sm"
                       type="button"
                       title={property.description || property.name}
                       onClick={() =>
@@ -275,7 +277,7 @@ export function PropertiesSettings({
                       }
                     >
                       {property.name}
-                    </button>
+                    </Button>
                   ) : (
                     <span title={property.description || property.name}>
                       {property.name}
@@ -504,14 +506,15 @@ function UndefinedPropertiesList({
               {property.task_count === 1 ? 'Task' : 'Tasks'}
             </SettingsListCell>
             <SettingsListCell className="settings-list-actions-cell">
-              <button
-                className="text-button"
+              <Button
+                variant="text"
+                size="sm"
                 type="button"
                 aria-label={`Define ${property.name}`}
                 onClick={() => onDefine(property.name)}
               >
                 Define
-              </button>
+              </Button>
             </SettingsListCell>
           </div>
         ))

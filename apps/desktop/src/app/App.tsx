@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Wordmark } from '../components/ui/Wordmark';
+import { Button } from '../components/ui/Button';
 import { AccountChooser } from '../features/auth/AccountChooser';
 import { AddAccountDialog } from '../features/auth/AddAccountDialog';
 import { AuthScreen } from '../features/auth/AuthScreen';
@@ -237,9 +238,9 @@ function ConnectionFailure({ serverUrl, onRetry }: ConnectionFailureProps) {
         <h1>Server unavailable</h1>
         <p>Kanleaf could not reach the configured server at {serverUrl}.</p>
       </div>
-      <button className="primary-button" type="button" onClick={onRetry}>
+      <Button variant="primary" type="button" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </main>
   );
 }

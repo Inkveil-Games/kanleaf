@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
 import { PasswordField } from '../../components/ui/PasswordField';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
@@ -164,8 +166,7 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
           });
         }}
       >
-        <label className="settings-field">
-          <span>Host password</span>
+        <FormField label="Host password" required>
           <PasswordField
             required
             value={password}
@@ -173,7 +174,7 @@ export function HostWorkspaces({ context }: { context: ApiContext }) {
             visibilityLabel="Host password"
             autoComplete="current-password"
           />
-        </label>
+        </FormField>
       </AppDialog>
     </SettingsArticle>
   );
@@ -229,14 +230,13 @@ function WorkspaceTable({
                     </span>
                   </td>
                   <td className="host-workspace-actions">
-                    <button
-                      className="icon-button danger-icon-button"
-                      type="button"
+                    <IconButton
+                      variant="danger"
                       aria-label={`Delete Workspace “${workspace.name}” (/${workspace.identifier})`}
                       onClick={() => onDelete?.(workspace)}
                     >
                       <Trash2 aria-hidden="true" size={14} />
-                    </button>
+                    </IconButton>
                   </td>
                 </tr>
               ))}

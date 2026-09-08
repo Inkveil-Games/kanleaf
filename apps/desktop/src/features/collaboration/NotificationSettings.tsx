@@ -4,6 +4,7 @@ import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   FormActions,
   LoadError,
+  SettingsToggleRow,
   type ActionState,
 } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -71,42 +72,28 @@ function NotificationPreferenceForm({
   return (
     <form className="settings-form" onSubmit={(event) => void submit(event)}>
       <div className="settings-rows feature-toggle-rows">
-        <label className="settings-row feature-toggle-row">
-          <span>
-            <strong>Comments and replies</strong>
-            <small>
-              Notify when a watched Task receives a new discussion message.
-            </small>
-          </span>
-          <input
-            type="checkbox"
-            checked={values.notify_comments}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                notify_comments: event.target.checked,
-              }))
-            }
-          />
-        </label>
-        <label className="settings-row feature-toggle-row">
-          <span>
-            <strong>Task changes</strong>
-            <small>
-              Notify when state or other metadata changes on a watched Task.
-            </small>
-          </span>
-          <input
-            type="checkbox"
-            checked={values.notify_metadata}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                notify_metadata: event.target.checked,
-              }))
-            }
-          />
-        </label>
+        <SettingsToggleRow
+          label="Comments and replies"
+          description="Notify when a watched Task receives a new discussion message."
+          checked={values.notify_comments}
+          onCheckedChange={(checked) =>
+            setValues((current) => ({
+              ...current,
+              notify_comments: checked,
+            }))
+          }
+        />
+        <SettingsToggleRow
+          label="Task changes"
+          description="Notify when state or other metadata changes on a watched Task."
+          checked={values.notify_metadata}
+          onCheckedChange={(checked) =>
+            setValues((current) => ({
+              ...current,
+              notify_metadata: checked,
+            }))
+          }
+        />
       </div>
       <p className="settings-muted">
         Assignments, direct mentions, replies to your comments, and Workspace

@@ -1,4 +1,8 @@
 import { CalendarDays, Plus, Search, X } from 'lucide-react';
+import { Checkbox } from '../../components/ui/Checkbox';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import {
   useEffect,
@@ -246,14 +250,15 @@ export function TaskListPane({
         </div>
         <div className="collection-actions">
           {canCreate && (
-            <button
-              className="icon-button strong-icon-button"
+            <IconButton
+              variant="primary"
+              size="sm"
               type="button"
               aria-label="New task"
               onClick={() => setComposing(true)}
             >
               <Plus aria-hidden="true" size={17} />
-            </button>
+            </IconButton>
           )}
         </div>
       </header>
@@ -264,7 +269,7 @@ export function TaskListPane({
           <label className="sr-only" htmlFor="task-search-input">
             Search tasks
           </label>
-          <input
+          <Input
             id="task-search-input"
             ref={searchRef}
             type="search"
@@ -278,13 +283,15 @@ export function TaskListPane({
             }
           />
           {query.search && (
-            <button
+            <IconButton
+              variant="ghost"
+              size="sm"
               type="button"
               aria-label="Clear search"
               onClick={() => onQueryChange({ ...query, search: null })}
             >
               <X aria-hidden="true" size={14} />
-            </button>
+            </IconButton>
           )}
           <kbd>/</kbd>
         </div>
@@ -359,13 +366,15 @@ export function TaskListPane({
                 }}
               />
             </label>
-            <button
+            <Button
+              variant="text"
+              size="sm"
               type="button"
               disabled={bulkUpdating}
               onClick={() => setCheckedTaskIds(new Set())}
             >
               Clear
-            </button>
+            </Button>
             {bulkError && <span role="alert">{bulkError}</span>}
           </div>
         )}
@@ -385,18 +394,28 @@ export function TaskListPane({
         {error && tasks.length === 0 && (
           <div className="pane-state" role="alert">
             <p>{error}</p>
-            <button type="button" onClick={onRetry}>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={onRetry}
+            >
               Try again
-            </button>
+            </Button>
           </div>
         )}
         {!loading && !error && tasks.length === 0 && (
           <div className="pane-state empty-state">
             <p>{query.search ? 'No matching tasks.' : 'Nothing here yet.'}</p>
             {!query.search && canCreate && (
-              <button type="button" onClick={() => setComposing(true)}>
+              <Button
+                variant="text"
+                size="sm"
+                type="button"
+                onClick={() => setComposing(true)}
+              >
                 Create a task <kbd>C</kbd>
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -514,10 +533,13 @@ function TaskRow({
       aria-selected={selected}
       data-state-group={task.state.state_group}
     >
-      <label className="task-select-control">
-        <span className="sr-only">Select {task.title}</span>
-        <input type="checkbox" checked={checked} onChange={onToggleChecked} />
-      </label>
+      <div className="task-select-control">
+        <Checkbox
+          aria-label={`Select ${task.title}`}
+          checked={checked}
+          onCheckedChange={onToggleChecked}
+        />
+      </div>
       {canEdit ? (
         <button
           className="task-status-button"
@@ -605,7 +627,7 @@ function QuickTaskForm({ onCreate, onCancel }: QuickTaskFormProps) {
       <span className="status-glyph status-todo" aria-hidden="true" />
       <label>
         <span className="sr-only">Task title</span>
-        <input
+        <Input
           autoFocus
           required
           maxLength={300}
@@ -617,9 +639,15 @@ function QuickTaskForm({ onCreate, onCancel }: QuickTaskFormProps) {
           }}
         />
       </label>
-      <button type="submit" disabled={submitting}>
+      <Button
+        variant="primary"
+        size="sm"
+        type="submit"
+        loading={submitting}
+        loadingLabel="Adding Task"
+      >
         Add
-      </button>
+      </Button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

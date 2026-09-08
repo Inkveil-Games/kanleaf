@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Popover } from './Popover';
+import { Input } from './Input';
 
 export interface IconPickerOption {
   key: string;
@@ -123,7 +124,7 @@ export function IconPicker({
         <label className="icon-picker-search">
           <Search aria-hidden="true" size={14} />
           <span className="sr-only">Search icons</span>
-          <input
+          <Input
             autoFocus
             type="search"
             aria-label="Search icons"

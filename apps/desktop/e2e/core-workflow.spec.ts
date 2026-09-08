@@ -522,11 +522,11 @@ test('manages structured work and durable Markdown across reloads', async ({
       `/w/${workspaceIdentifier}/p/${projectIdentifier}/settings/features$`,
     ),
   );
-  await page
-    .locator('.feature-toggle-row')
-    .filter({ hasText: 'Cycles' })
-    .locator('input')
-    .check();
+  const cyclesSwitch = page.getByRole('switch', { name: 'Cycles' });
+  if ((await cyclesSwitch.getAttribute('aria-checked')) !== 'true') {
+    await cyclesSwitch.click();
+  }
+  await expect(cyclesSwitch).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: 'Save features' }).click();
   await expect(page.getByText('Project features saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Project' }).click();
@@ -854,8 +854,9 @@ let source_is_markdown = true;
     .click();
 
   await page.getByRole('button', { name: 'New task' }).click();
-  await page.getByLabel('Task title').fill('Complete the v0.1 workflow');
-  await page.getByRole('button', { name: 'Add' }).click();
+  const taskTitleInput = page.getByLabel('Task title');
+  await taskTitleInput.fill('Complete the v0.1 workflow');
+  await taskTitleInput.press('Enter');
   await expect(page).toHaveURL(
     new RegExp(
       `/w/${workspaceIdentifier}/p/${projectIdentifier}/work-items\\?task=\\d+$`,
@@ -1175,8 +1176,9 @@ test('switches retained accounts without crossing account data', async ({
   );
   await page.getByRole('button', { name: 'Inbox' }).click();
   await page.getByRole('button', { name: 'New task' }).click();
-  await page.getByLabel('Task title').fill(firstTask);
-  await page.getByRole('button', { name: 'Add' }).click();
+  const taskTitleInput = page.getByLabel('Task title');
+  await taskTitleInput.fill(firstTask);
+  await taskTitleInput.press('Enter');
   const source = page.locator('.cm-content[contenteditable="true"]');
   await source.fill('# Account one\n\nSaved while switching accounts.');
 

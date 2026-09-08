@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
+import { IconButton } from '../../components/ui/IconButton';
 import type { ApiContext } from './api';
 import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace } from './types';
@@ -171,8 +172,10 @@ export function WorkspaceControl({
             <span className="workspace-control-divider" aria-hidden="true" />
           </>
         )}
-        <button
+        <IconButton
           className="workspace-control-toggle"
+          variant="ghost"
+          size="sm"
           type="button"
           aria-label={
             navigationVisible ? 'Collapse navigation' : 'Open navigation'
@@ -185,7 +188,7 @@ export function WorkspaceControl({
           ) : (
             <PanelLeftOpen aria-hidden="true" size={15} />
           )}
-        </button>
+        </IconButton>
       </div>
       {creatingWorkspace ? (
         <WorkspaceCreateDialog

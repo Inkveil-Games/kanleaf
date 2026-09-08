@@ -1,6 +1,8 @@
 import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
@@ -51,27 +53,30 @@ export function DocumentDetail({
     <div className="document-detail-layout">
       <header className="document-detail-header">
         <div className="document-detail-heading">
-          <button
-            className="icon-button narrow-detail-back"
+          <IconButton
+            className="narrow-detail-back"
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="Back to Library"
             onClick={onBack}
           >
             <ArrowLeft aria-hidden="true" size={16} />
-          </button>
+          </IconButton>
           <div>
             <p className="pane-eyebrow">Library note</p>
             <h1>{document.title}</h1>
           </div>
         </div>
         {document.can_edit && (
-          <button
-            className="text-button"
+          <Button
+            variant="text"
+            size="sm"
             type="button"
             onClick={onRequestArchive}
           >
             Archive…
-          </button>
+          </Button>
         )}
       </header>
 

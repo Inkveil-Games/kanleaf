@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Button } from '../../components/ui/Button';
 
 interface SettingsArticleProps {
   eyebrow: string;
@@ -26,13 +27,15 @@ export function SettingsArticle({
   return (
     <article className={`settings-article${className ? ` ${className}` : ''}`}>
       {backAction ? (
-        <button
+        <Button
           className="settings-back settings-detail-back"
+          variant="text"
+          size="sm"
           type="button"
           onClick={backAction.onClick}
         >
           <ArrowLeft aria-hidden="true" size={15} /> {backAction.label}
-        </button>
+        </Button>
       ) : null}
       <header className="settings-header">
         <div className="settings-header-copy">

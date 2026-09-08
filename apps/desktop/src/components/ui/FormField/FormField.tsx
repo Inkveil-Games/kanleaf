@@ -46,9 +46,7 @@ export function FormField({
         <label className="ui-form-field-label" htmlFor={resolvedControlId}>
           {label}
           {required ? (
-            <span className="ui-form-field-required" aria-hidden="true">
-              *
-            </span>
+            <span className="ui-form-field-required" aria-hidden="true" />
           ) : null}
         </label>
         {action ? <span className="ui-form-field-action">{action}</span> : null}

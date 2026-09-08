@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ArchiveRestore, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import {
@@ -73,9 +75,13 @@ export function ArchivedProjectsSettings({
       ) : archived.error ? (
         <div className="settings-inline-error" role="alert">
           <span>{errorMessage(archived.error)}</span>
-          <button type="button" onClick={() => void archived.refetch()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void archived.refetch()}
+          >
             Retry
-          </button>
+          </Button>
         </div>
       ) : archived.data.length === 0 ? (
         <div className="archived-projects-empty">
@@ -101,17 +107,16 @@ export function ArchivedProjectsSettings({
                   </small>
                 </div>
                 <div>
-                  <button
-                    className="secondary-button compact-button"
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     disabled={busyProjectId !== null}
                     onClick={() => void restore(project)}
                   >
                     <ArchiveRestore aria-hidden="true" size={14} /> Restore
-                  </button>
-                  <button
-                    className="icon-button danger-icon-button"
-                    type="button"
+                  </Button>
+                  <IconButton
+                    variant="danger"
                     aria-label={`Permanently delete ${project.name}`}
                     disabled={busyProjectId !== null}
                     onClick={() => {
@@ -120,7 +125,7 @@ export function ArchivedProjectsSettings({
                     }}
                   >
                     <Trash2 aria-hidden="true" size={14} />
-                  </button>
+                  </IconButton>
                 </div>
               </article>
             );

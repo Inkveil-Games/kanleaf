@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { User } from '../../lib/api/types';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { AccountSettings } from '../account/AccountSettings';
 import type { AccountSettingsSection } from '../account/settingsSections';
 import type { ApiContext } from '../workspace/api';
@@ -187,8 +189,10 @@ export function WorkspaceSettingsShell({
             label="Task properties"
             action={
               canManageWorkspace ? (
-                <button
+                <IconButton
                   className="settings-group-action"
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   aria-label="New property"
                   title="New property"
@@ -204,7 +208,7 @@ export function WorkspaceSettingsShell({
                 >
                   <Plus aria-hidden="true" size={14} />
                   <span className="sr-only">New property</span>
-                </button>
+                </IconButton>
               ) : undefined
             }
           >
@@ -276,9 +280,15 @@ export function SettingsFrame({
       <aside className="settings-navigation">
         <div className="settings-navigation-body">
           <div className="settings-navigation-header">
-            <button className="settings-back" type="button" onClick={onBack}>
+            <Button
+              className="settings-back"
+              variant="text"
+              size="sm"
+              type="button"
+              onClick={onBack}
+            >
               <ArrowLeft aria-hidden="true" size={15} /> {backLabel}
-            </button>
+            </Button>
             <strong>{title}</strong>
           </div>
           <nav aria-label={`${label} sections`}>{navigation}</nav>

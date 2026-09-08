@@ -1,4 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { X } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import type { SavedViewVisibility } from './types';
 
 interface SavedViewDialogProps {
@@ -59,21 +64,26 @@ export function SavedViewDialog({
       <section className="view-dialog" role="dialog" aria-modal="true">
         <header>
           <h2>{title}</h2>
-          <button type="button" aria-label="Close" onClick={onClose}>
-            ×
-          </button>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" size={15} />
+          </IconButton>
         </header>
         <form onSubmit={(event) => void submit(event)}>
-          <label>
-            <span>Name</span>
-            <input
+          <FormField label="Name" required>
+            <Input
               autoFocus
               required
               maxLength={120}
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
-          </label>
+          </FormField>
           {showVisibility && (
             <fieldset>
               <legend>Visibility</legend>
@@ -108,16 +118,17 @@ export function SavedViewDialog({
           )}
           {error && <p role="alert">{error}</p>}
           <footer>
-            <button type="button" onClick={onClose}>
+            <Button variant="secondary" type="button" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              className="primary-button"
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
-              disabled={submitting}
+              loading={submitting}
+              loadingLabel="Saving View"
             >
-              {submitting ? 'Saving…' : submitLabel}
-            </button>
+              {submitLabel}
+            </Button>
           </footer>
         </form>
       </section>

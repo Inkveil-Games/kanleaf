@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button } from '../../components/ui/Button';
 import {
   SettingsList,
   SettingsListCell,
@@ -45,13 +46,14 @@ export function ArchivedConfigurationList({
             </SettingsListCell>
             <SettingsListCell className="settings-list-actions-cell">
               {canManage ? (
-                <button
-                  className="text-button"
+                <Button
+                  variant="text"
+                  size="sm"
                   type="button"
                   onClick={() => void onRestore(item.id)}
                 >
                   Restore
-                </button>
+                </Button>
               ) : null}
             </SettingsListCell>
           </SettingsListRow>

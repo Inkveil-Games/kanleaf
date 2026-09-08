@@ -8,6 +8,10 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useState } from 'react';
+import { Checkbox } from '../../components/ui/Checkbox';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -437,7 +441,7 @@ export function TaskViewToolbar({
               <legend>Estimate</legend>
               <label>
                 <span>Minimum</span>
-                <input
+                <Input
                   type="number"
                   min="0"
                   value={query.filters.estimate.minimum ?? ''}
@@ -453,7 +457,7 @@ export function TaskViewToolbar({
               </label>
               <label>
                 <span>Maximum</span>
-                <input
+                <Input
                   type="number"
                   min="0"
                   value={query.filters.estimate.maximum ?? ''}
@@ -467,11 +471,11 @@ export function TaskViewToolbar({
                   }
                 />
               </label>
-              <label className="view-range-check">
-                <input
-                  type="checkbox"
+              <div className="view-range-check">
+                <Checkbox
+                  aria-label="Include unestimated Tasks"
                   checked={query.filters.estimate.include_none}
-                  onChange={() =>
+                  onCheckedChange={() =>
                     patchFilters({
                       estimate: {
                         ...query.filters.estimate,
@@ -481,7 +485,7 @@ export function TaskViewToolbar({
                   }
                 />
                 Include unestimated
-              </label>
+              </div>
             </fieldset>
           </div>
         </Popover>
@@ -555,8 +559,10 @@ export function TaskViewToolbar({
         </label>
         {query.sort[0] && (
           <>
-            <button
+            <IconButton
               className="view-sort-direction"
+              variant="ghost"
+              size="sm"
               type="button"
               aria-label={`Sort direction: ${query.sort[0].direction}`}
               onClick={() =>
@@ -576,7 +582,7 @@ export function TaskViewToolbar({
               }
             >
               {query.sort[0].direction === 'ascending' ? '↑' : '↓'}
-            </button>
+            </IconButton>
             <label className="view-compact-select view-secondary-select">
               <span>then</span>
               <Select
@@ -626,13 +632,15 @@ export function TaskViewToolbar({
         {activeView ? (
           <>
             {canManageActiveView && (
-              <button
+              <Button
                 className="view-save-button"
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={() => runAction(onSaveViewConfiguration)}
               >
                 <Save aria-hidden="true" size={14} /> Save changes
-              </button>
+              </Button>
             )}
             <DropdownMenu
               label="Saved view actions"
@@ -675,13 +683,15 @@ export function TaskViewToolbar({
             </DropdownMenu>
           </>
         ) : (
-          <button
+          <Button
             className="view-save-button"
+            variant="secondary"
+            size="sm"
             type="button"
             onClick={() => setDialog('create')}
           >
             <Save aria-hidden="true" size={14} /> Save View
-          </button>
+          </Button>
         )}
       </div>
 
@@ -757,7 +767,7 @@ function DateRangeControl({
       <legend>{label}</legend>
       <label>
         <span>From</span>
-        <input
+        <Input
           type="date"
           value={value.from ?? ''}
           onChange={(event) =>
@@ -767,7 +777,7 @@ function DateRangeControl({
       </label>
       <label>
         <span>To</span>
-        <input
+        <Input
           type="date"
           value={value.to ?? ''}
           onChange={(event) =>
@@ -775,16 +785,16 @@ function DateRangeControl({
           }
         />
       </label>
-      <label className="view-range-check">
-        <input
-          type="checkbox"
+      <div className="view-range-check">
+        <Checkbox
+          aria-label="Include unscheduled Tasks"
           checked={value.include_none}
-          onChange={() =>
+          onCheckedChange={() =>
             onChange({ ...value, include_none: !value.include_none })
           }
         />
         Include unscheduled
-      </label>
+      </div>
     </fieldset>
   );
 }

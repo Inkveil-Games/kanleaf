@@ -10,6 +10,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Button } from '../../components/ui/Button';
 import type { Project } from '../workspace/types';
 import { ProjectIconGlyph } from './ProjectIconGlyph';
 
@@ -57,33 +58,27 @@ export function ProjectOverview({
         <div className="project-header-actions">
           {accessible ? (
             <>
-              <button
-                className="primary-button compact-button"
-                type="button"
-                onClick={onOpenWorkItems}
-              >
+              <Button variant="primary" size="sm" onClick={onOpenWorkItems}>
                 <ListTodo aria-hidden="true" size={15} /> Work items
-              </button>
+              </Button>
               {project.effective_role === 'admin' && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={onOpenSettings}
-                >
+                <Button variant="secondary" size="sm" onClick={onOpenSettings}>
                   <Settings2 aria-hidden="true" size={15} /> Settings
-                </button>
+                </Button>
               )}
             </>
           ) : (
-            <button
-              className="primary-button compact-button"
-              type="button"
-              disabled={!project.can_join || joining}
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!project.can_join}
+              loading={joining}
+              loadingLabel="Joining…"
               onClick={() => void onJoin()}
             >
               <UserPlus aria-hidden="true" size={15} />
-              {joining ? 'Joining…' : 'Join Project'}
-            </button>
+              Join Project
+            </Button>
           )}
         </div>
       </header>

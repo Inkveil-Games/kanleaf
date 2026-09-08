@@ -24,6 +24,10 @@
   color: var(--color-danger);
 }
 
+.ui-form-field-required::before {
+  content: '*';
+}
+
 .ui-form-field-action {
   flex: 0 0 auto;
 }

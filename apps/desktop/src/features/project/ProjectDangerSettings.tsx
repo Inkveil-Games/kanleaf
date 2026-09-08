@@ -1,6 +1,7 @@
 import { Archive, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { ActionMessage, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -68,14 +69,14 @@ export function ProjectDangerSettings({
             documents, settings, and Markdown ready to restore.
           </p>
         </div>
-        <button
-          className="secondary-button"
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={state.status === 'saving'}
           onClick={() => setDialog('archive')}
         >
           <Archive aria-hidden="true" size={14} /> Archive Project
-        </button>
+        </Button>
       </section>
       <section className="danger-section project-delete-form">
         <div>
@@ -85,14 +86,14 @@ export function ProjectDangerSettings({
             membership, setting, and Markdown file. This cannot be recovered.
           </p>
         </div>
-        <button
-          className="danger-button"
-          type="button"
+        <Button
+          variant="danger"
+          size="sm"
           disabled={state.status === 'saving'}
           onClick={() => setDialog('delete')}
         >
           <Trash2 aria-hidden="true" size={14} /> Delete Project
-        </button>
+        </Button>
       </section>
       <ActionMessage state={state} />
       <AppDialog

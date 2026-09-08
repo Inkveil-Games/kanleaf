@@ -12,6 +12,7 @@ import {
   type NavigateFunction,
 } from 'react-router';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { Button } from '../../components/ui/Button';
 import { routePaths } from '../../app/routing/routePaths';
 import { ApiError } from '../../lib/api/client';
 import { getDocument, getDocumentByNumber } from '../document/api';
@@ -1026,13 +1027,13 @@ function WorkspaceListFailure({
         <h1>Workspace unavailable</h1>
         <p>{errorMessage(query.error)}</p>
       </div>
-      <button
-        className="primary-button"
+      <Button
+        variant="primary"
         type="button"
         onClick={() => void query.refetch()}
       >
         Try again
-      </button>
+      </Button>
     </main>
   );
 }
@@ -1053,9 +1054,9 @@ function RouteAccessFailure({
         <h1>{title}</h1>
         <p>{errorMessage(error)}</p>
       </div>
-      <button className="primary-button" type="button" onClick={onRetry}>
+      <Button variant="primary" type="button" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </main>
   );
 }

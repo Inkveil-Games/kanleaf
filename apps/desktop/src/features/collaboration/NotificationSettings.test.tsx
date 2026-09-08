@@ -36,10 +36,10 @@ describe('NotificationSettings', () => {
       </QueryClientProvider>,
     );
 
-    const comments = await screen.findByRole('checkbox', {
+    const comments = await screen.findByRole('switch', {
       name: /Comments and replies/,
     });
-    const metadata = screen.getByRole('checkbox', { name: /Task changes/ });
+    const metadata = screen.getByRole('switch', { name: /Task changes/ });
     expect(comments).toBeChecked();
     expect(metadata).not.toBeChecked();
     fireEvent.click(comments);

@@ -1,5 +1,6 @@
 import { ArrowRight, Bookmark, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { Button } from '../../components/ui/Button';
 import type { Project } from '../workspace/types';
 import { SavedViewDialog } from './SavedViewDialog';
 import type { SavedView, SavedViewVisibility, TaskLayout } from './types';
@@ -42,13 +43,14 @@ export function ProjectViewsPane({
           <h1 id="project-views-heading">Views</h1>
           <p>Saved filters, grouping, fields, and layouts for this Project.</p>
         </div>
-        <button
-          className="primary-button compact-button"
+        <Button
+          variant="primary"
+          size="sm"
           type="button"
           onClick={() => setCreating(true)}
         >
           <Plus aria-hidden="true" size={15} /> New View
-        </button>
+        </Button>
       </header>
 
       <div className="project-views-body">
@@ -59,13 +61,9 @@ export function ProjectViewsPane({
         ) : error ? (
           <div className="project-views-state" role="alert">
             <p>{error}</p>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onRetry}
-            >
+            <Button variant="secondary" type="button" onClick={onRetry}>
               Try again
-            </button>
+            </Button>
           </div>
         ) : views.length === 0 ? (
           <div className="project-views-empty">
@@ -75,13 +73,13 @@ export function ProjectViewsPane({
               Save a focused task collection, then refine its filters and
               layout.
             </p>
-            <button
-              className="secondary-button"
+            <Button
+              variant="secondary"
               type="button"
               onClick={() => setCreating(true)}
             >
               <Plus aria-hidden="true" size={14} /> Create the first View
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="project-view-groups">

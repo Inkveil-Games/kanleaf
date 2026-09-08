@@ -1,5 +1,7 @@
 import { ArchiveRestore, FileArchive, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from './api';
 import {
@@ -112,14 +114,16 @@ export function WorkspaceImportDialog({
             <strong>Import Workspace</strong>
             <span>Create a new isolated Workspace from a Kanleaf archive.</span>
           </div>
-          <button
+          <IconButton
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="Close import"
             disabled={busy}
             onClick={close}
           >
             <X aria-hidden="true" size={16} />
-          </button>
+          </IconButton>
         </header>
         <div className="workspace-import-content">
           <label className="workspace-import-picker">
@@ -131,7 +135,7 @@ export function WorkspaceImportDialog({
                 configuration record before restore.
               </small>
             </span>
-            <span className="secondary-button">
+            <span className="workspace-import-picker-action">
               {busy && !operation ? 'Checking…' : 'Choose file'}
             </span>
             <input
@@ -183,25 +187,26 @@ export function WorkspaceImportDialog({
           )}
         </div>
         <footer>
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="button"
             disabled={busy}
             onClick={close}
           >
             Cancel
-          </button>
-          <button
-            className="primary-button compact-button"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            disabled={busy || operation?.state !== 'ready'}
+            loading={busy && operation?.state === 'ready'}
+            loadingLabel="Importing Workspace"
+            disabled={operation?.state !== 'ready'}
             onClick={() => void applyImport()}
           >
             <ArchiveRestore aria-hidden="true" size={14} />
-            {busy && operation?.state === 'ready'
-              ? 'Importing…'
-              : 'Import as new Workspace'}
-          </button>
+            Import as new Workspace
+          </Button>
         </footer>
       </div>
     </dialog>

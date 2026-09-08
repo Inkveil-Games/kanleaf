@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useState } from 'react';
+import { Button } from '../../components/ui/Button';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
 import { errorMessage, formatDateTime } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -88,13 +89,15 @@ export function Notifications({
     >
       <div className="notification-header">
         <strong>Notifications</strong>
-        <button
+        <Button
+          variant="text"
+          size="sm"
           type="button"
           disabled={unreadCount === 0}
           onClick={() => void markAllRead()}
         >
           <CheckCheck aria-hidden="true" size={14} /> Mark all read
-        </button>
+        </Button>
       </div>
       <div className="notification-filters" aria-label="Notification filter">
         <button
@@ -120,9 +123,14 @@ export function Notifications({
         <div className="notification-empty" role="alert">
           <strong>Could not load notifications</strong>
           <span>{errorMessage(notifications.error)}</span>
-          <button type="button" onClick={() => void notifications.refetch()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={() => void notifications.refetch()}
+          >
             Try again
-          </button>
+          </Button>
         </div>
       ) : items.length === 0 ? (
         <div className="notification-empty" role="status">

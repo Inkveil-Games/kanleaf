@@ -1,7 +1,9 @@
 import { Archive, Pencil, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { Input } from '../../components/ui/Input';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   SettingsAction,
@@ -122,7 +124,7 @@ export function LabelSettings(props: LabelSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell>
-              <input
+              <Input
                 aria-label="Label name"
                 required
                 maxLength={120}
@@ -133,7 +135,7 @@ export function LabelSettings(props: LabelSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell>
-              <input
+              <Input
                 aria-label="Label description"
                 maxLength={500}
                 value={description}
@@ -143,13 +145,14 @@ export function LabelSettings(props: LabelSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell className="settings-list-actions-cell">
-              <button
-                className="primary-button compact-button"
+              <Button
+                variant="primary"
+                size="sm"
                 type="submit"
                 disabled={saving || !name.trim()}
               >
                 {saving ? 'Adding…' : 'Add label'}
-              </button>
+              </Button>
             </SettingsListCell>
           </form>
         ) : null}
@@ -320,7 +323,7 @@ function LabelEditRow({
         />
       </SettingsListCell>
       <SettingsListCell>
-        <input
+        <Input
           autoFocus
           aria-label={`${label.name} name`}
           maxLength={120}
@@ -330,7 +333,7 @@ function LabelEditRow({
         />
       </SettingsListCell>
       <SettingsListCell>
-        <input
+        <Input
           aria-label={`${label.name} description`}
           maxLength={500}
           disabled={saving}
@@ -340,21 +343,23 @@ function LabelEditRow({
         />
       </SettingsListCell>
       <SettingsListCell className="settings-edit-actions">
-        <button
-          className="text-button"
+        <Button
+          variant="text"
+          size="sm"
           type="button"
           disabled={saving}
           onClick={onCancel}
         >
           Cancel
-        </button>
-        <button
-          className="primary-button compact-button"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
           disabled={saving || !name.trim()}
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </SettingsListCell>
     </form>
   );

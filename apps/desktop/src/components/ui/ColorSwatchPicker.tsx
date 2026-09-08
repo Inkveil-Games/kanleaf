@@ -1,5 +1,7 @@
 import { Check } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
+import { Button } from './Button';
+import { Input } from './Input';
 import { Popover, PopoverClose } from './Popover';
 import { COLOR_SWATCH_PALETTE, normalizeHexColor } from './colorSwatches';
 
@@ -65,7 +67,7 @@ export function ColorSwatchPicker({
         <label className="color-swatch-custom">
           <span>Custom</span>
           <span>
-            <input
+            <Input
               aria-label="Custom color"
               maxLength={7}
               spellCheck={false}
@@ -73,9 +75,9 @@ export function ColorSwatchPicker({
               onChange={(event) => setCustomColor(event.target.value)}
             />
             <PopoverClose
-              className="secondary-button compact-button"
               ariaLabel="Use custom color"
               disabled={!normalizedCustomColor}
+              render={<Button variant="secondary" />}
               onClick={() => {
                 if (normalizedCustomColor) onChange(normalizedCustomColor);
               }}

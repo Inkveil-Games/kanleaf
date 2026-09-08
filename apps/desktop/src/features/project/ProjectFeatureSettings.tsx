@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { SettingsArticle } from '../settings/SettingsArticle';
-import { FormActions, type ActionState } from '../settings/SettingsControls';
+import {
+  FormActions,
+  SettingsToggleRow,
+  type ActionState,
+} from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
 import { updateProject, type ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
@@ -69,22 +73,18 @@ export function ProjectFeatureSettings({
               ],
             ] as const
           ).map(([key, label, description]) => (
-            <label className="settings-row feature-toggle-row" key={key}>
-              <span>
-                <strong>{label}</strong>
-                <small>{description}</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={features[key]}
-                onChange={(event) =>
-                  setFeatures((current) => ({
-                    ...current,
-                    [key]: event.target.checked,
-                  }))
-                }
-              />
-            </label>
+            <SettingsToggleRow
+              key={key}
+              label={label}
+              description={description}
+              checked={features[key]}
+              onCheckedChange={(checked) =>
+                setFeatures((current) => ({
+                  ...current,
+                  [key]: checked,
+                }))
+              }
+            />
           ))}
         </div>
         <FormActions state={state} label="Save features" />

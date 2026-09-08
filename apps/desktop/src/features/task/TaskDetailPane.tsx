@@ -37,7 +37,10 @@ import {
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
+import { Textarea } from '../../components/ui/Textarea';
 import { TaskActivity } from '../collaboration/TaskActivity';
 import { TaskProperties } from './TaskProperties';
 
@@ -108,9 +111,14 @@ export function TaskDetailPane(props: TaskDetailPaneProps) {
       <section className="detail-pane detail-empty" aria-label="Task detail">
         <div role="alert">
           <p>{props.error}</p>
-          <button type="button" onClick={props.onRetry}>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={props.onRetry}
+          >
             Try again
-          </button>
+          </Button>
         </div>
       </section>
     );
@@ -268,20 +276,22 @@ function SelectedTaskDetail({
               </DropdownMenuItem>
             </DropdownMenu>
           )}
-          <button
-            className="icon-button detail-back-button"
+          <Button
+            className="detail-back-button"
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="Close task"
             onClick={onClose}
           >
             <ArrowLeft aria-hidden="true" size={16} />
             <span>Back</span>
-          </button>
+          </Button>
         </div>
       </header>
 
       <div className="detail-scroll">
-        <textarea
+        <Textarea
           ref={titleRef}
           className="task-title-input"
           aria-label="Task title"
@@ -360,8 +370,9 @@ function SelectedTaskDetail({
                     {relation.task.reference} · {relation.task.title}
                   </button>
                   {canEdit && (
-                    <button
-                      className="icon-button"
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
                       type="button"
                       aria-label={`Remove relation to ${relation.task.title}`}
                       onClick={() =>
@@ -371,7 +382,7 @@ function SelectedTaskDetail({
                       }
                     >
                       <X aria-hidden="true" size={13} />
-                    </button>
+                    </IconButton>
                   )}
                 </div>
               ))}
@@ -425,12 +436,15 @@ function SelectedTaskDetail({
                     ]}
                     onValueChange={setRelatedTaskId}
                   />
-                  <button
+                  <Button
+                    variant="primary"
                     type="submit"
-                    disabled={relationSaving || !relatedTaskId}
+                    loading={relationSaving}
+                    loadingLabel="Adding relation"
+                    disabled={!relatedTaskId}
                   >
                     <Plus aria-hidden="true" size={14} /> Add
-                  </button>
+                  </Button>
                 </form>
               )}
             </div>

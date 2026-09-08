@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FormEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FormActions } from './SettingsControls';
+import { FormActions, SettingsToggleRow } from './SettingsControls';
 
 describe('FormActions', () => {
   it('submits through the shared primary Button', async () => {
@@ -39,5 +39,32 @@ describe('FormActions', () => {
 
     await user.click(submit);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('SettingsToggleRow', () => {
+  it('exposes a labeled Switch and reports preference changes', async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+
+    render(
+      <SettingsToggleRow
+        label="Comments and replies"
+        description="Notify when a watched Task receives a reply."
+        checked={false}
+        onCheckedChange={onCheckedChange}
+      />,
+    );
+
+    const control = screen.getByRole('switch', {
+      name: 'Comments and replies',
+    });
+    expect(control).not.toBeChecked();
+    expect(control).toHaveAccessibleDescription(
+      'Notify when a watched Task receives a reply.',
+    );
+
+    await user.click(control);
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 });

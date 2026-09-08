@@ -2,6 +2,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LockKeyhole, Mail, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
+import { Switch } from '../../components/ui/Switch';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
@@ -187,23 +192,18 @@ function AccessPolicyForm({
           <span className="host-policy-state">
             {restricted ? 'Restricted' : 'Open'}
           </span>
-          <label className="host-policy-toggle">
-            <span className="sr-only">Restricted access</span>
-            <input
-              type="checkbox"
-              aria-label="Restricted access"
-              checked={restricted}
-              disabled={saving}
-              onChange={(event) => {
-                stagePolicy({
-                  restricted: event.target.checked,
-                  allowed_emails: allowedEmails,
-                });
-                setState({ status: 'idle' });
-              }}
-            />
-            <span className="host-policy-switch" aria-hidden="true" />
-          </label>
+          <Switch
+            aria-label="Restricted access"
+            checked={restricted}
+            disabled={saving}
+            onCheckedChange={(checked) => {
+              stagePolicy({
+                restricted: checked,
+                allowed_emails: allowedEmails,
+              });
+              setState({ status: 'idle' });
+            }}
+          />
         </span>
       </section>
 
@@ -226,15 +226,15 @@ function AccessPolicyForm({
         </div>
 
         <div className="host-email-add-row">
-          <label className="settings-field host-email-field">
-            <span>Email address</span>
-            <input
+          <FormField
+            className="host-email-field"
+            label="Email address"
+            hint="Add one exact address at a time. Addresses are stored in lowercase."
+            error={emailError}
+          >
+            <Input
               type="email"
               value={emailDraft}
-              aria-describedby={`host-email-hint${
-                emailError ? ' host-email-error' : ''
-              }`}
-              aria-invalid={emailError ? 'true' : undefined}
               autoCapitalize="none"
               autoComplete="off"
               autoCorrect="off"
@@ -247,24 +247,18 @@ function AccessPolicyForm({
               }}
               onKeyDown={addEmailOnEnter}
             />
-          </label>
-          <button
-            className="secondary-button host-add-email"
+          </FormField>
+          <Button
+            className="host-add-email"
+            variant="secondary"
+            size="sm"
             type="button"
             disabled={saving}
             onClick={addEmail}
           >
             <Plus aria-hidden="true" size={14} /> Add email
-          </button>
+          </Button>
         </div>
-        <small id="host-email-hint" className="host-email-hint">
-          Add one exact address at a time. Addresses are stored in lowercase.
-        </small>
-        {emailError ? (
-          <p id="host-email-error" className="settings-error" role="alert">
-            {emailError}
-          </p>
-        ) : null}
 
         <div className="settings-rows host-email-rows">
           <div className="settings-row host-email-row host-email-row-fixed">
@@ -299,15 +293,15 @@ function AccessPolicyForm({
                   <small>Approved account</small>
                 </span>
                 <span className="host-email-badge">Approved</span>
-                <button
-                  className="icon-button host-email-remove"
+                <IconButton
+                  className="host-email-remove"
                   type="button"
                   disabled={saving}
                   aria-label={`Remove ${email}`}
                   onClick={() => removeEmail(email)}
                 >
                   <Trash2 aria-hidden="true" size={14} />
-                </button>
+                </IconButton>
               </div>
             ))
           )}
@@ -328,21 +322,25 @@ function AccessPolicyForm({
       ) : null}
 
       <div className="settings-form-actions host-policy-actions">
-        <button
-          className="primary-button compact-button"
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
-          disabled={!dirty || saving}
+          disabled={!dirty}
+          loading={saving}
+          loadingLabel="Saving…"
         >
-          {saving ? 'Saving…' : 'Save access policy'}
-        </button>
-        <button
-          className="text-button"
+          Save access policy
+        </Button>
+        <Button
+          variant="text"
+          size="sm"
           type="button"
           disabled={!dirty || saving}
           onClick={discard}
         >
           Discard changes
-        </button>
+        </Button>
         {dirty && !saving ? (
           <span className="host-unsaved-state">Unsaved changes</span>
         ) : null}

@@ -7,6 +7,7 @@ import {
   useParams,
 } from 'react-router';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { Button } from '../../components/ui/Button';
 import { HostConsole, type HostSection } from '../../features/host/HostConsole';
 import { SetupRoutes } from '../../features/onboarding/SetupRoutes';
 import type { User } from '../../lib/api/types';
@@ -288,9 +289,9 @@ function HostAccessRequired({ onBack }: { onBack: () => void }) {
         <h1>Host access required</h1>
         <p>Sign in with the Host account configured for this Kanleaf server.</p>
       </div>
-      <button className="secondary-button" type="button" onClick={onBack}>
+      <Button variant="secondary" type="button" onClick={onBack}>
         Back to Workspace
-      </button>
+      </Button>
     </main>
   );
 }

@@ -12,6 +12,10 @@ import {
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
+import { Textarea } from '../../components/ui/Textarea';
 import { MarkdownPreview } from '../markdown/MarkdownPreview';
 import { errorMessage, formatDateTime } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -200,9 +204,14 @@ export function TaskActivity({
     return (
       <div className="activity-state" role="alert">
         <p>{errorMessage(feed.error)}</p>
-        <button type="button" onClick={() => void feed.refetch()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          onClick={() => void feed.refetch()}
+        >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -221,8 +230,9 @@ export function TaskActivity({
           <p className="pane-eyebrow">Conversation</p>
           <h2>Activity</h2>
         </div>
-        <button
-          className="secondary-button compact-button"
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
           disabled={watching}
           onClick={() => void toggleWatch()}
@@ -233,7 +243,7 @@ export function TaskActivity({
             <Eye aria-hidden="true" size={14} />
           )}
           {feed.data.watched ? 'Unwatch' : 'Watch'}
-        </button>
+        </Button>
       </header>
 
       <div className="activity-feed">
@@ -287,20 +297,21 @@ export function TaskActivity({
                   ? `Editing ${editing.author?.display_name ?? 'comment'}`
                   : `Replying to ${replyingTo?.author?.display_name ?? 'comment'}`}
               </span>
-              <button
-                className="icon-button"
+              <IconButton
+                variant="ghost"
+                size="sm"
                 type="button"
                 aria-label="Cancel comment action"
                 onClick={() => setDraft(emptyDraft)}
               >
                 <X aria-hidden="true" size={14} />
-              </button>
+              </IconButton>
             </div>
           )}
           <label className="sr-only" htmlFor={`comment-${taskId}`}>
             {editing ? 'Edit comment' : 'Add comment'}
           </label>
-          <textarea
+          <Textarea
             id={`comment-${taskId}`}
             rows={4}
             maxLength={50_000}
@@ -336,13 +347,16 @@ export function TaskActivity({
           />
           <div className="comment-composer-actions">
             <span>Markdown supported</span>
-            <button
-              className="primary-button compact-button"
+            <Button
+              variant="primary"
+              size="sm"
               type="submit"
-              disabled={saving || !draft.body.trim()}
+              loading={saving}
+              loadingLabel="Saving comment"
+              disabled={!draft.body.trim()}
             >
-              {saving ? 'Saving…' : editing ? 'Save comment' : 'Comment'}
-            </button>
+              {editing ? 'Save comment' : 'Comment'}
+            </Button>
           </div>
         </form>
       ) : (
@@ -435,24 +449,44 @@ function CommentRow({
         </div>
         <div className="comment-actions">
           {canComment && !comment.parent_id && !comment.deleted_at && (
-            <button type="button" onClick={() => onReply(comment)}>
+            <Button
+              variant="text"
+              size="sm"
+              type="button"
+              onClick={() => onReply(comment)}
+            >
               <Reply aria-hidden="true" size={13} /> Reply
-            </button>
+            </Button>
           )}
           {canComment && isAuthor && !comment.deleted_at && (
-            <button type="button" onClick={() => onEdit(comment)}>
+            <Button
+              variant="text"
+              size="sm"
+              type="button"
+              onClick={() => onEdit(comment)}
+            >
               <Pencil aria-hidden="true" size={13} /> Edit
-            </button>
+            </Button>
           )}
           {hasHistory && (
-            <button type="button" onClick={() => onToggleHistory(comment.id)}>
+            <Button
+              variant="text"
+              size="sm"
+              type="button"
+              onClick={() => onToggleHistory(comment.id)}
+            >
               <History aria-hidden="true" size={13} /> History
-            </button>
+            </Button>
           )}
           {canDelete && (
-            <button type="button" onClick={() => onDelete(comment)}>
+            <Button
+              variant="text"
+              size="sm"
+              type="button"
+              onClick={() => onDelete(comment)}
+            >
               <Trash2 aria-hidden="true" size={13} /> Delete
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -554,7 +588,7 @@ function MentionPicker({
         <label className="sr-only" htmlFor="mention-search">
           Mention a member
         </label>
-        <input
+        <Input
           id="mention-search"
           type="search"
           placeholder="Mention a member"

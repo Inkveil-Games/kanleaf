@@ -17,6 +17,8 @@ import {
 import { MarkdownPreview } from './MarkdownPreview';
 import { ApiError } from '../../lib/api/client';
 import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
@@ -74,9 +76,14 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
         </header>
         <div className="document-state" role="alert">
           <p>{errorMessage(document.error)}</p>
-          <button type="button" onClick={() => void document.refetch()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={() => void document.refetch()}
+          >
             Try again
-          </button>
+          </Button>
         </div>
       </DocumentFrame>
     );
@@ -313,14 +320,16 @@ function LoadedMarkdownDocument({
             >
               {saveLabel(saveState)}
             </span>
-            <button
+            <IconButton
+              variant="ghost"
+              size="sm"
               type="button"
               aria-label="Save Markdown"
               title="Save Markdown (Ctrl/Command+S)"
               onClick={() => void queueSave(contentRef.current)}
             >
               <Save aria-hidden="true" size={15} />
-            </button>
+            </IconButton>
           </div>
         )}
       </header>
@@ -344,19 +353,31 @@ function LoadedMarkdownDocument({
           </div>
           <div className="document-conflict-actions">
             {saveState === 'error' && (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={() => void queueSave(contentRef.current)}
               >
                 Try save
-              </button>
+              </Button>
             )}
-            <button type="button" onClick={() => void copyLocal()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => void copyLocal()}
+            >
               {copyState === 'copied' ? 'Local source copied' : 'Copy local'}
-            </button>
-            <button type="button" onClick={() => void reloadRemote()}>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => void reloadRemote()}
+            >
               Discard local
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -393,7 +414,9 @@ interface ModeButtonProps {
 
 function ModeButton({ label, active, icon, onClick }: ModeButtonProps) {
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="sm"
       type="button"
       aria-pressed={active}
       onClick={onClick}
@@ -401,7 +424,7 @@ function ModeButton({ label, active, icon, onClick }: ModeButtonProps) {
     >
       {icon}
       <span>{label}</span>
-    </button>
+    </Button>
   );
 }
 

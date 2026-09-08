@@ -10,6 +10,8 @@ import {
   Plus,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { CreateProjectDialog } from '../project/create/CreateProjectDialog';
 import { ProjectIconGlyph } from '../project/ProjectIconGlyph';
 import type { SavedView } from '../view/types';
@@ -136,19 +138,22 @@ export function WorkspaceNavigation({
           <div className="nav-section-heading">
             <h2 id="projects-heading">Projects</h2>
             {canUseContent && (
-              <button
-                className="icon-button"
+              <IconButton
+                variant="ghost"
+                size="sm"
                 type="button"
                 aria-label="New project"
                 onClick={() => setComposingProject(true)}
               >
                 <Plus aria-hidden="true" size={15} />
-              </button>
+              </IconButton>
             )}
           </div>
           {projects.length === 0 && !composingProject ? (
-            <button
+            <Button
               className="nav-empty-action"
+              variant="text"
+              size="sm"
               type="button"
               disabled={!canUseContent}
               onClick={() => canUseContent && setComposingProject(true)}
@@ -160,7 +165,7 @@ export function WorkspaceNavigation({
               ) : (
                 'No shared Projects'
               )}
-            </button>
+            </Button>
           ) : (
             <div className="project-nav-list">
               {projects.map((project) => {

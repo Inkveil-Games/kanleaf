@@ -1,5 +1,7 @@
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 
 interface InlineNameFormProps {
   label: string;
@@ -36,7 +38,7 @@ export function InlineNameForm({
     <form className="inline-name-form" onSubmit={(event) => void submit(event)}>
       <label>
         <span className="sr-only">{label}</span>
-        <input
+        <Input
           autoFocus
           required
           maxLength={120}
@@ -47,12 +49,24 @@ export function InlineNameForm({
           }}
         />
       </label>
-      <button type="submit" disabled={submitting} aria-label={submitLabel}>
+      <IconButton
+        variant="primary"
+        size="sm"
+        type="submit"
+        loading={submitting}
+        aria-label={submitLabel}
+      >
         <Plus aria-hidden="true" size={14} />
-      </button>
-      <button type="button" onClick={onCancel} aria-label="Cancel">
-        ×
-      </button>
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        type="button"
+        onClick={onCancel}
+        aria-label="Cancel"
+      >
+        <X aria-hidden="true" size={14} />
+      </IconButton>
       {error && <p role="alert">{error}</p>}
     </form>
   );

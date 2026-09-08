@@ -1,5 +1,9 @@
 import { useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { Textarea } from '../../components/ui/Textarea';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -138,9 +142,8 @@ export function PropertyEditorForm({
       onSubmit={(event) => void submit(event)}
     >
       <div className="property-editor-fields">
-        <label className="settings-field">
-          Name
-          <input
+        <FormField label="Name" required>
+          <Input
             autoFocus
             required
             maxLength={120}
@@ -148,9 +151,11 @@ export function PropertyEditorForm({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <label className="settings-field">
-          Type
+        </FormField>
+        <FormField
+          label="Type"
+          hint={property ? 'Type cannot be changed after creation.' : undefined}
+        >
           <Select
             ariaLabel="Property type"
             disabled={saving || Boolean(property)}
@@ -158,21 +163,17 @@ export function PropertyEditorForm({
             options={PROPERTY_TYPES}
             onValueChange={(value) => setType(value as CustomPropertyType)}
           />
-          {property ? (
-            <small>Type cannot be changed after creation.</small>
-          ) : null}
-        </label>
+        </FormField>
       </div>
-      <label className="settings-field">
-        Description
-        <textarea
+      <FormField label="Description">
+        <Textarea
           maxLength={500}
           disabled={saving}
           value={description}
           placeholder="What should this property capture?"
           onChange={(event) => setDescription(event.target.value)}
         />
-      </label>
+      </FormField>
       {selectType ? (
         <SelectOptionEditor
           disabled={saving}
@@ -186,31 +187,31 @@ export function PropertyEditorForm({
         </p>
       ) : null}
       <footer className="property-editor-actions">
-        <button
-          className="secondary-button"
+        <Button
+          variant="secondary"
           type="button"
           disabled={saving}
           onClick={onBack}
         >
           Cancel
-        </button>
-        <button
-          className="primary-button"
+        </Button>
+        <Button
+          variant="primary"
           type="submit"
+          loading={saving}
+          loadingLabel="Saving property"
           disabled={
             saving ||
             !name.trim() ||
             (selectType && options.some((option) => !option.name.trim()))
           }
         >
-          {saving
-            ? 'Saving…'
-            : property
-              ? 'Save changes'
-              : defineExisting
-                ? 'Define property'
-                : 'Create property'}
-        </button>
+          {property
+            ? 'Save changes'
+            : defineExisting
+              ? 'Define property'
+              : 'Create property'}
+        </Button>
       </footer>
     </form>
   );

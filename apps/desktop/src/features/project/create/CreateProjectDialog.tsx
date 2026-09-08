@@ -1,7 +1,12 @@
 import { X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Button } from '../../../components/ui/Button';
+import { FormField } from '../../../components/ui/FormField';
+import { IconButton } from '../../../components/ui/IconButton';
+import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
+import { Textarea } from '../../../components/ui/Textarea';
 import { routePaths } from '../../../app/routing/routePaths';
 import { ApiError } from '../../../lib/api/client';
 import { normalizePublicIdentifier } from '../../../lib/publicIdentifier';
@@ -31,9 +36,6 @@ export function CreateProjectDialog({
   onClose,
 }: CreateProjectDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const nameId = useId();
-  const identifierId = useId();
-  const descriptionId = useId();
   const [name, setName] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [identifierEdited, setIdentifierEdited] = useState(false);
@@ -165,38 +167,45 @@ export function CreateProjectDialog({
             <h2 id="project-create-heading">Create a Project</h2>
             <p>Shape the Project identity before inviting work into it.</p>
           </div>
-          <button
+          <IconButton
             type="button"
             aria-label="Close Project creation"
             disabled={submitting}
             onClick={close}
           >
             <X aria-hidden="true" size={17} />
-          </button>
+          </IconButton>
         </header>
 
         <div className="project-create-content">
           <div className="project-create-identity-row">
-            <label className="project-create-field" htmlFor={nameId}>
-              <span>Project name</span>
-              <input
-                id={nameId}
+            <FormField label="Project name" error={nameError} required>
+              <Input
                 autoFocus
                 required
                 maxLength={120}
                 value={name}
                 disabled={submitting}
-                aria-invalid={nameError ? true : undefined}
                 onChange={(event) => changeName(event.target.value)}
                 placeholder="e.g. Mobile app"
               />
-              {nameError ? <small role="alert">{nameError}</small> : null}
-            </label>
-            <div className="project-create-field">
-              <span className="field-label-row">
-                <label htmlFor={identifierId}>Project ID</label>
-                <button
-                  className="text-button field-reset-button"
+            </FormField>
+            <FormField
+              label="Project ID"
+              required
+              error={identifierError}
+              hint={
+                identifierError
+                  ? undefined
+                  : routePaths.project(
+                      workspace.identifier,
+                      identifier || 'project-id',
+                    )
+              }
+              action={
+                <Button
+                  variant="text"
+                  size="sm"
                   type="button"
                   disabled={submitting}
                   onClick={() => {
@@ -206,10 +215,10 @@ export function CreateProjectDialog({
                   }}
                 >
                   Reset
-                </button>
-              </span>
-              <input
-                id={identifierId}
+                </Button>
+              }
+            >
+              <Input
                 required
                 minLength={2}
                 maxLength={48}
@@ -218,7 +227,6 @@ export function CreateProjectDialog({
                 autoComplete="off"
                 spellCheck={false}
                 disabled={submitting}
-                aria-invalid={identifierError ? true : undefined}
                 onChange={(event) => {
                   setIdentifier(event.target.value);
                   setIdentifierEdited(true);
@@ -226,25 +234,17 @@ export function CreateProjectDialog({
                 }}
                 placeholder="mobile-app"
               />
-              {identifierError ? (
-                <small role="alert">{identifierError}</small>
-              ) : (
-                <small>
-                  {routePaths.project(
-                    workspace.identifier,
-                    identifier || 'project-id',
-                  )}
-                </small>
-              )}
-            </div>
+            </FormField>
           </div>
 
-          <label className="project-create-field" htmlFor={descriptionId}>
-            <span>
-              Description <small>Optional</small>
-            </span>
-            <textarea
-              id={descriptionId}
+          <FormField
+            label={
+              <>
+                Description <small>Optional</small>
+              </>
+            }
+          >
+            <Textarea
               rows={4}
               maxLength={2000}
               value={description}
@@ -258,11 +258,27 @@ export function CreateProjectDialog({
               }}
               placeholder="What outcome is this Project responsible for?"
             />
-          </label>
+          </FormField>
 
           <div className="project-create-choice-row">
-            <label className="project-create-field">
-              <span>Project lead</span>
+            <FormField
+              label="Project lead"
+              error={
+                members.error ? (
+                  <>
+                    Could not refresh members.{' '}
+                    <Button
+                      variant="text"
+                      size="sm"
+                      type="button"
+                      onClick={() => void members.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </>
+                ) : undefined
+              }
+            >
               <Select
                 ariaLabel="Project lead"
                 value={leadUserId}
@@ -270,17 +286,8 @@ export function CreateProjectDialog({
                 onValueChange={setLeadUserId}
                 disabled={submitting}
               />
-              {members.error ? (
-                <small className="project-lead-error">
-                  Could not refresh members.{' '}
-                  <button type="button" onClick={() => void members.refetch()}>
-                    Retry
-                  </button>
-                </small>
-              ) : null}
-            </label>
-            <label className="project-create-field">
-              <span>Visibility</span>
+            </FormField>
+            <FormField label="Visibility">
               <Select
                 ariaLabel="Project visibility"
                 value={visibility}
@@ -301,7 +308,7 @@ export function CreateProjectDialog({
                 }
                 disabled={submitting}
               />
-            </label>
+            </FormField>
           </div>
           {formError ? (
             <p className="settings-error" role="alert">
@@ -311,21 +318,22 @@ export function CreateProjectDialog({
         </div>
 
         <footer>
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="button"
             disabled={submitting}
             onClick={close}
           >
             Cancel
-          </button>
-          <button
-            className="primary-button"
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
-            disabled={submitting}
+            loading={submitting}
+            loadingLabel="Creating…"
           >
-            {submitting ? 'Creating…' : 'Create Project'}
-          </button>
+            Create Project
+          </Button>
         </footer>
       </form>
     </dialog>

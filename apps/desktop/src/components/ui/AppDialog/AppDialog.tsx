@@ -2,6 +2,8 @@ import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { Dialog } from '@base-ui/react/dialog';
 import { CircleCheck, Info, TriangleAlert } from 'lucide-react';
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Button } from '../Button';
+import { Input } from '../Input';
 import './AppDialog.css';
 
 export type AppDialogType = 'alert' | 'confirm' | 'typed-confirm' | 'custom';
@@ -208,8 +210,8 @@ export function AppDialog(props: AppDialogProps) {
                 cancelAction={
                   <Dialog.Close
                     ref={cancelRef}
-                    className="secondary-button"
                     disabled={busy}
+                    render={<Button variant="secondary" size="sm" />}
                   >
                     {props.cancelLabel ?? 'Cancel'}
                   </Dialog.Close>
@@ -241,8 +243,8 @@ export function AppDialog(props: AppDialogProps) {
                 type === 'alert' ? null : (
                   <AlertDialog.Close
                     ref={cancelRef}
-                    className="secondary-button"
                     disabled={busy}
+                    render={<Button variant="secondary" size="sm" />}
                   >
                     {props.cancelLabel ?? 'Cancel'}
                   </AlertDialog.Close>
@@ -252,8 +254,8 @@ export function AppDialog(props: AppDialogProps) {
                 type === 'alert' ? (
                   <AlertDialog.Close
                     ref={alertCloseRef}
-                    className="primary-button"
                     disabled={busy}
+                    render={<Button variant="primary" size="sm" />}
                   >
                     {props.closeLabel ?? 'Close'}
                   </AlertDialog.Close>
@@ -330,7 +332,7 @@ function AppDialogPanel({
                   </>
                 )}
               </span>
-              <input
+              <Input
                 ref={confirmationInputRef}
                 value={confirmation}
                 placeholder={props.confirmationPlaceholder}
@@ -355,21 +357,21 @@ function AppDialogPanel({
             <>
               {cancelAction}
               {type !== 'alert' ? (
-                <button
-                  className={
-                    variant === 'danger' ? 'danger-button' : 'primary-button'
-                  }
+                <Button
+                  variant={variant === 'danger' ? 'danger' : 'primary'}
+                  size="sm"
                   type={props.formId ? 'submit' : 'button'}
                   form={props.formId}
                   disabled={
                     busy || props.confirmDisabled || !typedConfirmationValid
                   }
+                  aria-busy={busy || undefined}
                   onClick={props.formId ? undefined : onConfirm}
                 >
                   {busy
                     ? (props.loadingLabel ?? 'Working…')
                     : (props.confirmLabel ?? 'Confirm')}
-                </button>
+                </Button>
               ) : null}
             </>
           )}

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { Button } from '../../components/ui/Button';
 import type { User } from '../../lib/api/types';
 import { LoadError } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -92,32 +93,34 @@ export function InviteSetupStep({
         </p>
       ) : null}
       <footer className="setup-actions">
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           type="button"
           disabled={busy}
           onClick={onSignOut}
         >
           Sign out
-        </button>
+        </Button>
         <div>
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="button"
             disabled={busy}
             onClick={() => void complete()}
           >
             Skip for now
-          </button>
+          </Button>
           {invitationCount > 0 ? (
-            <button
-              className="primary-button compact-button"
+            <Button
+              variant="primary"
+              size="sm"
               type="button"
-              disabled={busy}
+              loading={busy}
+              loadingLabel="Finishing setup"
               onClick={() => void complete()}
             >
-              {busy ? 'Finishing…' : 'Finish setup'}
-            </button>
+              Finish setup
+            </Button>
           ) : null}
         </div>
       </footer>

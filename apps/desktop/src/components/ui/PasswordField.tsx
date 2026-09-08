@@ -1,10 +1,10 @@
 import { Eye, EyeOff } from 'lucide-react';
-import { forwardRef, useState, type InputHTMLAttributes } from 'react';
+import { forwardRef, useState } from 'react';
+import { IconButton } from './IconButton';
+import { Input, type InputProps } from './Input';
+import './PasswordField.css';
 
-export interface PasswordFieldProps extends Omit<
-  InputHTMLAttributes<HTMLInputElement>,
-  'type'
-> {
+export interface PasswordFieldProps extends Omit<InputProps, 'type'> {
   visibilityLabel?: string;
 }
 
@@ -19,22 +19,21 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
 
     return (
       <span className="password-field">
-        <input
+        <Input
           {...inputProps}
           ref={ref}
           disabled={disabled}
           type={visible ? 'text' : 'password'}
         />
-        <button
+        <IconButton
           className="password-field-toggle"
-          type="button"
           aria-label={`${action} ${visibilityLabel}`}
           aria-pressed={visible}
           disabled={disabled}
           onClick={() => setVisible((current) => !current)}
         >
           <Icon aria-hidden="true" size={16} />
-        </button>
+        </IconButton>
       </span>
     );
   },

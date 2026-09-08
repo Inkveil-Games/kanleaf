@@ -1,4 +1,7 @@
-import { type FormEvent, useId, useState } from 'react';
+import { type FormEvent, useState } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { PasswordField } from '../../components/ui/PasswordField';
 import { ApiError, apiRequest } from '../../lib/api/client';
 import type { AuthResponse } from '../../lib/api/types';
@@ -20,10 +23,6 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const passwordId = useId();
-  const passwordHintId = useId();
-  const confirmationId = useId();
-  const confirmationErrorId = useId();
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,9 +94,8 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
         </p>
       </div>
 
-      <label className="field">
-        <span>Email</span>
-        <input
+      <FormField label="Email" required>
+        <Input
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
@@ -106,12 +104,14 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
           required
           disabled={submitting}
         />
-      </label>
+      </FormField>
 
-      <div className="field">
-        <label htmlFor={passwordId}>Password</label>
+      <FormField
+        label="Password"
+        required
+        hint={mode === 'register' ? 'Use at least 10 characters.' : undefined}
+      >
         <PasswordField
-          id={passwordId}
           value={password}
           onChange={(event) => {
             setPassword(event.target.value);
@@ -121,18 +121,12 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
           minLength={10}
           required
           disabled={submitting}
-          aria-describedby={mode === 'register' ? passwordHintId : undefined}
         />
-        {mode === 'register' ? (
-          <small id={passwordHintId}>Use at least 10 characters.</small>
-        ) : null}
-      </div>
+      </FormField>
 
       {mode === 'register' ? (
-        <div className="field">
-          <label htmlFor={confirmationId}>Confirm password</label>
+        <FormField label="Confirm password" required error={confirmationError}>
           <PasswordField
-            id={confirmationId}
             visibilityLabel="password confirmation"
             value={passwordConfirmation}
             onChange={(event) => {
@@ -143,21 +137,8 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
             minLength={10}
             required
             disabled={submitting}
-            aria-invalid={confirmationError ? true : undefined}
-            aria-describedby={
-              confirmationError ? confirmationErrorId : undefined
-            }
           />
-          {confirmationError ? (
-            <small
-              className="field-error"
-              id={confirmationErrorId}
-              role="alert"
-            >
-              {confirmationError}
-            </small>
-          ) : null}
-        </div>
+        </FormField>
       ) : null}
 
       {error ? (
@@ -166,15 +147,14 @@ export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
         </p>
       ) : null}
 
-      <button className="primary-button" type="submit" disabled={submitting}>
-        {submitting
-          ? mode === 'login'
-            ? 'Signing in…'
-            : 'Creating account…'
-          : mode === 'login'
-            ? 'Sign in'
-            : 'Register'}
-      </button>
+      <Button
+        variant="primary"
+        type="submit"
+        loading={submitting}
+        loadingLabel={mode === 'login' ? 'Signing in' : 'Creating account'}
+      >
+        {mode === 'login' ? 'Sign in' : 'Register'}
+      </Button>
     </form>
   );
 }

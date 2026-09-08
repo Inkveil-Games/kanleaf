@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { Textarea } from '../../components/ui/Textarea';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { FormActions, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -56,33 +59,29 @@ export function ProjectGeneralSettings({
       description="Identity, ownership, description, and Workspace visibility."
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
-        <label className="settings-field">
-          <span>Name</span>
-          <input
+        <FormField label="Name" required>
+          <Input
             required
             maxLength={120}
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <label className="settings-field">
-          <span>Project ID</span>
-          <input readOnly value={project.identifier} />
-          <small>
-            This stable ID is used in Project links and cannot change.
-          </small>
-        </label>
-        <label className="settings-field">
-          <span>Description</span>
-          <textarea
+        </FormField>
+        <FormField
+          label="Project ID"
+          hint="This stable ID is used in Project links and cannot change."
+        >
+          <Input readOnly value={project.identifier} />
+        </FormField>
+        <FormField label="Description">
+          <Textarea
             rows={5}
             maxLength={2000}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
           />
-        </label>
-        <label className="settings-field">
-          <span>Visibility</span>
+        </FormField>
+        <FormField label="Visibility">
           <Select
             ariaLabel="Visibility"
             value={visibility}
@@ -97,9 +96,11 @@ export function ProjectGeneralSettings({
               setVisibility(value as Project['visibility'])
             }
           />
-        </label>
-        <label className="settings-field">
-          <span>Project lead</span>
+        </FormField>
+        <FormField
+          label="Project lead"
+          hint="The lead must have Project Admin access."
+        >
           <Select
             ariaLabel="Project lead"
             value={leadUserId}
@@ -115,8 +116,7 @@ export function ProjectGeneralSettings({
             ]}
             onValueChange={setLeadUserId}
           />
-          <small>The lead must have Project Admin access.</small>
-        </label>
+        </FormField>
         <FormActions state={state} label="Save general settings" />
       </form>
     </SettingsArticle>

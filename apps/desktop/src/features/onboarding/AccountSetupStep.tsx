@@ -1,4 +1,7 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { ApiError } from '../../lib/api/client';
 import type { User } from '../../lib/api/types';
@@ -29,10 +32,6 @@ export function AccountSetupStep({
   const [error, setError] = useState<string | null>(null);
   const [displayNameError, setDisplayNameError] = useState<string | null>(null);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
-  const displayNameInputId = useId();
-  const displayNameErrorId = useId();
-  const timezoneInputId = useId();
-  const timezoneErrorId = useId();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,10 +90,8 @@ export function AccountSetupStep({
         <p>Choose how your name, dates, and working week appear.</p>
       </header>
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
-        <div className="settings-field">
-          <label htmlFor={displayNameInputId}>Display name</label>
-          <input
-            id={displayNameInputId}
+        <FormField label="Display name" required error={displayNameError}>
+          <Input
             required
             maxLength={120}
             value={displayName}
@@ -105,22 +102,10 @@ export function AccountSetupStep({
             }}
             autoFocus
             disabled={submitting}
-            aria-invalid={displayNameError ? true : undefined}
-            aria-describedby={displayNameError ? displayNameErrorId : undefined}
           />
-          {displayNameError ? (
-            <small
-              className="settings-error"
-              id={displayNameErrorId}
-              role="alert"
-            >
-              {displayNameError}
-            </small>
-          ) : null}
-        </div>
+        </FormField>
         <div className="setup-preference-grid">
-          <label className="settings-field">
-            <span>Theme</span>
+          <FormField label="Theme">
             <Select
               ariaLabel="Theme"
               value={theme}
@@ -132,11 +117,9 @@ export function AccountSetupStep({
               onValueChange={(value) => setTheme(value as User['theme'])}
               disabled={submitting}
             />
-          </label>
-          <div className="settings-field">
-            <label htmlFor={timezoneInputId}>Timezone</label>
-            <input
-              id={timezoneInputId}
+          </FormField>
+          <FormField label="Timezone" error={timezoneError}>
+            <Input
               maxLength={64}
               value={timezone}
               onChange={(event) => {
@@ -146,21 +129,9 @@ export function AccountSetupStep({
               }}
               placeholder="Asia/Ho_Chi_Minh"
               disabled={submitting}
-              aria-invalid={timezoneError ? true : undefined}
-              aria-describedby={timezoneError ? timezoneErrorId : undefined}
             />
-            {timezoneError ? (
-              <small
-                className="settings-error"
-                id={timezoneErrorId}
-                role="alert"
-              >
-                {timezoneError}
-              </small>
-            ) : null}
-          </div>
-          <label className="settings-field">
-            <span>Week starts on</span>
+          </FormField>
+          <FormField label="Week starts on">
             <Select
               ariaLabel="Week starts on"
               value={weekStart}
@@ -173,9 +144,8 @@ export function AccountSetupStep({
               }
               disabled={submitting}
             />
-          </label>
-          <label className="settings-field">
-            <span>Date format</span>
+          </FormField>
+          <FormField label="Date format">
             <Select
               ariaLabel="Date format"
               value={dateFormat}
@@ -190,7 +160,7 @@ export function AccountSetupStep({
               }
               disabled={submitting}
             />
-          </label>
+          </FormField>
         </div>
         {error ? (
           <p className="settings-error" role="alert">
@@ -198,31 +168,33 @@ export function AccountSetupStep({
           </p>
         ) : null}
         <div className="setup-actions">
-          <button
-            className="text-button"
+          <Button
+            variant="text"
             type="button"
             disabled={submitting}
             onClick={onSignOut}
           >
             Sign out
-          </button>
+          </Button>
           <div>
-            <button
-              className="secondary-button"
+            <Button
+              variant="secondary"
               type="submit"
               value="defaults"
               disabled={submitting}
             >
               Use default preferences
-            </button>
-            <button
-              className="primary-button compact-button"
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
               type="submit"
               value="preferences"
-              disabled={submitting}
+              loading={submitting}
+              loadingLabel="Saving preferences"
             >
-              {submitting ? 'Saving…' : 'Continue'}
-            </button>
+              Continue
+            </Button>
           </div>
         </div>
       </form>

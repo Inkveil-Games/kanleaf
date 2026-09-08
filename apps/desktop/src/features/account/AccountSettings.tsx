@@ -1,5 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
+import { PasswordField } from '../../components/ui/PasswordField';
 import { Select } from '../../components/ui/Select';
 import type { User } from '../../lib/api/types';
 import { NotificationSettings } from '../collaboration/NotificationSettings';
@@ -107,20 +111,20 @@ function ProfileSettings({
             <small>{user.email}</small>
           </div>
         </div>
-        <label className="settings-field">
-          <span>Display name</span>
-          <input
+        <FormField label="Display name" required>
+          <Input
             required
             maxLength={120}
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
-        </label>
-        <label className="settings-field">
-          <span>Email</span>
-          <input value={user.email} disabled />
-          <small>Email changes require verification and are not in Core.</small>
-        </label>
+        </FormField>
+        <FormField
+          label="Email"
+          hint="Email changes require verification and are not in Core."
+        >
+          <Input value={user.email} disabled />
+        </FormField>
         <FormActions state={state} label="Save profile" />
       </form>
     </SettingsArticle>
@@ -170,8 +174,7 @@ function PreferenceSettings({
       description="Formatting and appearance follow you between Kanleaf clients."
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
-        <label className="settings-field">
-          <span>Theme</span>
+        <FormField label="Theme">
           <Select
             ariaLabel="Theme"
             value={theme}
@@ -182,20 +185,17 @@ function PreferenceSettings({
             ]}
             onValueChange={(value) => setTheme(value as User['theme'])}
           />
-        </label>
-        <label className="settings-field">
-          <span>Timezone</span>
-          <input
+        </FormField>
+        <FormField label="Timezone" hint="Use an IANA timezone name." required>
+          <Input
             required
             maxLength={64}
             value={timezone}
             onChange={(event) => setTimezone(event.target.value)}
             placeholder="Asia/Ho_Chi_Minh"
           />
-          <small>Use an IANA timezone name.</small>
-        </label>
-        <label className="settings-field">
-          <span>Week starts on</span>
+        </FormField>
+        <FormField label="Week starts on">
           <Select
             ariaLabel="Week starts on"
             value={weekStart}
@@ -205,9 +205,8 @@ function PreferenceSettings({
             ]}
             onValueChange={(value) => setWeekStart(value as User['week_start'])}
           />
-        </label>
-        <label className="settings-field">
-          <span>Date format</span>
+        </FormField>
+        <FormField label="Date format">
           <Select
             ariaLabel="Date format"
             value={dateFormat}
@@ -221,7 +220,7 @@ function PreferenceSettings({
               setDateFormat(value as User['date_format'])
             }
           />
-        </label>
+        </FormField>
         <FormActions state={state} label="Save preferences" />
       </form>
     </SettingsArticle>
@@ -283,27 +282,23 @@ function SecuritySettings({ context }: { context: ApiContext }) {
       description="Change your password and review authenticated sessions."
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
-        <label className="settings-field">
-          <span>Current password</span>
-          <input
-            type="password"
+        <FormField label="Current password" required>
+          <PasswordField
             required
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
             autoComplete="current-password"
           />
-        </label>
-        <label className="settings-field">
-          <span>New password</span>
-          <input
-            type="password"
+        </FormField>
+        <FormField label="New password" required>
+          <PasswordField
             required
             minLength={10}
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
             autoComplete="new-password"
           />
-        </label>
+        </FormField>
         <FormActions state={state} label="Change password" />
       </form>
       <section className="settings-section" aria-labelledby="sessions-heading">
@@ -312,13 +307,13 @@ function SecuritySettings({ context }: { context: ApiContext }) {
             <h2 id="sessions-heading">Active sessions</h2>
             <p>Expired sessions are omitted.</p>
           </div>
-          <button
-            className="secondary-button"
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => void revokeOthers()}
           >
             Revoke other sessions
-          </button>
+          </Button>
         </div>
         {sessionError && (
           <p className="settings-error" role="alert">
@@ -346,13 +341,13 @@ function SecuritySettings({ context }: { context: ApiContext }) {
                   </small>
                 </div>
                 {!session.is_current && (
-                  <button
-                    className="secondary-button"
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => void revoke(session.id)}
                   >
                     Revoke
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}

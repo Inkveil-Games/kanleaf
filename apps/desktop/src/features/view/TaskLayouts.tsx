@@ -1,5 +1,7 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
+import { Checkbox } from '../../components/ui/Checkbox';
+import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
 import type {
   Project,
@@ -187,26 +189,30 @@ function TaskCalendar({
   return (
     <div className="task-calendar">
       <header className="calendar-toolbar">
-        <button
+        <IconButton
+          variant="ghost"
+          size="sm"
           type="button"
           aria-label="Previous month"
           onClick={() => setAnchor(addMonths(anchor, -1))}
         >
           <ChevronLeft aria-hidden="true" size={15} />
-        </button>
+        </IconButton>
         <h2>
           {new Intl.DateTimeFormat(undefined, {
             month: 'long',
             year: 'numeric',
           }).format(anchor)}
         </h2>
-        <button
+        <IconButton
+          variant="ghost"
+          size="sm"
           type="button"
           aria-label="Next month"
           onClick={() => setAnchor(addMonths(anchor, 1))}
         >
           <ChevronRight aria-hidden="true" size={15} />
-        </button>
+        </IconButton>
       </header>
       <div className="calendar-weekdays" aria-hidden="true">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
@@ -337,11 +343,10 @@ function TaskTable({
                 key={task.id}
               >
                 <td>
-                  <input
+                  <Checkbox
                     aria-label={`Select ${task.title}`}
-                    type="checkbox"
                     checked={checkedTaskIds.has(task.id)}
-                    onChange={() => onToggleChecked(task.id)}
+                    onCheckedChange={() => onToggleChecked(task.id)}
                   />
                 </td>
                 <th scope="row">

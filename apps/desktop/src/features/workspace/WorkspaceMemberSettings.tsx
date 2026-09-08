@@ -2,11 +2,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
 import { Select } from '../../components/ui/Select';
+import { Input } from '../../components/ui/Input';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
@@ -229,13 +231,9 @@ export function WorkspaceMemberSettings({
           )}
         </div>
         {canManage && (
-          <button
-            className="primary-button compact-button"
-            type="button"
-            onClick={openInviteDialog}
-          >
+          <Button variant="primary" size="sm" onClick={openInviteDialog}>
             <UserPlus aria-hidden="true" size={14} /> Invite people
-          </button>
+          </Button>
         )}
       </div>
 
@@ -244,7 +242,7 @@ export function WorkspaceMemberSettings({
       <div className="member-filters" role="search">
         <label className="member-search">
           <Search aria-hidden="true" size={14} />
-          <input
+          <Input
             type="search"
             aria-label="Search members"
             placeholder="Search by name or email"

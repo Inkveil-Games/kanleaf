@@ -1,6 +1,10 @@
 import { Trash2, UserMinus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
+import { PasswordField } from '../../components/ui/PasswordField';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { TaskConfigurationSettings } from '../task-config/TaskConfigurationSettings';
 import {
@@ -199,29 +203,21 @@ function GeneralSettings({
             <small>{titleCase(workspace.role)} access</small>
           </div>
         </div>
-        <label className="settings-field">
-          <span>Workspace name</span>
-          <input
+        <FormField label="Workspace name" required>
+          <Input
             required
             maxLength={120}
             disabled={!canManage}
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <div className="settings-field">
-          <label htmlFor={`workspace-identifier-${workspace.id}`}>
-            Workspace ID
-          </label>
-          <input
-            id={`workspace-identifier-${workspace.id}`}
-            readOnly
-            value={workspace.identifier}
-          />
-          <small>
-            Used in Workspace links. This ID cannot be changed after creation.
-          </small>
-        </div>
+        </FormField>
+        <FormField
+          label="Workspace ID"
+          hint="Used in Workspace links. This ID cannot be changed after creation."
+        >
+          <Input readOnly value={workspace.identifier} />
+        </FormField>
         <fieldset className="accent-picker" disabled={!canManage}>
           <legend>Accent</legend>
           <div>
@@ -305,14 +301,14 @@ function DangerSettings({
               vault. This cannot be undone.
             </p>
           </div>
-          <button
-            className="danger-button"
-            type="button"
+          <Button
+            variant="danger"
+            size="sm"
             disabled={state.status === 'saving'}
             onClick={() => setDialogOpen(true)}
           >
             <Trash2 aria-hidden="true" size={14} /> Delete Workspace
-          </button>
+          </Button>
         </section>
       ) : (
         <section className="danger-section">
@@ -322,14 +318,14 @@ function DangerSettings({
               Your tasks remain, but you will lose access to this Workspace.
             </p>
           </div>
-          <button
-            className="danger-button"
-            type="button"
+          <Button
+            variant="danger"
+            size="sm"
             disabled={state.status === 'saving' || workspaceCount <= 1}
             onClick={() => setDialogOpen(true)}
           >
             <UserMinus aria-hidden="true" size={14} /> Leave Workspace
-          </button>
+          </Button>
           {workspaceCount <= 1 && (
             <p className="settings-muted">
               Join or create another Workspace before leaving this one.
@@ -355,16 +351,14 @@ function DangerSettings({
           confirmDisabled={!password}
           onConfirm={remove}
         >
-          <label className="settings-field">
-            <span>Current password</span>
-            <input
+          <FormField label="Current password" required>
+            <PasswordField
               required
-              type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
             />
-          </label>
+          </FormField>
         </AppDialog>
       ) : (
         <AppDialog

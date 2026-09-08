@@ -1,4 +1,5 @@
 import { LogIn, UserPlus } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { AccountSession } from './accountSessionStore';
 
@@ -49,14 +50,15 @@ export function AccountChooser({
             {error}
           </p>
         )}
-        <button
+        <Button
+          variant="secondary"
           className="account-chooser-another"
           type="button"
           disabled={transitioning}
           onClick={onUseAnother}
         >
           <UserPlus aria-hidden="true" size={15} /> Use another account
-        </button>
+        </Button>
       </section>
     </main>
   );

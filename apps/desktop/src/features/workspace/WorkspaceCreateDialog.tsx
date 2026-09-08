@@ -1,5 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import type { ApiContext } from './api';
 import { InvitationComposer } from './InvitationComposer';
 import type { Workspace } from './types';
@@ -99,14 +101,16 @@ export function WorkspaceCreateDialog({
             </small>
           </div>
           {!workspace ? (
-            <button
+            <IconButton
+              variant="ghost"
+              size="sm"
               type="button"
               aria-label="Close Workspace creation"
               disabled={creating}
               onClick={close}
             >
               <X aria-hidden="true" size={16} />
-            </button>
+            </IconButton>
           ) : null}
         </header>
         <div className="workspace-create-content">
@@ -139,18 +143,16 @@ export function WorkspaceCreateDialog({
         </div>
         {workspace ? (
           <footer>
-            <button
-              className="primary-button compact-button"
+            <Button
+              variant="primary"
+              size="sm"
               type="button"
-              disabled={finishing}
+              loading={finishing}
+              loadingLabel="Opening Workspace"
               onClick={() => void finish()}
             >
-              {finishing
-                ? 'Opening…'
-                : invitationCount > 0
-                  ? 'Done'
-                  : 'Skip invitations'}
-            </button>
+              {invitationCount > 0 ? 'Done' : 'Skip invitations'}
+            </Button>
           </footer>
         ) : null}
       </div>

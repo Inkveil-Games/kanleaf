@@ -165,7 +165,7 @@ describe('HostAccessSettings', () => {
     });
     renderSettings();
 
-    const restricted = await screen.findByRole('checkbox', {
+    const restricted = await screen.findByRole('switch', {
       name: /Restricted access/,
     });
     fireEvent.click(restricted);
@@ -214,7 +214,7 @@ describe('HostAccessSettings', () => {
     renderSettings();
 
     fireEvent.click(
-      await screen.findByRole('checkbox', { name: /Restricted access/ }),
+      await screen.findByRole('switch', { name: /Restricted access/ }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Save access policy' }));
     const dialog = screen.getByRole('alertdialog', {
@@ -257,7 +257,7 @@ describe('HostAccessSettings', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(
-      await screen.findByRole('checkbox', { name: /Restricted access/ }),
+      await screen.findByRole('switch', { name: /Restricted access/ }),
     ).not.toBeChecked();
   });
 

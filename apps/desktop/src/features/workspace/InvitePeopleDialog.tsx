@@ -1,5 +1,9 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { ActionMessage, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -101,14 +105,14 @@ export function InvitePeopleDialog({
                 : 'Create a seven-day invitation for one email address.'}
             </p>
           </div>
-          <button
+          <IconButton
             type="button"
             aria-label="Close invitation dialog"
             disabled={saving}
             onClick={close}
           >
             <X aria-hidden="true" size={17} />
-          </button>
+          </IconButton>
         </header>
 
         <div className="workspace-invite-content">
@@ -116,9 +120,12 @@ export function InvitePeopleDialog({
             <IssuedInvitationToken invitation={issued} />
           ) : (
             <div className="workspace-invite-fields">
-              <label className="settings-field">
-                <span>Email address</span>
-                <input
+              <FormField
+                label="Email address"
+                hint="The token can only be accepted by this address."
+                required
+              >
+                <Input
                   autoFocus
                   required
                   type="email"
@@ -128,10 +135,8 @@ export function InvitePeopleDialog({
                   disabled={saving}
                   onChange={(event) => setEmail(event.target.value)}
                 />
-                <small>The token can only be accepted by this address.</small>
-              </label>
-              <label className="settings-field">
-                <span>Workspace role</span>
+              </FormField>
+              <FormField label="Workspace role">
                 <Select
                   ariaLabel="Invitation role"
                   value={role}
@@ -157,7 +162,7 @@ export function InvitePeopleDialog({
                   }
                   disabled={saving}
                 />
-              </label>
+              </FormField>
               <ActionMessage state={state} />
             </div>
           )}
@@ -166,37 +171,37 @@ export function InvitePeopleDialog({
         <footer>
           {issued ? (
             <>
-              <button
-                className="secondary-button"
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={inviteAnother}
               >
                 Invite another
-              </button>
-              <button
-                className="primary-button compact-button"
-                type="button"
-                onClick={close}
-              >
+              </Button>
+              <Button variant="primary" size="sm" type="button" onClick={close}>
                 Done
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
-                className="secondary-button"
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
                 onClick={close}
               >
                 Cancel
-              </button>
-              <button
-                className="primary-button compact-button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 type="submit"
-                disabled={saving}
+                loading={saving}
+                loadingLabel="Creating…"
               >
-                {saving ? 'Creating…' : 'Create invitation'}
-              </button>
+                Create invitation
+              </Button>
             </>
           )}
         </footer>

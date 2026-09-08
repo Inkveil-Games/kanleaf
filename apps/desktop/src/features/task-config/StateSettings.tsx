@@ -8,7 +8,10 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -161,7 +164,7 @@ export function StateSettings(props: StateSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell>
-              <input
+              <Input
                 aria-label="State name"
                 required
                 maxLength={120}
@@ -188,13 +191,14 @@ export function StateSettings(props: StateSettingsProps) {
               Added to the end
             </SettingsListCell>
             <SettingsListCell className="settings-list-actions-cell">
-              <button
-                className="primary-button compact-button"
+              <Button
+                variant="primary"
+                size="sm"
                 type="submit"
                 disabled={saving || !name.trim()}
               >
                 {saving ? 'Adding…' : 'Add state'}
-              </button>
+              </Button>
             </SettingsListCell>
           </form>
         ) : null}
@@ -378,8 +382,10 @@ export function StateSettings(props: StateSettingsProps) {
           await props.onChanged();
         }}
       >
-        <label className="settings-field">
-          Replacement for {deleteTarget?.name ?? 'state'}
+        <FormField
+          label={`Replacement for ${deleteTarget?.name ?? 'state'}`}
+          hint="Used tasks are moved to this state."
+        >
           <Select
             ariaLabel={`Replacement for ${deleteTarget?.name ?? 'state'}`}
             value={replacementId}
@@ -395,8 +401,7 @@ export function StateSettings(props: StateSettingsProps) {
             ]}
             onValueChange={setReplacementId}
           />
-          <small>Used tasks are moved to this state.</small>
-        </label>
+        </FormField>
       </AppDialog>
     </SettingsArticle>
   );
@@ -446,7 +451,7 @@ function StateEditRow({
         />
       </SettingsListCell>
       <SettingsListCell>
-        <input
+        <Input
           autoFocus
           aria-label={`${state.name} name`}
           maxLength={120}
@@ -468,21 +473,23 @@ function StateEditRow({
         Editing
       </SettingsListCell>
       <SettingsListCell className="settings-edit-actions">
-        <button
-          className="text-button"
+        <Button
+          variant="text"
+          size="sm"
           type="button"
           disabled={saving}
           onClick={onCancel}
         >
           Cancel
-        </button>
-        <button
-          className="primary-button compact-button"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
           disabled={saving || !name.trim()}
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </SettingsListCell>
     </form>
   );

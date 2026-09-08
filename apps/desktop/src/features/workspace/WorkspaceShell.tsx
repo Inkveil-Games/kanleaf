@@ -9,6 +9,8 @@ import {
   type CSSProperties,
 } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
@@ -1538,13 +1540,13 @@ export function WorkspaceShell({
           <h1>Workspace unavailable</h1>
           <p>{errorMessage(workspaces.error)}</p>
         </div>
-        <button
-          className="primary-button"
+        <Button
+          variant="primary"
           type="button"
           onClick={() => void workspaces.refetch()}
         >
           Try again
-        </button>
+        </Button>
       </main>
     );
   }
@@ -1919,13 +1921,13 @@ export function WorkspaceShell({
               Guests can only open projects explicitly shared with them. Ask a
               Workspace Admin to add you to a project.
             </p>
-            <button
-              className="secondary-button"
+            <Button
+              variant="secondary"
               type="button"
               onClick={() => openWorkspaceSettings('members')}
             >
               View Workspace members
-            </button>
+            </Button>
           </div>
         </section>
       ) : (
@@ -2160,13 +2162,15 @@ export function WorkspaceShell({
       {actionError && (
         <div className="toast-error" role="alert">
           <span>{actionError}</span>
-          <button
+          <IconButton
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="Dismiss error"
             onClick={() => setActionError(null)}
           >
-            ×
-          </button>
+            <span aria-hidden="true">×</span>
+          </IconButton>
         </div>
       )}
       <AppDialog
@@ -2341,9 +2345,9 @@ function WorkspaceRouteFailure({
         <h1>Workspace view unavailable</h1>
         <p>{message}</p>
       </div>
-      <button className="primary-button" type="button" onClick={onRetry}>
+      <Button variant="primary" type="button" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </main>
   );
 }

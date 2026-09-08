@@ -8,6 +8,7 @@ import {
   MoveUp,
   Pencil,
   Plus,
+  X,
 } from 'lucide-react';
 import {
   useState,
@@ -19,6 +20,8 @@ import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import { canMove, type DocumentSection, type TreeEntry } from './tree';
 import type { WorkspaceDocument } from './types';
 
@@ -121,14 +124,15 @@ export function DocumentTree({
           <h1>Library</h1>
         </div>
         {canCreate && (
-          <button
-            className="icon-button"
+          <IconButton
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="New Library note"
             onClick={() => onStartCreate(null)}
           >
             <Plus aria-hidden="true" size={16} />
-          </button>
+          </IconButton>
         )}
       </header>
 
@@ -333,7 +337,7 @@ function DocumentNameForm({
       style={{ '--tree-depth': depth } as CSSProperties}
       onSubmit={(event) => void submit(event)}
     >
-      <input
+      <Input
         autoFocus
         required
         maxLength={300}
@@ -344,12 +348,24 @@ function DocumentNameForm({
           if (event.key === 'Escape') onCancel();
         }}
       />
-      <button type="submit" aria-label={submitLabel} disabled={submitting}>
+      <IconButton
+        variant="primary"
+        size="sm"
+        type="submit"
+        loading={submitting}
+        aria-label={submitLabel}
+      >
         <Plus aria-hidden="true" size={14} />
-      </button>
-      <button type="button" aria-label="Cancel" onClick={onCancel}>
-        ×
-      </button>
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        type="button"
+        aria-label="Cancel"
+        onClick={onCancel}
+      >
+        <X aria-hidden="true" size={14} />
+      </IconButton>
       {error && <p role="alert">{error}</p>}
     </form>
   );

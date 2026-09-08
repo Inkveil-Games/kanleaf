@@ -4,6 +4,7 @@ import {
   useState,
   type AriaAttributes,
   type MouseEventHandler,
+  type ReactElement,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -32,6 +33,7 @@ interface PopoverCloseProps {
   className?: string;
   disabled?: boolean;
   onClick?: MouseEventHandler<HTMLButtonElement>;
+  render?: ReactElement;
 }
 
 export function Popover({
@@ -98,6 +100,7 @@ export function PopoverClose({
   className,
   disabled,
   onClick,
+  render,
 }: PopoverCloseProps) {
   return (
     <BasePopover.Close
@@ -107,6 +110,7 @@ export function PopoverClose({
       className={className}
       disabled={disabled}
       onClick={onClick}
+      render={render}
     >
       {children}
     </BasePopover.Close>

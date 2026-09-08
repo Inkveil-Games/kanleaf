@@ -5,6 +5,7 @@ import {
   DropdownMenuCheckboxItem,
 } from '../../components/ui/DropdownMenu';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
+import { Input } from '../../components/ui/Input';
 import type {
   ExtendedPropertyKey,
   PropertyKey,
@@ -67,7 +68,7 @@ function PropertyCatalog({
       <label>
         <Search aria-hidden="true" size={14} />
         <span className="sr-only">Search properties</span>
-        <input
+        <Input
           autoFocus
           aria-label="Search properties"
           value={search}

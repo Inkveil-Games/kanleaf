@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Button } from '../../components/ui/Button';
 import { errorMessage } from '../settings/utils';
 import { createWorkspace, type ApiContext } from '../workspace/api';
 import { InvitationComposer } from '../workspace/InvitationComposer';
@@ -115,28 +116,28 @@ export function WorkspaceSetupStep({
           </p>
         ) : null}
         <footer className="setup-quiet-actions">
-          <button
-            className="text-button"
+          <Button
+            variant="text"
             type="button"
             disabled={finishing}
             onClick={onSignOut}
           >
             Sign out
-          </button>
-          <button
-            className="primary-button compact-button"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            disabled={finishing}
+            loading={finishing}
+            loadingLabel="Opening Workspace"
             onClick={() => void finishCreatedWorkspace()}
           >
-            {finishing
-              ? 'Opening…'
-              : finishError
-                ? 'Retry opening Workspace'
-                : invitationCount > 0
-                  ? 'Done'
-                  : 'Skip invitations'}
-          </button>
+            {finishError
+              ? 'Retry opening Workspace'
+              : invitationCount > 0
+                ? 'Done'
+                : 'Skip invitations'}
+          </Button>
         </footer>
       </div>
     );
@@ -184,18 +185,19 @@ export function WorkspaceSetupStep({
         </p>
       ) : null}
       <footer className="setup-quiet-actions">
-        <button className="text-button" type="button" onClick={onSignOut}>
+        <Button variant="text" type="button" onClick={onSignOut}>
           Sign out
-        </button>
+        </Button>
         {isHost ? (
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="button"
-            disabled={hostBusy}
+            loading={hostBusy}
+            loadingLabel="Continuing to Host Console"
             onClick={() => void continueToHost()}
           >
-            {hostBusy ? 'Continuing…' : 'Continue to Host Console'}
-          </button>
+            Continue to Host Console
+          </Button>
         ) : null}
       </footer>
     </div>

@@ -2,6 +2,9 @@ import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { UserMinus } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -164,8 +167,7 @@ export function ProjectMemberSettings({
         className="project-member-form"
         onSubmit={(event) => void add(event)}
       >
-        <label className="settings-field">
-          <span>Workspace member</span>
+        <FormField label="Workspace member">
           <Select
             ariaLabel="Workspace member"
             value={selectedCandidateId}
@@ -190,9 +192,8 @@ export function ProjectMemberSettings({
               }
             }}
           />
-        </label>
-        <label className="settings-field">
-          <span>Project role</span>
+        </FormField>
+        <FormField label="Project role">
           <Select
             ariaLabel="New Project role"
             value={selectedRole}
@@ -206,14 +207,15 @@ export function ProjectMemberSettings({
             ]}
             onValueChange={(value) => setRole(value as ProjectRole)}
           />
-        </label>
-        <button
-          className="primary-button compact-button"
+        </FormField>
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
           disabled={!selectedCandidateId || state.status === 'saving'}
         >
           Add member
-        </button>
+        </Button>
       </form>
       <ActionMessage state={state} />
 
@@ -262,15 +264,13 @@ export function ProjectMemberSettings({
                 )}
                 <div className="row-actions">
                   {!member.implicit && (
-                    <button
-                      className="icon-button"
-                      type="button"
+                    <IconButton
                       disabled={busyMember === member.user_id}
                       aria-label={`Remove ${member.display_name}`}
                       onClick={() => setRemovingMember(member)}
                     >
                       <UserMinus aria-hidden="true" size={15} />
-                    </button>
+                    </IconButton>
                   )}
                 </div>
               </div>

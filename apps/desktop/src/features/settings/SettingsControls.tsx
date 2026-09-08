@@ -1,4 +1,6 @@
+import { useId, type ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
+import { Switch } from '../../components/ui/Switch';
 import { errorMessage } from './utils';
 
 export interface ActionState {
@@ -53,9 +55,44 @@ export function LoadError({
     <div className="settings-empty" role="alert">
       <strong>Could not load this setting</strong>
       <p>{errorMessage(error)}</p>
-      <button className="secondary-button" type="button" onClick={onRetry}>
+      <Button variant="secondary" size="sm" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </div>
+  );
+}
+
+export function SettingsToggleRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  label: string;
+  description: ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const switchId = useId();
+  const labelId = useId();
+  const descriptionId = useId();
+
+  return (
+    <label className="settings-row settings-toggle-row" htmlFor={switchId}>
+      <span>
+        <strong id={labelId}>{label}</strong>
+        <small id={descriptionId}>{description}</small>
+      </span>
+      <Switch
+        id={switchId}
+        aria-labelledby={labelId}
+        aria-describedby={descriptionId}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(nextChecked) => onCheckedChange(nextChecked)}
+      />
+    </label>
   );
 }

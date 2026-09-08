@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react';
+import { Checkbox } from '../../components/ui/Checkbox';
+import { FormField } from '../../components/ui/FormField';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { FormActions, type ActionState } from '../settings/SettingsControls';
@@ -91,8 +93,7 @@ export function ProjectDefaultSettings({
       description="Choose the initial metadata and task types available in this Project."
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
-        <label className="settings-field">
-          <span>Default state</span>
+        <FormField label="Default state">
           <Select
             ariaLabel="Default state"
             value={defaultStateId}
@@ -102,9 +103,8 @@ export function ProjectDefaultSettings({
             }))}
             onValueChange={setDefaultStateId}
           />
-        </label>
-        <label className="settings-field">
-          <span>Default task type</span>
+        </FormField>
+        <FormField label="Default task type">
           <Select
             ariaLabel="Default task type"
             value={defaultTypeId}
@@ -114,9 +114,8 @@ export function ProjectDefaultSettings({
             }))}
             onValueChange={changeDefaultType}
           />
-        </label>
-        <label className="settings-field">
-          <span>Default assignee</span>
+        </FormField>
+        <FormField label="Default assignee">
           <Select
             ariaLabel="Default assignee"
             value={defaultAssigneeId}
@@ -130,18 +129,16 @@ export function ProjectDefaultSettings({
             ]}
             onValueChange={setDefaultAssigneeId}
           />
-        </label>
+        </FormField>
         <fieldset className="project-type-options">
           <legend>Enabled task types</legend>
           {taskTypes.map((taskType) => (
             <label key={taskType.id}>
-              <input
-                type="checkbox"
+              <Checkbox
+                aria-label={taskType.name}
                 checked={enabledTypeIds.includes(taskType.id)}
                 disabled={taskType.id === defaultTypeId}
-                onChange={(event) =>
-                  toggleType(taskType.id, event.target.checked)
-                }
+                onCheckedChange={(checked) => toggleType(taskType.id, checked)}
               />
               <span>{taskType.name}</span>
               {taskType.id === defaultTypeId && <small>default</small>}

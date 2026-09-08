@@ -9,8 +9,11 @@ import {
 } from 'lucide-react';
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { FormField } from '../../components/ui/FormField';
 import { IconPicker } from '../../components/ui/IconPicker';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -175,7 +178,7 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell>
-              <input
+              <Input
                 aria-label="Task type name"
                 required
                 maxLength={120}
@@ -186,7 +189,7 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
               />
             </SettingsListCell>
             <SettingsListCell>
-              <input
+              <Input
                 aria-label="Task type description"
                 maxLength={500}
                 value={description}
@@ -199,13 +202,14 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
               Added to the end
             </SettingsListCell>
             <SettingsListCell className="settings-list-actions-cell">
-              <button
-                className="primary-button compact-button"
+              <Button
+                variant="primary"
+                size="sm"
                 type="submit"
                 disabled={saving || !name.trim()}
               >
                 {saving ? 'Adding…' : 'Add type'}
-              </button>
+              </Button>
             </SettingsListCell>
           </form>
         ) : null}
@@ -421,8 +425,10 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
           await props.onChanged();
         }}
       >
-        <label className="settings-field">
-          Replacement for {deleteTarget?.name ?? 'Task type'}
+        <FormField
+          label={`Replacement for ${deleteTarget?.name ?? 'Task type'}`}
+          hint="Used tasks are moved to this Task type."
+        >
           <Select
             ariaLabel={`Replacement for ${deleteTarget?.name ?? 'Task type'}`}
             value={replacementId}
@@ -437,8 +443,7 @@ export function TaskTypeSettings(props: TaskTypeSettingsProps) {
             ]}
             onValueChange={setReplacementId}
           />
-          <small>Used tasks are moved to this Task type.</small>
-        </label>
+        </FormField>
       </AppDialog>
     </SettingsArticle>
   );
@@ -505,7 +510,7 @@ function TaskTypeEditRow({
         />
       </SettingsListCell>
       <SettingsListCell>
-        <input
+        <Input
           autoFocus
           aria-label={`${taskType.name} name`}
           maxLength={120}
@@ -515,7 +520,7 @@ function TaskTypeEditRow({
         />
       </SettingsListCell>
       <SettingsListCell>
-        <input
+        <Input
           aria-label={`${taskType.name} description`}
           maxLength={500}
           disabled={saving}
@@ -528,21 +533,23 @@ function TaskTypeEditRow({
         Editing
       </SettingsListCell>
       <SettingsListCell className="settings-edit-actions">
-        <button
-          className="text-button"
+        <Button
+          variant="text"
+          size="sm"
           type="button"
           disabled={saving}
           onClick={onCancel}
         >
           Cancel
-        </button>
-        <button
-          className="primary-button compact-button"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           type="submit"
           disabled={saving || !name.trim()}
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </SettingsListCell>
     </form>
   );

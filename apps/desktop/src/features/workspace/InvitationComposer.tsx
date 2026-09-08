@@ -1,5 +1,8 @@
 import { Copy } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { ActionMessage, type ActionState } from '../settings/SettingsControls';
 import { errorMessage } from '../settings/utils';
@@ -52,18 +55,16 @@ export function InvitationComposer({
         className="settings-form invite-form"
         onSubmit={(event) => void submit(event)}
       >
-        <label className="settings-field">
-          <span>Email</span>
-          <input
+        <FormField label="Email" required>
+          <Input
             required
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={state.status === 'saving'}
           />
-        </label>
-        <label className="settings-field">
-          <span>Role</span>
+        </FormField>
+        <FormField label="Role">
           <Select
             ariaLabel="Invitation role"
             value={role}
@@ -75,15 +76,17 @@ export function InvitationComposer({
             onValueChange={(value) => setRole(value as AssignableWorkspaceRole)}
             disabled={state.status === 'saving'}
           />
-        </label>
+        </FormField>
         <div className="settings-form-actions">
-          <button
-            className="primary-button compact-button"
+          <Button
+            variant="primary"
+            size="sm"
             type="submit"
-            disabled={state.status === 'saving'}
+            loading={state.status === 'saving'}
+            loadingLabel="Creating…"
           >
-            {state.status === 'saving' ? 'Creating…' : 'Create invitation'}
-          </button>
+            Create invitation
+          </Button>
           <ActionMessage state={state} />
         </div>
       </form>
@@ -115,18 +118,14 @@ export function IssuedInvitationToken({
         <small>Kanleaf stores only its hash and cannot show it again.</small>
       </div>
       <div className="token-copy-row">
-        <input
+        <Input
           readOnly
           value={invitation.token}
           aria-label="Issued invitation token"
         />
-        <button
-          className="secondary-button"
-          type="button"
-          onClick={() => void copyToken()}
-        >
+        <Button variant="secondary" size="sm" onClick={() => void copyToken()}>
           <Copy aria-hidden="true" size={14} /> Copy
-        </button>
+        </Button>
       </div>
       {copyState ? <small role="status">{copyState}</small> : null}
     </section>

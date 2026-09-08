@@ -1,5 +1,7 @@
 import { Archive, Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { Button } from '../../components/ui/Button';
+import { Checkbox } from '../../components/ui/Checkbox';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from './api';
@@ -143,15 +145,15 @@ export function WorkspaceStorageSettings({
               editor. Markdown bodies never need this sync.
             </p>
           </div>
-          <button
-            className="secondary-button"
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={syncBusy}
             onClick={() => void scanVault()}
           >
             <RefreshCw aria-hidden="true" size={14} />
             {syncBusy ? 'Scanning…' : sync ? 'Scan again' : 'Scan vault'}
-          </button>
+          </Button>
         </div>
         {sync && changedItems.length === 0 && attentionItems.length === 0 && (
           <p className="storage-status" role="status">
@@ -162,13 +164,13 @@ export function WorkspaceStorageSettings({
           <div className="storage-change-list" aria-label="Vault changes">
             {changedItems.map((item) => (
               <label className="storage-change-row" key={item.task_id}>
-                <input
-                  type="checkbox"
+                <Checkbox
+                  aria-label={`Select ${item.reference}`}
                   checked={selectedTasks.has(item.task_id)}
-                  onChange={(event) => {
+                  onCheckedChange={(checked) => {
                     setSelectedTasks((current) => {
                       const next = new Set(current);
-                      if (event.target.checked) next.add(item.task_id);
+                      if (checked) next.add(item.task_id);
                       else next.delete(item.task_id);
                       return next;
                     });
@@ -181,14 +183,14 @@ export function WorkspaceStorageSettings({
                 </span>
               </label>
             ))}
-            <button
-              className="primary-button compact-button"
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={syncBusy || selectedTasks.size === 0}
               onClick={() => void applySelected()}
             >
               Apply {selectedTasks.size} selected
-            </button>
+            </Button>
           </div>
         )}
         {(attentionItems.length > 0 || (sync?.issues.length ?? 0) > 0) && (
@@ -233,9 +235,9 @@ export function WorkspaceStorageSettings({
               a verified <code>.kanleaf.zip</code> backup.
             </p>
           </div>
-          <button
-            className="secondary-button"
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={archiveBusy}
             onClick={() => void prepareArchive()}
           >
@@ -245,7 +247,7 @@ export function WorkspaceStorageSettings({
               : archive
                 ? 'Prepare again'
                 : 'Prepare archive'}
-          </button>
+          </Button>
         </div>
         {archive?.state === 'ready' && (
           <div className="storage-export-ready">
@@ -259,14 +261,14 @@ export function WorkspaceStorageSettings({
                   : ''}
               </small>
             </div>
-            <button
-              className="primary-button compact-button"
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={archiveBusy}
               onClick={() => void downloadArchive()}
             >
               <Download aria-hidden="true" size={14} /> Download archive
-            </button>
+            </Button>
           </div>
         )}
         {archiveError && (

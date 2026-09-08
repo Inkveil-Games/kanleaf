@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
+import { IconButton } from '../../components/ui/IconButton';
 import type { AccountSession } from '../auth/accountSessionStore';
 
 interface AccountSwitcherProps {
@@ -107,13 +108,15 @@ export function AccountSwitcher({
       {error && (
         <div className="account-switcher-error" role="alert">
           <span>{error}</span>
-          <button
+          <IconButton
+            variant="ghost"
+            size="sm"
             type="button"
             aria-label="Dismiss account error"
             onClick={onDismissError}
           >
             <X aria-hidden="true" size={13} />
-          </button>
+          </IconButton>
         </div>
       )}
       <div className="account-switcher-divider" />

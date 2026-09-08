@@ -1,7 +1,10 @@
 import { Archive, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useState, type RefCallback } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import {
   SettingsDragHandle,
   SettingsSortableItem,
@@ -83,7 +86,7 @@ export function SelectOptionEditor({
                       value={option.color}
                       onChange={(color) => update(option.key, { color })}
                     />
-                    <input
+                    <Input
                       aria-label="Option name"
                       required
                       maxLength={120}
@@ -102,8 +105,9 @@ export function SelectOptionEditor({
                         onDelete={() => setDeletingOption(option)}
                       />
                     ) : (
-                      <button
-                        className="icon-button"
+                      <IconButton
+                        variant="ghost"
+                        size="sm"
                         type="button"
                         aria-label={`Remove ${option.name || 'option'}`}
                         disabled={disabled}
@@ -114,7 +118,7 @@ export function SelectOptionEditor({
                         }
                       >
                         <Trash2 aria-hidden="true" size={14} />
-                      </button>
+                      </IconButton>
                     )}
                   </div>
                 )}
@@ -157,8 +161,10 @@ export function SelectOptionEditor({
           ))}
         </div>
       ) : null}
-      <button
-        className="text-button option-add-button"
+      <Button
+        className="option-add-button"
+        variant="text"
+        size="sm"
         type="button"
         disabled={disabled}
         onClick={() =>
@@ -173,7 +179,7 @@ export function SelectOptionEditor({
         }
       >
         <Plus aria-hidden="true" size={14} /> Add option
-      </button>
+      </Button>
       <AppDialog
         open={deletingOption !== null}
         onOpenChange={(open) => {

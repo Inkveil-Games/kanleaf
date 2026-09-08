@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { IconButton } from '../../components/ui/IconButton';
 import type { AuthResponse } from '../../lib/api/types';
 import { AuthForm } from './AuthForm';
 
@@ -42,9 +43,15 @@ export function AddAccountDialog({
             <strong>Add another account</strong>
             <span>Sessions stay separate on this Kanleaf server.</span>
           </div>
-          <button type="button" aria-label="Close" onClick={onClose}>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+          >
             <X aria-hidden="true" size={16} />
-          </button>
+          </IconButton>
         </header>
         <AuthForm serverUrl={serverUrl} onAuthenticated={onAuthenticated} />
       </div>

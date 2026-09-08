@@ -2,7 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, CalendarRange, Layers3, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { IconButton } from '../../components/ui/IconButton';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { Textarea } from '../../components/ui/Textarea';
 import {
   archiveProjectCycle,
   archiveProjectModule,
@@ -202,14 +207,15 @@ export function ProjectPlanningPane({
             <h1>{kind === 'cycles' ? 'Cycles' : 'Modules'}</h1>
           </div>
           {canEdit && (
-            <button
-              className="icon-button strong-icon-button"
+            <IconButton
+              variant="primary"
+              size="sm"
               type="button"
               aria-label={`New ${kind === 'cycles' ? 'cycle' : 'module'}`}
               onClick={() => setCreating(true)}
             >
               <Plus aria-hidden="true" size={17} />
-            </button>
+            </IconButton>
           )}
         </header>
         {creating &&
@@ -235,9 +241,14 @@ export function ProjectPlanningPane({
             <div className="pane-state empty-state">
               <p>No {kind} yet.</p>
               {canEdit && (
-                <button type="button" onClick={() => setCreating(true)}>
+                <Button
+                  variant="text"
+                  size="sm"
+                  type="button"
+                  onClick={() => setCreating(true)}
+                >
                   Create the first {kind === 'cycles' ? 'Cycle' : 'Module'}
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -290,14 +301,15 @@ export function ProjectPlanningPane({
                 <h2>{selected.name}</h2>
               </div>
               {canManage && (
-                <button
-                  className="icon-button"
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   aria-label={`Archive ${selected.name}`}
                   onClick={() => setArchiveTarget(selected)}
                 >
                   <Archive aria-hidden="true" size={15} />
-                </button>
+                </IconButton>
               )}
             </header>
 
@@ -410,7 +422,7 @@ function CycleCreateForm({
         }).finally(() => setSaving(false));
       }}
     >
-      <input
+      <Input
         autoFocus
         required
         maxLength={120}
@@ -421,7 +433,7 @@ function CycleCreateForm({
       />
       <label>
         <span>Start</span>
-        <input
+        <Input
           required
           type="date"
           value={startDate}
@@ -430,7 +442,7 @@ function CycleCreateForm({
       </label>
       <label>
         <span>Due</span>
-        <input
+        <Input
           required
           type="date"
           value={dueDate}
@@ -438,12 +450,19 @@ function CycleCreateForm({
         />
       </label>
       <div>
-        <button type="button" onClick={onCancel}>
+        <Button variant="secondary" size="sm" type="button" onClick={onCancel}>
           Cancel
-        </button>
-        <button type="submit" disabled={saving || !name.trim()}>
-          {saving ? 'Creating…' : 'Create'}
-        </button>
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          type="submit"
+          loading={saving}
+          loadingLabel="Creating cycle"
+          disabled={!name.trim()}
+        >
+          Create
+        </Button>
       </div>
     </form>
   );
@@ -467,7 +486,7 @@ function ModuleCreateForm({
         void onSubmit(name.trim()).finally(() => setSaving(false));
       }}
     >
-      <input
+      <Input
         autoFocus
         required
         maxLength={120}
@@ -477,12 +496,19 @@ function ModuleCreateForm({
         onChange={(event) => setName(event.target.value)}
       />
       <div>
-        <button type="button" onClick={onCancel}>
+        <Button variant="secondary" size="sm" type="button" onClick={onCancel}>
           Cancel
-        </button>
-        <button type="submit" disabled={saving || !name.trim()}>
-          {saving ? 'Creating…' : 'Create'}
-        </button>
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          type="submit"
+          loading={saving}
+          loadingLabel="Creating module"
+          disabled={!name.trim()}
+        >
+          Create
+        </Button>
       </div>
     </form>
   );
@@ -564,13 +590,15 @@ function CycleEditor({
       />
       {canEdit && cycle.status !== 'completed' && (
         <div className="planning-editor-actions">
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="submit"
-            disabled={saving || !name.trim()}
+            loading={saving}
+            loadingLabel="Saving cycle"
+            disabled={!name.trim()}
           >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+            Save changes
+          </Button>
           <div className="cycle-complete-control">
             <Select
               ariaLabel="Transfer incomplete work"
@@ -587,13 +615,14 @@ function CycleEditor({
               ]}
               onValueChange={setTransferId}
             />
-            <button
-              className="primary-button compact-button"
+            <Button
+              variant="primary"
+              size="sm"
               type="button"
               onClick={() => void onComplete(transferId || null)}
             >
               Complete Cycle
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -647,8 +676,7 @@ function ModuleEditor({
         onDueDate={setDueDate}
       />
       <div className="planning-field-row">
-        <label>
-          <span>Status</span>
+        <FormField label="Status">
           <Select
             ariaLabel="Module status"
             disabled={!canEdit}
@@ -659,9 +687,8 @@ function ModuleEditor({
             }))}
             onValueChange={(value) => setStatus(value as ProjectModuleStatus)}
           />
-        </label>
-        <label>
-          <span>Lead</span>
+        </FormField>
+        <FormField label="Lead">
           <Select
             ariaLabel="Module lead"
             disabled={!canEdit}
@@ -675,17 +702,19 @@ function ModuleEditor({
             ]}
             onValueChange={setLeadId}
           />
-        </label>
+        </FormField>
       </div>
       {canEdit && (
         <div className="planning-editor-actions">
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="submit"
-            disabled={saving || !name.trim()}
+            loading={saving}
+            loadingLabel="Saving module"
+            disabled={!name.trim()}
           >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+            Save changes
+          </Button>
         </div>
       )}
     </form>
@@ -717,47 +746,43 @@ function PlanningFields({
 }) {
   return (
     <>
-      <label>
-        <span>Name</span>
-        <input
+      <FormField label="Name" required>
+        <Input
           required
           maxLength={120}
           disabled={disabled}
           value={name}
           onChange={(event) => onName(event.target.value)}
         />
-      </label>
-      <label>
-        <span>Description</span>
-        <textarea
+      </FormField>
+      <FormField label="Description">
+        <Textarea
           rows={4}
           maxLength={2000}
           disabled={disabled}
           value={description}
           onChange={(event) => onDescription(event.target.value)}
         />
-      </label>
+      </FormField>
       <div className="planning-field-row">
-        <label>
-          <span>Start date</span>
-          <input
+        <FormField label="Start date" required={datesRequired}>
+          <Input
             required={datesRequired}
             type="date"
             disabled={disabled}
             value={startDate}
             onChange={(event) => onStartDate(event.target.value)}
           />
-        </label>
-        <label>
-          <span>Due date</span>
-          <input
+        </FormField>
+        <FormField label="Due date" required={datesRequired}>
+          <Input
             required={datesRequired}
             type="date"
             disabled={disabled}
             value={dueDate}
             onChange={(event) => onDueDate(event.target.value)}
           />
-        </label>
+        </FormField>
       </div>
     </>
   );
