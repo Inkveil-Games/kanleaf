@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { WorkspaceSettingsSection } from './settingsSections';
@@ -94,7 +96,11 @@ describe('WorkspaceSettings', () => {
       ),
     );
 
-    renderSettings(workspace, 'properties', owner.user_id);
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+    );
 
     expect(
       await screen.findByRole('heading', { name: 'Properties' }),
@@ -104,6 +110,10 @@ describe('WorkspaceSettings', () => {
     expect(
       screen.getByRole('button', { name: 'New property' }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Impact' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', 'property-1', {
+      history: 'push',
+    });
   });
 
   it('saves a property and its options in one atomic request', async () => {
@@ -149,13 +159,18 @@ describe('WorkspaceSettings', () => {
         jsonResponse(init?.method === 'PATCH' ? property : [property]),
     );
     vi.stubGlobal('fetch', fetchMock);
-    renderSettings(workspace, 'properties', owner.user_id);
-
-    await screen.findByText('Platforms');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Actions for Platforms' }),
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'property-1',
     );
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Edit Platforms' }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Web' }));
     fireEvent.click(
       screen.getByRole('menuitem', { name: 'Delete permanently' }),
@@ -198,9 +213,116 @@ describe('WorkspaceSettings', () => {
         input.toString().includes('/options/'),
       ),
     ).toBe(false);
+    expect(onDetailChange).toHaveBeenCalledWith('properties', undefined, {
+      history: 'replace',
+    });
   });
 
-  it('lists undefined Markdown fields and opens a routed Define property flow', async () => {
+  it('does not navigate from a newer Settings route after an editor save finishes', async () => {
+    const property = {
+      id: 'property-1',
+      workspace_id: workspace.id,
+      name: 'Impact',
+      type: 'text' as const,
+      description: '',
+      position: 0,
+      configuration: {},
+      options: [],
+      usage_count: 0,
+      archived_at: null,
+      created_at: '2026-09-03T01:00:00Z',
+      updated_at: '2026-09-03T01:00:00Z',
+    };
+    const saveResponse = deferred<Response>();
+    let propertyReads = 0;
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = input.toString();
+        if (init?.method === 'PATCH') return saveResponse.promise;
+        if (url.endsWith('/properties/undefined')) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        propertyReads += 1;
+        return Promise.resolve(jsonResponse([property]));
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onDetailChange = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+
+    function RoutedProperties() {
+      const [detail, setDetail] = useState<string | undefined>('property-1');
+      return (
+        <>
+          <button type="button" onClick={() => setDetail(undefined)}>
+            Leave property editor
+          </button>
+          <button type="button" onClick={() => setDetail('property-1')}>
+            Reopen property editor
+          </button>
+          <WorkspaceSettings
+            context={context}
+            workspace={workspace}
+            userId={owner.user_id}
+            workspaceCount={2}
+            section="properties"
+            detail={detail}
+            onWorkspaceUpdated={vi.fn()}
+            onConfigurationUpdated={vi.fn()}
+            onProjectsChanged={vi.fn()}
+            onRemoveWorkspace={vi.fn()}
+            onDetailChange={onDetailChange}
+          />
+        </>
+      );
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RoutedProperties />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Edit Impact' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/properties/property-1'),
+        expect.objectContaining({ method: 'PATCH' }),
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Leave property editor' }),
+    );
+    expect(
+      await screen.findByRole('heading', { name: /^Properties$/ }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Reopen property editor' }),
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'Edit Impact' }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'New editor draft' },
+    });
+
+    await act(async () => {
+      saveResponse.resolve(jsonResponse(property));
+      await saveResponse.promise;
+    });
+    await waitFor(() => expect(propertyReads).toBeGreaterThan(1));
+    expect(onDetailChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Name')).toHaveValue('New editor draft');
+  });
+
+  it('lists undefined Markdown fields and requests a routed Define property flow', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith('/properties/undefined')) {
@@ -210,20 +332,13 @@ describe('WorkspaceSettings', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    renderSettings(
+    const { onDetailChange } = renderSettings(
       workspace,
       'properties',
       owner.user_id,
-      undefined,
-      'External score',
     );
 
-    expect(
-      await screen.findByRole('dialog', { name: 'Define External score' }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Name')).toHaveValue('External score');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Undefined' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Undefined' }));
     expect(await screen.findByText('External score')).toBeInTheDocument();
     expect(screen.getByText('2 Tasks')).toBeInTheDocument();
     expect(
@@ -232,6 +347,35 @@ describe('WorkspaceSettings', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Define External score' }),
     );
+    expect(onDetailChange).toHaveBeenCalledWith('properties', 'new', {
+      history: 'push',
+      definePropertyName: 'External score',
+    });
+  });
+
+  it('renders and saves a routed Define property panel', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/properties/undefined')) {
+        return jsonResponse([{ name: 'External score', task_count: 2 }]);
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      'External score',
+      'new',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Define External score' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('External score');
     await chooseSelectOption('Property type', 'Number');
     fireEvent.click(screen.getByRole('button', { name: 'Define property' }));
     await waitFor(() =>
@@ -247,9 +391,140 @@ describe('WorkspaceSettings', () => {
         }),
       ),
     );
+    expect(onDetailChange).toHaveBeenCalledWith('properties', undefined, {
+      history: 'replace',
+    });
   });
 
-  it('ignores a copied Define-property route for non-admin members', async () => {
+  it('preserves the create draft when switching to Define property', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    queryClient.setQueryData(['custom-properties', workspace.id], []);
+    queryClient.setQueryData(
+      ['undefined-properties', workspace.id],
+      [{ name: 'External score', task_count: 2 }],
+    );
+
+    function RoutedPropertyEditor() {
+      const [definePropertyName, setDefinePropertyName] = useState<
+        string | undefined
+      >();
+      return (
+        <WorkspaceSettings
+          context={context}
+          workspace={workspace}
+          userId={owner.user_id}
+          workspaceCount={2}
+          section="properties"
+          detail="new"
+          onWorkspaceUpdated={vi.fn()}
+          onConfigurationUpdated={vi.fn()}
+          onProjectsChanged={vi.fn()}
+          onRemoveWorkspace={vi.fn()}
+          onDetailChange={(_section, _detail, options) => {
+            if (options?.history === 'replace') {
+              setDefinePropertyName(options.definePropertyName);
+            }
+          }}
+          definePropertyName={definePropertyName}
+        />
+      );
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RoutedPropertyEditor />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Create property' }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'External score' },
+    });
+    await chooseSelectOption('Property type', 'Number');
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Imported estimate' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create property' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Define External score' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('External score');
+    expect(
+      screen.getByRole('combobox', { name: 'Property type' }),
+    ).toHaveAttribute('data-value', 'number');
+    expect(screen.getByLabelText('Description')).toHaveValue(
+      'Imported estimate',
+    );
+  });
+
+  it('cancels a routed create panel back to Properties', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])));
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'new',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Create property' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', undefined, {
+      history: 'back',
+    });
+  });
+
+  it('fails an unknown property detail gracefully', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])));
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'missing-property',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Property unavailable' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Properties' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', undefined, {
+      history: 'back',
+    });
+  });
+
+  it('returns an unsupported detail to its own Settings section', async () => {
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'members',
+      owner.user_id,
+      undefined,
+      undefined,
+      'unexpected-detail',
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Settings page unavailable' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to members' }));
+    expect(onDetailChange).toHaveBeenCalledWith('members', undefined, {
+      history: 'back',
+    });
+  });
+
+  it('rejects a copied property editor route for non-admin members', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])));
 
     renderSettings(
@@ -258,14 +533,13 @@ describe('WorkspaceSettings', () => {
       member.user_id,
       undefined,
       'External score',
+      'new',
     );
 
     expect(
-      await screen.findByRole('heading', { name: 'Properties' }),
+      await screen.findByRole('heading', { name: 'Property unavailable' }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('dialog', { name: 'Define External score' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('tab', { name: 'Undefined' }),
     ).not.toBeInTheDocument();
@@ -539,6 +813,8 @@ function renderSettings(
     remove,
   ) => remove(),
   definePropertyName?: string,
+  detail?: string,
+  onDetailChange = vi.fn(),
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -551,7 +827,9 @@ function renderSettings(
         userId={userId}
         workspaceCount={2}
         section={section}
+        detail={detail}
         definePropertyName={definePropertyName}
+        onDetailChange={onDetailChange}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
         onProjectsChanged={vi.fn()}
@@ -559,6 +837,7 @@ function renderSettings(
       />
     </QueryClientProvider>,
   );
+  return { onDetailChange };
 }
 
 function jsonResponse(payload: unknown) {
@@ -566,4 +845,12 @@ function jsonResponse(payload: unknown) {
     status: 200,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }

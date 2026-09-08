@@ -6899,6 +6899,10 @@ button.document-tree-toggle:hover {
   padding: clamp(32px, 5vw, 64px) clamp(28px, 6vw, 76px) 80px;
 }
 
+.settings-detail-back {
+  margin-bottom: var(--space-5);
+}
+
 .workspace-members-settings {
   width: min(100%, 920px);
 }

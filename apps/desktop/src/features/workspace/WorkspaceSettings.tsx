@@ -17,6 +17,7 @@ import {
 } from './api';
 import { canManageWorkspace } from './permissions';
 import type { WorkspaceSettingsSection } from './settingsSections';
+import type { SettingsDetailHistory } from './workspaceLocation';
 import type { Workspace, WorkspaceAccent } from './types';
 import { WorkspaceMemberSettings } from './WorkspaceMemberSettings';
 import { WorkspaceStorageSettings } from './WorkspaceStorageSettings';
@@ -31,14 +32,20 @@ interface WorkspaceSettingsProps {
   userId: string;
   workspaceCount: number;
   section: WorkspaceSettingsSection;
+  detail?: string;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
   onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
-  propertyCreateRequest?: number;
-  onPropertyCreateRequestHandled?: () => void;
+  onDetailChange: (
+    section: WorkspaceSettingsSection,
+    detail: string | undefined,
+    options?: {
+      history?: SettingsDetailHistory;
+      definePropertyName?: string;
+    },
+  ) => void;
   definePropertyName?: string;
-  onDefinePropertyClosed?: () => void;
 }
 
 export function WorkspaceSettings({
@@ -47,15 +54,33 @@ export function WorkspaceSettings({
   userId,
   workspaceCount,
   section,
+  detail,
   onWorkspaceUpdated,
   onConfigurationUpdated,
   onProjectsChanged,
   onRemoveWorkspace,
-  propertyCreateRequest,
-  onPropertyCreateRequestHandled,
+  onDetailChange,
   definePropertyName,
-  onDefinePropertyClosed,
 }: WorkspaceSettingsProps) {
+  if (detail && section !== 'properties') {
+    return (
+      <SettingsArticle
+        eyebrow="Workspace"
+        title="Settings page unavailable"
+        description="This Settings section does not provide that detail page."
+        backAction={{
+          label: `Back to ${section}`,
+          onClick: () =>
+            onDetailChange(section, undefined, { history: 'back' }),
+        }}
+      >
+        <p className="settings-muted" role="status">
+          Return to the section overview to continue.
+        </p>
+      </SettingsArticle>
+    );
+  }
+
   if (section === 'general') {
     return (
       <GeneralSettings
@@ -101,13 +126,13 @@ export function WorkspaceSettings({
   if (section === 'properties') {
     return (
       <PropertiesSettings
-        key={`${workspace.id}:${propertyCreateRequest ?? 0}:${definePropertyName ?? ''}`}
         context={context}
         workspace={workspace}
-        createRequested={propertyCreateRequest}
-        onCreateRequestHandled={onPropertyCreateRequestHandled}
+        detail={detail}
+        onDetailChange={(nextDetail, options) =>
+          onDetailChange('properties', nextDetail, options)
+        }
         definePropertyName={definePropertyName}
-        onDefinePropertyClosed={onDefinePropertyClosed}
       />
     );
   }

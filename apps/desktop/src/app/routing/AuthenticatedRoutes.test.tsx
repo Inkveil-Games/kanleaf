@@ -265,6 +265,16 @@ describe('AuthenticatedRoutes Workspace tree', () => {
       },
     ],
     [
+      '/w/kanleaf-core/settings/workspace/properties/property-1',
+      {
+        kind: 'workspace-settings',
+        workspaceId: 'workspace-1',
+        section: 'properties',
+        detail: 'property-1',
+        returnTo: null,
+      },
+    ],
+    [
       '/w/kanleaf-core/p/project-one/settings/features',
       {
         kind: 'project-settings',

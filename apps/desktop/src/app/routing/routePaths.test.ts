@@ -59,6 +59,8 @@ describe('routePatterns', () => {
       projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
       accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
       workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
+      workspaceSettingsDetail:
+        '/w/:workspaceIdentifier/settings/workspace/:section/:detail',
       projectSettings:
         '/w/:workspaceIdentifier/p/:projectIdentifier/settings/:section',
     });
@@ -201,6 +203,16 @@ describe('routePaths', () => {
       label: 'Workspace Settings',
       actual: () => routePaths.workspaceSettings('workspace-id', 'task-types'),
       expected: '/w/workspace-id/settings/workspace/task-types',
+    },
+    {
+      label: 'Workspace Settings detail',
+      actual: () =>
+        routePaths.workspaceSettingsDetail(
+          'workspace-id',
+          'properties',
+          'property/id',
+        ),
+      expected: '/w/workspace-id/settings/workspace/properties/property%2Fid',
     },
     {
       label: 'Project Settings',

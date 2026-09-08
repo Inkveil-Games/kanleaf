@@ -39,6 +39,8 @@ export const routePatterns = {
   projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
   accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
   workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
+  workspaceSettingsDetail:
+    '/w/:workspaceIdentifier/settings/workspace/:section/:detail',
   projectSettings:
     '/w/:workspaceIdentifier/p/:projectIdentifier/settings/:section',
 } as const;
@@ -110,6 +112,12 @@ export const routePaths = {
     section: WorkspaceSettingsSection,
   ) =>
     `${workspacePath(workspaceIdentifier)}/settings/workspace/${segment(section)}`,
+  workspaceSettingsDetail: (
+    workspaceIdentifier: string,
+    section: WorkspaceSettingsSection,
+    detail: string,
+  ) =>
+    `${workspacePath(workspaceIdentifier)}/settings/workspace/${segment(section)}/${segment(detail)}`,
   projectSettings: (
     workspaceIdentifier: string,
     projectId: string,

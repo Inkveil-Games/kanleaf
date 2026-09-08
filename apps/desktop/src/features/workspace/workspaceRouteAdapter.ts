@@ -49,7 +49,13 @@ export function workspaceLocationPath(
         throw new Error('Invalid Workspace Settings section');
       }
       return withDefineProperty(
-        routePaths.workspaceSettings(workspaceIdentifier, location.section),
+        location.detail
+          ? routePaths.workspaceSettingsDetail(
+              workspaceIdentifier,
+              location.section,
+              location.detail,
+            )
+          : routePaths.workspaceSettings(workspaceIdentifier, location.section),
         location.definePropertyName,
       );
     case 'project-settings':
@@ -158,15 +164,20 @@ export function workspaceLocationFromRoute(
       };
     case 'workspace-settings': {
       const section = requiredParameter(params, 'section');
+      const detail = params.detail;
       const defineValues = new URLSearchParams(search).getAll('define');
+      const definePropertyName =
+        section === 'properties' && (!detail || detail === 'new')
+          ? defineValues.length === 1 && defineValues[0]
+            ? defineValues[0]
+            : undefined
+          : undefined;
       return {
         kind,
         workspaceId,
         section: section === 'invitations' ? 'members' : section,
-        definePropertyName:
-          defineValues.length === 1 && defineValues[0]
-            ? defineValues[0]
-            : undefined,
+        ...(detail ? { detail } : {}),
+        definePropertyName,
         returnTo,
       };
     }

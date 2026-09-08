@@ -205,6 +205,10 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         element={workspaceScreen('account-settings')}
       />
       <Route
+        path={routePatterns.workspaceSettingsDetail}
+        element={workspaceScreen('workspace-settings')}
+      />
+      <Route
         path={routePatterns.workspaceSettings}
         element={workspaceScreen('workspace-settings')}
       />

@@ -254,10 +254,11 @@ describe('workspaceLocationPath', () => {
         kind: 'workspace-settings',
         workspaceId: 'workspace-1',
         section: 'properties',
+        detail: 'new',
         definePropertyName: 'External score',
         returnTo: null,
       },
-      '/w/kanleaf-core/settings/workspace/properties?define=External+score',
+      '/w/kanleaf-core/settings/workspace/properties/new?define=External+score',
     ],
     [
       {
@@ -785,6 +786,28 @@ describe('WorkspaceRouteScreen', () => {
           taskId: 'task-1',
         },
       }),
+    );
+  });
+
+  it('preserves a routed property definition query through the route screen', async () => {
+    renderRouteScreen(
+      '/w/kanleaf-core/settings/workspace/properties/new?define=External+score',
+      'workspace-settings',
+      '/w/:workspaceIdentifier/settings/workspace/:section/:detail',
+    );
+
+    expect(await workspaceLocationOutput()).toHaveTextContent(
+      JSON.stringify({
+        kind: 'workspace-settings',
+        workspaceId: 'workspace-1',
+        section: 'properties',
+        detail: 'new',
+        definePropertyName: 'External score',
+        returnTo: null,
+      }),
+    );
+    expect(browserLocationOutput()).toHaveTextContent(
+      '/w/kanleaf-core/settings/workspace/properties/new?define=External+score',
     );
   });
 

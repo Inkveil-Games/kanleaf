@@ -32,7 +32,11 @@ import {
   parseWorkspaceContentPath,
   workspaceContentPath,
 } from './workspaceLocation';
-import { WorkspaceShell, type WorkspaceShellProps } from './WorkspaceShell';
+import {
+  WorkspaceShell,
+  type WorkspaceNavigationOptions,
+  type WorkspaceShellProps,
+} from './WorkspaceShell';
 import type { Project, Task, Workspace } from './types';
 import {
   workspaceLocationFromRoute,
@@ -46,6 +50,16 @@ export type WorkspaceRouteScreenProps = Omit<
 > & {
   routeKind: WorkspaceRouteKind;
 };
+
+// Browser history state survives reloads, so provenance is valid only within
+// the page session that created the Settings detail entry.
+const settingsHistorySession = `${Date.now()}:${Math.random()}`;
+const settingsHistoryParentKeys = new Set<string>();
+
+interface SettingsHistoryParent {
+  path: string;
+  locationKey: string;
+}
 
 export function WorkspaceRouteScreen({
   routeKind,
@@ -233,7 +247,9 @@ export function WorkspaceRouteScreen({
             ? `?task=${encodeURIComponent(selectedTask.data.id)}`
             : pageLocator !== null && selectedDocument.data
               ? `?page=${encodeURIComponent(selectedDocument.data.id)}`
-              : '',
+              : routeKind === 'workspace-settings'
+                ? routerLocation.search
+                : '',
           returnTo,
         )
       : null;
@@ -268,11 +284,12 @@ export function WorkspaceRouteScreen({
     ? 'That Page is unavailable or you no longer have access.'
     : routeActionErrorFromState(routerLocation.state);
   const currentPath = `${routerLocation.pathname}${routerLocation.search}`;
+  const currentSettingsParent = settingsParentFromState(routerLocation.state);
 
   const onNavigate = useCallback(
     (
       nextLocation: WorkspaceReplacementLocation,
-      options?: { replace?: boolean },
+      options?: WorkspaceNavigationOptions,
     ) => {
       void navigateResolvedLocation(
         nextLocation,
@@ -285,6 +302,8 @@ export function WorkspaceRouteScreen({
         resolveDocumentNumber,
         currentPath,
         currentReturnToPath,
+        routerLocation.key,
+        currentSettingsParent,
         navigate,
       );
     },
@@ -292,12 +311,14 @@ export function WorkspaceRouteScreen({
       context,
       currentPath,
       currentReturnToPath,
+      currentSettingsParent,
       navigate,
       queryClient,
       resolveProjectIdentifier,
       resolveTaskNumber,
       resolveDocumentNumber,
       resolveWorkspaceIdentifier,
+      routerLocation.key,
     ],
   );
 
@@ -491,6 +512,7 @@ function canonicalWorkspacePath(
 ) {
   if (!location) return '/';
   if (location.kind.endsWith('-settings')) {
+    let settingsPath = pathname;
     if (
       location.kind === 'workspace-settings' &&
       location.section === 'members' &&
@@ -499,11 +521,17 @@ function canonicalWorkspacePath(
       const workspaceIdentifier = resolveWorkspaceIdentifier(
         location.workspaceId,
       );
-      return workspaceIdentifier
+      settingsPath = workspaceIdentifier
         ? routePaths.workspaceSettings(workspaceIdentifier, 'members')
         : pathname;
     }
-    return pathname;
+    if (location.kind === 'workspace-settings' && location.definePropertyName) {
+      const search = new URLSearchParams({
+        define: location.definePropertyName,
+      });
+      return `${settingsPath}?${search.toString()}`;
+    }
+    return settingsPath;
   }
   return serializeWorkspaceLocation(
     location,
@@ -551,6 +579,26 @@ function routeActionErrorFromState(state: unknown): string | null {
     : null;
 }
 
+function settingsParentFromState(state: unknown): SettingsHistoryParent | null {
+  if (
+    !state ||
+    typeof state !== 'object' ||
+    !('settingsParent' in state) ||
+    typeof state.settingsParent !== 'string' ||
+    !('settingsParentKey' in state) ||
+    typeof state.settingsParentKey !== 'string' ||
+    !('settingsHistorySession' in state) ||
+    state.settingsHistorySession !== settingsHistorySession ||
+    !settingsHistoryParentKeys.has(state.settingsParentKey)
+  ) {
+    return null;
+  }
+  return {
+    path: state.settingsParent,
+    locationKey: state.settingsParentKey,
+  };
+}
+
 function stateWithRouteActionError(state: unknown, message: string | null) {
   const current = state && typeof state === 'object' ? state : {};
   return { ...current, routeActionError: message };
@@ -590,7 +638,7 @@ function settingsReturnToPath(
 
 async function navigateResolvedLocation(
   location: WorkspaceReplacementLocation,
-  options: { replace?: boolean } | undefined,
+  options: WorkspaceNavigationOptions | undefined,
   context: ApiContext,
   queryClient: QueryClient,
   resolveWorkspaceIdentifier: (workspaceId: string) => string | null,
@@ -599,6 +647,8 @@ async function navigateResolvedLocation(
   resolveDocumentNumber: (documentId: string) => string | null,
   currentPath: string,
   currentReturnToPath: string | null,
+  currentLocationKey: string,
+  currentSettingsParent: SettingsHistoryParent | null,
   navigate: NavigateFunction,
 ) {
   const workspaceId = location.kind === 'root' ? null : location.workspaceId;
@@ -649,9 +699,42 @@ async function navigateResolvedLocation(
   );
   const samePath = path === currentPath;
   if (samePath && nextReturnToPath === currentReturnToPath) return;
+  if (
+    options?.settingsHistory === 'back' &&
+    currentSettingsParent?.path === path
+  ) {
+    navigate(-1);
+    return;
+  }
+  const settingsParent =
+    options?.settingsHistory === 'push'
+      ? { path: currentPath, locationKey: currentLocationKey }
+      : options?.settingsHistory === 'replace'
+        ? currentSettingsParent
+        : null;
+  if (options?.settingsHistory === 'push') {
+    settingsHistoryParentKeys.add(currentLocationKey);
+  }
+  const state = {
+    ...(nextReturnToPath ? { returnTo: nextReturnToPath } : {}),
+    ...(settingsParent
+      ? {
+          settingsParent: settingsParent.path,
+          settingsParentKey: settingsParent.locationKey,
+          settingsHistorySession,
+        }
+      : {}),
+  };
+  const replace = Boolean(
+    options?.replace ||
+    samePath ||
+    options?.settingsHistory === 'replace' ||
+    options?.settingsHistory === 'back',
+  );
+  if (replace) settingsHistoryParentKeys.delete(currentLocationKey);
   navigate(path, {
-    replace: Boolean(options?.replace || samePath),
-    state: nextReturnToPath ? { returnTo: nextReturnToPath } : null,
+    replace,
+    state: Object.keys(state).length > 0 ? state : null,
   });
 }
 

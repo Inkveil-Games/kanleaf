@@ -71,6 +71,7 @@ export type WorkspaceSettingsLocation =
       kind: 'workspace-settings';
       workspaceId: string;
       section: string;
+      detail?: string;
       definePropertyName?: string;
       returnTo: WorkspaceContentLocation | null;
     }
@@ -84,6 +85,8 @@ export type WorkspaceSettingsLocation =
 
 export type WorkspaceLocation =
   WorkspaceContentLocation | WorkspaceSettingsLocation;
+
+export type SettingsDetailHistory = 'push' | 'replace' | 'back';
 
 export function parseWorkspaceContentPath(
   value: string,
@@ -472,6 +475,9 @@ export function reconcileWorkspaceLocation(
         location: {
           ...location,
           section: sections.value[0],
+          ...(location.kind === 'workspace-settings'
+            ? { detail: undefined, definePropertyName: undefined }
+            : {}),
           returnTo: settingsReturnTarget(location),
         },
       };

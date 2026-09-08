@@ -113,6 +113,7 @@ import {
   settingsReturnTarget,
   workspaceLocationIdentity,
   type Resolution,
+  type SettingsDetailHistory,
   type TaskCollectionLocation,
   type WorkspaceContentLocation,
   type WorkspaceLocation,
@@ -138,10 +139,15 @@ export interface WorkspaceShellProps {
   workspaceAccessVerified: boolean;
   onNavigate: (
     location: WorkspaceReplacementLocation,
-    options?: { replace?: boolean },
+    options?: WorkspaceNavigationOptions,
   ) => void;
   flushDocumentSaves: () => Promise<void>;
   routeActionError?: string | null;
+}
+
+export interface WorkspaceNavigationOptions {
+  replace?: boolean;
+  settingsHistory?: SettingsDetailHistory;
 }
 
 interface TaskViewDraft {
@@ -686,7 +692,7 @@ export function WorkspaceShell({
   const navigateSafely = useCallback(
     async (
       nextLocation: WorkspaceReplacementLocation,
-      options?: { replace?: boolean },
+      options?: WorkspaceNavigationOptions,
     ) => {
       if (!(await prepareDocumentMutation())) return false;
       onNavigate(nextLocation, options);
@@ -1489,8 +1495,33 @@ export function WorkspaceShell({
   function changeWorkspaceSettingsSection(section: WorkspaceSettingsSection) {
     if (!location || location.kind !== 'workspace-settings') return;
     void navigateSafely(
-      { ...location, section, definePropertyName: undefined },
+      {
+        ...location,
+        section,
+        detail: undefined,
+        definePropertyName: undefined,
+      },
       { replace: true },
+    );
+  }
+
+  function changeWorkspaceSettingsDetail(
+    section: WorkspaceSettingsSection,
+    detail: string | undefined,
+    options?: {
+      history?: SettingsDetailHistory;
+      definePropertyName?: string;
+    },
+  ) {
+    if (!location || location.kind !== 'workspace-settings') return;
+    void navigateSafely(
+      {
+        ...location,
+        section,
+        detail,
+        definePropertyName: options?.definePropertyName,
+      },
+      options?.history ? { settingsHistory: options.history } : undefined,
     );
   }
 
@@ -2011,6 +2042,7 @@ export function WorkspaceShell({
                   kind: 'workspace-settings',
                   workspaceId,
                   section: 'properties',
+                  detail: 'new',
                   definePropertyName: name,
                   returnTo: presentation?.content ?? null,
                 });
@@ -2061,8 +2093,10 @@ export function WorkspaceShell({
               workspace={activeWorkspace}
               workspaceCount={workspaces.data?.length ?? 0}
               section={location.section}
+              detail={location.detail}
               definePropertyName={location.definePropertyName}
               onSectionChange={changeWorkspaceSettingsSection}
+              onDetailChange={changeWorkspaceSettingsDetail}
               onClose={closeSettings}
               onWorkspaceUpdated={refreshWorkspace}
               onConfigurationUpdated={refreshTaskConfiguration}

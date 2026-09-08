@@ -1307,6 +1307,39 @@ describe('Settings section reconciliation', () => {
     });
   });
 
+  it('drops a nested Workspace Settings detail when canonicalizing its section', () => {
+    const location: WorkspaceSettingsLocation = {
+      kind: 'workspace-settings',
+      workspaceId: 'workspace-1',
+      section: 'missing',
+      detail: 'property-1',
+      definePropertyName: 'Priority',
+      returnTo: {
+        kind: 'my-work',
+        workspaceId: 'workspace-1',
+        taskId: null,
+      },
+    };
+
+    expect(
+      reconcileWorkspaceLocation(location, {
+        ...baseAccess,
+        settingsSections: {
+          status: 'resolved',
+          value: ['general', 'properties'],
+        },
+      }),
+    ).toEqual({
+      status: 'replace',
+      location: {
+        ...location,
+        section: 'general',
+        detail: undefined,
+        definePropertyName: undefined,
+      },
+    });
+  });
+
   it('sanitizes return state when canonicalizing a section', () => {
     const location: WorkspaceSettingsLocation = {
       kind: 'workspace-settings',

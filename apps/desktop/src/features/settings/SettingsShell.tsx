@@ -16,12 +16,13 @@ import {
   UsersRound,
   Workflow,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { User } from '../../lib/api/types';
 import { AccountSettings } from '../account/AccountSettings';
 import type { AccountSettingsSection } from '../account/settingsSections';
 import type { ApiContext } from '../workspace/api';
 import type { WorkspaceSettingsSection } from '../workspace/settingsSections';
+import type { SettingsDetailHistory } from '../workspace/workspaceLocation';
 import type { Workspace } from '../workspace/types';
 import { WorkspaceSettings } from '../workspace/WorkspaceSettings';
 
@@ -100,7 +101,16 @@ interface WorkspaceSettingsShellProps {
   workspace: Workspace;
   workspaceCount: number;
   section: WorkspaceSettingsSection;
+  detail?: string;
   onSectionChange: (section: WorkspaceSettingsSection) => void;
+  onDetailChange: (
+    section: WorkspaceSettingsSection,
+    detail: string | undefined,
+    options?: {
+      history?: SettingsDetailHistory;
+      definePropertyName?: string;
+    },
+  ) => void;
   onClose: () => void;
   onWorkspaceUpdated: () => Promise<void>;
   onConfigurationUpdated: () => Promise<void>;
@@ -115,7 +125,9 @@ export function WorkspaceSettingsShell({
   workspace,
   workspaceCount,
   section,
+  detail,
   onSectionChange,
+  onDetailChange,
   onClose,
   onWorkspaceUpdated,
   onConfigurationUpdated,
@@ -125,7 +137,6 @@ export function WorkspaceSettingsShell({
 }: WorkspaceSettingsShellProps) {
   const canManageWorkspace =
     workspace.role === 'owner' || workspace.role === 'admin';
-  const [propertyCreateRequest, setPropertyCreateRequest] = useState(0);
 
   return (
     <SettingsFrame
@@ -182,8 +193,13 @@ export function WorkspaceSettingsShell({
                   aria-label="New property"
                   title="New property"
                   onClick={() => {
-                    setPropertyCreateRequest((current) => current + 1);
-                    onSectionChange('properties');
+                    onDetailChange(
+                      'properties',
+                      'new',
+                      section === 'properties' && !detail
+                        ? { history: 'push' }
+                        : undefined,
+                    );
                   }}
                 >
                   <Plus aria-hidden="true" size={14} />
@@ -221,20 +237,18 @@ export function WorkspaceSettingsShell({
       }
     >
       <WorkspaceSettings
-        key={`${workspace.id}:${section}`}
         context={context}
         workspace={workspace}
         userId={user.id}
         workspaceCount={workspaceCount}
         section={section}
+        detail={detail}
         onWorkspaceUpdated={onWorkspaceUpdated}
         onConfigurationUpdated={onConfigurationUpdated}
         onProjectsChanged={onProjectsChanged}
         onRemoveWorkspace={onRemoveWorkspace}
-        propertyCreateRequest={propertyCreateRequest}
-        onPropertyCreateRequestHandled={() => setPropertyCreateRequest(0)}
+        onDetailChange={onDetailChange}
         definePropertyName={definePropertyName}
-        onDefinePropertyClosed={() => onSectionChange('properties')}
       />
     </SettingsFrame>
   );

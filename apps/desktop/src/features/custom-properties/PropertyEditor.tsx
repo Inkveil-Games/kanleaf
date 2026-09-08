@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
+import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import type {
@@ -31,28 +31,25 @@ interface PropertyEditorProps {
   defineExisting?: boolean;
   undefinedNames?: string[];
   onDefineExisting?: (name: string) => void;
-  onClose: () => void;
+  onBack: () => void;
   onSaved: () => Promise<void>;
 }
 
-export function PropertyEditorDialog(props: PropertyEditorProps) {
-  const [busy, setBusy] = useState(false);
+export function PropertyEditorPanel(props: PropertyEditorProps) {
   const title = propertyEditorTitle(props);
 
   return (
-    <AppDialog
-      open
-      onOpenChange={(open) => {
-        if (!open) props.onClose();
-      }}
-      type="custom"
-      size="lg"
+    <SettingsArticle
+      eyebrow="Workspace"
       title={title}
       description="Add structured information without changing the Task body."
-      loading={busy}
+      backAction={{
+        label: 'Back to Properties',
+        onClick: props.onBack,
+      }}
     >
-      <PropertyEditorForm {...props} onBusyChange={setBusy} />
-    </AppDialog>
+      <PropertyEditorForm {...props} />
+    </SettingsArticle>
   );
 }
 
@@ -64,10 +61,9 @@ export function PropertyEditorForm({
   defineExisting = false,
   undefinedNames = [],
   onDefineExisting,
-  onClose,
+  onBack,
   onSaved,
-  onBusyChange,
-}: PropertyEditorProps & { onBusyChange?: (busy: boolean) => void }) {
+}: PropertyEditorProps) {
   const [name, setName] = useState(property?.name ?? initialName);
   const [description, setDescription] = useState(property?.description ?? '');
   const [type, setType] = useState<CustomPropertyType>(
@@ -99,9 +95,7 @@ export function PropertyEditorForm({
       return;
     }
     setSaving(true);
-    onBusyChange?.(true);
     setError(null);
-    let saved = false;
     try {
       if (!property) {
         const create = defineExisting ? defineProperty : createProperty;
@@ -131,14 +125,11 @@ export function PropertyEditorForm({
         });
       }
       await onSaved();
-      saved = true;
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setSaving(false);
-      onBusyChange?.(false);
     }
-    if (saved) onClose();
   }
 
   return (
@@ -199,7 +190,7 @@ export function PropertyEditorForm({
           className="secondary-button"
           type="button"
           disabled={saving}
-          onClick={onClose}
+          onClick={onBack}
         >
           Cancel
         </button>

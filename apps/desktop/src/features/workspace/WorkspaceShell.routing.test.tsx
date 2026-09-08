@@ -407,13 +407,21 @@ vi.mock('../settings/SettingsShell', () => ({
   },
   WorkspaceSettingsShell: ({
     section,
+    detail,
     onSectionChange,
+    onDetailChange,
     onClose,
     onWorkspaceUpdated,
     onRemoveWorkspace,
   }: {
     section: string;
-    onSectionChange: (section: 'members') => void;
+    detail?: string;
+    onSectionChange: (section: 'members' | 'properties') => void;
+    onDetailChange: (
+      section: 'properties',
+      detail: string | undefined,
+      options?: { history?: 'push' | 'replace' | 'back' },
+    ) => void;
     onClose: () => void;
     onWorkspaceUpdated: () => Promise<void>;
     onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
@@ -432,12 +440,32 @@ vi.mock('../settings/SettingsShell', () => ({
     return (
       <section aria-label="Workspace Settings">
         <output>Settings section: {section}</output>
+        <output>Settings detail: {detail ?? 'none'}</output>
         <output aria-label="Workspace save status">{saveStatus}</output>
         <button type="button" onClick={() => void saveWorkspace()}>
           Save workspace
         </button>
         <button type="button" onClick={() => onSectionChange('members')}>
           Open Members Settings
+        </button>
+        <button type="button" onClick={() => onSectionChange('properties')}>
+          Open Properties Settings
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onDetailChange('properties', 'property-1', { history: 'push' })
+          }
+        >
+          Open Property detail
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onDetailChange('properties', undefined, { history: 'back' })
+          }
+        >
+          Back to Properties
         </button>
         <button type="button" onClick={onClose}>
           Close Settings
@@ -1350,6 +1378,155 @@ describe('WorkspaceShell routing integration', () => {
     );
   });
 
+  it('preserves Settings while browser history moves between Properties and a detail', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: [
+        '/sentinel',
+        '/w/workspace-1/settings/workspace/properties',
+      ],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open Property detail' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/properties/property-1',
+      ),
+    );
+    expect(screen.getByText('Settings detail: property-1')).toBeVisible();
+    expect(screen.getByLabelText('Router state')).toHaveTextContent(
+      '"settingsParent":"/w/workspace-1/settings/workspace/properties"',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+    expect(screen.getByText('Settings detail: none')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go forward' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/properties/property-1',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Properties' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+    expect(
+      screen.getByRole('region', { name: 'Workspace Settings' }),
+    ).toBeVisible();
+  });
+
+  it('invalidates Back provenance when the parent history entry is replaced', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: [
+        '/sentinel',
+        '/w/workspace-1/settings/workspace/properties',
+      ],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open Property detail' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/properties/property-1',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open Members Settings' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/members',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Go forward' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/properties/property-1',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Properties' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+  });
+
+  it('replaces a direct Settings detail with its parent when no history provenance exists', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: [
+        '/sentinel',
+        '/w/workspace-1/settings/workspace/properties/property-1',
+      ],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Back to Properties' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/sentinel',
+      ),
+    );
+  });
+
+  it('rejects Settings detail provenance left by a previous page load', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: [
+        '/sentinel',
+        {
+          pathname: '/w/workspace-1/settings/workspace/properties/property-1',
+          state: {
+            settingsParent: '/w/workspace-1/settings/workspace/properties',
+            settingsHistorySession: 'previous-page-load',
+          },
+        },
+      ],
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Back to Properties' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/settings\/workspace\/properties$/,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/sentinel',
+      ),
+    );
+  });
+
   it('routes a Project note selected from the aggregate Library to its Project scope', async () => {
     mocks.listProjects.mockResolvedValue([disabledViewsProject]);
     renderWorkspaceRoutes({
@@ -2161,6 +2338,15 @@ function renderWorkspaceRoutes({
             }
           />
           <Route
+            path="/w/:workspaceIdentifier/settings/workspace/:section/:detail"
+            element={
+              <WorkspaceRouteScreen
+                routeKind="workspace-settings"
+                {...shellProps}
+              />
+            }
+          />
+          <Route
             path="/w/:workspaceIdentifier/settings/workspace/:section"
             element={
               <WorkspaceRouteScreen
@@ -2312,6 +2498,9 @@ function LocationProbe() {
       <output aria-label="Location key">{location.key}</output>
       <button type="button" onClick={() => navigate(-1)}>
         Go back
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        Go forward
       </button>
       <button type="button" onClick={() => navigate('/w/workspace-4/my-work')}>
         Open workspace C

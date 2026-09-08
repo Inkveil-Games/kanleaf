@@ -1,6 +1,6 @@
 import { Archive, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
@@ -19,6 +19,7 @@ import {
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import type { CustomPropertyDefinition, Workspace } from '../workspace/types';
+import type { SettingsDetailHistory } from '../workspace/workspaceLocation';
 import {
   deleteProperty,
   listProperties,
@@ -26,22 +27,26 @@ import {
   reorderProperties,
   updateProperty,
 } from './api';
-import { PropertyEditorDialog } from './PropertyEditorDialog';
+import { PropertyEditorPanel } from './PropertyEditor';
 
 export function PropertiesSettings({
   context,
   workspace,
-  createRequested = 0,
-  onCreateRequestHandled,
+  detail,
+  onDetailChange,
   definePropertyName,
-  onDefinePropertyClosed,
 }: {
   context: ApiContext;
   workspace: Workspace;
-  createRequested?: number;
-  onCreateRequestHandled?: () => void;
+  detail?: string;
+  onDetailChange: (
+    detail: string | undefined,
+    options?: {
+      history?: SettingsDetailHistory;
+      definePropertyName?: string;
+    },
+  ) => void;
   definePropertyName?: string;
-  onDefinePropertyClosed?: () => void;
 }) {
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -49,7 +54,8 @@ export function PropertiesSettings({
     queryFn: () => listProperties(context, workspace.id),
   });
   const canManage = workspace.role === 'owner' || workspace.role === 'admin';
-  const routedDefineName = canManage ? definePropertyName : undefined;
+  const routedDefineName =
+    canManage && (!detail || detail === 'new') ? definePropertyName : undefined;
   const undefinedQuery = useQuery({
     queryKey: ['undefined-properties', workspace.id],
     queryFn: () => listUndefinedProperties(context, workspace.id),
@@ -58,12 +64,9 @@ export function PropertiesSettings({
   const [tab, setTab] = useState<'defined' | 'undefined'>(
     routedDefineName ? 'undefined' : 'defined',
   );
-  const [creating, setCreating] = useState(createRequested > 0 && canManage);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] =
     useState<CustomPropertyDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [defineTarget, setDefineTarget] = useState(routedDefineName ?? null);
 
   async function refresh() {
     await Promise.all([
@@ -120,7 +123,54 @@ export function PropertiesSettings({
 
   const active = query.data.filter((property) => !property.archived_at);
   const archived = query.data.filter((property) => property.archived_at);
-  const editing = query.data.find(({ id }) => id === editingId);
+  const editorRequested = Boolean(detail || routedDefineName);
+  const editing =
+    detail && detail !== 'new'
+      ? query.data.find(({ id }) => id === detail)
+      : undefined;
+
+  if (editorRequested) {
+    if (!canManage || (detail !== 'new' && !routedDefineName && !editing)) {
+      return (
+        <SettingsArticle
+          eyebrow="Workspace"
+          title="Property unavailable"
+          description="This property does not exist or you cannot edit it."
+          backAction={{
+            label: 'Back to Properties',
+            onClick: () => onDetailChange(undefined, { history: 'back' }),
+          }}
+        >
+          <SettingsEmptyState
+            title="Property unavailable"
+            description="Return to Properties to choose an available property."
+          />
+        </SettingsArticle>
+      );
+    }
+
+    return (
+      <RoutedPropertyEditorPanel
+        key={detail ?? 'new'}
+        context={context}
+        workspaceId={workspace.id}
+        property={editing}
+        initialName={routedDefineName ?? ''}
+        defineExisting={Boolean(routedDefineName)}
+        undefinedNames={(undefinedQuery.data ?? []).map(({ name }) => name)}
+        onDefineExisting={(name) => {
+          setTab('undefined');
+          onDetailChange('new', {
+            history: 'replace',
+            definePropertyName: name,
+          });
+        }}
+        onBack={() => onDetailChange(undefined, { history: 'back' })}
+        onSaved={refresh}
+        onSaveComplete={() => onDetailChange(undefined, { history: 'replace' })}
+      />
+    );
+  }
 
   return (
     <SettingsArticle
@@ -133,7 +183,7 @@ export function PropertiesSettings({
           <button
             className="primary-button"
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => onDetailChange('new', { history: 'push' })}
           >
             <Plus aria-hidden="true" size={14} /> New property
           </button>
@@ -215,9 +265,22 @@ export function PropertiesSettings({
                 disabled={!canManage}
               >
                 <SettingsListCell primary>
-                  <span title={property.description || property.name}>
-                    {property.name}
-                  </span>
+                  {canManage ? (
+                    <button
+                      className="text-button"
+                      type="button"
+                      title={property.description || property.name}
+                      onClick={() =>
+                        onDetailChange(property.id, { history: 'push' })
+                      }
+                    >
+                      {property.name}
+                    </button>
+                  ) : (
+                    <span title={property.description || property.name}>
+                      {property.name}
+                    </span>
+                  )}
                   {property.description ? (
                     <small>{property.description}</small>
                   ) : null}
@@ -235,7 +298,9 @@ export function PropertiesSettings({
                     <SettingsActionsMenu label={`Actions for ${property.name}`}>
                       <SettingsAction
                         icon={<Pencil aria-hidden="true" size={14} />}
-                        onClick={() => setEditingId(property.id)}
+                        onClick={() =>
+                          onDetailChange(property.id, { history: 'push' })
+                        }
                       >
                         Edit
                       </SettingsAction>
@@ -272,7 +337,12 @@ export function PropertiesSettings({
           error={undefinedQuery.error}
           properties={undefinedQuery.data ?? []}
           onRetry={() => void undefinedQuery.refetch()}
-          onDefine={setDefineTarget}
+          onDefine={(name) =>
+            onDetailChange('new', {
+              history: 'push',
+              definePropertyName: name,
+            })
+          }
         />
       )}
 
@@ -317,30 +387,6 @@ export function PropertiesSettings({
         </section>
       ) : null}
 
-      {creating || editing || (canManage && defineTarget) ? (
-        <PropertyEditorDialog
-          context={context}
-          workspaceId={workspace.id}
-          property={editing}
-          initialName={defineTarget ?? ''}
-          defineExisting={Boolean(defineTarget)}
-          undefinedNames={(undefinedQuery.data ?? []).map(({ name }) => name)}
-          onDefineExisting={(name) => {
-            setCreating(false);
-            setDefineTarget(name);
-            setTab('undefined');
-          }}
-          onClose={() => {
-            setCreating(false);
-            setEditingId(null);
-            setDefineTarget(null);
-            if (createRequested > 0) onCreateRequestHandled?.();
-            if (defineTarget) onDefinePropertyClosed?.();
-          }}
-          onSaved={refresh}
-        />
-      ) : null}
-
       <AppDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
@@ -375,6 +421,32 @@ export function PropertiesSettings({
         }}
       />
     </SettingsArticle>
+  );
+}
+
+function RoutedPropertyEditorPanel({
+  onSaved,
+  onSaveComplete,
+  ...props
+}: ComponentProps<typeof PropertyEditorPanel> & {
+  onSaveComplete: () => void;
+}) {
+  const activeRef = useRef(false);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
+
+  return (
+    <PropertyEditorPanel
+      {...props}
+      onSaved={async () => {
+        await onSaved();
+        if (activeRef.current) onSaveComplete();
+      }}
+    />
   );
 }
 

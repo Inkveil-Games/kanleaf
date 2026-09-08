@@ -71,6 +71,14 @@ async function settingsPageGeometry(page: Page) {
   const settings = page.getByRole('region', { name: 'Workspace settings' });
   const articleLocator = settings.locator('.settings-article:visible');
   await expect(articleLocator).toBeVisible();
+  await expect
+    .poll(() =>
+      articleLocator.evaluate((article) => {
+        const rect = article.getBoundingClientRect();
+        return article.isConnected && rect.width > 0 && rect.x > 0;
+      }),
+    )
+    .toBe(true);
   return articleLocator.evaluate((article) => {
     const header = article.querySelector('.settings-header');
     const title = article.querySelector('h1');
@@ -88,15 +96,22 @@ async function settingsPageGeometry(page: Page) {
   });
 }
 
-function expectSameSettingsGeometry(
-  actual: Awaited<ReturnType<typeof settingsPageGeometry>>,
+async function expectSameSettingsGeometry(
+  page: Page,
   expected: Awaited<ReturnType<typeof settingsPageGeometry>>,
 ) {
-  expect(actual.articleX).toBeCloseTo(expected.articleX, 0);
-  expect(actual.headerX).toBeCloseTo(expected.headerX, 0);
-  expect(actual.headerWidth).toBeCloseTo(expected.headerWidth, 0);
-  expect(actual.titleX).toBeCloseTo(expected.titleX, 0);
-  expect(actual.titleY).toBeCloseTo(expected.titleY, 0);
+  await expect
+    .poll(async () => {
+      const actual = await settingsPageGeometry(page);
+      return (
+        Math.abs(actual.articleX - expected.articleX) < 0.5 &&
+        Math.abs(actual.headerX - expected.headerX) < 0.5 &&
+        Math.abs(actual.headerWidth - expected.headerWidth) < 0.5 &&
+        Math.abs(actual.titleX - expected.titleX) < 0.5 &&
+        Math.abs(actual.titleY - expected.titleY) < 0.5
+      );
+    })
+    .toBe(true);
 }
 
 async function expectNestedDialogLayering(page: Page, popup: Locator) {
@@ -294,7 +309,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     page.getByRole('list', { name: 'Active task labels' }),
   ).toBeVisible();
-  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
+  await expectSameSettingsGeometry(page, statesGeometry);
   await page.getByRole('button', { name: 'Task types' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/task-types$`),
@@ -306,24 +321,120 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     page.getByRole('list', { name: 'Active task types' }),
   ).toContainText('Bug');
-  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
+  await expectSameSettingsGeometry(page, statesGeometry);
   await page.getByRole('button', { name: 'Properties' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
-  await page.getByRole('button', { name: 'New property' }).click();
-  const propertyDialog = page.getByRole('dialog', { name: 'Create property' });
-  await expectNestedDialogLayering(page, propertyDialog);
-  await propertyDialog.getByLabel('Name').fill('Story points');
+  const workspaceSettings = page.getByRole('region', {
+    name: 'Workspace settings',
+  });
+  const workspaceSettingsNavigation = workspaceSettings.getByRole(
+    'navigation',
+    { name: 'Workspace settings sections' },
+  );
+  const propertiesNavigationItem = workspaceSettingsNavigation.getByRole(
+    'button',
+    { name: 'Properties' },
+  );
+  const propertiesArticle = workspaceSettings.locator(
+    '.settings-article:visible',
+  );
+  await expectSameSettingsGeometry(page, statesGeometry);
+
+  await propertiesArticle.getByRole('button', { name: 'New property' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties/new$`),
+  );
+  await expect(workspaceSettings).toBeVisible();
+  await expect(propertiesNavigationItem).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Create property' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(workspaceSettings).toBeVisible();
+
+  await propertiesArticle.getByRole('button', { name: 'New property' }).click();
+  await page.getByLabel('Name').fill('Story points');
   await chooseSelectOption(page, 'Property type', 'Number');
-  await propertyDialog
-    .getByLabel('Description')
-    .fill('Relative delivery effort.');
-  await propertyDialog.getByRole('button', { name: 'Create property' }).click();
+  await page.getByLabel('Description').fill('Relative delivery effort.');
+  await page.getByRole('button', { name: 'Create property' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
   await expect(
     page.getByRole('list', { name: 'Custom properties' }),
   ).toContainText('Story points');
-  expectSameSettingsGeometry(await settingsPageGeometry(page), statesGeometry);
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Create property' }),
+  ).not.toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+
+  await page.getByRole('button', { name: 'Story points', exact: true }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties/[^/?]+$`),
+  );
+  const propertyDetailUrl = page.url();
+  await expect(
+    page.getByRole('heading', { name: 'Edit Story points' }),
+  ).toBeVisible();
+  await expect(workspaceSettings).toBeVisible();
+  await expect(propertiesNavigationItem).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Properties', exact: true }),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(propertyDetailUrl);
+  await page.getByRole('button', { name: 'Back to Properties' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(workspaceSettings).toBeVisible();
+
+  await page.getByRole('button', { name: 'Story points', exact: true }).click();
+  await expect(page).toHaveURL(propertyDetailUrl);
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Edit Story points' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Properties' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await page.goForward();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(workspaceSettings).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await page.goBack();
