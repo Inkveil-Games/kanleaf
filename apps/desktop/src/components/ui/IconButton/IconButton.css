@@ -1,0 +1,15 @@
+.ui-icon-button {
+  width: var(--control-height-md);
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.ui-icon-button[data-size='sm'] {
+  width: var(--control-height-sm);
+  padding: 0;
+}
+
+.ui-icon-button .ui-button-content {
+  display: grid;
+  place-items: center;
+}

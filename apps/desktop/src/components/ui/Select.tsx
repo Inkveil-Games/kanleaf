@@ -1,6 +1,7 @@
 import { Select as BaseSelect } from '@base-ui/react/select';
 import { Check, ChevronDown } from 'lucide-react';
 import { useId, useState } from 'react';
+import { useFormFieldControl } from './FormField/FormFieldContext';
 import { popupPortalContainer } from './popupPortal';
 
 export interface SelectOption {
@@ -12,25 +13,30 @@ export interface SelectOption {
 
 interface SelectProps {
   ariaLabel: string;
+  id?: string;
   value: string;
   options: SelectOption[];
   onValueChange: (value: string) => void;
   disabled?: boolean;
+  invalid?: boolean;
   className?: string;
 }
 
 export function Select({
   ariaLabel,
+  id,
   value,
   options,
   onValueChange,
   disabled = false,
+  invalid = false,
   className,
 }: SelectProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
   const selected = options.find((option) => option.value === value);
+  const field = useFormFieldControl({ id, invalid });
 
   return (
     <div className={`kanleaf-select${className ? ` ${className}` : ''}`}>
@@ -48,7 +54,10 @@ export function Select({
             setPortalContainer(popupPortalContainer(element));
           }}
           className="select-trigger"
+          id={field.id}
           aria-label={ariaLabel}
+          aria-describedby={field.describedBy}
+          aria-invalid={field.ariaInvalid}
           data-value={value}
         >
           <BaseSelect.Value className="select-value">

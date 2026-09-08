@@ -1,0 +1,34 @@
+:where(.ui-input, .ui-textarea) {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-canvas);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+:where(.ui-input, .ui-textarea)::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.78;
+}
+
+:where(.ui-input, .ui-textarea):hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+:where(.ui-input, .ui-textarea):focus-visible {
+  border-color: var(--color-focus);
+  outline: 2px solid color-mix(in srgb, var(--color-focus) 28%, transparent);
+  outline-offset: 1px;
+}
+
+:where(.ui-input, .ui-textarea)[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+:where(.ui-input, .ui-textarea):disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}

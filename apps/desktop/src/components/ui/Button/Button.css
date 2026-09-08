@@ -1,0 +1,114 @@
+.ui-button {
+  position: relative;
+  display: inline-flex;
+  width: max-content;
+  min-width: 0;
+  height: var(--control-height-md);
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 620;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-button[data-size='sm'] {
+  height: var(--control-height-sm);
+  padding-inline: var(--space-2);
+  font-size: 0.72rem;
+}
+
+.ui-button-content {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ui-button[data-variant='primary'] {
+  color: var(--color-surface);
+  background: var(--color-accent-strong);
+}
+
+.ui-button[data-variant='primary']:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ui-button[data-variant='secondary'] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.ui-button[data-variant='secondary']:hover:not(:disabled),
+.ui-button[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.ui-button[data-variant='ghost'] {
+  color: var(--color-text-muted);
+}
+
+.ui-button[data-variant='text'] {
+  padding-inline: var(--space-1);
+  color: var(--color-accent-strong);
+}
+
+.ui-button[data-variant='text']:hover:not(:disabled) {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ui-button[data-variant='danger'] {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-muted);
+}
+
+.ui-button[data-variant='danger']:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.ui-button:focus-visible {
+  border-color: var(--color-focus);
+  outline: 2px solid color-mix(in srgb, var(--color-focus) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.ui-button[data-loading] {
+  cursor: wait;
+}
+
+.ui-button[data-loading] .ui-button-content {
+  opacity: 0;
+}
+
+.ui-button-spinner {
+  position: absolute;
+  animation: ui-button-spin 800ms linear infinite;
+}
+
+@keyframes ui-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-button-spinner {
+    animation: none;
+  }
+}

@@ -1,0 +1,52 @@
+.ui-form-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.ui-form-field-label-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ui-form-field-label {
+  color: var(--color-text-muted);
+  font-weight: 580;
+}
+
+.ui-form-field-required {
+  margin-left: var(--space-1);
+  color: var(--color-danger);
+}
+
+.ui-form-field-action {
+  flex: 0 0 auto;
+}
+
+.ui-form-field-description,
+.ui-form-field-hint,
+.ui-form-field-error {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.ui-form-field-description,
+.ui-form-field-hint {
+  color: var(--color-text-muted);
+}
+
+.ui-form-field-error {
+  color: var(--color-danger);
+}
+
+.ui-form-field-messages {
+  display: grid;
+  gap: var(--space-1);
+}

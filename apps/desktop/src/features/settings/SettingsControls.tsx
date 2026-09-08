@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/Button';
 import { errorMessage } from './utils';
 
 export interface ActionState {
@@ -14,13 +15,14 @@ export function FormActions({
 }) {
   return (
     <div className="settings-form-actions">
-      <button
-        className="primary-button compact-button"
+      <Button
+        variant="primary"
+        size="sm"
         type="submit"
-        disabled={state.status === 'saving'}
+        loading={state.status === 'saving'}
       >
-        {state.status === 'saving' ? 'Saving…' : label}
-      </button>
+        {label}
+      </Button>
       <ActionMessage state={state} />
     </div>
   );
