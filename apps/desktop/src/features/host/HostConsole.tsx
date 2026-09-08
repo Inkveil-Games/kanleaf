@@ -46,7 +46,9 @@ export function HostConsole({
     <main className="host-console">
       <SettingsFrame
         label="Host Console"
-        onClose={onClose}
+        title="Host Console"
+        backLabel="Back to Workspace"
+        onBack={onClose}
         navigation={
           <SettingsGroup label="Host">
             <SettingsLink

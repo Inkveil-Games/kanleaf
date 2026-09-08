@@ -61,6 +61,7 @@ function renderSettings(
   });
   const onUpdated = vi.fn().mockResolvedValue(undefined);
   const onSectionChange = vi.fn();
+  const onClose = vi.fn();
   const settings = (settled: boolean) => (
     <QueryClientProvider client={client}>
       <ProjectSettings
@@ -72,7 +73,7 @@ function renderSettings(
         configuration={configuration}
         section={section}
         onSectionChange={onSectionChange}
-        onClose={vi.fn()}
+        onClose={onClose}
         onUpdated={onUpdated}
         onRemoved={vi.fn().mockResolvedValue(undefined)}
       />
@@ -81,6 +82,7 @@ function renderSettings(
   const rendered = render(settings(accessSettled));
   return {
     onSectionChange,
+    onClose,
     onUpdated,
     rerenderWithAccessSettled: (settled: boolean) =>
       rendered.rerender(settings(settled)),
@@ -133,6 +135,21 @@ describe('ProjectSettings', () => {
       'aria-current',
       'page',
     );
+  });
+
+  it('uses the shared Settings sidebar structure and Project back action', () => {
+    const { onClose } = renderSettings(vi.fn(() => response([])));
+
+    const navigation = screen.getByRole('navigation', {
+      name: 'Project settings sections',
+    });
+    expect(navigation.parentElement).toHaveClass('settings-navigation-body');
+    expect(
+      navigation.closest('.settings-navigation')?.querySelector('strong'),
+    ).toHaveTextContent(project.name);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Project' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('saves identity and visibility through the Project API', async () => {

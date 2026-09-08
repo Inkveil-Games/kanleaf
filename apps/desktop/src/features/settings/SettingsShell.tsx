@@ -45,7 +45,9 @@ export function AccountSettingsShell({
   return (
     <SettingsFrame
       label="Account settings"
-      onClose={onClose}
+      title="Account settings"
+      backLabel="Back to Workspace"
+      onBack={onClose}
       navigation={
         <SettingsGroup label="Account">
           <SettingsLink
@@ -128,7 +130,9 @@ export function WorkspaceSettingsShell({
   return (
     <SettingsFrame
       label="Workspace settings"
-      onClose={onClose}
+      title="Workspace settings"
+      backLabel="Back to Workspace"
+      onBack={onClose}
       navigation={
         <>
           <SettingsGroup label="General">
@@ -238,15 +242,19 @@ export function WorkspaceSettingsShell({
 
 export function SettingsFrame({
   label,
+  title,
+  backLabel,
   navigation,
   children,
-  onClose,
+  onBack,
   footer,
 }: {
   label: string;
+  title: ReactNode;
+  backLabel: string;
   navigation: ReactNode;
   children: ReactNode;
-  onClose: () => void;
+  onBack: () => void;
   footer?: ReactNode;
 }) {
   return (
@@ -254,10 +262,10 @@ export function SettingsFrame({
       <aside className="settings-navigation">
         <div className="settings-navigation-body">
           <div className="settings-navigation-header">
-            <button className="settings-back" type="button" onClick={onClose}>
-              <ArrowLeft aria-hidden="true" size={15} /> Back to Workspace
+            <button className="settings-back" type="button" onClick={onBack}>
+              <ArrowLeft aria-hidden="true" size={15} /> {backLabel}
             </button>
-            <strong>{label}</strong>
+            <strong>{title}</strong>
           </div>
           <nav aria-label={`${label} sections`}>{navigation}</nav>
         </div>

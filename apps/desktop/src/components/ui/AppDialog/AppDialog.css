@@ -1,18 +1,28 @@
 .app-dialog-backdrop {
   position: fixed;
-  z-index: 400;
+  z-index: var(--layer-app-dialog-backdrop);
   inset: 0;
   background: var(--color-overlay);
 }
 
 .app-dialog-viewport {
   position: fixed;
-  z-index: 401;
+  z-index: var(--layer-app-dialog);
   inset: 0;
   display: grid;
   overflow-y: auto;
   padding: var(--space-4);
   place-items: center;
+}
+
+.app-dialog-backdrop:has(
+  + .app-dialog-viewport[data-nested]:not([data-nested-dialog-open])
+) {
+  z-index: var(--layer-nested-app-dialog-backdrop);
+}
+
+.app-dialog-viewport[data-nested]:not([data-nested-dialog-open]) {
+  z-index: var(--layer-nested-app-dialog);
 }
 
 .app-dialog-popup {

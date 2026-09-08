@@ -14,6 +14,7 @@ const context = {
 describe('settings shells', () => {
   it('keeps Account settings scoped to account pages', () => {
     const onSectionChange = vi.fn();
+    const onClose = vi.fn();
     renderWithClient(
       <AccountSettingsShell
         context={context}
@@ -21,20 +22,27 @@ describe('settings shells', () => {
         section="profile"
         onSectionChange={onSectionChange}
         onWorkspaceJoined={vi.fn()}
-        onClose={vi.fn()}
+        onClose={onClose}
       />,
     );
 
     expect(
       screen.getByRole('region', { name: 'Account settings' }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('navigation', { name: 'Account settings sections' })
+        .parentElement,
+    ).toHaveClass('settings-navigation-body');
     expect(screen.queryByRole('button', { name: 'Members' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Security' }));
     expect(onSectionChange).toHaveBeenCalledWith('security');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('keeps Workspace settings scoped to the active Workspace', () => {
     const onSectionChange = vi.fn();
+    const onClose = vi.fn();
     renderWithClient(
       <WorkspaceSettingsShell
         context={context}
@@ -43,7 +51,7 @@ describe('settings shells', () => {
         workspaceCount={2}
         section="general"
         onSectionChange={onSectionChange}
-        onClose={vi.fn()}
+        onClose={onClose}
         onWorkspaceUpdated={vi.fn()}
         onConfigurationUpdated={vi.fn()}
         onProjectsChanged={vi.fn()}
@@ -60,6 +68,8 @@ describe('settings shells', () => {
     expect(onSectionChange).toHaveBeenCalledWith('members');
     fireEvent.click(screen.getByRole('button', { name: 'Storage & backup' }));
     expect(onSectionChange).toHaveBeenCalledWith('storage');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('groups Workspace pages into General and Task properties', () => {
@@ -82,6 +92,7 @@ describe('settings shells', () => {
     const navigation = screen.getByRole('navigation', {
       name: 'Workspace settings sections',
     });
+    expect(navigation.parentElement).toHaveClass('settings-navigation-body');
     const general = within(navigation).getByRole('region', {
       name: 'General',
     });

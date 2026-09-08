@@ -7,6 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { popupPortalContainer } from './popupPortal';
 
 interface PopoverProps {
   label: string;
@@ -60,9 +61,7 @@ export function Popover({
           ref={(element: HTMLElement | null) => {
             const button = element as HTMLButtonElement | null;
             if (triggerRef) triggerRef.current = button;
-            setPortalContainer(
-              button?.closest<HTMLElement>('dialog') ?? document.body,
-            );
+            setPortalContainer(popupPortalContainer(button));
           }}
           className="context-menu-trigger"
           aria-label={label}

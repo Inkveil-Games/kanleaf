@@ -99,6 +99,40 @@ function expectSameSettingsGeometry(
   expect(actual.titleY).toBeCloseTo(expected.titleY, 0);
 }
 
+async function expectNestedDialogLayering(page: Page, popup: Locator) {
+  await expect(popup).toBeVisible();
+  await expect(page.locator('.app-dialog-backdrop')).toBeVisible();
+  const layers = await page.evaluate(() => {
+    const zIndex = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Missing modal layer: ${selector}`);
+      return Number.parseInt(getComputedStyle(element).zIndex, 10);
+    };
+
+    return [
+      zIndex('.settings-dialog-backdrop'),
+      zIndex('.settings-dialog-viewport'),
+      zIndex('.app-dialog-backdrop'),
+      zIndex('.app-dialog-viewport'),
+    ];
+  });
+  expect(layers).toEqual([...layers].sort((left, right) => left - right));
+  expect(new Set(layers).size).toBe(layers.length);
+
+  await expect
+    .poll(() =>
+      popup.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const topmost = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        return Boolean(topmost && element.contains(topmost));
+      }),
+    )
+    .toBe(true);
+}
+
 async function registerAccountThroughSetup(
   page: Page,
   authSurface: Locator,
@@ -201,11 +235,11 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Display name').fill('Kanleaf Tester');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile updated')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await expect(
     page.getByRole('button', { name: 'Switch account' }),
   ).toContainText('Kanleaf Tester');
-  await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await workspaceSelect.click();
   await page
     .getByRole('button', { name: 'Settings for Studio Workspace' })
@@ -279,6 +313,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   );
   await page.getByRole('button', { name: 'New property' }).click();
   const propertyDialog = page.getByRole('dialog', { name: 'Create property' });
+  await expectNestedDialogLayering(page, propertyDialog);
   await propertyDialog.getByLabel('Name').fill('Story points');
   await chooseSelectOption(page, 'Property type', 'Number');
   await propertyDialog
@@ -327,6 +362,27 @@ test('manages structured work and durable Markdown across reloads', async ({
       `/w/${workspaceIdentifier}/p/${projectIdentifier}/settings/general$`,
     ),
   );
+  const projectSettings = page.getByRole('region', {
+    name: 'Project settings',
+  });
+  await expect(
+    projectSettings.locator('.settings-navigation-body > nav'),
+  ).toBeVisible();
+  const projectNavigationGap = await projectSettings.evaluate((settings) => {
+    const header = settings.querySelector('.settings-navigation-header');
+    const navigation = settings.querySelector(
+      '.settings-navigation-body > nav',
+    );
+    if (!header || !navigation) {
+      throw new Error('Shared Project settings navigation is missing');
+    }
+    return (
+      navigation.getBoundingClientRect().top -
+      header.getBoundingClientRect().bottom
+    );
+  });
+  expect(projectNavigationGap).toBeGreaterThanOrEqual(0);
+  expect(projectNavigationGap).toBeLessThan(32);
   await page.getByLabel('Description').fill('Kanleaf Core delivery project.');
   await chooseSelectOption(
     page,
@@ -335,6 +391,20 @@ test('manages structured work and durable Markdown across reloads', async ({
   );
   await page.getByRole('button', { name: 'Save general settings' }).click();
   await expect(page.getByText('Project details saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Danger zone' }).click();
+  const archiveTrigger = page.getByRole('button', { name: 'Archive Project' });
+  await archiveTrigger.click();
+  const archiveDialog = page.getByRole('alertdialog', {
+    name: 'Archive Kanleaf?',
+  });
+  await expectNestedDialogLayering(page, archiveDialog);
+  await expect(
+    archiveDialog.getByRole('button', { name: 'Cancel' }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(archiveDialog).not.toBeVisible();
+  await expect(projectSettings).toBeVisible();
+  await expect(archiveTrigger).toBeFocused();
   await page.getByRole('button', { name: 'Features' }).click();
   await expect(page).toHaveURL(
     new RegExp(

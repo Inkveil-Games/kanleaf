@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
+import type { ReactNode } from 'react';
 
 interface SettingsDialogProps {
   label: string;
@@ -11,29 +12,25 @@ export function SettingsDialog({
   children,
   onClose,
 }: SettingsDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
-
   return (
-    <dialog
-      ref={dialogRef}
-      className="settings-dialog"
-      aria-label={label}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
       }}
     >
-      <div className="settings-window">{children}</div>
-    </dialog>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="settings-dialog-backdrop" />
+        <Dialog.Viewport className="settings-dialog-viewport">
+          <Dialog.Popup
+            className="settings-dialog-popup"
+            data-ui-portal-container
+          >
+            <Dialog.Title className="sr-only">{label}</Dialog.Title>
+            <div className="settings-window">{children}</div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

@@ -1,6 +1,7 @@
 import { Select as BaseSelect } from '@base-ui/react/select';
 import { Check, ChevronDown } from 'lucide-react';
 import { useId, useState } from 'react';
+import { popupPortalContainer } from './popupPortal';
 
 export interface SelectOption {
   value: string;
@@ -44,9 +45,7 @@ export function Select({
       >
         <BaseSelect.Trigger
           ref={(element) => {
-            setPortalContainer(
-              element?.closest<HTMLElement>('dialog') ?? document.body,
-            );
+            setPortalContainer(popupPortalContainer(element));
           }}
           className="select-trigger"
           aria-label={ariaLabel}

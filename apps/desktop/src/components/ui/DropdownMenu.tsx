@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu';
 import { MoreHorizontal } from 'lucide-react';
 import { useState, type ReactNode, type RefObject } from 'react';
+import { popupPortalContainer } from './popupPortal';
 
 interface DropdownMenuProps {
   label: string;
@@ -54,9 +55,7 @@ export function DropdownMenu({
           ref={(element: HTMLElement | null) => {
             const button = element as HTMLButtonElement | null;
             if (triggerRef) triggerRef.current = button;
-            setPortalContainer(
-              button?.closest<HTMLElement>('dialog') ?? document.body,
-            );
+            setPortalContainer(popupPortalContainer(button));
           }}
           className="context-menu-trigger"
           aria-label={label}

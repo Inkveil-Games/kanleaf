@@ -64,7 +64,28 @@ interface AppDialogAlertProps extends AppDialogBaseProps {
 type AppDialogConfirmProps = AppDialogBaseProps &
   AppDialogActionLabels &
   AppDialogAction & {
-    type: 'confirm' | 'custom';
+    type: 'confirm';
+    closeLabel?: never;
+    confirmationText?: never;
+    confirmationLabel?: never;
+    confirmationPlaceholder?: never;
+    confirmationCaseSensitive?: never;
+  };
+
+type AppDialogCustomProps = AppDialogBaseProps &
+  (
+    | (AppDialogActionLabels & AppDialogAction)
+    | {
+        confirmLabel?: never;
+        cancelLabel?: never;
+        loadingLabel?: never;
+        confirmDisabled?: never;
+        onCancel?: () => void;
+        onConfirm?: never;
+        formId?: never;
+      }
+  ) & {
+    type: 'custom';
     closeLabel?: never;
     confirmationText?: never;
     confirmationLabel?: never;
@@ -84,7 +105,10 @@ type AppDialogTypedConfirmProps = AppDialogBaseProps &
   };
 
 export type AppDialogProps =
-  AppDialogAlertProps | AppDialogConfirmProps | AppDialogTypedConfirmProps;
+  | AppDialogAlertProps
+  | AppDialogConfirmProps
+  | AppDialogTypedConfirmProps
+  | AppDialogCustomProps;
 
 interface AppDialogPanelProps {
   props: AppDialogProps;
@@ -162,16 +186,19 @@ export function AppDialog(props: AppDialogProps) {
       ? confirmationInputRef
       : type === 'alert'
         ? alertCloseRef
-        : cancelRef;
+        : type === 'custom' && !props.formId && !props.onConfirm
+          ? true
+          : cancelRef;
 
   if (type === 'custom') {
     return (
       <Dialog.Root open={open} onOpenChange={handleOpenChange}>
         <Dialog.Portal>
-          <Dialog.Backdrop className="app-dialog-backdrop" />
+          <Dialog.Backdrop forceRender className="app-dialog-backdrop" />
           <Dialog.Viewport className="app-dialog-viewport">
             <Dialog.Popup
               className={popupClassName}
+              data-ui-portal-container
               data-variant={variant}
               aria-busy={busy || undefined}
               initialFocus={initialFocus}
@@ -199,10 +226,11 @@ export function AppDialog(props: AppDialogProps) {
   return (
     <AlertDialog.Root open={open} onOpenChange={handleOpenChange}>
       <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="app-dialog-backdrop" />
+        <AlertDialog.Backdrop forceRender className="app-dialog-backdrop" />
         <AlertDialog.Viewport className="app-dialog-viewport">
           <AlertDialog.Popup
             className={popupClassName}
+            data-ui-portal-container
             data-variant={variant}
             aria-busy={busy || undefined}
             initialFocus={initialFocus}

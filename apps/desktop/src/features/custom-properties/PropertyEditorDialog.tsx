@@ -1,5 +1,5 @@
-import { X } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { Select } from '../../components/ui/Select';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -23,17 +23,7 @@ const PROPERTY_TYPES: { value: CustomPropertyType; label: string }[] = [
   { value: 'url', label: 'URL' },
 ];
 
-export function PropertyEditorDialog({
-  context,
-  workspaceId,
-  property,
-  initialName = '',
-  defineExisting = false,
-  undefinedNames = [],
-  onDefineExisting,
-  onClose,
-  onSaved,
-}: {
+interface PropertyEditorProps {
   context: ApiContext;
   workspaceId: string;
   property?: CustomPropertyDefinition;
@@ -43,8 +33,41 @@ export function PropertyEditorDialog({
   onDefineExisting?: (name: string) => void;
   onClose: () => void;
   onSaved: () => Promise<void>;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+}
+
+export function PropertyEditorDialog(props: PropertyEditorProps) {
+  const [busy, setBusy] = useState(false);
+  const title = propertyEditorTitle(props);
+
+  return (
+    <AppDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+      type="custom"
+      size="lg"
+      title={title}
+      description="Add structured information without changing the Task body."
+      loading={busy}
+    >
+      <PropertyEditorForm {...props} onBusyChange={setBusy} />
+    </AppDialog>
+  );
+}
+
+export function PropertyEditorForm({
+  context,
+  workspaceId,
+  property,
+  initialName = '',
+  defineExisting = false,
+  undefinedNames = [],
+  onDefineExisting,
+  onClose,
+  onSaved,
+  onBusyChange,
+}: PropertyEditorProps & { onBusyChange?: (busy: boolean) => void }) {
   const [name, setName] = useState(property?.name ?? initialName);
   const [description, setDescription] = useState(property?.description ?? '');
   const [type, setType] = useState<CustomPropertyType>(
@@ -62,23 +85,6 @@ export function PropertyEditorDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectType = type === 'single_select' || type === 'multi_select';
-  const title = property
-    ? `Edit ${property.name}`
-    : defineExisting
-      ? `Define ${initialName}`
-      : 'Create property';
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (typeof dialog.showModal === 'function') dialog.showModal();
-    else dialog.setAttribute('open', '');
-    return () => {
-      if (typeof dialog.close === 'function') dialog.close();
-      else dialog.removeAttribute('open');
-    };
-  }, []);
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving || !name.trim()) return;
@@ -93,7 +99,9 @@ export function PropertyEditorDialog({
       return;
     }
     setSaving(true);
+    onBusyChange?.(true);
     setError(null);
+    let saved = false;
     try {
       if (!property) {
         const create = defineExisting ? defineProperty : createProperty;
@@ -123,120 +131,106 @@ export function PropertyEditorDialog({
         });
       }
       await onSaved();
-      onClose();
+      saved = true;
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setSaving(false);
+      onBusyChange?.(false);
     }
+    if (saved) onClose();
   }
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="configuration-dialog property-editor-dialog"
-      aria-label={title}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!saving) onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
+    <form
+      className="property-editor-form"
+      onSubmit={(event) => void submit(event)}
     >
-      <form onSubmit={(event) => void submit(event)}>
-        <header>
-          <div>
-            <span className="dialog-step-label">Task property</span>
-            <h2>{title}</h2>
-            <p>Add structured information without changing the Task body.</p>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Close property editor"
-            disabled={saving}
-            onClick={onClose}
-          >
-            <X aria-hidden="true" size={16} />
-          </button>
-        </header>
-        <div className="property-editor-fields">
-          <label className="settings-field">
-            Name
-            <input
-              autoFocus
-              required
-              maxLength={120}
-              disabled={saving}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label className="settings-field">
-            Type
-            <Select
-              ariaLabel="Property type"
-              disabled={saving || Boolean(property)}
-              value={type}
-              options={PROPERTY_TYPES}
-              onValueChange={(value) => setType(value as CustomPropertyType)}
-            />
-            {property ? (
-              <small>Type cannot be changed after creation.</small>
-            ) : null}
-          </label>
-        </div>
+      <div className="property-editor-fields">
         <label className="settings-field">
-          Description
-          <textarea
-            maxLength={500}
+          Name
+          <input
+            autoFocus
+            required
+            maxLength={120}
             disabled={saving}
-            value={description}
-            placeholder="What should this property capture?"
-            onChange={(event) => setDescription(event.target.value)}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
           />
         </label>
-        {selectType ? (
-          <SelectOptionEditor
-            disabled={saving}
-            options={options}
-            onChange={setOptions}
+        <label className="settings-field">
+          Type
+          <Select
+            ariaLabel="Property type"
+            disabled={saving || Boolean(property)}
+            value={type}
+            options={PROPERTY_TYPES}
+            onValueChange={(value) => setType(value as CustomPropertyType)}
           />
-        ) : null}
-        {error ? (
-          <p className="settings-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <footer>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={saving}
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={
-              saving ||
-              !name.trim() ||
-              (selectType && options.some((option) => !option.name.trim()))
-            }
-          >
-            {saving
-              ? 'Saving…'
-              : property
-                ? 'Save changes'
-                : defineExisting
-                  ? 'Define property'
-                  : 'Create property'}
-          </button>
-        </footer>
-      </form>
-    </dialog>
+          {property ? (
+            <small>Type cannot be changed after creation.</small>
+          ) : null}
+        </label>
+      </div>
+      <label className="settings-field">
+        Description
+        <textarea
+          maxLength={500}
+          disabled={saving}
+          value={description}
+          placeholder="What should this property capture?"
+          onChange={(event) => setDescription(event.target.value)}
+        />
+      </label>
+      {selectType ? (
+        <SelectOptionEditor
+          disabled={saving}
+          options={options}
+          onChange={setOptions}
+        />
+      ) : null}
+      {error ? (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <footer className="property-editor-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={saving}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={
+            saving ||
+            !name.trim() ||
+            (selectType && options.some((option) => !option.name.trim()))
+          }
+        >
+          {saving
+            ? 'Saving…'
+            : property
+              ? 'Save changes'
+              : defineExisting
+                ? 'Define property'
+                : 'Create property'}
+        </button>
+      </footer>
+    </form>
   );
+}
+
+function propertyEditorTitle({
+  property,
+  defineExisting,
+  initialName = '',
+}: PropertyEditorProps) {
+  if (property) return `Edit ${property.name}`;
+  if (defineExisting) return `Define ${initialName}`;
+  return 'Create property';
 }

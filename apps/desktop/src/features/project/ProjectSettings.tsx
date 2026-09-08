@@ -1,13 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowLeft,
   ListChecks,
   Settings2,
   ShieldAlert,
   SlidersHorizontal,
   UsersRound,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import {
+  SettingsFrame,
+  SettingsGroup,
+  SettingsLink,
+} from '../settings/SettingsShell';
 import {
   listProjectMembers,
   listWorkspaceMembers,
@@ -62,137 +65,91 @@ export function ProjectSettings({
   });
 
   return (
-    <section className="settings-pane" aria-label="Project settings">
-      <aside className="settings-navigation">
-        <div className="settings-navigation-header">
-          <button className="settings-back" type="button" onClick={onClose}>
-            <ArrowLeft aria-hidden="true" size={15} /> Back to Project
-          </button>
-          <strong>{project.name}</strong>
-        </div>
-        <nav aria-label="Project settings sections">
-          <SettingsGroup label="Project">
-            <SettingsLink
-              active={section === 'general'}
-              icon={<Settings2 aria-hidden="true" size={15} />}
-              label="General"
-              onClick={() => onSectionChange('general')}
-            />
-            <SettingsLink
-              active={section === 'members'}
-              icon={<UsersRound aria-hidden="true" size={15} />}
-              label="Members"
-              onClick={() => onSectionChange('members')}
-            />
-            <SettingsLink
-              active={section === 'features'}
-              icon={<ListChecks aria-hidden="true" size={15} />}
-              label="Features"
-              onClick={() => onSectionChange('features')}
-            />
-            <SettingsLink
-              active={section === 'defaults'}
-              icon={<SlidersHorizontal aria-hidden="true" size={15} />}
-              label="Defaults"
-              onClick={() => onSectionChange('defaults')}
-            />
-            <SettingsLink
-              active={section === 'danger'}
-              icon={<ShieldAlert aria-hidden="true" size={15} />}
-              label="Danger zone"
-              onClick={() => onSectionChange('danger')}
-              danger
-            />
-          </SettingsGroup>
-        </nav>
-      </aside>
-      <div className="settings-content">
-        {section === 'general' && (
-          <ProjectGeneralSettings
-            context={context}
-            project={project}
-            members={members.data ?? []}
-            membersLoading={members.isPending}
-            onUpdated={onUpdated}
+    <SettingsFrame
+      label="Project settings"
+      title={project.name}
+      backLabel="Back to Project"
+      onBack={onClose}
+      navigation={
+        <SettingsGroup label="Project">
+          <SettingsLink
+            active={section === 'general'}
+            icon={<Settings2 aria-hidden="true" size={15} />}
+            label="General"
+            onClick={() => onSectionChange('general')}
           />
-        )}
-        {section === 'members' && (
-          <ProjectMemberSettings
-            context={context}
-            workspace={workspace}
-            project={project}
-            userId={userId}
-            membersQuery={members}
-            workspaceMembersQuery={workspaceMembers}
+          <SettingsLink
+            active={section === 'members'}
+            icon={<UsersRound aria-hidden="true" size={15} />}
+            label="Members"
+            onClick={() => onSectionChange('members')}
           />
-        )}
-        {section === 'features' && (
-          <ProjectFeatureSettings
-            context={context}
-            project={project}
-            onUpdated={onUpdated}
+          <SettingsLink
+            active={section === 'features'}
+            icon={<ListChecks aria-hidden="true" size={15} />}
+            label="Features"
+            onClick={() => onSectionChange('features')}
           />
-        )}
-        {section === 'defaults' && (
-          <ProjectDefaultSettings
-            context={context}
-            project={project}
-            configuration={configuration}
-            members={members.data ?? []}
-            membersLoading={members.isPending}
-            onUpdated={onUpdated}
+          <SettingsLink
+            active={section === 'defaults'}
+            icon={<SlidersHorizontal aria-hidden="true" size={15} />}
+            label="Defaults"
+            onClick={() => onSectionChange('defaults')}
           />
-        )}
-        {section === 'danger' && (
-          <ProjectDangerSettings
-            context={context}
-            workspace={workspace}
-            project={project}
-            onRemoved={onRemoved}
+          <SettingsLink
+            active={section === 'danger'}
+            icon={<ShieldAlert aria-hidden="true" size={15} />}
+            label="Danger zone"
+            onClick={() => onSectionChange('danger')}
+            danger
           />
-        )}
-      </div>
-    </section>
-  );
-}
-
-function SettingsGroup({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="settings-nav-group">
-      <h2>{label}</h2>
-      {children}
-    </section>
-  );
-}
-
-function SettingsLink({
-  active,
-  icon,
-  label,
-  onClick,
-  danger = false,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      className={`settings-link${danger ? ' settings-link-danger' : ''}`}
-      type="button"
-      aria-current={active ? 'page' : undefined}
-      onClick={onClick}
+        </SettingsGroup>
+      }
     >
-      {icon}
-      <span>{label}</span>
-    </button>
+      {section === 'general' && (
+        <ProjectGeneralSettings
+          context={context}
+          project={project}
+          members={members.data ?? []}
+          membersLoading={members.isPending}
+          onUpdated={onUpdated}
+        />
+      )}
+      {section === 'members' && (
+        <ProjectMemberSettings
+          context={context}
+          workspace={workspace}
+          project={project}
+          userId={userId}
+          membersQuery={members}
+          workspaceMembersQuery={workspaceMembers}
+        />
+      )}
+      {section === 'features' && (
+        <ProjectFeatureSettings
+          context={context}
+          project={project}
+          onUpdated={onUpdated}
+        />
+      )}
+      {section === 'defaults' && (
+        <ProjectDefaultSettings
+          context={context}
+          project={project}
+          configuration={configuration}
+          members={members.data ?? []}
+          membersLoading={members.isPending}
+          onUpdated={onUpdated}
+        />
+      )}
+      {section === 'danger' && (
+        <ProjectDangerSettings
+          context={context}
+          workspace={workspace}
+          project={project}
+          onRemoved={onRemoved}
+        />
+      )}
+    </SettingsFrame>
   );
 }
