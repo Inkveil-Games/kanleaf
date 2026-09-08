@@ -164,27 +164,32 @@ impl Vault {
     }
 
     async fn discard_workspace_task_trash(&self, workspace_id: Uuid) -> Result<(), VaultError> {
-        let directory = self.data_dir.join("trash/tasks");
-        let mut entries = match fs::read_dir(&directory).await {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
         let prefix = format!("{workspace_id}.");
-        while let Some(entry) = entries.next_entry().await? {
-            let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
+        for directory in [
+            self.task_trash_directory(),
+            self.data_dir.join("trash/tasks"),
+        ] {
+            let mut entries = match fs::read_dir(&directory).await {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
             };
-            if !file_name.starts_with(&prefix) {
-                continue;
+            while let Some(entry) = entries.next_entry().await? {
+                let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+                    continue;
+                };
+                if !file_name.starts_with(&prefix) {
+                    continue;
+                }
+                let metadata = fs::symlink_metadata(entry.path()).await?;
+                if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                    return Err(VaultError::InvalidManagedPath);
+                }
+                remove_file_if_present(&entry.path()).await?;
             }
-            let metadata = fs::symlink_metadata(entry.path()).await?;
-            if metadata.is_dir() && !metadata.file_type().is_symlink() {
-                return Err(VaultError::InvalidManagedPath);
-            }
-            remove_file_if_present(&entry.path()).await?;
+            sync_directory(&directory).await?;
         }
-        sync_directory(&directory).await
+        Ok(())
     }
 
     async fn discard_workspace_layout_copies(&self, workspace_id: Uuid) -> Result<(), VaultError> {
@@ -421,6 +426,7 @@ mod tests {
         std::path::PathBuf,
         std::path::PathBuf,
         std::path::PathBuf,
+        std::path::PathBuf,
         Vec<std::path::PathBuf>,
         std::path::PathBuf,
     ) {
@@ -440,7 +446,7 @@ mod tests {
         )
         .unwrap();
 
-        let task_trash_directory = data_dir.path().join("trash/tasks");
+        let task_trash_directory = data_dir.path().join("vaults/.trash/tasks");
         fs::create_dir_all(&task_trash_directory).unwrap();
         let task_trash = task_trash_directory.join(format!(
             "{workspace_id}.{}.{}",
@@ -455,6 +461,14 @@ mod tests {
             Uuid::new_v4()
         ));
         fs::write(&other_workspace_task_trash, "keep unrelated trash").unwrap();
+        let legacy_task_trash_directory = data_dir.path().join("trash/tasks");
+        fs::create_dir_all(&legacy_task_trash_directory).unwrap();
+        let legacy_task_trash = legacy_task_trash_directory.join(format!(
+            "{workspace_id}.{}.{}",
+            Uuid::new_v4(),
+            Uuid::new_v4()
+        ));
+        fs::write(&legacy_task_trash, "legacy pending Task delete").unwrap();
 
         let trash_id = Uuid::new_v4();
         let library_manifest = operations.join(format!("{}.json", Uuid::new_v4()));
@@ -493,6 +507,7 @@ mod tests {
         (
             task_manifest,
             task_trash,
+            legacy_task_trash,
             other_workspace_task_trash,
             vec![library_manifest, library_move_manifest],
             library_trash,
@@ -762,6 +777,7 @@ mod tests {
         let (
             task_manifest,
             task_trash,
+            legacy_task_trash,
             other_workspace_task_trash,
             library_manifests,
             library_trash,
@@ -776,6 +792,7 @@ mod tests {
 
         assert!(!task_manifest.exists());
         assert!(!task_trash.exists());
+        assert!(!legacy_task_trash.exists());
         assert!(other_workspace_task_trash.exists());
         assert!(library_manifests.iter().all(|manifest| !manifest.exists()));
         assert!(!library_trash.exists());

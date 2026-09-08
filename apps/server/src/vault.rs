@@ -744,8 +744,12 @@ impl Vault {
             Err(error) => return Err(error.into()),
         }
 
-        let directory = self.data_dir.join("trash").join("tasks");
-        fs::create_dir_all(&directory).await?;
+        let vaults = self.data_dir.join("vaults");
+        let trash = vaults.join(".trash");
+        let directory = self.task_trash_directory();
+        workspace_deletion::ensure_regular_directory(&vaults).await?;
+        workspace_deletion::ensure_regular_directory(&trash).await?;
+        workspace_deletion::ensure_regular_directory(&directory).await?;
         let trashed = directory.join(format!("{workspace_id}.{task_id}.{}", Uuid::new_v4()));
         fs::rename(&original, &trashed).await?;
         Ok(Some(TaskTrash { original, trashed }))
@@ -794,6 +798,10 @@ impl Vault {
     fn task_file(&self, workspace_id: Uuid, path: &TaskPath) -> PathBuf {
         self.workspace_directory(workspace_id)
             .join(path.relative_file())
+    }
+
+    fn task_trash_directory(&self) -> PathBuf {
+        self.data_dir.join("vaults/.trash/tasks")
     }
 
     fn workspace_directory(&self, workspace_id: Uuid) -> PathBuf {
@@ -1164,6 +1172,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(
+            trashed.trashed.parent(),
+            Some(data_dir.path().join("vaults/.trash/tasks").as_path())
+        );
         assert!(
             vault
                 .read_task_document(workspace_id, &task_path)
