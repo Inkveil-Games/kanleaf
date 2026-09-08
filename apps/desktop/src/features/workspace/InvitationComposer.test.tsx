@@ -16,6 +16,8 @@ describe('InvitationComposer', () => {
       invited_by_display_name: 'Owner',
       status: 'pending',
       token: 'invite-token',
+      delivery: 'failed',
+      invitation_url: 'https://kanleaf.example.com/invite#token=invite-token',
       expires_at: '2026-09-08T00:00:00Z',
       created_at: '2026-09-01T00:00:00Z',
       updated_at: '2026-09-01T00:00:00Z',
@@ -27,6 +29,11 @@ describe('InvitationComposer', () => {
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
     const onInvitationCreated = vi.fn();
     render(
       <InvitationComposer
@@ -45,6 +52,17 @@ describe('InvitationComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create invitation' }));
 
     expect(await screen.findByDisplayValue('invite-token')).toBeInTheDocument();
+    expect(
+      screen.getByText('Invitation created, but the email could not be sent'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Invitation link')).toHaveValue(
+      invitation.invitation_url,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(invitation.invitation_url),
+    );
+    expect(screen.getByText('Invitation link copied')).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toHaveValue('');
     await waitFor(() =>
       expect(onInvitationCreated).toHaveBeenCalledWith(invitation),

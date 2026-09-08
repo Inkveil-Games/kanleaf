@@ -19,6 +19,7 @@ import type {
   Workspace,
   WorkspaceAccent,
   WorkspaceInvitation,
+  WorkspaceInvitationPreview,
   WorkspaceMember,
 } from './types';
 
@@ -216,6 +217,22 @@ export function acceptInvitationToken(context: ApiContext, token: string) {
     token: context.token,
     body: JSON.stringify({ token }),
   });
+}
+
+export function resolveInvitationToken(
+  serverUrl: string,
+  invitationToken: string,
+  accountToken?: string | null,
+) {
+  return apiRequest<WorkspaceInvitationPreview>(
+    serverUrl,
+    '/api/invitations/resolve',
+    {
+      method: 'POST',
+      ...(accountToken ? { token: accountToken } : {}),
+      body: JSON.stringify({ token: invitationToken }),
+    },
+  );
 }
 
 export function declineInvitation(context: ApiContext, invitationId: string) {

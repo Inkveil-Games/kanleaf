@@ -25,6 +25,7 @@ describe('routePatterns', () => {
   it('declares the complete canonical matching contract', () => {
     expect(routePatterns).toEqual({
       root: '/',
+      invite: '/invite',
       host: '/host',
       hostAccess: '/host/access',
       setupAccount: '/setup/account',
@@ -95,6 +96,11 @@ describe('routePaths', () => {
     expected: string;
   }>([
     { label: 'root', actual: routePaths.root, expected: '/' },
+    {
+      label: 'Workspace invitation',
+      actual: routePaths.invite,
+      expected: '/invite',
+    },
     { label: 'Host Workspaces', actual: routePaths.host, expected: '/host' },
     {
       label: 'Host Access',

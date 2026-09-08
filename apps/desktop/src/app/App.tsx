@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Navigate, useLocation } from 'react-router';
 import { Wordmark } from '../components/ui/Wordmark';
 import { Button } from '../components/ui/Button';
 import { AccountChooser } from '../features/auth/AccountChooser';
@@ -19,6 +20,8 @@ import {
   readConfiguredServerUrl,
 } from '../lib/config/server';
 import { AuthenticatedRoutes } from './routing/AuthenticatedRoutes';
+import { routePaths } from './routing/routePaths';
+import { InvitationPage } from '../features/workspace/InvitationPage';
 
 export function App() {
   const configuration = readServerConfiguration();
@@ -30,6 +33,7 @@ export function App() {
 }
 
 function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
+  const location = useLocation();
   const { flushDocumentSaves } = useDocumentSaveCoordinator();
   const {
     sessions: retainedSessions,
@@ -93,6 +97,55 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
       <ConnectionFailure
         serverUrl={serverUrl!}
         onRetry={() => void health.refetch()}
+      />
+    );
+  }
+  const invitationRoute =
+    location.pathname.replace(/\/+$/, '') === routePaths.invite();
+  if (invitationRoute) {
+    if (location.pathname !== routePaths.invite()) {
+      return (
+        <Navigate
+          replace
+          state={location.state}
+          to={{
+            pathname: routePaths.invite(),
+            search: location.search,
+            hash: location.hash,
+          }}
+        />
+      );
+    }
+    if (token && session.isPending) {
+      return <AppLoading message="Restoring your session…" />;
+    }
+    if (session.error) {
+      if (session.error instanceof ApiError && session.error.status === 401) {
+        return null;
+      }
+      return (
+        <ConnectionFailure
+          serverUrl={serverUrl}
+          onRetry={() => void session.refetch()}
+        />
+      );
+    }
+    return (
+      <InvitationPage
+        serverUrl={serverUrl}
+        accountToken={token}
+        user={session.data?.user ?? null}
+        onAuthenticated={async (response) => {
+          await addAuthenticated(response);
+        }}
+        onSessionChanged={async () => {
+          const result = await session.refetch();
+          if (result.error) throw result.error;
+        }}
+        onSignOut={async () => {
+          await signOutCurrent();
+        }}
+        flushDocumentSaves={flushDocumentSaves}
       />
     );
   }

@@ -17,7 +17,8 @@ Markdown document.
 - Guided account setup followed by explicit Workspace creation or invitation join
 - Multiple Workspaces with globally unique public IDs, clean routed URLs, and
   switching
-- Workspace profile, member roles, invitations, ownership, and lifecycle tools
+- Workspace profile, member roles, direct invitation links, optional invitation
+  email, ownership, and lifecycle tools
 - A deployment-scoped Host Console with Workspace Owner visibility, guarded
   permanent deletion, and optional exact-email access restrictions
 - Project overview, visibility, membership roles, defaults, and feature controls
@@ -187,6 +188,22 @@ default. Restricted access permits only the configured Host and approved exact
 emails to register, sign in, or keep active sessions; Workspace invitations do
 not bypass it. Because Kanleaf does not verify email ownership yet, create the
 Host account on a trusted network before exposing the deployment.
+
+Workspace invitation email is also optional. Kanleaf does not provide an SMTP
+relay for self-hosted instances: configure your own provider or server, and use
+a From address that provider authorizes. Set `KANLEAF_PUBLIC_URL` to the public
+browser origin (for example `https://tasks.company.internal`), then configure
+`KANLEAF_SMTP_HOST`, port, credentials when required, `starttls` or `tls`, and
+the sender name/address. Do not use a `kanleaf.com` sender unless you control
+and have authorization for it.
+
+A blank `KANLEAF_SMTP_HOST` keeps mail disabled and Kanleaf starts normally.
+Workspace invitations still return a one-time token and, when
+`KANLEAF_PUBLIC_URL` is set, a copyable `/invite#token=…` link. If an enabled
+SMTP server is unavailable, the committed invitation remains valid and the UI
+shows the same manual fallback. A non-empty SMTP host makes the rest of the
+required mail configuration fail-fast at startup if it is incomplete or
+invalid. SMTP is currently used only for Workspace invitations.
 
 An existing Pi deployment whose timer only pulls the published image needs one
 manual checkout refresh for the new Compose environment mapping. Do not copy

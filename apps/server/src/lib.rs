@@ -8,6 +8,7 @@ pub mod domain;
 pub mod error;
 pub mod host;
 pub mod http;
+pub mod mail;
 pub mod portability;
 pub mod project;
 pub mod saved_view;

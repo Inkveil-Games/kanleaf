@@ -11,10 +11,15 @@ type AuthMode = 'login' | 'register';
 interface AuthFormProps {
   serverUrl: string;
   onAuthenticated: (response: AuthResponse) => void | Promise<void>;
+  initialMode?: AuthMode;
 }
 
-export function AuthForm({ serverUrl, onAuthenticated }: AuthFormProps) {
-  const [mode, setMode] = useState<AuthMode>('login');
+export function AuthForm({
+  serverUrl,
+  onAuthenticated,
+  initialMode = 'login',
+}: AuthFormProps) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');

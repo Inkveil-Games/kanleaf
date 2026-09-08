@@ -826,7 +826,7 @@ mod tests {
 
     #[test]
     fn validates_workspace_identifiers() {
-        for identifier in ["kanleaf", "kanleaf-core", "team-42"] {
+        for identifier in ["kanleaf", "kanleaf-core", "team-42", "invite"] {
             assert_eq!(
                 WorkspaceIdentifier::new(identifier).unwrap().as_str(),
                 identifier

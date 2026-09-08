@@ -108,9 +108,103 @@ describe('SetupRoutes', () => {
       screen.getByRole('status', { name: 'Current setup URL' }),
     ).toHaveTextContent('/setup/workspace');
   });
+
+  it('returns completed account details to a validated invitation fragment', async () => {
+    const token = 'A'.repeat(43);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...user, setup_stage: 'workspace' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/setup/account',
+              state: { invitationReturnTo: `/invite#token=${token}` },
+            },
+          ]}
+        >
+          <SetupRoutes
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            user={user}
+            onSessionChanged={vi.fn().mockResolvedValue(undefined)}
+            onSignOut={vi.fn()}
+          />
+          <LocationProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use default preferences' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('status', { name: 'Current setup URL' }),
+      ).toHaveTextContent(`/invite#token=${token}`),
+    );
+  });
+
+  it('returns when the refreshed session advances to Workspace setup', async () => {
+    const token = 'a'.repeat(43);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/setup/account',
+              state: { invitationReturnTo: `/invite#token=${token}` },
+            },
+          ]}
+        >
+          <SetupBoundary user={{ ...user, setup_stage: 'workspace' }} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('status', { name: 'Current setup URL' }),
+      ).toHaveTextContent(`/invite#token=${token}`),
+    );
+  });
 });
+
+function SetupBoundary({ user: currentUser }: { user: User }) {
+  const location = useLocation();
+  return (
+    <>
+      {location.pathname === '/invite' ? null : (
+        <SetupRoutes
+          context={{
+            serverUrl: 'https://kanleaf.example.com',
+            token: 'session-token',
+          }}
+          user={currentUser}
+          onSessionChanged={vi.fn().mockResolvedValue(undefined)}
+          onSignOut={vi.fn()}
+        />
+      )}
+      <LocationProbe />
+    </>
+  );
+}
 
 function LocationProbe() {
   const location = useLocation();
-  return <output aria-label="Current setup URL">{location.pathname}</output>;
+  return (
+    <output aria-label="Current setup URL">
+      {location.pathname}
+      {location.hash}
+    </output>
+  );
 }

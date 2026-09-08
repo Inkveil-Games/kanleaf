@@ -1,13 +1,23 @@
 #![cfg(feature = "postgres-tests")]
 
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, router};
+use kanleaf_server::{
+    AppState,
+    mail::{MailFuture, MailMessage, MailTransport, MailTransportError, Mailer},
+    router,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -21,6 +31,63 @@ fn test_app(pool: PgPool, data_dir: &TempDir) -> axum::Router {
     router(
         AppState::new(pool, data_dir.path().to_owned(), Duration::from_secs(3600)),
         vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    )
+}
+
+fn test_app_with_mailer(pool: PgPool, data_dir: &TempDir, mailer: Mailer) -> axum::Router {
+    router(
+        AppState::new(pool, data_dir.path().to_owned(), Duration::from_secs(3600))
+            .with_mailer(mailer),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    )
+}
+
+struct DatabaseCheckingTransport {
+    pool: PgPool,
+    messages: Mutex<Vec<MailMessage>>,
+    fail: AtomicBool,
+    observed_committed_invitation: AtomicBool,
+}
+
+impl DatabaseCheckingTransport {
+    fn new(pool: PgPool) -> Self {
+        Self {
+            pool,
+            messages: Mutex::new(Vec::new()),
+            fail: AtomicBool::new(false),
+            observed_committed_invitation: AtomicBool::new(false),
+        }
+    }
+}
+
+impl MailTransport for DatabaseCheckingTransport {
+    fn send(&self, message: MailMessage) -> MailFuture<'_> {
+        Box::pin(async move {
+            let persisted: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM workspace_invitations WHERE email = $1)",
+            )
+            .bind(&message.to_email)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| MailTransportError)?;
+            self.observed_committed_invitation
+                .store(persisted, Ordering::SeqCst);
+            self.messages.lock().unwrap().push(message);
+            if self.fail.load(Ordering::SeqCst) {
+                Err(MailTransportError)
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
+fn capturing_mailer(transport: Arc<DatabaseCheckingTransport>) -> Mailer {
+    Mailer::with_transport(
+        "https://kanleaf.example.com".parse().unwrap(),
+        "Kanleaf",
+        "notifications@example.com",
+        transport,
     )
 }
 
@@ -137,6 +204,8 @@ async fn invitation_membership_roles_and_ownership_are_enforced(pool: PgPool) {
         "member",
     )
     .await;
+    assert_eq!(invitation["delivery"], "disabled");
+    assert!(invitation["invitation_url"].is_null());
     let invitation_id = invitation["id"].as_str().unwrap();
     let invitation_token = invitation["token"].as_str().unwrap();
     assert_eq!(invitation_token.len(), 43);
@@ -299,6 +368,277 @@ async fn invitation_membership_roles_and_ownership_are_enforced(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn invitation_mail_runs_after_commit_and_preserves_manual_fallbacks(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let transport = Arc::new(DatabaseCheckingTransport::new(pool.clone()));
+    let app = test_app_with_mailer(pool.clone(), &data_dir, capturing_mailer(transport.clone()));
+    let (owner_token, _, workspace_id) = register(&app, "mail-owner@example.com").await;
+
+    let user_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
+            .bind("new-invitee@example.com")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!user_exists);
+    let issued = invite(
+        &app,
+        &owner_token,
+        workspace_id,
+        "new-invitee@example.com",
+        "member",
+    )
+    .await;
+    let invitation_id = issued["id"].as_str().unwrap();
+    let old_token = issued["token"].as_str().unwrap();
+    assert_eq!(issued["delivery"], "sent");
+    assert_eq!(
+        issued["invitation_url"],
+        format!("https://kanleaf.example.com/invite#token={old_token}")
+    );
+    assert!(
+        transport
+            .observed_committed_invitation
+            .load(Ordering::SeqCst)
+    );
+    assert_eq!(transport.messages.lock().unwrap().len(), 1);
+
+    let invalid = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations"),
+            json!({"email": "not-an-email", "role": "member"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let (outsider_token, _, _) = register(&app, "mail-outsider@example.com").await;
+    let unauthorized = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations"),
+            json!({"email": "blocked@example.com", "role": "member"}),
+            Some(&outsider_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+    let duplicate = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations"),
+            json!({"email": "new-invitee@example.com", "role": "member"}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    assert_eq!(transport.messages.lock().unwrap().len(), 1);
+
+    let anonymous_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": old_token}),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(anonymous_preview.status(), StatusCode::OK);
+    let anonymous_preview = response_json(anonymous_preview).await;
+    assert_eq!(anonymous_preview["status"], "pending");
+    assert_eq!(anonymous_preview["invitee_email_hint"], "n***@example.com");
+    assert!(anonymous_preview["account_email_matches"].is_null());
+    assert!(anonymous_preview.get("email").is_none());
+    assert!(anonymous_preview.get("workspace_id").is_none());
+
+    let invalid_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": "not-a-token"}),
+            None,
+        ))
+        .await
+        .unwrap();
+    let invalid_preview = response_json(invalid_preview).await;
+    assert_eq!(invalid_preview["status"], "invalid");
+    assert!(invalid_preview["workspace_name"].is_null());
+
+    let (invitee_token, invitee_id, _) = register(&app, "new-invitee@example.com").await;
+    let correct_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": old_token}),
+            Some(&invitee_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(correct_preview).await["account_email_matches"],
+        true
+    );
+    let wrong_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": old_token}),
+            Some(&outsider_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(wrong_preview).await["account_email_matches"],
+        false
+    );
+
+    transport.fail.store(true, Ordering::SeqCst);
+    let renewed = app
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations/{invitation_id}/renew"),
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(renewed.status(), StatusCode::OK);
+    let renewed = response_json(renewed).await;
+    let new_token = renewed["token"].as_str().unwrap();
+    assert_ne!(new_token, old_token);
+    assert_eq!(renewed["delivery"], "failed");
+    assert!(
+        renewed["invitation_url"]
+            .as_str()
+            .unwrap()
+            .ends_with(new_token)
+    );
+    assert_eq!(transport.messages.lock().unwrap().len(), 2);
+    assert!(
+        transport.messages.lock().unwrap()[1]
+            .text_body
+            .contains(new_token)
+    );
+    assert!(
+        !transport.messages.lock().unwrap()[1]
+            .text_body
+            .contains(old_token)
+    );
+
+    let old_rejected = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/accept-token",
+            json!({"token": old_token}),
+            Some(&invitee_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(old_rejected.status(), StatusCode::CONFLICT);
+    let new_accepted = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/accept-token",
+            json!({"token": new_token}),
+            Some(&invitee_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(new_accepted.status(), StatusCode::NO_CONTENT);
+    let membership_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2)",
+    )
+    .bind(workspace_id)
+    .bind(invitee_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(membership_exists);
+
+    let failed_renew = app
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/invitations/{invitation_id}/renew"),
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(failed_renew.status(), StatusCode::CONFLICT);
+    assert_eq!(transport.messages.lock().unwrap().len(), 2);
+
+    let failed_delivery = invite(
+        &app,
+        &owner_token,
+        workspace_id,
+        "smtp-outage@example.com",
+        "guest",
+    )
+    .await;
+    assert_eq!(failed_delivery["delivery"], "failed");
+    let outage_token = failed_delivery["token"].as_str().unwrap();
+    let persisted: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_invitations WHERE id = $1)")
+            .bind(
+                failed_delivery["id"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<Uuid>()
+                    .unwrap(),
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(persisted);
+    let (outage_account_token, _, _) = register(&app, "smtp-outage@example.com").await;
+    let accepted_after_outage = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/accept-token",
+            json!({"token": outage_token}),
+            Some(&outage_account_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(accepted_after_outage.status(), StatusCode::NO_CONTENT);
+    assert_eq!(transport.messages.lock().unwrap().len(), 3);
+
+    let revocable = invite(
+        &app,
+        &owner_token,
+        workspace_id,
+        "revoke-with-mail@example.com",
+        "member",
+    )
+    .await;
+    let revocable_id = revocable["id"].as_str().unwrap();
+    assert_eq!(transport.messages.lock().unwrap().len(), 4);
+    let revoked = app
+        .clone()
+        .oneshot(empty_request(
+            "DELETE",
+            &format!("/api/workspaces/{workspace_id}/invitations/{revocable_id}"),
+            &owner_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::NO_CONTENT);
+    assert_eq!(transport.messages.lock().unwrap().len(), 4);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
@@ -352,6 +692,8 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
     let new_token = renewed["token"].as_str().unwrap();
     assert_ne!(new_token, old_token);
     assert_eq!(renewed["status"], "pending");
+    assert_eq!(renewed["delivery"], "disabled");
+    assert!(renewed["invitation_url"].is_null());
 
     let old_rejected = app
         .clone()
@@ -382,6 +724,17 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
         .await
         .unwrap();
     assert_eq!(token_accepted.status(), StatusCode::NO_CONTENT);
+    let accepted_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": new_token}),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(accepted_preview).await["status"], "accepted");
 
     let role: String = sqlx::query_scalar(
         "SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
@@ -411,6 +764,7 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
     )
     .await;
     let revoked_id = revoked["id"].as_str().unwrap();
+    let revoked_invitation_token = revoked["token"].as_str().unwrap();
     let revoke = app
         .clone()
         .oneshot(empty_request(
@@ -421,6 +775,17 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
         .await
         .unwrap();
     assert_eq!(revoke.status(), StatusCode::NO_CONTENT);
+    let revoked_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": revoked_invitation_token}),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(revoked_preview).await["status"], "revoked");
 
     let expired = invite(
         &app,
@@ -431,6 +796,7 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
     )
     .await;
     let expired_id: Uuid = expired["id"].as_str().unwrap().parse().unwrap();
+    let expired_invitation_token = expired["token"].as_str().unwrap();
     sqlx::query(
         r#"
         UPDATE workspace_invitations
@@ -443,6 +809,17 @@ async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool:
     .execute(&pool)
     .await
     .unwrap();
+    let expired_preview = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/invitations/resolve",
+            json!({"token": expired_invitation_token}),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(expired_preview).await["status"], "expired");
     let (expired_token, _, _) = register(&app, "expired@example.com").await;
     let pending = app
         .clone()

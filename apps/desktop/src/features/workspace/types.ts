@@ -25,6 +25,9 @@ export interface WorkspaceMember {
 export type InvitationStatus =
   'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
 
+export type InvitationPreviewStatus = InvitationStatus | 'invalid';
+export type InvitationMailDelivery = 'sent' | 'failed' | 'disabled';
+
 export interface WorkspaceInvitation {
   id: string;
   workspace_id: string;
@@ -41,6 +44,19 @@ export interface WorkspaceInvitation {
 
 export interface IssuedWorkspaceInvitation extends WorkspaceInvitation {
   token: string;
+  delivery: InvitationMailDelivery;
+  invitation_url: string | null;
+}
+
+export interface WorkspaceInvitationPreview {
+  status: InvitationPreviewStatus;
+  workspace_name: string | null;
+  workspace_identifier: string | null;
+  invited_by_display_name: string | null;
+  role: AssignableWorkspaceRole | null;
+  expires_at: string | null;
+  invitee_email_hint: string | null;
+  account_email_matches: boolean | null;
 }
 
 export interface Project {

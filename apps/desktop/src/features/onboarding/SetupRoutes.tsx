@@ -23,19 +23,26 @@ export function SetupRoutes({
 }: SetupRoutesProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const invitationReturnTo = validatedInvitationReturnTo(location.state);
 
   if (user.setup_stage === 'complete') {
     return <Navigate replace to={routePaths.root()} />;
   }
 
+  if (user.setup_stage === 'workspace' && invitationReturnTo) {
+    return <Navigate replace to={invitationReturnTo} />;
+  }
+
   const canonicalPath = setupPathForStage(user.setup_stage);
   if (location.pathname !== canonicalPath) {
-    return <Navigate replace to={canonicalPath} />;
+    return <Navigate replace state={location.state} to={canonicalPath} />;
   }
 
   async function accountCompleted() {
     await onSessionChanged();
-    navigate(routePaths.setupWorkspace(), { replace: true });
+    navigate(invitationReturnTo ?? routePaths.setupWorkspace(), {
+      replace: true,
+    });
   }
 
   async function workspaceCreated() {
@@ -92,4 +99,17 @@ export function SetupRoutes({
       )}
     </SetupLayout>
   );
+}
+
+function validatedInvitationReturnTo(state: unknown) {
+  if (!state || typeof state !== 'object' || !('invitationReturnTo' in state)) {
+    return null;
+  }
+  const returnTo = state.invitationReturnTo;
+  if (typeof returnTo !== 'string') return null;
+  const prefix = `${routePaths.invite()}#token=`;
+  const token = returnTo.startsWith(prefix)
+    ? returnTo.slice(prefix.length)
+    : '';
+  return /^[A-Za-z0-9_-]{43}$/.test(token) ? returnTo : null;
 }

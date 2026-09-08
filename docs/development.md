@@ -68,17 +68,25 @@ manually, first run `pnpm build:self-host`, then set
 
 ## Configuration
 
-| Variable                   | Development default          | Purpose                                   |
-| -------------------------- | ---------------------------- | ----------------------------------------- |
-| `DATABASE_URL`             | required                     | PostgreSQL connection URL                 |
-| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace   |
-| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                     |
-| `KANLEAF_WEB_DIR`          | unset                        | Optional production browser build root    |
-| `KANLEAF_HOST_EMAIL`       | unset                        | Optional normalized Host Console identity |
-| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins             |
-| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days         |
-| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                          |
-| `VITE_KANLEAF_SERVER_URL`  | required                     | Absolute URL or reserved `same-origin`    |
+| Variable                   | Development default          | Purpose                                    |
+| -------------------------- | ---------------------------- | ------------------------------------------ |
+| `DATABASE_URL`             | required                     | PostgreSQL connection URL                  |
+| `KANLEAF_DATA_DIR`         | `./data`                     | Root containing the `vaults/` namespace    |
+| `KANLEAF_BIND_ADDRESS`     | `127.0.0.1:3000`             | Server socket address                      |
+| `KANLEAF_WEB_DIR`          | unset                        | Optional production browser build root     |
+| `KANLEAF_HOST_EMAIL`       | unset                        | Optional normalized Host Console identity  |
+| `KANLEAF_CORS_ORIGINS`     | local Vite and Tauri origins | Comma-separated exact origins              |
+| `KANLEAF_SESSION_TTL_DAYS` | `30`                         | Positive session lifetime in days          |
+| `KANLEAF_PUBLIC_URL`       | unset                        | Public browser origin for invitation links |
+| `KANLEAF_SMTP_HOST`        | unset                        | Blank disables invitation email            |
+| `KANLEAF_SMTP_PORT`        | `587`                        | SMTP server port                           |
+| `KANLEAF_SMTP_USERNAME`    | unset                        | Optional SMTP login; requires password     |
+| `KANLEAF_SMTP_PASSWORD`    | unset                        | Optional SMTP secret; requires username    |
+| `KANLEAF_SMTP_SECURITY`    | `starttls`                   | `starttls`, `tls`, or local-only `none`    |
+| `KANLEAF_MAIL_FROM_NAME`   | `Kanleaf`                    | Invitation sender display name             |
+| `KANLEAF_MAIL_FROM_EMAIL`  | unset                        | Authorized invitation sender address       |
+| `RUST_LOG`                 | server and HTTP info         | `tracing` filter                           |
+| `VITE_KANLEAF_SERVER_URL`  | required                     | Absolute URL or reserved `same-origin`     |
 
 Deployment/server configuration belongs in environment variables. Application
 entities belong in PostgreSQL, client-local preferences in local storage, and
@@ -88,6 +96,45 @@ Set `KANLEAF_HOST_EMAIL` to an account email to exercise Host Console at
 `/host`. A missing or blank value disables that surface without changing normal
 authentication; an invalid non-empty value fails server startup. The database
 policy remains Open until the Host explicitly enables Restricted access.
+
+### Workspace invitation email
+
+The Rust server can send Workspace invitations through an SMTP server supplied
+by the deployment. Kanleaf does not include an SMTP relay, and SMTP is not used
+for Task, comment, mention, reminder, or marketing messages. The configured
+From address must belong to a domain/address your provider permits.
+
+`KANLEAF_SMTP_HOST` controls activation. Missing or blank means disabled, makes
+no connection attempt, and keeps manual invitation tokens working. When it is
+non-empty, the server requires a valid HTTP(S) origin in `KANLEAF_PUBLIC_URL`, a
+valid sender email, port/security values, and both credentials or neither. An
+incomplete enabled configuration fails startup. Prefer `starttls` (the default)
+or implicit `tls` in deployment; explicit `none` is accepted only without
+credentials for trusted local SMTP catchers.
+
+For local delivery testing, run Mailpit separately and set these development
+values (the Mailpit web UI is then at `http://127.0.0.1:8025`):
+
+```bash
+docker run --rm -p 127.0.0.1:1025:1025 -p 127.0.0.1:8025:8025 axllent/mailpit
+```
+
+```env
+KANLEAF_PUBLIC_URL=http://127.0.0.1:1420
+KANLEAF_SMTP_HOST=127.0.0.1
+KANLEAF_SMTP_PORT=1025
+KANLEAF_SMTP_SECURITY=none
+KANLEAF_MAIL_FROM_NAME=Kanleaf
+KANLEAF_MAIL_FROM_EMAIL=kanleaf@local.test
+KANLEAF_SMTP_USERNAME=
+KANLEAF_SMTP_PASSWORD=
+```
+
+Invitation messages contain a direct `/invite#token=…` URL in both plain text
+and HTML. The fragment keeps the bearer token out of normal HTTP and proxy
+request targets. Sending occurs after the database commit; an SMTP outage is
+reported to the inviter without rolling back the invitation, and the copyable
+link/token remains usable.
 
 Each Workspace vault also contains server-projected `.kanleaf` JSON. These
 files are portable snapshots, not deployment configuration and not a second

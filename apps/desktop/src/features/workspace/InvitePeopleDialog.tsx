@@ -101,7 +101,7 @@ export function InvitePeopleDialog({
             </h2>
             <p>
               {issued
-                ? 'Copy the one-time token before closing this window.'
+                ? 'Save the one-time link or token before closing this window.'
                 : 'Create a seven-day invitation for one email address.'}
             </p>
           </div>

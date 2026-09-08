@@ -11,5 +11,6 @@ export default async function selfHostGlobalSetup() {
     webDir,
     corsOrigins: serverUrl,
     hostEmail: hostE2eEmail,
+    publicUrl: serverUrl,
   });
 }

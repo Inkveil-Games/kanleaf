@@ -73,6 +73,47 @@ test('serves the browser client and protected Host route from one origin', async
   expect(missingAsset.status()).toBe(404);
 });
 
+test('serves a direct invitation route without accepting on load', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await registerReady(
+    request,
+    `invite-owner-${suffix}@example.com`,
+  );
+  const issuedResponse = await request.post(
+    `/api/workspaces/${owner.workspace.id}/invitations`,
+    {
+      headers: { authorization: `Bearer ${owner.token}` },
+      data: {
+        email: `invitee-${suffix}@example.com`,
+        role: 'member',
+      },
+    },
+  );
+  expect(issuedResponse.status()).toBe(201);
+  const issued = (await issuedResponse.json()) as {
+    token: string;
+    delivery: 'disabled';
+  };
+
+  let acceptRequests = 0;
+  page.on('request', (outgoing) => {
+    if (outgoing.url().endsWith('/api/invitations/accept-token')) {
+      acceptRequests += 1;
+    }
+  });
+  await page.goto(`/invite#token=${issued.token}`);
+
+  await expect(
+    page.getByRole('heading', { name: owner.workspace.name }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  expect(issued.delivery).toBe('disabled');
+  expect(acceptRequests).toBe(0);
+});
+
 test('restores the Host Access route through refresh and browser history', async ({
   page,
   request,

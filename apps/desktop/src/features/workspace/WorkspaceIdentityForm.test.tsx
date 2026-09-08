@@ -59,6 +59,28 @@ describe('WorkspaceIdentityForm', () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
+  it('allows invite because canonical Workspace routes are namespaced under /w', async () => {
+    const submit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WorkspaceIdentityForm
+        submitLabel="Create Workspace"
+        onSubmit={submit}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Workspace name'), {
+      target: { value: 'Invite' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Workspace' }));
+
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith({
+        name: 'Invite',
+        identifier: 'invite',
+      }),
+    );
+  });
+
   it('submits the visible name and identifier without clearing a server error draft', async () => {
     const submit = vi
       .fn()

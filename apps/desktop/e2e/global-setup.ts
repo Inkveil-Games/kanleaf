@@ -8,6 +8,7 @@ interface ServerOptions {
   webDir?: string;
   corsOrigins?: string;
   hostEmail?: string;
+  publicUrl?: string;
 }
 
 export default async function globalSetup() {
@@ -35,6 +36,9 @@ export async function startKanleafServer(options: ServerOptions = {}) {
       KANLEAF_BIND_ADDRESS: serverAddress,
       KANLEAF_CORS_ORIGINS: options.corsOrigins ?? 'http://127.0.0.1:1421',
       KANLEAF_HOST_EMAIL: options.hostEmail ?? '',
+      KANLEAF_PUBLIC_URL:
+        options.publicUrl ?? options.corsOrigins ?? 'http://127.0.0.1:1421',
+      KANLEAF_SMTP_HOST: '',
       RUST_LOG: 'kanleaf_server=warn',
     },
     stdio: ['ignore', 'ignore', 'pipe'],

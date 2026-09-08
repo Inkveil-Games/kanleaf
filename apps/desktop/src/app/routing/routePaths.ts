@@ -7,6 +7,7 @@ const segment = encodeURIComponent;
 
 export const routePatterns = {
   root: '/',
+  invite: '/invite',
   host: '/host',
   hostAccess: '/host/access',
   setupAccount: '/setup/account',
@@ -55,6 +56,7 @@ function projectPath(workspaceIdentifier: string, projectIdentifier: string) {
 
 export const routePaths = {
   root: () => '/',
+  invite: () => '/invite',
   host: () => '/host',
   hostAccess: () => '/host/access',
   setupAccount: () => '/setup/account',

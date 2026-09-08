@@ -99,6 +99,8 @@ pub struct AuthenticatedUser {
     pub user: UserResponse,
 }
 
+pub struct OptionalAuthenticatedUser(pub Option<AuthenticatedUser>);
+
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
@@ -381,6 +383,23 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                 active_workspace_id: session.active_workspace_id,
             },
         })
+    }
+}
+
+impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        if !parts.headers.contains_key(header::AUTHORIZATION) {
+            return Ok(Self(None));
+        }
+        AuthenticatedUser::from_request_parts(parts, state)
+            .await
+            .map(Some)
+            .map(Self)
     }
 }
 

@@ -1286,6 +1286,139 @@ test('keeps long pending-invitation IDs inside the narrow setup layout', async (
   ).toBeVisible();
 });
 
+test('returns a new account to a direct invitation before explicit acceptance', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await register(request, `direct-owner-${suffix}@example.com`);
+  const inviteeEmail = `direct-invitee-${suffix}@example.com`;
+  const issuedResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/invitations`,
+    {
+      headers: { authorization: `Bearer ${owner.token}` },
+      data: { email: inviteeEmail, role: 'member' },
+    },
+  );
+  expect(issuedResponse.status()).toBe(201);
+  const issued = (await issuedResponse.json()) as {
+    token: string;
+    delivery: 'disabled';
+    invitation_url: string;
+  };
+  expect(issued.delivery).toBe('disabled');
+  expect(issued.invitation_url).toContain(`/invite#token=${issued.token}`);
+
+  let acceptRequests = 0;
+  page.on('request', (outgoing) => {
+    if (outgoing.url().endsWith('/api/invitations/accept-token')) {
+      acceptRequests += 1;
+    }
+  });
+  await page.goto(`/invite#token=${issued.token}`);
+  await expect(
+    page.getByRole('heading', { name: owner.workspaceName }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Create account' }),
+  ).toBeVisible();
+  expect(acceptRequests).toBe(0);
+
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByLabel('Email').fill(inviteeEmail);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.getByLabel('Confirm password').fill('playwright-password');
+  const registeredResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/auth/register'),
+  );
+  await page.getByRole('button', { name: 'Register' }).click();
+  const registration = await registeredResponse;
+  expect(registration.status()).toBe(201);
+  const registered = (await registration.json()) as { token: string };
+
+  await expect(
+    page.getByRole('button', { name: 'Complete account setup' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Complete account setup' }).click();
+  await expect(page).toHaveURL(/\/setup\/account$/);
+  await page.getByRole('button', { name: 'Use default preferences' }).click();
+  await expect(page).toHaveURL(new RegExp(`/invite#token=${issued.token}$`));
+  await expect(
+    page.getByRole('button', { name: 'Join workspace' }),
+  ).toBeVisible();
+  expect(acceptRequests).toBe(0);
+
+  const beforeAcceptance = await request.get(`${serverUrl}/api/workspaces`, {
+    headers: { authorization: `Bearer ${registered.token}` },
+  });
+  expect(beforeAcceptance.status()).toBe(200);
+  expect(await beforeAcceptance.json()).toEqual([]);
+
+  await page.getByRole('button', { name: 'Join workspace' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${owner.workspaceIdentifier}/my-work$`),
+  );
+  expect(acceptRequests).toBe(1);
+  await expect(page.getByLabel('Active workspace')).toContainText(
+    owner.workspaceName,
+  );
+});
+
+test('keeps an existing account on the invitation through sign in', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await register(request, `login-owner-${suffix}@example.com`);
+  const inviteeEmail = `login-invitee-${suffix}@example.com`;
+  await register(request, inviteeEmail);
+  const issuedResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/invitations`,
+    {
+      headers: { authorization: `Bearer ${owner.token}` },
+      data: { email: inviteeEmail, role: 'member' },
+    },
+  );
+  expect(issuedResponse.status()).toBe(201);
+  const issued = (await issuedResponse.json()) as { token: string };
+
+  let acceptRequests = 0;
+  page.on('request', (outgoing) => {
+    if (outgoing.url().endsWith('/api/invitations/accept-token')) {
+      acceptRequests += 1;
+    }
+  });
+  await page.goto(`/invite#token=${issued.token}`);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Sign in to Kanleaf' }),
+  ).toBeVisible();
+  await page.getByLabel('Email').fill(inviteeEmail);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page
+    .locator('form.auth-form')
+    .getByRole('button', { name: 'Sign in' })
+    .last()
+    .click();
+
+  await expect(page).toHaveURL(new RegExp(`/invite#token=${issued.token}$`));
+  await expect(
+    page.getByRole('button', { name: 'Join workspace' }),
+  ).toBeVisible();
+  expect(acceptRequests).toBe(0);
+  await page.getByRole('button', { name: 'Join workspace' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${owner.workspaceIdentifier}/my-work$`),
+  );
+  expect(acceptRequests).toBe(1);
+});
+
 test('prevents a session from reading another workspace', async ({
   request,
 }) => {

@@ -449,6 +449,13 @@ validated background route without adding another history entry. Task detail swi
 Details and chronological Activity without losing its pane context. The top-bar
 inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
 Host Console is a full-page Settings surface at `/host` and `/host/access`.
+Workspace invitation links open the exact public `/invite#token=…` route before
+authentication and setup routing. The fragment survives inline sign-in or
+registration without local storage, preview does not consume the invitation,
+and joining still requires an explicit action. Canonical Workspace routes stay
+under `/w/:workspaceIdentifier`, so `/invite` does not reserve or collide with
+the valid `/w/invite` Workspace URL.
+
 `BrowserRouter` preserves clean direct links, refresh, and browser Back/Forward
 navigation for both Host and Workspace routes.
 
@@ -460,6 +467,16 @@ checked-in migrations on startup, and handles SIGINT/SIGTERM gracefully.
 value is normalized into application state, and an invalid non-empty value
 fails startup. Access policy changes themselves are PostgreSQL state and need
 no container restart.
+
+SMTP is an optional Rust-only adapter currently called only by the Workspace
+invitation use case. A blank `KANLEAF_SMTP_HOST` creates a disabled mailer; a
+non-empty host requires complete validated transport, sender, and public-origin
+configuration before startup continues. Invitation creation and renewal commit
+their token digest before the async SMTP call, and delivery failure leaves the
+new token valid for manual sharing. The direct URL uses `KANLEAF_PUBLIC_URL` and
+keeps the raw token in the fragment; credentials and transport details never
+cross the HTTP boundary.
+
 Without `KANLEAF_WEB_DIR` it remains an API-only process. When that variable
 points to a validated Vite build, Axum serves static assets and SPA navigation
 outside `/api`; unknown API routes remain structured JSON 404 responses.

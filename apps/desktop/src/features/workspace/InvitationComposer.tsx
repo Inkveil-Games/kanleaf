@@ -101,22 +101,44 @@ export function IssuedInvitationToken({
   invitation: IssuedWorkspaceInvitation;
 }) {
   const [copyState, setCopyState] = useState<string | null>(null);
+  const invitationUrl = invitation.invitation_url;
+
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState(`${label} copied`);
+    } catch {
+      setCopyState(`Select and copy the ${label.toLowerCase()} manually`);
+    }
+  }
 
   async function copyToken() {
-    try {
-      await navigator.clipboard.writeText(invitation.token);
-      setCopyState('Copied');
-    } catch {
-      setCopyState('Select and copy the token manually');
-    }
+    await copy(invitation.token, 'Token');
   }
 
   return (
     <section className="issued-token" aria-label="Issued invitation">
       <div>
-        <strong>Copy this invitation token now</strong>
-        <small>Kanleaf stores only its hash and cannot show it again.</small>
+        <strong role={invitation.delivery === 'failed' ? 'alert' : 'status'}>
+          {deliveryMessage(invitation.delivery)}
+        </strong>
+        <small>
+          Save the link or token now. Kanleaf stores only the token hash and
+          cannot show it again.
+        </small>
       </div>
+      {invitationUrl ? (
+        <div className="token-copy-row">
+          <Input readOnly value={invitationUrl} aria-label="Invitation link" />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void copy(invitationUrl, 'Invitation link')}
+          >
+            <Copy aria-hidden="true" size={14} /> Copy link
+          </Button>
+        </div>
+      ) : null}
       <div className="token-copy-row">
         <Input
           readOnly
@@ -124,10 +146,21 @@ export function IssuedInvitationToken({
           aria-label="Issued invitation token"
         />
         <Button variant="secondary" size="sm" onClick={() => void copyToken()}>
-          <Copy aria-hidden="true" size={14} /> Copy
+          <Copy aria-hidden="true" size={14} /> Copy token
         </Button>
       </div>
       {copyState ? <small role="status">{copyState}</small> : null}
     </section>
   );
+}
+
+function deliveryMessage(delivery: IssuedWorkspaceInvitation['delivery']) {
+  switch (delivery) {
+    case 'sent':
+      return 'Invitation email sent';
+    case 'failed':
+      return 'Invitation created, but the email could not be sent';
+    default:
+      return 'Invitation created. Email is not configured';
+  }
 }

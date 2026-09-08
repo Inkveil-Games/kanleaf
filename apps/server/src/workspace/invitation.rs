@@ -7,14 +7,18 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    auth::{AuthenticatedUser, generate_bearer_token, hash_bearer_token},
+    auth::{
+        AuthenticatedUser, OptionalAuthenticatedUser, generate_bearer_token, hash_bearer_token,
+    },
     collaboration::notify_invitation,
     domain::NormalizedEmail,
     error::{AppError, is_unique_violation},
+    mail::{MailDelivery, WorkspaceInvitationMail},
 };
 
 use super::{AssignableWorkspaceRole, require_account_details, require_workspace_admin};
@@ -29,6 +33,11 @@ struct CreateInvitationRequest {
 
 #[derive(Deserialize)]
 struct AcceptTokenRequest {
+    token: String,
+}
+
+#[derive(Deserialize)]
+struct ResolveInvitationRequest {
     token: String,
 }
 
@@ -52,6 +61,8 @@ struct IssuedInvitationResponse {
     #[serde(flatten)]
     invitation: InvitationResponse,
     token: String,
+    delivery: MailDelivery,
+    invitation_url: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -62,9 +73,33 @@ struct InvitationRecord {
     role: String,
 }
 
+#[derive(FromRow)]
+struct InvitationPreviewRecord {
+    workspace_name: String,
+    workspace_identifier: String,
+    email: String,
+    role: String,
+    invited_by_display_name: Option<String>,
+    status: String,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct InvitationPreviewResponse {
+    status: String,
+    workspace_name: Option<String>,
+    workspace_identifier: Option<String>,
+    invited_by_display_name: Option<String>,
+    role: Option<String>,
+    expires_at: Option<DateTime<Utc>>,
+    invitee_email_hint: Option<String>,
+    account_email_matches: Option<bool>,
+}
+
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/invitations", get(list_pending))
+        .route("/api/invitations/resolve", post(resolve))
         .route("/api/invitations/accept-token", post(accept_token))
         .route("/api/invitations/{invitation_id}/accept", post(accept))
         .route("/api/invitations/{invitation_id}/decline", post(decline))
@@ -198,9 +233,20 @@ async fn create(
     transaction.commit().await?;
 
     let invitation = find_invitation(&state.pool, invitation_id).await?;
+    let invitation_url = state
+        .mailer()
+        .invitation_url(&token)
+        .map(|url| url.to_string());
+    let delivery = send_invitation_mail(&state, &invitation, &token).await;
+    log_delivery_failure(delivery, workspace_id, invitation_id);
     Ok((
         StatusCode::CREATED,
-        Json(IssuedInvitationResponse { invitation, token }),
+        Json(IssuedInvitationResponse {
+            invitation,
+            token,
+            delivery,
+            invitation_url,
+        }),
     ))
 }
 
@@ -212,6 +258,7 @@ async fn renew(
     let Path((workspace_id, invitation_id)) = path.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let (token, token_hash) = generate_bearer_token()?;
+    let mut transaction = state.pool.begin().await?;
     let result = sqlx::query(
         r#"
         UPDATE workspace_invitations
@@ -224,7 +271,7 @@ async fn renew(
     .bind(invitation_expiry())
     .bind(invitation_id)
     .bind(workspace_id)
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await;
     let result = match result {
         Ok(result) => result,
@@ -240,9 +287,71 @@ async fn renew(
             "Accepted invitations cannot be renewed".to_owned(),
         ));
     }
+    transaction.commit().await?;
 
     let invitation = find_invitation(&state.pool, invitation_id).await?;
-    Ok(Json(IssuedInvitationResponse { invitation, token }))
+    let invitation_url = state
+        .mailer()
+        .invitation_url(&token)
+        .map(|url| url.to_string());
+    let delivery = send_invitation_mail(&state, &invitation, &token).await;
+    log_delivery_failure(delivery, workspace_id, invitation_id);
+    Ok(Json(IssuedInvitationResponse {
+        invitation,
+        token,
+        delivery,
+        invitation_url,
+    }))
+}
+
+async fn resolve(
+    State(state): State<AppState>,
+    auth: OptionalAuthenticatedUser,
+    payload: Result<Json<ResolveInvitationRequest>, JsonRejection>,
+) -> Result<Json<InvitationPreviewResponse>, AppError> {
+    let Json(request) = payload.map_err(AppError::from)?;
+    let token = request.token.trim();
+    if !valid_invitation_token(token) {
+        return Ok(Json(invalid_preview()));
+    }
+    let token_hash = hash_bearer_token(token);
+    let preview = sqlx::query_as::<_, InvitationPreviewRecord>(
+        r#"
+        SELECT workspaces.name AS workspace_name,
+               workspaces.identifier AS workspace_identifier,
+               invitations.email, invitations.role,
+               inviters.display_name AS invited_by_display_name,
+               CASE
+                   WHEN invitations.accepted_at IS NOT NULL THEN 'accepted'
+                   WHEN invitations.declined_at IS NOT NULL THEN 'declined'
+                   WHEN invitations.revoked_at IS NOT NULL THEN 'revoked'
+                   WHEN invitations.expires_at <= now() THEN 'expired'
+                   ELSE 'pending'
+               END AS status,
+               invitations.expires_at
+        FROM workspace_invitations AS invitations
+        JOIN workspaces ON workspaces.id = invitations.workspace_id
+        LEFT JOIN users AS inviters ON inviters.id = invitations.invited_by
+        WHERE invitations.token_hash = $1
+        "#,
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(preview) = preview else {
+        return Ok(Json(invalid_preview()));
+    };
+    let account_email_matches = auth.0.as_ref().map(|auth| auth.user.email == preview.email);
+    Ok(Json(InvitationPreviewResponse {
+        status: preview.status,
+        workspace_name: Some(preview.workspace_name),
+        workspace_identifier: Some(preview.workspace_identifier),
+        invited_by_display_name: preview.invited_by_display_name,
+        role: Some(preview.role),
+        expires_at: Some(preview.expires_at),
+        invitee_email_hint: Some(mask_email(&preview.email)),
+        account_email_matches,
+    }))
 }
 
 async fn revoke(
@@ -292,7 +401,7 @@ async fn accept_token(
 ) -> Result<StatusCode, AppError> {
     let Json(request) = payload.map_err(AppError::from)?;
     let token = request.token.trim();
-    if token.len() != 43 || token.chars().any(char::is_whitespace) {
+    if !valid_invitation_token(token) {
         return Err(AppError::Validation(
             "Invitation token is invalid".to_owned(),
         ));
@@ -304,6 +413,61 @@ async fn accept_token(
     accept_locked_invitation(&mut transaction, &auth, invitation).await?;
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn send_invitation_mail(
+    state: &AppState,
+    invitation: &InvitationResponse,
+    token: &str,
+) -> MailDelivery {
+    state
+        .mailer()
+        .send_workspace_invitation(WorkspaceInvitationMail {
+            invitee_email: &invitation.email,
+            inviter_display_name: invitation
+                .invited_by_display_name
+                .as_deref()
+                .unwrap_or("A Workspace admin"),
+            workspace_name: &invitation.workspace_name,
+            role: &invitation.role,
+            expires_at: invitation.expires_at,
+            token,
+        })
+        .await
+}
+
+fn log_delivery_failure(delivery: MailDelivery, workspace_id: Uuid, invitation_id: Uuid) {
+    if delivery == MailDelivery::Failed {
+        warn!(%workspace_id, %invitation_id, "Workspace invitation email delivery failed");
+    }
+}
+
+fn valid_invitation_token(token: &str) -> bool {
+    token.len() == 43
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn invalid_preview() -> InvitationPreviewResponse {
+    InvitationPreviewResponse {
+        status: "invalid".to_owned(),
+        workspace_name: None,
+        workspace_identifier: None,
+        invited_by_display_name: None,
+        role: None,
+        expires_at: None,
+        invitee_email_hint: None,
+        account_email_matches: None,
+    }
+}
+
+fn mask_email(email: &str) -> String {
+    let Some((local, domain)) = email.split_once('@') else {
+        return "***".to_owned();
+    };
+    let first = local.chars().next().unwrap_or('*');
+    format!("{first}***@{domain}")
 }
 
 async fn decline(

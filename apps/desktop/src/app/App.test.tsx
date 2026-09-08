@@ -310,6 +310,46 @@ describe('App', () => {
     expect(currentLocation()).toHaveTextContent('/host/access');
   });
 
+  it('opens an anonymous direct invitation before the generic auth route', async () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');
+    const token = 'A'.repeat(43);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.endsWith('/api/health')
+            ? healthResponse()
+            : new Response(
+                JSON.stringify({
+                  status: 'pending',
+                  workspace_name: 'Invited Workspace',
+                  workspace_identifier: 'invited-workspace',
+                  invited_by_display_name: 'Owner',
+                  role: 'member',
+                  expires_at: '2026-09-30T00:00:00Z',
+                  invitee_email_hint: 'i***@example.com',
+                  account_email_matches: null,
+                }),
+                {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                },
+              ),
+        ),
+      ),
+    );
+
+    renderApp([`/invite/#token=${token}`]);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Invited Workspace' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Sign in to Kanleaf' }),
+    ).not.toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent(`/invite#token=${token}`);
+  });
+
   it('denies /host to a restored non-Host session', async () => {
     retainAccount('user-1');
     stubHealthySession('user-1', false);
@@ -414,6 +454,7 @@ function LocationProbe() {
       <output aria-label="Current location">
         {location.pathname}
         {location.search}
+        {location.hash}
       </output>
       <button type="button" onClick={() => navigate(-1)}>
         Go back

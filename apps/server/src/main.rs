@@ -5,6 +5,7 @@ use kanleaf_server::{
     AppState,
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
+    mail::Mailer,
     portability::{
         recover_config_projection_jobs, recover_export_operations, recover_import_operations,
         recover_workspace_operations, spawn_config_projection_worker, spawn_export_cleanup_worker,
@@ -26,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let config = Config::from_env().context("invalid server configuration")?;
+    let mailer = Mailer::from_config(config.mail).context("failed to configure SMTP transport")?;
     tokio::fs::create_dir_all(&config.data_dir)
         .await
         .context("failed to create KANLEAF_DATA_DIR")?;
@@ -43,8 +45,9 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to clean expired Workspace operations")?;
 
-    let state =
-        AppState::new(pool, config.data_dir, config.session_ttl).with_host_email(config.host_email);
+    let state = AppState::new(pool, config.data_dir, config.session_ttl)
+        .with_host_email(config.host_email)
+        .with_mailer(mailer);
     recover_workspace_deletions(&state)
         .await
         .context("failed to recover interrupted Workspace deletions")?;
