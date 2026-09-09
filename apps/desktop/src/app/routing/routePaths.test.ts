@@ -26,6 +26,8 @@ describe('routePatterns', () => {
     expect(routePatterns).toEqual({
       root: '/',
       invite: '/invite',
+      forgotPassword: '/forgot-password',
+      resetPassword: '/reset-password',
       host: '/host',
       hostAccess: '/host/access',
       setupAccount: '/setup/account',
@@ -100,6 +102,16 @@ describe('routePaths', () => {
       label: 'Workspace invitation',
       actual: routePaths.invite,
       expected: '/invite',
+    },
+    {
+      label: 'Forgot password',
+      actual: routePaths.forgotPassword,
+      expected: '/forgot-password',
+    },
+    {
+      label: 'Reset password',
+      actual: routePaths.resetPassword,
+      expected: '/reset-password',
     },
     { label: 'Host Workspaces', actual: routePaths.host, expected: '/host' },
     {

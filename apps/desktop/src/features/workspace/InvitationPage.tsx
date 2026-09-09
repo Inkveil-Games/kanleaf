@@ -5,6 +5,7 @@ import { routePaths } from '../../app/routing/routePaths';
 import { Button } from '../../components/ui/Button';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { AuthForm } from '../auth/AuthForm';
+import { invitationReturnToHash } from '../auth/passwordResetReturnTo';
 import type { AuthResponse, User } from '../../lib/api/types';
 import { formatDateTime, titleCase } from '../settings/utils';
 import { acceptInvitationToken, resolveInvitationToken } from './api';
@@ -177,6 +178,14 @@ export function InvitationPage({
               serverUrl={serverUrl}
               initialMode={authMode}
               onAuthenticated={onAuthenticated}
+              onForgotPassword={() =>
+                navigate({
+                  pathname: routePaths.forgotPassword(),
+                  hash: invitationReturnToHash(
+                    `${routePaths.invite()}${location.hash}`,
+                  ),
+                })
+              }
             />
           ) : (
             <>

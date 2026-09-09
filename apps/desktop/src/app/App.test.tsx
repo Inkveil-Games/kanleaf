@@ -350,6 +350,110 @@ describe('App', () => {
     expect(currentLocation()).toHaveTextContent(`/invite#token=${token}`);
   });
 
+  it('opens forgot-password as a public route without a session', async () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(healthResponse()));
+
+    renderApp(['/forgot-password']);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Forgot your password?' }),
+    ).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/forgot-password');
+  });
+
+  it('navigates from normal sign-in to password recovery', async () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(healthResponse()));
+    renderApp();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Forgot password?' }),
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Forgot your password?' }),
+    ).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent('/forgot-password');
+  });
+
+  it('opens a reset fragment as a public route without leaking it to a query', async () => {
+    vi.stubEnv('VITE_KANLEAF_SERVER_URL', 'https://kanleaf.example.com');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(healthResponse()));
+    const token = 'R'.repeat(43);
+
+    renderApp([`/reset-password#token=${token}`]);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Set a new password' }),
+    ).toBeInTheDocument();
+    expect(currentLocation()).toHaveTextContent(
+      `/reset-password#token=${token}`,
+    );
+    expect(currentLocation()).not.toHaveTextContent('?token=');
+  });
+
+  it('discards a retained session that the completed reset revoked', async () => {
+    retainAccount('user-1');
+    let sessionRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith('/api/health')) {
+          return Promise.resolve(healthResponse());
+        }
+        if (url.endsWith('/api/auth/reset-password')) {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (url.endsWith('/api/session')) {
+          sessionRequests += 1;
+          return Promise.resolve(
+            sessionRequests === 1
+              ? new Response(JSON.stringify(session('user-1')), {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                })
+              : new Response(
+                  JSON.stringify({
+                    error: {
+                      code: 'unauthorized',
+                      message: 'Session is no longer valid',
+                    },
+                  }),
+                  {
+                    status: 401,
+                    headers: { 'content-type': 'application/json' },
+                  },
+                ),
+          );
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const resetToken = 'R'.repeat(43);
+    renderApp([`/reset-password#token=${resetToken}`]);
+    await screen.findByRole('heading', { name: 'Set a new password' });
+    await waitFor(() => expect(sessionRequests).toBe(1));
+
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'new correct horse battery' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'new correct horse battery' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
+
+    await screen.findByRole('heading', { name: 'Password updated' });
+    expect(sessionRequests).toBe(2);
+    expect(readRetainedUserIds('https://kanleaf.example.com')).not.toContain(
+      'user-1',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Back to sign in' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Sign in to Kanleaf' }),
+    ).toBeInTheDocument();
+  });
+
   it('denies /host to a restored non-Host session', async () => {
     retainAccount('user-1');
     stubHealthySession('user-1', false);

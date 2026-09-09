@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::{
-        AuthenticatedUser, OptionalAuthenticatedUser, generate_bearer_token, hash_bearer_token,
+        AuthenticatedUser, OptionalAuthenticatedUser, generate_secret_token, hash_secret_token,
     },
     collaboration::notify_invitation,
     domain::NormalizedEmail,
@@ -193,7 +193,7 @@ async fn create(
     }
 
     let invitation_id = Uuid::new_v4();
-    let (token, token_hash) = generate_bearer_token()?;
+    let (token, token_hash) = generate_secret_token()?;
     let expires_at = invitation_expiry();
     let mut transaction = state.pool.begin().await?;
     let inserted = sqlx::query(
@@ -257,7 +257,7 @@ async fn renew(
 ) -> Result<Json<IssuedInvitationResponse>, AppError> {
     let Path((workspace_id, invitation_id)) = path.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
-    let (token, token_hash) = generate_bearer_token()?;
+    let (token, token_hash) = generate_secret_token()?;
     let mut transaction = state.pool.begin().await?;
     let result = sqlx::query(
         r#"
@@ -314,7 +314,7 @@ async fn resolve(
     if !valid_invitation_token(token) {
         return Ok(Json(invalid_preview()));
     }
-    let token_hash = hash_bearer_token(token);
+    let token_hash = hash_secret_token(token);
     let preview = sqlx::query_as::<_, InvitationPreviewRecord>(
         r#"
         SELECT workspaces.name AS workspace_name,
@@ -406,7 +406,7 @@ async fn accept_token(
             "Invitation token is invalid".to_owned(),
         ));
     }
-    let token_hash = hash_bearer_token(token);
+    let token_hash = hash_secret_token(token);
     let mut transaction = state.pool.begin().await?;
     let invitation =
         lock_pending_invitation(&mut transaction, Uuid::nil(), Some(&token_hash)).await?;

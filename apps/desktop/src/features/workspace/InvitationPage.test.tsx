@@ -71,6 +71,19 @@ describe('InvitationPage', () => {
     );
   });
 
+  it('keeps the invitation destination when sign-in opens password recovery', async () => {
+    previewFetch(preview);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      `/forgot-password#returnTo=${encodeURIComponent(`/invite#token=${invitationToken}`)}`,
+    );
+    expect(screen.getByTestId('location-state')).toHaveTextContent('null');
+  });
+
   it('requires an explicit Join action and redirects after acceptance', async () => {
     const fetchMock = previewFetch({
       ...preview,
@@ -134,7 +147,7 @@ describe('InvitationPage', () => {
       await screen.findByRole('button', { name: 'Complete account setup' }),
     );
     expect(screen.getByTestId('location')).toHaveTextContent('/setup/account');
-    expect(screen.getByTestId('location')).toHaveTextContent(
+    expect(screen.getByTestId('location-state')).toHaveTextContent(
       `/invite#token=${invitationToken}`,
     );
   });
@@ -301,10 +314,14 @@ function jsonResponse(value: unknown) {
 function LocationOutput() {
   const location = useLocation();
   return (
-    <output data-testid="location">
-      {location.pathname}
-      {location.hash}
-      {JSON.stringify(location.state)}
-    </output>
+    <>
+      <output data-testid="location">
+        {location.pathname}
+        {location.hash}
+      </output>
+      <output data-testid="location-state">
+        {JSON.stringify(location.state)}
+      </output>
+    </>
   );
 }

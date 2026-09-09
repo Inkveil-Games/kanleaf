@@ -601,6 +601,24 @@ select {
   padding: clamp(32px, 8vw, 96px);
 }
 
+.auth-flow-page > section {
+  display: grid;
+  width: min(100%, 380px);
+  gap: var(--space-4);
+}
+
+.auth-flow-feedback {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+
+.auth-flow-feedback > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 .invitation-page {
   display: grid;
   width: min(100%, 560px);

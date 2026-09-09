@@ -3,8 +3,9 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { PasswordField } from '../../components/ui/PasswordField';
-import { ApiError, apiRequest } from '../../lib/api/client';
+import { ApiError } from '../../lib/api/client';
 import type { AuthResponse } from '../../lib/api/types';
+import { authenticate as authenticateRequest } from './api';
 
 type AuthMode = 'login' | 'register';
 
@@ -12,12 +13,14 @@ interface AuthFormProps {
   serverUrl: string;
   onAuthenticated: (response: AuthResponse) => void | Promise<void>;
   initialMode?: AuthMode;
+  onForgotPassword?: () => void;
 }
 
 export function AuthForm({
   serverUrl,
   onAuthenticated,
   initialMode = 'login',
+  onForgotPassword,
 }: AuthFormProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
@@ -40,13 +43,11 @@ export function AuthForm({
     setError(null);
     setConfirmationError(null);
     try {
-      const response = await apiRequest<AuthResponse>(
+      const response = await authenticateRequest(
         serverUrl,
-        `/api/auth/${mode === 'login' ? 'login' : 'register'}`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ email, password }),
-        },
+        mode,
+        email,
+        password,
       );
       await onAuthenticated(response);
     } catch (cause) {
@@ -115,6 +116,18 @@ export function AuthForm({
         label="Password"
         required
         hint={mode === 'register' ? 'Use at least 10 characters.' : undefined}
+        action={
+          mode === 'login' && onForgotPassword ? (
+            <Button
+              variant="text"
+              size="sm"
+              disabled={submitting}
+              onClick={onForgotPassword}
+            >
+              Forgot password?
+            </Button>
+          ) : undefined
+        }
       >
         <PasswordField
           value={password}

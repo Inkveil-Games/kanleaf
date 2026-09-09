@@ -655,3 +655,100 @@ async fn document_number_migration_backfills_existing_pages_per_workspace(pool: 
             .unwrap();
     assert_eq!(next_number, 4);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn password_reset_tokens_enforce_hash_shape_indexes_and_user_cascade(pool: PgPool) {
+    let identifier_constraints_validated: bool = sqlx::query_scalar(
+        r#"
+        SELECT bool_and(convalidated)
+        FROM pg_constraint
+        WHERE conname IN (
+            'workspace_identifier_registry_format',
+            'workspaces_identifier_format'
+        )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(identifier_constraints_validated);
+
+    for identifier in ["forgot-password", "reset-password"] {
+        let rejected = sqlx::query(
+            "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
+        )
+        .bind(identifier)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await;
+        assert!(rejected.is_err(), "accepted reserved route {identifier}");
+    }
+
+    let user_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, 'reset@example.com', 'Reset', 'hash')",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"
+        INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3, now() + interval '30 minutes')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(vec![7_u8; 32])
+    .execute(&pool)
+    .await
+    .unwrap();
+    let short_hash = sqlx::query(
+        r#"
+        INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3, now() + interval '30 minutes')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(vec![7_u8; 31])
+    .execute(&pool)
+    .await;
+    assert!(short_hash.is_err());
+
+    let indexes: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = 'password_reset_tokens'
+        ORDER BY indexname
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(
+        indexes
+            .iter()
+            .any(|name| name == "password_reset_tokens_user_idx")
+    );
+    assert!(
+        indexes
+            .iter()
+            .any(|name| name == "password_reset_tokens_expiry_idx")
+    );
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM password_reset_tokens")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
+}

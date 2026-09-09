@@ -253,6 +253,8 @@ mod tests {
 
         for path in [
             "/host/access",
+            "/forgot-password",
+            "/reset-password",
             "/w/kanleaf-core/p/mobile-client/cycles/01994e1e-7293-7299-9d4d-03d444a80bc9",
         ] {
             let deep_link_response = app

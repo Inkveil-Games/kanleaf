@@ -115,7 +115,9 @@ describe('SettingsDialog', () => {
       ).not.toBeNull();
       expect(document.querySelector('.settings-dialog-popup')).not.toBeNull();
       expect(document.querySelector('.app-dialog-backdrop')).not.toBeNull();
-      expect(nested).toContainElement(document.activeElement as HTMLElement);
+      await waitFor(() =>
+        expect(nested).toContainElement(document.activeElement as HTMLElement),
+      );
 
       await user.keyboard('[Escape]');
 
@@ -201,7 +203,9 @@ describe('SettingsDialog', () => {
     await user.click(screen.getByRole('combobox', { name: 'State group' }));
 
     expect(
-      screen.getByRole('listbox').closest('[data-ui-portal-container]'),
+      (await screen.findByRole('listbox')).closest(
+        '[data-ui-portal-container]',
+      ),
     ).toHaveClass('settings-dialog-popup');
   });
 
@@ -237,9 +241,9 @@ describe('SettingsDialog', () => {
 
     await user.click(screen.getByRole('button', { name: 'More information' }));
     expect(
-      screen
-        .getByRole('dialog', { name: 'More information' })
-        .closest('[data-ui-portal-container]'),
+      (await screen.findByRole('dialog', { name: 'More information' })).closest(
+        '[data-ui-portal-container]',
+      ),
     ).toHaveClass('settings-dialog-popup');
   });
 });

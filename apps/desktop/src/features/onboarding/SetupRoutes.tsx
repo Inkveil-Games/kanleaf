@@ -1,6 +1,7 @@
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import type { User } from '../../lib/api/types';
 import { routePaths, setupPathForStage } from '../../app/routing/routePaths';
+import { validatedInvitationReturnTo } from '../../app/routing/safeReturnTo';
 import type { ApiContext } from '../workspace/api';
 import { AccountSetupStep } from './AccountSetupStep';
 import { completeAccountSetup } from './api';
@@ -23,7 +24,7 @@ export function SetupRoutes({
 }: SetupRoutesProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const invitationReturnTo = validatedInvitationReturnTo(location.state);
+  const invitationReturnTo = invitationReturnToFromState(location.state);
 
   if (user.setup_stage === 'complete') {
     return <Navigate replace to={routePaths.root()} />;
@@ -101,15 +102,9 @@ export function SetupRoutes({
   );
 }
 
-function validatedInvitationReturnTo(state: unknown) {
+function invitationReturnToFromState(state: unknown) {
   if (!state || typeof state !== 'object' || !('invitationReturnTo' in state)) {
     return null;
   }
-  const returnTo = state.invitationReturnTo;
-  if (typeof returnTo !== 'string') return null;
-  const prefix = `${routePaths.invite()}#token=`;
-  const token = returnTo.startsWith(prefix)
-    ? returnTo.slice(prefix.length)
-    : '';
-  return /^[A-Za-z0-9_-]{43}$/.test(token) ? returnTo : null;
+  return validatedInvitationReturnTo(state.invitationReturnTo);
 }

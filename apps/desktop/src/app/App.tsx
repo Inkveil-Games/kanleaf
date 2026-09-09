@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Navigate, useLocation } from 'react-router';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { Wordmark } from '../components/ui/Wordmark';
 import { Button } from '../components/ui/Button';
 import { AccountChooser } from '../features/auth/AccountChooser';
@@ -21,7 +21,10 @@ import {
 } from '../lib/config/server';
 import { AuthenticatedRoutes } from './routing/AuthenticatedRoutes';
 import { routePaths } from './routing/routePaths';
+import { publicRouteFromPathname } from './routing/publicRoutes';
 import { InvitationPage } from '../features/workspace/InvitationPage';
+import { ForgotPasswordScreen } from '../features/auth/ForgotPasswordScreen';
+import { ResetPasswordScreen } from '../features/auth/ResetPasswordScreen';
 
 export function App() {
   const configuration = readServerConfiguration();
@@ -34,6 +37,7 @@ export function App() {
 
 function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { flushDocumentSaves } = useDocumentSaveCoordinator();
   const {
     sessions: retainedSessions,
@@ -100,18 +104,38 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
       />
     );
   }
-  const invitationRoute =
-    location.pathname.replace(/\/+$/, '') === routePaths.invite();
-  if (invitationRoute) {
-    if (location.pathname !== routePaths.invite()) {
+  const publicRoute = publicRouteFromPathname(location.pathname);
+  if (publicRoute) {
+    const canonicalPath = routePaths[publicRoute]();
+    if (location.pathname !== canonicalPath) {
       return (
         <Navigate
           replace
           state={location.state}
           to={{
-            pathname: routePaths.invite(),
+            pathname: canonicalPath,
             search: location.search,
             hash: location.hash,
+          }}
+        />
+      );
+    }
+    if (publicRoute === 'forgotPassword') {
+      return <ForgotPasswordScreen serverUrl={serverUrl} />;
+    }
+    if (publicRoute === 'resetPassword') {
+      return (
+        <ResetPasswordScreen
+          serverUrl={serverUrl}
+          onPasswordReset={async () => {
+            if (!token) return;
+            const result = await session.refetch();
+            if (
+              result.error instanceof ApiError &&
+              result.error.status === 401
+            ) {
+              await discardInvalidSession(token);
+            }
           }}
         />
       );
@@ -162,6 +186,7 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
       ) : (
         <AuthScreen
           serverUrl={serverUrl}
+          onForgotPassword={() => navigate(routePaths.forgotPassword())}
           onAuthenticated={async (response) => {
             await addAuthenticated(response);
           }}

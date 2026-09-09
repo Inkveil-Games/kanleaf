@@ -33,6 +33,7 @@ The ordered migration in `apps/server/migrations` creates:
 
 ```text
 User ──< Session
+  ├──< PasswordResetToken
   ├──< Notification
   │
   └──< WorkspaceMembership >── Workspace ──< WorkspaceInvitation
@@ -71,8 +72,9 @@ User ──< Session
   is created in the same transaction as the Workspace and removed only when
   permanent deletion commits, so archive and failed deletion retain the
   reservation while a successfully deleted identifier may be used again. The
-  top-level route names `api`, `assets`, `host`, `setup`, and `w` stay reserved;
-  the Workspace UUID remains the database, API authorization, and vault identity.
+  top-level route names `api`, `assets`, `forgot-password`, `host`, `reset-password`,
+  `setup`, and `w` stay reserved; the Workspace UUID remains the database, API
+  authorization, and vault identity.
 - A project belongs to exactly one workspace. Its immutable lowercase public
   identifier is unique among active and archived Projects in that Workspace;
   permanent deletion frees it for reuse. Owner/Admin access is implicit; other
@@ -143,6 +145,15 @@ configured Host may complete setup without joining a Workspace so instance
 administration cannot deadlock. Login returns a random 32-byte base64url bearer
 token. Only its SHA-256 digest is stored in PostgreSQL, so a database read does
 not reveal usable sessions.
+
+Password recovery uses a random 32-byte base64url secret delivered in the
+`/reset-password#token=…` fragment. PostgreSQL stores only its SHA-256 digest;
+the link expires after 30 minutes, is single-use, and a new request supersedes
+older links after a per-account cooldown. Forgot-password responses do not
+distinguish unknown accounts, disabled SMTP, cooldown, or delivery failure.
+Resetting a password reuses the Argon2id password path and atomically revokes
+every session for that user. The browser keeps reset and invitation secrets only
+in route/component memory.
 
 An optional normalized `KANLEAF_HOST_EMAIL` identifies one deployment Host.
 The derived `is_host` response flag is never stored as an account role. Host
@@ -456,6 +467,11 @@ and joining still requires an explicit action. Canonical Workspace routes stay
 under `/w/:workspaceIdentifier`, so `/invite` does not reserve or collide with
 the valid `/w/invite` Workspace URL.
 
+Forgot- and reset-password screens are public routes handled beside invitations
+before the authentication gate. The optional reset return destination accepts
+only the exact internal `/invite#token=…` shape and remains in the URL fragment,
+so external, protocol-relative, and arbitrary internal redirects are rejected.
+
 `BrowserRouter` preserves clean direct links, refresh, and browser Back/Forward
 navigation for both Host and Workspace routes.
 
@@ -468,14 +484,13 @@ value is normalized into application state, and an invalid non-empty value
 fails startup. Access policy changes themselves are PostgreSQL state and need
 no container restart.
 
-SMTP is an optional Rust-only adapter currently called only by the Workspace
-invitation use case. A blank `KANLEAF_SMTP_HOST` creates a disabled mailer; a
+SMTP is an optional Rust-only adapter shared by Workspace invitations and
+password recovery. A blank `KANLEAF_SMTP_HOST` creates a disabled mailer; a
 non-empty host requires complete validated transport, sender, and public-origin
-configuration before startup continues. Invitation creation and renewal commit
-their token digest before the async SMTP call, and delivery failure leaves the
-new token valid for manual sharing. The direct URL uses `KANLEAF_PUBLIC_URL` and
-keeps the raw token in the fragment; credentials and transport details never
-cross the HTTP boundary.
+configuration before startup continues. Token digests commit before delivery;
+delivery failures never return a raw password-reset token or disclose account
+existence. Direct URLs use `KANLEAF_PUBLIC_URL` and keep raw secrets in the
+fragment; credentials and transport details never cross the HTTP boundary.
 
 Without `KANLEAF_WEB_DIR` it remains an API-only process. When that variable
 points to a validated Vite build, Axum serves static assets and SPA navigation

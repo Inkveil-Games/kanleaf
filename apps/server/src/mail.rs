@@ -70,6 +70,13 @@ pub struct WorkspaceInvitationMail<'a> {
     pub token: &'a str,
 }
 
+pub struct PasswordResetMail<'a> {
+    pub account_email: &'a str,
+    pub expires_at: DateTime<Utc>,
+    pub token: &'a str,
+    pub return_to: Option<&'a str>,
+}
+
 impl Mailer {
     pub fn disabled() -> Self {
         Self {
@@ -132,6 +139,21 @@ impl Mailer {
         Some(url)
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.public_url.is_some() && self.sender.is_some() && self.transport.is_some()
+    }
+
+    pub fn password_reset_url(&self, token: &str, return_to: Option<&str>) -> Option<Url> {
+        let mut url = self.public_url.clone()?.join("reset-password").ok()?;
+        let mut fragment = url::form_urlencoded::Serializer::new(String::new());
+        fragment.append_pair("token", token);
+        if let Some(return_to) = return_to {
+            fragment.append_pair("returnTo", return_to);
+        }
+        url.set_fragment(Some(&fragment.finish()));
+        Some(url)
+    }
+
     pub async fn send_workspace_invitation(
         &self,
         invitation: WorkspaceInvitationMail<'_>,
@@ -144,6 +166,21 @@ impl Mailer {
             return MailDelivery::Disabled;
         };
         let message = workspace_invitation_message(sender, invitation, &invitation_url);
+        match tokio::time::timeout(self.delivery_timeout, transport.send(message)).await {
+            Ok(Ok(())) => MailDelivery::Sent,
+            Ok(Err(_)) | Err(_) => MailDelivery::Failed,
+        }
+    }
+
+    pub async fn send_password_reset(&self, reset: PasswordResetMail<'_>) -> MailDelivery {
+        let (Some(sender), Some(transport), Some(reset_url)) = (
+            self.sender.as_ref(),
+            self.transport.as_ref(),
+            self.password_reset_url(reset.token, reset.return_to),
+        ) else {
+            return MailDelivery::Disabled;
+        };
+        let message = password_reset_message(sender, reset, &reset_url);
         match tokio::time::timeout(self.delivery_timeout, transport.send(message)).await {
             Ok(Ok(())) => MailDelivery::Sent,
             Ok(Err(_)) | Err(_) => MailDelivery::Failed,
@@ -255,6 +292,37 @@ fn workspace_invitation_message(
         from_email: sender.email.clone(),
         to_email: invitation.invitee_email.to_owned(),
         subject,
+        text_body,
+        html_body,
+    }
+}
+
+fn password_reset_message(
+    sender: &MailSender,
+    reset: PasswordResetMail<'_>,
+    reset_url: &Url,
+) -> MailMessage {
+    let expires = reset.expires_at.format("%B %-d, %Y at %H:%M UTC");
+    let text_body = format!(
+        "Reset your password\n\nOpen this secure link before {expires}:\n{reset_url}\n\nIf you did not request this change, you can ignore this email.\n"
+    );
+    let html_body = format!(
+        concat!(
+            "<!doctype html><html><body style=\"font-family:system-ui,sans-serif;color:#1f2933\">",
+            "<p><strong>Reset your password</strong></p>",
+            "<p>Open this secure link before {}:</p>",
+            "<p><a href=\"{}\">Reset your password</a></p>",
+            "<p>If you did not request this change, you can ignore this email.</p>",
+            "</body></html>"
+        ),
+        escape_html(&expires.to_string()),
+        escape_html(reset_url.as_str())
+    );
+    MailMessage {
+        from_name: sender.name.clone(),
+        from_email: sender.email.clone(),
+        to_email: reset.account_email.to_owned(),
+        subject: "Reset your Kanleaf password".to_owned(),
         text_body,
         html_body,
     }

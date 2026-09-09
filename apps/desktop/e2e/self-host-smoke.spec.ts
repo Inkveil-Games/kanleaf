@@ -114,6 +114,44 @@ test('serves a direct invitation route without accepting on load', async ({
   expect(acceptRequests).toBe(0);
 });
 
+test('serves password recovery routes and keeps reset failures generic', async ({
+  page,
+}) => {
+  await page.goto('/forgot-password');
+  await expect(
+    page.getByRole('heading', { name: 'Forgot your password?' }),
+  ).toBeVisible();
+  await page.getByLabel('Email').fill('missing@example.com');
+  const forgotResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/auth/forgot-password'),
+  );
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  expect((await forgotResponse).status()).toBe(204);
+  await expect(page.getByText(/If an account exists/)).toBeVisible();
+
+  await page.goto(`/reset-password#token=${'R'.repeat(43)}`);
+  await expect(
+    page.getByRole('heading', { name: 'Set a new password' }),
+  ).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'New password', exact: true })
+    .fill('new-playwright-password');
+  await page
+    .getByRole('textbox', { name: 'Confirm password', exact: true })
+    .fill('new-playwright-password');
+  const resetResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/auth/reset-password'),
+  );
+  await page.getByRole('button', { name: 'Reset password' }).click();
+  expect((await resetResponse).status()).toBe(422);
+  await expect(page.getByRole('alert')).toHaveText(
+    'This reset link is invalid or has expired. Request a new link.',
+  );
+  await expect(page).toHaveURL(
+    `${serverUrl}/reset-password#token=${'R'.repeat(43)}`,
+  );
+});
+
 test('restores the Host Access route through refresh and browser history', async ({
   page,
   request,
@@ -267,7 +305,9 @@ test('manages Restricted access through the Host Console', async ({
         .first(),
     ).toContainText(existingAccount.workspace.name);
     await page.getByRole('button', { name: 'Access', exact: true }).click();
-    const restrictedAccess = page.getByLabel('Restricted access');
+    const restrictedAccess = page.getByRole('switch', {
+      name: 'Restricted access',
+    });
     const approvedEmailInput = page.getByRole('textbox', {
       name: 'Email address',
     });

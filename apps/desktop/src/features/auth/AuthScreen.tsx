@@ -5,9 +5,14 @@ import { AuthForm } from './AuthForm';
 interface AuthScreenProps {
   serverUrl: string;
   onAuthenticated: (response: AuthResponse) => void | Promise<void>;
+  onForgotPassword?: () => void;
 }
 
-export function AuthScreen({ serverUrl, onAuthenticated }: AuthScreenProps) {
+export function AuthScreen({
+  serverUrl,
+  onAuthenticated,
+  onForgotPassword,
+}: AuthScreenProps) {
   return (
     <main className="onboarding">
       <section className="onboarding-intro">
@@ -20,7 +25,11 @@ export function AuthScreen({ serverUrl, onAuthenticated }: AuthScreenProps) {
       </section>
 
       <section className="onboarding-form-pane" aria-labelledby="auth-title">
-        <AuthForm serverUrl={serverUrl} onAuthenticated={onAuthenticated} />
+        <AuthForm
+          serverUrl={serverUrl}
+          onAuthenticated={onAuthenticated}
+          onForgotPassword={onForgotPassword}
+        />
       </section>
     </main>
   );

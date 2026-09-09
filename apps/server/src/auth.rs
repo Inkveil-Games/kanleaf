@@ -17,6 +17,7 @@ use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, Postgres, Transaction};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -24,6 +25,8 @@ use crate::{
     domain::{NormalizedEmail, ValidatedPassword},
     error::{AppError, is_unique_violation},
 };
+
+const PASSWORD_RESET_RESPONSE_FLOOR: StdDuration = StdDuration::from_millis(500);
 
 #[derive(Deserialize)]
 struct RegisterRequest {
@@ -34,6 +37,18 @@ struct RegisterRequest {
 #[derive(Deserialize)]
 struct LoginRequest {
     email: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+struct ForgotPasswordRequest {
+    email: String,
+    return_to: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ResetPasswordRequest {
+    token: String,
     password: String,
 }
 
@@ -93,6 +108,12 @@ struct SessionUser {
     active_workspace_id: Option<Uuid>,
 }
 
+#[derive(FromRow)]
+struct PasswordResetToken {
+    id: Uuid,
+    user_id: Uuid,
+}
+
 pub struct AuthenticatedUser {
     pub session_id: Uuid,
     pub expires_at: DateTime<Utc>,
@@ -105,6 +126,8 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/forgot-password", post(forgot_password))
+        .route("/reset-password", post(reset_password))
         .route("/logout", post(logout))
 }
 
@@ -144,6 +167,143 @@ async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn forgot_password(
+    State(state): State<AppState>,
+    payload: Result<Json<ForgotPasswordRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let response_started_at = tokio::time::Instant::now();
+    let Json(request) = payload.map_err(AppError::from)?;
+    let email = NormalizedEmail::new(&request.email)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let return_to = validated_password_reset_return_to(request.return_to)?;
+    if !state.mailer().is_enabled() {
+        return Ok(password_reset_requested(response_started_at).await);
+    }
+
+    let mut transaction = state.pool.begin().await?;
+    let user_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE email = $1 FOR UPDATE")
+        .bind(email.as_str())
+        .fetch_optional(&mut *transaction)
+        .await?;
+    let Some(user_id) = user_id else {
+        transaction.rollback().await?;
+        return Ok(password_reset_requested(response_started_at).await);
+    };
+    let cooling_down: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM password_reset_tokens
+            WHERE user_id = $1 AND created_at > now() - interval '60 seconds'
+        )
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if cooling_down {
+        transaction.rollback().await?;
+        return Ok(password_reset_requested(response_started_at).await);
+    }
+
+    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await?;
+    let (token, token_hash) = generate_secret_token()?;
+    let expires_at = Utc::now() + Duration::minutes(30);
+    sqlx::query(
+        r#"
+        INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3, $4)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(token_hash.as_slice())
+    .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+
+    let mailer = state.mailer().clone();
+    let account_email = email.as_str().to_owned();
+    drop(tokio::spawn(async move {
+        let delivery = mailer
+            .send_password_reset(crate::mail::PasswordResetMail {
+                account_email: &account_email,
+                expires_at,
+                token: &token,
+                return_to: return_to.as_deref(),
+            })
+            .await;
+        if delivery == crate::mail::MailDelivery::Failed {
+            warn!(%user_id, "password reset email delivery failed");
+        }
+    }));
+    Ok(password_reset_requested(response_started_at).await)
+}
+
+async fn reset_password(
+    State(state): State<AppState>,
+    payload: Result<Json<ResetPasswordRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Json(request) = payload.map_err(AppError::from)?;
+    let password = ValidatedPassword::new(request.password)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    if !valid_secret_token(&request.token) {
+        return Err(invalid_password_reset_link());
+    }
+    let token_hash = hash_secret_token(&request.token);
+
+    let mut transaction = state.pool.begin().await?;
+    let user_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM password_reset_tokens WHERE token_hash = $1",
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(invalid_password_reset_link)?;
+    sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+        .bind(user_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+    let reset_token = sqlx::query_as::<_, PasswordResetToken>(
+        r#"
+        SELECT id, user_id
+        FROM password_reset_tokens
+        WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+        FOR UPDATE
+        "#,
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(invalid_password_reset_link)?;
+    let password_hash = hash_password(password).await?;
+
+    sqlx::query("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2")
+        .bind(password_hash)
+        .bind(reset_token.user_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("UPDATE password_reset_tokens SET consumed_at = now() WHERE id = $1")
+        .bind(reset_token.id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1 AND id <> $2")
+        .bind(reset_token.user_id)
+        .bind(reset_token.id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+        .bind(reset_token.user_id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn register_user(
     state: &AppState,
     request: RegisterRequest,
@@ -156,7 +316,7 @@ async fn register_user(
     let display_name = default_display_name(&email);
     let user_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
-    let (token, token_hash) = generate_bearer_token()?;
+    let (token, token_hash) = generate_secret_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
     let is_host = state.is_host_email(email.as_str());
 
@@ -235,7 +395,7 @@ async fn login_user(state: &AppState, request: LoginRequest) -> Result<AuthRespo
 
     let is_host = state.is_host_email(&user.email);
     let session_id = Uuid::new_v4();
-    let (token, token_hash) = generate_bearer_token()?;
+    let (token, token_hash) = generate_secret_token()?;
     let expires_at = session_expiry(state.session_ttl)?;
     let mut transaction = state.pool.begin().await?;
     require_email_access(&mut transaction, state, &user.email).await?;
@@ -329,7 +489,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             .filter(|token| (20..=200).contains(&token.len()))
             .filter(|token| !token.chars().any(char::is_whitespace))
             .ok_or(AppError::Unauthorized)?;
-        let token_hash = hash_bearer_token(token);
+        let token_hash = hash_secret_token(token);
 
         let session = sqlx::query_as::<_, SessionUser>(
             r#"
@@ -458,18 +618,52 @@ fn random_salt() -> Result<SaltString, AppError> {
         .map_err(|error| AppError::internal(anyhow!("failed to encode password salt: {error}")))
 }
 
-pub(crate) fn generate_bearer_token() -> Result<(String, [u8; 32]), AppError> {
+pub(crate) fn generate_secret_token() -> Result<(String, [u8; 32]), AppError> {
     let mut bytes = [0_u8; 32];
     OsRng
         .try_fill_bytes(&mut bytes)
         .map_err(|error| AppError::internal(anyhow!("OS randomness unavailable: {error}")))?;
     let token = URL_SAFE_NO_PAD.encode(bytes);
-    let token_hash = hash_bearer_token(&token);
+    let token_hash = hash_secret_token(&token);
     Ok((token, token_hash))
 }
 
-pub(crate) fn hash_bearer_token(token: &str) -> [u8; 32] {
+pub(crate) fn hash_secret_token(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()
+}
+
+pub(crate) fn valid_secret_token(token: &str) -> bool {
+    token.len() == 43
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn validated_password_reset_return_to(
+    return_to: Option<String>,
+) -> Result<Option<String>, AppError> {
+    let Some(return_to) = return_to else {
+        return Ok(None);
+    };
+    let token = return_to.strip_prefix("/invite#token=").unwrap_or_default();
+    if valid_secret_token(token) {
+        Ok(Some(return_to))
+    } else {
+        Err(AppError::Validation(
+            "Password reset return destination is invalid".to_owned(),
+        ))
+    }
+}
+
+fn invalid_password_reset_link() -> AppError {
+    AppError::Validation(
+        "This reset link is invalid or has expired. Request a new link.".to_owned(),
+    )
+}
+
+async fn password_reset_requested(started_at: tokio::time::Instant) -> StatusCode {
+    tokio::time::sleep_until(started_at + PASSWORD_RESET_RESPONSE_FLOOR).await;
+    StatusCode::NO_CONTENT
 }
 
 fn session_expiry(ttl: StdDuration) -> Result<DateTime<Utc>, AppError> {
@@ -490,16 +684,16 @@ fn default_display_name(email: &NormalizedEmail) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_bearer_token, hash_bearer_token};
+    use super::{generate_secret_token, hash_secret_token};
 
     #[test]
     fn session_tokens_are_random_and_only_their_hashes_are_stable() {
-        let (first, first_hash) = generate_bearer_token().unwrap();
-        let (second, second_hash) = generate_bearer_token().unwrap();
+        let (first, first_hash) = generate_secret_token().unwrap();
+        let (second, second_hash) = generate_secret_token().unwrap();
 
         assert_ne!(first, second);
         assert_ne!(first_hash, second_hash);
-        assert_eq!(first_hash, hash_bearer_token(&first));
+        assert_eq!(first_hash, hash_secret_token(&first));
         assert_eq!(first.len(), 43);
         assert_eq!(first_hash.len(), 32);
     }

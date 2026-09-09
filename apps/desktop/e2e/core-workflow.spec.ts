@@ -1397,6 +1397,15 @@ test('keeps an existing account on the invitation through sign in', async ({
   await expect(
     page.getByRole('heading', { name: 'Sign in to Kanleaf' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Forgot password?' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(
+      `/forgot-password#returnTo=${encodeURIComponent(`/invite#token=${issued.token}`)}$`,
+    ),
+  );
+  await page.getByRole('button', { name: 'Back to sign in' }).click();
+  await expect(page).toHaveURL(new RegExp(`/invite#token=${issued.token}$`));
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByLabel('Email').fill(inviteeEmail);
   await page
     .getByLabel('Password', { exact: true })
