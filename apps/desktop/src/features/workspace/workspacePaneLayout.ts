@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 
 const STORAGE_KEY = 'kanleaf.workspace-pane-layout';
 const NARROW_QUERY = '(max-width: 1080px)';
@@ -42,41 +48,67 @@ export function useWorkspacePaneLayout() {
       ),
     [],
   );
-
-  function updateWidth(
-    key: 'navigationWidth' | 'collectionWidth' | 'detailWidth',
-    limits: PaneLimits,
-  ) {
-    return (next: SetStateAction<number>) => {
+  const setNavigationWidth = useCallback(
+    (next: SetStateAction<number>) =>
+      setPaneWidth(
+        setPreferences,
+        'navigationWidth',
+        PANE_LIMITS.navigation,
+        next,
+      ),
+    [],
+  );
+  const setCollectionWidth = useCallback(
+    (next: SetStateAction<number>) =>
+      setPaneWidth(
+        setPreferences,
+        'collectionWidth',
+        PANE_LIMITS.collection,
+        next,
+      ),
+    [],
+  );
+  const setDetailWidth = useCallback(
+    (next: SetStateAction<number>) =>
+      setPaneWidth(setPreferences, 'detailWidth', PANE_LIMITS.detail, next),
+    [],
+  );
+  const toggleNavigation = useCallback(() => {
+    if (narrow) {
+      setDrawer({ narrow, open: !drawerOpen });
+    } else {
       setPreferences((current) => ({
         ...current,
-        [key]: constrain(
-          typeof next === 'function' ? next(current[key]) : next,
-          limits,
-        ),
+        navigationCollapsed: !current.navigationCollapsed,
       }));
-    };
-  }
+    }
+  }, [drawerOpen, narrow]);
 
   return {
     ...preferences,
     narrow,
     navigationVisible,
-    setNavigationWidth: updateWidth('navigationWidth', PANE_LIMITS.navigation),
-    setCollectionWidth: updateWidth('collectionWidth', PANE_LIMITS.collection),
-    setDetailWidth: updateWidth('detailWidth', PANE_LIMITS.detail),
-    toggleNavigation() {
-      if (narrow) {
-        setDrawer({ narrow, open: !drawerOpen });
-      } else {
-        setPreferences((current) => ({
-          ...current,
-          navigationCollapsed: !current.navigationCollapsed,
-        }));
-      }
-    },
+    setNavigationWidth,
+    setCollectionWidth,
+    setDetailWidth,
+    toggleNavigation,
     closeNavigationDrawer,
   };
+}
+
+function setPaneWidth(
+  setPreferences: Dispatch<SetStateAction<PanePreferences>>,
+  key: 'navigationWidth' | 'collectionWidth' | 'detailWidth',
+  limits: PaneLimits,
+  next: SetStateAction<number>,
+) {
+  setPreferences((current) => ({
+    ...current,
+    [key]: constrain(
+      typeof next === 'function' ? next(current[key]) : next,
+      limits,
+    ),
+  }));
 }
 
 function useMediaQuery(query: string) {

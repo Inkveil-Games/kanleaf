@@ -1,11 +1,15 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useRef, useState, type CSSProperties } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { PaneResizeHandle } from './PaneResizeHandle';
 
 describe('workspace pane layout', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it('persists pane widths and the desktop navigation preference', () => {
     mockMatchMedia(false);
@@ -66,6 +70,132 @@ describe('workspace pane layout', () => {
     );
   });
 
+  it('updates the CSS width during pointer movement and commits only once', () => {
+    const rendered = vi.fn();
+    render(<ResizeHarness onRender={rendered} />);
+    const separator = screen.getByRole('separator', {
+      name: 'Resize collection',
+    });
+    const layout = screen.getByTestId('resize-layout');
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 400 });
+    fireEvent.pointerMove(window, { clientX: 420 });
+    fireEvent.pointerMove(window, { clientX: 440 });
+    fireEvent.pointerMove(window, { clientX: 472 });
+
+    expect(layout.style.getPropertyValue('--collection-pane-width')).toBe(
+      '432px',
+    );
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('360');
+    expect(separator).toHaveAttribute('aria-valuenow', '432');
+    expect(rendered).toHaveBeenCalledOnce();
+
+    fireEvent.pointerUp(window);
+
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('432');
+    expect(rendered).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not persist a pane width for every pointer movement', () => {
+    mockMatchMedia(false);
+    const setItem = vi.spyOn(localStorage, 'setItem');
+    render(<LayoutHarness />);
+    const storedBeforeDrag = localStorage.getItem(
+      'kanleaf.workspace-pane-layout',
+    );
+    const writesBeforeDrag = setItem.mock.calls.length;
+    const separator = screen.getByRole('separator', {
+      name: 'Resize navigation',
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 226 });
+    fireEvent.pointerMove(window, { clientX: 240 });
+    fireEvent.pointerMove(window, { clientX: 260 });
+    fireEvent.pointerMove(window, { clientX: 280 });
+
+    expect(localStorage.getItem('kanleaf.workspace-pane-layout')).toBe(
+      storedBeforeDrag,
+    );
+    expect(setItem).toHaveBeenCalledTimes(writesBeforeDrag);
+
+    fireEvent.pointerUp(window);
+    expect(setItem).toHaveBeenCalledTimes(writesBeforeDrag + 1);
+    expect(localStorage.getItem('kanleaf.workspace-pane-layout')).toContain(
+      '"navigationWidth":280',
+    );
+  });
+
+  it('commits the latest width when a pointer drag is interrupted', () => {
+    render(<ResizeHarness />);
+    const separator = screen.getByRole('separator', {
+      name: 'Resize collection',
+    });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 400 });
+    fireEvent.pointerMove(window, { clientX: 440 });
+    fireEvent.pointerCancel(window);
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('400');
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 400 });
+    fireEvent.pointerMove(window, { clientX: 424 });
+    fireEvent.lostPointerCapture(separator);
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('424');
+  });
+
+  it('ignores pointer events from a different pointer', () => {
+    render(<ResizeHarness />);
+    const separator = screen.getByRole('separator', {
+      name: 'Resize collection',
+    });
+    const layout = screen.getByTestId('resize-layout');
+
+    fireEvent.pointerDown(separator, {
+      button: 0,
+      clientX: 400,
+      pointerId: 7,
+    });
+    fireEvent.pointerMove(window, { clientX: 500, pointerId: 8 });
+    fireEvent.pointerUp(window, { pointerId: 8 });
+
+    expect(layout.style.getPropertyValue('--collection-pane-width')).toBe(
+      '360px',
+    );
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('360');
+
+    fireEvent.pointerMove(window, { clientX: 424, pointerId: 7 });
+    fireEvent.pointerUp(window, { pointerId: 7 });
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('384');
+  });
+
+  it('restores the committed width when the handle unmounts mid-drag', () => {
+    render(<ResizeHarness />);
+    const separator = screen.getByRole('separator', {
+      name: 'Resize collection',
+    });
+    const layout = screen.getByTestId('resize-layout');
+
+    fireEvent.pointerDown(separator, {
+      button: 0,
+      clientX: 400,
+      pointerId: 7,
+    });
+    fireEvent.pointerMove(window, { clientX: 440, pointerId: 7 });
+    expect(layout.style.getPropertyValue('--collection-pane-width')).toBe(
+      '400px',
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove resize handle' }),
+    );
+
+    expect(layout.style.getPropertyValue('--collection-pane-width')).toBe(
+      '360px',
+    );
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('360');
+    fireEvent.pointerUp(window, { pointerId: 7 });
+    expect(screen.getByTestId('committed-width')).toHaveTextContent('360');
+  });
+
   it('uses a temporary navigation drawer in narrow windows', () => {
     const media = mockMatchMedia(true);
     render(<LayoutHarness />);
@@ -96,12 +226,19 @@ describe('workspace pane layout', () => {
 
 function LayoutHarness() {
   const layout = useWorkspacePaneLayout();
+  const layoutRef = useRef<HTMLDivElement>(null);
   return (
     <div
+      ref={layoutRef}
       data-testid="layout"
       data-narrow={layout.narrow}
       data-navigation-visible={layout.navigationVisible}
       data-navigation-width={layout.navigationWidth}
+      style={
+        {
+          '--navigation-pane-width': `${layout.navigationWidth}px`,
+        } as CSSProperties
+      }
     >
       <button type="button" onClick={layout.toggleNavigation}>
         {layout.navigationVisible ? 'Collapse navigation' : 'Open navigation'}
@@ -110,21 +247,44 @@ function LayoutHarness() {
         label="Resize navigation"
         value={layout.navigationWidth}
         limits={PANE_LIMITS.navigation}
+        resizeTarget={layoutRef}
+        resizeProperty="--navigation-pane-width"
         onChange={layout.setNavigationWidth}
       />
     </div>
   );
 }
 
-function ResizeHarness() {
+function ResizeHarness({
+  onRender = () => undefined,
+}: {
+  onRender?: () => void;
+}) {
   const [value, setValue] = useState(PANE_LIMITS.collection.defaultValue);
+  const [handleVisible, setHandleVisible] = useState(true);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  onRender();
   return (
-    <PaneResizeHandle
-      label="Resize collection"
-      value={value}
-      limits={PANE_LIMITS.collection}
-      onChange={setValue}
-    />
+    <div
+      ref={layoutRef}
+      data-testid="resize-layout"
+      style={{ '--collection-pane-width': `${value}px` } as CSSProperties}
+    >
+      <output data-testid="committed-width">{value}</output>
+      <button type="button" onClick={() => setHandleVisible(false)}>
+        Remove resize handle
+      </button>
+      {handleVisible && (
+        <PaneResizeHandle
+          label="Resize collection"
+          value={value}
+          limits={PANE_LIMITS.collection}
+          resizeTarget={layoutRef}
+          resizeProperty="--collection-pane-width"
+          onChange={setValue}
+        />
+      )}
+    </div>
   );
 }
 

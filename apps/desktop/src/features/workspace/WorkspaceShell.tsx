@@ -218,6 +218,7 @@ export function WorkspaceShell({
     message: string;
   } | null>(null);
   const canonicalReplacement = useRef<string | null>(null);
+  const shellRef = useRef<HTMLElement>(null);
   const paneLayout = useWorkspacePaneLayout();
 
   useEffect(() => {
@@ -1720,12 +1721,12 @@ export function WorkspaceShell({
   const detailResizable =
     visibleSurface === 'tasks' &&
     taskLayout !== 'list' &&
-    Boolean(selectedTask);
+    Boolean(selectedTaskId);
   const shellClassName = [
     'workspace-shell',
     `surface-${visibleSurface}`,
     `view-layout-${taskLayout}`,
-    selectedTask ? 'has-task-detail' : '',
+    selectedTaskId ? 'has-task-detail' : '',
     visibleSurface === 'documents' && selectedDocumentId
       ? 'has-document-detail'
       : '',
@@ -1744,7 +1745,7 @@ export function WorkspaceShell({
   } as CSSProperties;
 
   return (
-    <main className={shellClassName} style={shellStyle}>
+    <main ref={shellRef} className={shellClassName} style={shellStyle}>
       <WorkspaceControl
         context={context}
         userEmail={user.email}
@@ -1825,6 +1826,8 @@ export function WorkspaceShell({
           label="Resize navigation"
           value={paneLayout.navigationWidth}
           limits={PANE_LIMITS.navigation}
+          resizeTarget={shellRef}
+          resizeProperty="--navigation-pane-width"
           onChange={paneLayout.setNavigationWidth}
         />
       )}
@@ -1834,6 +1837,8 @@ export function WorkspaceShell({
           label="Resize collection"
           value={paneLayout.collectionWidth}
           limits={PANE_LIMITS.collection}
+          resizeTarget={shellRef}
+          resizeProperty="--collection-pane-width"
           onChange={paneLayout.setCollectionWidth}
         />
       )}
@@ -1844,6 +1849,8 @@ export function WorkspaceShell({
           value={paneLayout.detailWidth}
           limits={PANE_LIMITS.detail}
           inverted
+          resizeTarget={shellRef}
+          resizeProperty="--detail-pane-width"
           onChange={paneLayout.setDetailWidth}
         />
       )}

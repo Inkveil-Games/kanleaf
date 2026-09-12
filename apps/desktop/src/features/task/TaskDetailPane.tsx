@@ -99,7 +99,14 @@ interface TaskDetailPaneProps {
 export function TaskDetailPane(props: TaskDetailPaneProps) {
   if (props.loading && !props.task) {
     return (
-      <section className="detail-pane detail-loading" aria-label="Task detail">
+      <section
+        className="detail-pane detail-loading"
+        aria-label="Task detail"
+        aria-busy="true"
+      >
+        <span className="sr-only" role="status">
+          Loading task…
+        </span>
         <span />
         <span />
         <span />

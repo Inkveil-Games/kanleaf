@@ -91,6 +91,11 @@ export function WorkspaceRouteScreen({
     ? pageSearchLocator(searchFromPath(returnToPath))
     : null;
   const requestedPageLocator = pageLocator ?? returnToPageLocator;
+  const taskLocator = taskRouteLocator(routerLocation.search);
+  const returnToTaskLocator = returnToPath
+    ? taskRouteLocator(searchFromPath(returnToPath))
+    : null;
+  const requestedTaskLocator = taskLocator ?? returnToTaskLocator;
   const needsProject = projectRoute(routeKind);
   const returnToNeedsProject = returnToPath?.includes('/p/') ?? false;
   const projects = useQuery({
@@ -98,7 +103,10 @@ export function WorkspaceRouteScreen({
     queryFn: () => listProjects(context, workspaceForRoute!.id),
     enabled: Boolean(
       workspaceForRoute &&
-      (needsProject || returnToNeedsProject || requestedPageLocator),
+      (needsProject ||
+        returnToNeedsProject ||
+        requestedTaskLocator ||
+        requestedPageLocator),
     ),
     retry: false,
   });
@@ -107,11 +115,11 @@ export function WorkspaceRouteScreen({
     ({ identifier, id }) =>
       identifier === projectLocator || id === projectLocator,
   );
-  const taskLocator = taskRouteLocator(routerLocation.search);
-  const returnToTaskLocator = returnToPath
-    ? taskRouteLocator(searchFromPath(returnToPath))
-    : null;
-  const requestedTaskLocator = taskLocator ?? returnToTaskLocator;
+  const workspaceCacheAccessVerified = Boolean(
+    workspaceForRoute && workspaces.isFetchedAfterMount && !workspaces.error,
+  );
+  const verifiedProjects =
+    projects.isFetchedAfterMount && !projects.error ? projects.data : undefined;
   const selectedTask = useQuery({
     queryKey: [
       'routed-task',
@@ -128,6 +136,15 @@ export function WorkspaceRouteScreen({
           )
         : getTask(context, workspaceForRoute!.id, requestedTaskLocator!.value),
     enabled: Boolean(workspaceForRoute && requestedTaskLocator),
+    placeholderData: () =>
+      workspaceCacheAccessVerified && workspaceForRoute && requestedTaskLocator
+        ? taskFromCache(
+            queryClient,
+            workspaceForRoute,
+            verifiedProjects,
+            requestedTaskLocator,
+          )
+        : undefined,
     retry: false,
   });
   const selectedDocument = useQuery({
@@ -150,6 +167,15 @@ export function WorkspaceRouteScreen({
             requestedPageLocator!.value,
           ),
     enabled: Boolean(workspaceForRoute && requestedPageLocator),
+    placeholderData: () =>
+      workspaceCacheAccessVerified && workspaceForRoute && requestedPageLocator
+        ? documentFromCache(
+            queryClient,
+            workspaceForRoute,
+            verifiedProjects,
+            requestedPageLocator,
+          )
+        : undefined,
     retry: false,
   });
   const resolveWorkspaceId = useCallback(
@@ -908,6 +934,37 @@ function taskNumberFromCache(
   return null;
 }
 
+function taskFromCache(
+  queryClient: QueryClient,
+  workspace: Workspace,
+  projects: Project[] | undefined,
+  locator: PublicResourceLocator,
+): Task | undefined {
+  for (const [, task] of queryClient.getQueriesData<Task>({
+    queryKey: ['task', workspace.id],
+  })) {
+    if (
+      task &&
+      cachedResourceIsAuthorized(task, workspace, projects) &&
+      resourceMatches(task.id, task.task_number, locator)
+    ) {
+      return task;
+    }
+  }
+  for (const [, data] of queryClient.getQueriesData<unknown>({
+    queryKey: ['tasks', workspace.id],
+  })) {
+    if (!Array.isArray(data)) continue;
+    const task = (data as Task[]).find(
+      (candidate) =>
+        cachedResourceIsAuthorized(candidate, workspace, projects) &&
+        resourceMatches(candidate.id, candidate.task_number, locator),
+    );
+    if (task) return task;
+  }
+  return undefined;
+}
+
 function documentNumberFromCache(
   queryClient: QueryClient,
   workspaceId: string | null,
@@ -934,6 +991,59 @@ function documentNumberFromCache(
     if (document) return String(document.document_number);
   }
   return null;
+}
+
+function documentFromCache(
+  queryClient: QueryClient,
+  workspace: Workspace,
+  projects: Project[] | undefined,
+  locator: PublicResourceLocator,
+): WorkspaceDocument | undefined {
+  for (const [, document] of queryClient.getQueriesData<WorkspaceDocument>({
+    queryKey: ['document', workspace.id],
+  })) {
+    if (
+      document &&
+      cachedResourceIsAuthorized(document, workspace, projects) &&
+      resourceMatches(document.id, document.document_number, locator)
+    ) {
+      return document;
+    }
+  }
+  for (const [, data] of queryClient.getQueriesData<unknown>({
+    queryKey: ['documents', workspace.id],
+  })) {
+    if (!Array.isArray(data)) continue;
+    const document = (data as WorkspaceDocument[]).find(
+      (candidate) =>
+        cachedResourceIsAuthorized(candidate, workspace, projects) &&
+        resourceMatches(candidate.id, candidate.document_number, locator),
+    );
+    if (document) return document;
+  }
+  return undefined;
+}
+
+function cachedResourceIsAuthorized(
+  resource: Pick<Task, 'workspace_id' | 'project_id'>,
+  workspace: Workspace,
+  projects: Project[] | undefined,
+) {
+  if (resource.workspace_id !== workspace.id) return false;
+  if (resource.project_id === null) return workspace.role !== 'guest';
+  return Boolean(
+    projects?.find(({ id }) => id === resource.project_id)?.effective_role,
+  );
+}
+
+function resourceMatches(
+  id: string,
+  number: number,
+  locator: PublicResourceLocator,
+) {
+  return locator.kind === 'number'
+    ? number === locator.value
+    : id === locator.value;
 }
 
 function taskIdForLocation(

@@ -148,6 +148,43 @@ const modules: ProjectModule[] = [
 ];
 
 describe('TaskDetailPane', () => {
+  it('shows a local loading state when the selected Task is unresolved', () => {
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={null}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[]}
+        loading
+        error={null}
+        canEdit={false}
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Task detail' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Loading task…');
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+  });
+
   it('uses the shared typed confirmation dialog for permanent deletion', async () => {
     const user = userEvent.setup();
     const onDelete = vi.fn().mockResolvedValue(undefined);

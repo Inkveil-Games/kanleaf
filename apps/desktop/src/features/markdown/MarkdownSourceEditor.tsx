@@ -79,6 +79,23 @@ const trailingWhitespaceExtension = ViewPlugin.define((view) => {
     },
   };
 });
+const sourceExtensions = [
+  markdownSupport,
+  keymap.of([indentWithTab]),
+  EditorView.lineWrapping,
+  kanleafMarkdownTheme,
+];
+const livePreviewExtensions = [
+  ...sourceExtensions,
+  livePreviewExtension,
+  trailingWhitespaceExtension,
+];
+const basicSetup = {
+  lineNumbers: false,
+  foldGutter: false,
+  highlightActiveLine: true,
+  highlightActiveLineGutter: false,
+};
 
 export function MarkdownSourceEditor({
   value,
@@ -92,19 +109,8 @@ export function MarkdownSourceEditor({
       value={value}
       height="100%"
       editable={!readOnly}
-      extensions={[
-        markdownSupport,
-        keymap.of([indentWithTab]),
-        EditorView.lineWrapping,
-        kanleafMarkdownTheme,
-        livePreview ? [livePreviewExtension, trailingWhitespaceExtension] : [],
-      ]}
-      basicSetup={{
-        lineNumbers: false,
-        foldGutter: false,
-        highlightActiveLine: true,
-        highlightActiveLineGutter: false,
-      }}
+      extensions={livePreview ? livePreviewExtensions : sourceExtensions}
+      basicSetup={basicSetup}
       onChange={onChange}
     />
   );

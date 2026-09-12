@@ -1158,6 +1158,193 @@ Kanleaf keeps **structured work** beside durable notes.
   expect(consoleErrors).toEqual([]);
 });
 
+test('preserves open Task state through pane and responsive resizing', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const email = `resize-${suffix}@example.com`;
+  const account = await register(request, email);
+  const headers = { authorization: `Bearer ${account.token}` };
+  const createTask = async (title: string) => {
+    const response = await request.post(
+      `${serverUrl}/api/workspaces/${account.workspaceId}/tasks`,
+      { headers, data: { title } },
+    );
+    expect(response.status()).toBe(201);
+    return (await response.json()) as {
+      id: string;
+      task_number: number;
+      title: string;
+    };
+  };
+  const firstTask = await createTask('Resize continuity A');
+  const secondTask = await createTask('Resize continuity B');
+
+  await page.goto('/');
+  await page.getByLabel('Email').fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/my-work$`),
+  );
+  await page.getByRole('button', { name: 'All tasks' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/tasks$`),
+  );
+
+  const firstRow = page
+    .locator('.task-row-main')
+    .filter({ hasText: firstTask.title });
+  const secondRow = page
+    .locator('.task-row-main')
+    .filter({ hasText: secondTask.title });
+  await expect(firstRow).toBeVisible();
+  await expect(secondRow).toBeVisible();
+  await firstRow.click();
+  await expect(page.getByLabel('Task title')).toHaveValue(firstTask.title);
+
+  let releaseResolver = () => undefined;
+  const holdResolver = new Promise<void>((resolve) => {
+    releaseResolver = resolve;
+  });
+  await page.route(
+    `**/api/workspaces/${account.workspaceId}/tasks/by-number/${secondTask.task_number}`,
+    async (route) => {
+      await holdResolver;
+      await route.continue();
+    },
+  );
+  const shell = page.locator('.workspace-shell');
+  const navigation = page.locator('.navigation-pane');
+  const taskList = page.locator('.task-list');
+  await shell.evaluate((element) => {
+    element.setAttribute('data-resize-continuity', 'shell');
+  });
+  await navigation.evaluate((element) => {
+    element.setAttribute('data-resize-continuity', 'navigation');
+  });
+  await taskList.evaluate((element) => {
+    element.setAttribute('data-resize-continuity', 'task-list');
+  });
+
+  await secondRow.click();
+
+  await expect(page).toHaveURL(
+    new RegExp(
+      `/w/${account.workspaceIdentifier}/tasks\\?task=${secondTask.task_number}$`,
+    ),
+  );
+  await expect(page.getByText('Opening your workspace…')).toHaveCount(0);
+  await expect(shell).toHaveAttribute('data-resize-continuity', 'shell');
+  await expect(navigation).toHaveAttribute(
+    'data-resize-continuity',
+    'navigation',
+  );
+  await expect(taskList).toHaveAttribute('data-resize-continuity', 'task-list');
+  await expect(page.getByLabel('Task title')).toHaveValue(secondTask.title);
+  const routeResolved = page.waitForResponse(
+    (response) =>
+      response
+        .url()
+        .endsWith(
+          `/api/workspaces/${account.workspaceId}/tasks/by-number/${secondTask.task_number}`,
+        ) && response.request().method() === 'GET',
+  );
+  releaseResolver();
+  expect((await routeResolved).ok()).toBe(true);
+  await page.unroute(
+    `**/api/workspaces/${account.workspaceId}/tasks/by-number/${secondTask.task_number}`,
+  );
+
+  await page.route(
+    `**/api/workspaces/${account.workspaceId}/tasks/${secondTask.id}/document`,
+    async (route) => {
+      if (route.request().method() === 'PUT') {
+        await route.abort();
+      } else {
+        await route.continue();
+      }
+    },
+  );
+  await page.getByRole('button', { name: 'Source' }).click();
+  const source = page.locator('.cm-content[contenteditable="true"]');
+  await source.fill('# Unsaved resize draft');
+  await expect(page.getByText('Save failed', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Add comment')).toBeVisible();
+  await page.getByLabel('Add comment').fill('Activity draft survives resizing');
+  const editor = page.locator('.cm-editor');
+  const taskDetail = page.getByRole('region', { name: 'Task detail' });
+  await editor.evaluate((element) => {
+    element.setAttribute('data-resize-continuity', 'editor');
+  });
+  await taskDetail.evaluate((element) => {
+    element.setAttribute('data-resize-continuity', 'detail');
+  });
+  await chooseSelectOption(page, 'Layout', 'Table');
+
+  const workspaceRequests: string[] = [];
+  page.on('request', (outgoing) => {
+    const path = new URL(outgoing.url()).pathname;
+    if (path.startsWith(`/api/workspaces/${account.workspaceId}/`)) {
+      workspaceRequests.push(`${outgoing.method()} ${path}`);
+    }
+  });
+
+  const drag = async (name: string, delta: number) => {
+    const separator = page.getByRole('separator', { name });
+    await expect(separator).toBeVisible();
+    const bounds = await separator.boundingBox();
+    expect(bounds).not.toBeNull();
+    const startX = bounds!.x + bounds!.width / 2;
+    const y = bounds!.y + Math.min(bounds!.height / 2, 120);
+    await page.mouse.move(startX, y);
+    await page.mouse.down();
+    for (let step = 1; step <= 12; step += 1) {
+      await page.mouse.move(startX + (delta * step) / 12, y);
+    }
+    await page.mouse.up();
+  };
+
+  await drag('Resize detail', -72);
+  await drag('Resize navigation', 48);
+  await chooseSelectOption(page, 'Layout', 'List');
+  await drag('Resize collection', 64);
+
+  await expect(source).toContainText('# Unsaved resize draft');
+  await expect(page.getByLabel('Add comment')).toHaveValue(
+    'Activity draft survives resizing',
+  );
+  await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
+  await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
+  await expect(shell).toHaveAttribute('data-resize-continuity', 'shell');
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ),
+  ).toMatchObject({
+    navigationWidth: 274,
+    collectionWidth: 424,
+    detailWidth: 512,
+  });
+
+  await page.setViewportSize({ width: 960, height: 640 });
+  await expect(taskDetail).toBeVisible();
+  await expect(taskList).not.toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(taskList).toBeVisible();
+  await expect(page.getByLabel('Task title')).toHaveValue(secondTask.title);
+  await expect(source).toContainText('# Unsaved resize draft');
+  await expect(page.getByLabel('Add comment')).toHaveValue(
+    'Activity draft survives resizing',
+  );
+  await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
+  await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
+  expect(workspaceRequests).toEqual([]);
+});
+
 test('switches retained accounts without crossing account data', async ({
   page,
 }) => {

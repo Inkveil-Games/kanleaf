@@ -165,9 +165,11 @@ vi.mock('./WorkspaceNavigation', () => ({
   }: {
     onSelectCollection: (collection: { kind: 'all' }) => void;
   }) => (
-    <button type="button" onClick={() => onSelectCollection({ kind: 'all' })}>
-      Open all tasks
-    </button>
+    <nav data-testid="workspace-navigation">
+      <button type="button" onClick={() => onSelectCollection({ kind: 'all' })}>
+        Open all tasks
+      </button>
+    </nav>
   ),
 }));
 
@@ -188,7 +190,7 @@ vi.mock('../task/TaskListPane', () => ({
     onDeleteView: () => Promise<void>;
     onSelectTask: (taskId: string) => void;
   }) => (
-    <div>
+    <div data-testid="task-list">
       <button type="button" onClick={() => void onCreateTask('New Task')}>
         Create Task
       </button>
@@ -200,6 +202,9 @@ vi.mock('../task/TaskListPane', () => ({
       </button>
       <button type="button" onClick={() => onSelectTask('task-1')}>
         Open Task
+      </button>
+      <button type="button" onClick={() => onSelectTask('task-2')}>
+        Open Task B
       </button>
       {activeView && (
         <button
@@ -216,17 +221,22 @@ vi.mock('../task/TaskListPane', () => ({
 vi.mock('../task/TaskDetailPane', () => ({
   TaskDetailPane: ({
     task,
+    loading,
     onClose,
     onArchive,
     onDelete,
   }: {
     task: { id: string } | null;
+    loading: boolean;
     onClose: () => void;
     onArchive: () => Promise<void>;
     onDelete: (reference: string) => Promise<void>;
   }) =>
-    task ? (
+    loading && !task ? (
+      <output aria-label="Task detail loading">Loading task detail</output>
+    ) : task ? (
       <div>
+        <output aria-label="Selected task">{task.id}</output>
         <button type="button" onClick={onClose}>
           Close Task
         </button>
@@ -246,10 +256,12 @@ vi.mock('../task/TaskDetailPane', () => ({
 vi.mock('../document/DocumentWorkspace', () => ({
   DocumentWorkspace: ({
     accessSettled,
+    selectedDocumentId,
     onInvalidSelection,
     onSelectDocument,
   }: {
     accessSettled: boolean;
+    selectedDocumentId: string | null;
     onInvalidSelection: () => void;
     onSelectDocument: (
       document: {
@@ -260,8 +272,9 @@ vi.mock('../document/DocumentWorkspace', () => ({
       navigation?: { replace?: boolean },
     ) => Promise<boolean>;
   }) => (
-    <div>
+    <div data-testid="document-workspace">
       <output>Document workspace</output>
+      <output aria-label="Selected document">{selectedDocumentId}</output>
       <output aria-label="Document access">
         {accessSettled ? 'settled' : 'pending'}
       </output>
@@ -276,6 +289,18 @@ vi.mock('../document/DocumentWorkspace', () => ({
         }
       >
         Open Project note
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSelectDocument({
+            id: 'document-2',
+            document_number: 2,
+            project_id: null,
+          })
+        }
+      >
+        Open second note
       </button>
       <button
         type="button"
@@ -535,11 +560,26 @@ const task: Task = {
   updated_at: '2026-09-01T00:00:00Z',
 };
 
+const taskB: Task = {
+  ...task,
+  id: 'task-2',
+  task_number: 2,
+  reference: '#2',
+  title: 'Uncached routing task',
+};
+
 const document = {
   id: 'document-1',
   document_number: 1,
   workspace_id: 'workspace-1',
   project_id: 'project-1',
+} as WorkspaceDocument;
+
+const documentB = {
+  ...document,
+  id: 'document-2',
+  document_number: 2,
+  project_id: null,
 } as WorkspaceDocument;
 
 const savedView: SavedView = {
@@ -1985,6 +2025,191 @@ describe('WorkspaceShell routing integration', () => {
     );
   });
 
+  it('keeps the shell and Task list mounted while an uncached Task resolves', async () => {
+    const routedTask = deferred<Task>();
+    const taskDetail = deferred<Task>();
+    mocks.getTaskByNumber.mockImplementation(
+      (_context, _workspaceId, taskNumber: number) =>
+        taskNumber === taskB.task_number ? routedTask.promise : task,
+    );
+    mocks.getTask.mockImplementation(
+      (_context, _workspaceId, taskId: string) =>
+        taskId === taskB.id ? taskDetail.promise : task,
+    );
+    mocks.queryTasks.mockResolvedValue([task]);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
+    });
+
+    expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
+      task.id,
+    );
+    queryClient.setQueryData(
+      ['tasks', 'workspace-1', 'another-authorized-collection'],
+      [taskB],
+    );
+    const shell = globalThis.document.querySelector('.workspace-shell');
+    const navigation = screen.getByTestId('workspace-navigation');
+    const taskList = screen.getByTestId('task-list');
+    taskList.scrollTop = 48;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Task B' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/tasks?task=2',
+      ),
+    );
+    expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
+    expect(screen.getByTestId('workspace-navigation')).toBe(navigation);
+    expect(screen.getByTestId('task-list')).toBe(taskList);
+    expect(taskList.scrollTop).toBe(48);
+    expect(screen.getByLabelText('Task detail loading')).toBeVisible();
+    expect(
+      screen.queryByText('Opening your workspace…'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Selected task')).not.toBeInTheDocument();
+
+    await act(async () => routedTask.resolve(taskB));
+    expect(screen.getByLabelText('Task detail loading')).toBeVisible();
+    await act(async () => taskDetail.resolve(taskB));
+
+    expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
+      taskB.id,
+    );
+    expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
+    expect(screen.getByTestId('task-list')).toBe(taskList);
+    expect(taskList.scrollTop).toBe(48);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/tasks?task=1',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Go forward' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/tasks?task=2',
+      ),
+    );
+    expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
+    expect(screen.getByTestId('task-list')).toBe(taskList);
+    expect(taskList.scrollTop).toBe(48);
+  });
+
+  it('uses the workspace-opening state for a cold Task deep link', async () => {
+    const routedTask = deferred<Task>();
+    mocks.getTaskByNumber.mockReturnValue(routedTask.promise);
+
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
+    });
+
+    await waitFor(() => expect(mocks.getTaskByNumber).toHaveBeenCalledOnce());
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+    expect(
+      globalThis.document.querySelector('.workspace-shell'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => routedTask.resolve(task));
+
+    expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
+      task.id,
+    );
+  });
+
+  it('does not expose a cached Project Task before current Project access settles', async () => {
+    const routedTask = deferred<Task>();
+    const projectAccess = deferred<Project[]>();
+    mocks.getTaskByNumber.mockReturnValue(routedTask.promise);
+    mocks.listProjects.mockReturnValue(projectAccess.promise);
+
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/tasks?task=2'],
+      seededProjects: [enabledViewsProject],
+      seededTasks: [{ ...taskB, project_id: enabledViewsProject.id }],
+    });
+
+    await waitFor(() => expect(mocks.getTaskByNumber).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledOnce());
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+    expect(
+      globalThis.document.querySelector('.workspace-shell'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => projectAccess.resolve([]));
+
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+    expect(screen.queryByLabelText('Selected task')).not.toBeInTheDocument();
+
+    await act(async () =>
+      routedTask.reject(new ApiError(403, 'forbidden', 'Task access denied')),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/tasks$/,
+      ),
+    );
+  });
+
+  it('clears a cached Task selection after the route resolver denies access', async () => {
+    mocks.getTaskByNumber.mockImplementation(
+      (_context, _workspaceId, taskNumber: number) =>
+        taskNumber === taskB.task_number
+          ? Promise.reject(new ApiError(403, 'forbidden', 'Task access denied'))
+          : task,
+    );
+    mocks.getTask.mockImplementation(
+      (_context, _workspaceId, taskId: string) =>
+        taskId === taskB.id ? new Promise<Task>(() => undefined) : task,
+    );
+    mocks.queryTasks.mockResolvedValue([task]);
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/tasks?task=1'],
+    });
+
+    expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
+      task.id,
+    );
+    queryClient.setQueryData(
+      ['tasks', 'workspace-1', 'another-authorized-collection'],
+      [taskB],
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Task B' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/tasks$/,
+      ),
+    );
+    expect(screen.queryByLabelText('Selected task')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Task detail loading'),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([403, 404])(
+    'clears an unavailable Task after a %s route response',
+    async (status) => {
+      mocks.getTaskByNumber.mockRejectedValueOnce(
+        new ApiError(status, 'unavailable', 'Task unavailable'),
+      );
+
+      renderWorkspaceRoutes({
+        initialEntries: ['/w/workspace-1/tasks?task=1'],
+      });
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('Current location')).toHaveTextContent(
+          /^\/w\/workspace-1\/tasks$/,
+        ),
+      );
+      expect(screen.queryByLabelText('Selected task')).not.toBeInTheDocument();
+    },
+  );
+
   it('strips a malformed public Task number without issuing a lookup', async () => {
     renderWorkspaceRoutes({
       initialEntries: ['/w/workspace-1/tasks?task=not-a-uuid'],
@@ -2019,6 +2244,119 @@ describe('WorkspaceShell routing integration', () => {
       '/w/workspace-1/library?page=1',
     );
     expect(flushDocumentSaves).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the shell mounted while an uncached Library Page resolves', async () => {
+    const routedDocument = deferred<WorkspaceDocument>();
+    mocks.getDocumentByNumber.mockImplementation(
+      (_context, _workspaceId, documentNumber: number) =>
+        documentNumber === documentB.document_number
+          ? routedDocument.promise
+          : document,
+    );
+    const { queryClient } = renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/library?page=1'],
+    });
+
+    expect(await screen.findByLabelText('Selected document')).toHaveTextContent(
+      document.id,
+    );
+    queryClient.setQueryData(
+      ['documents', 'workspace-1', 'another-authorized-library'],
+      [documentB],
+    );
+    const shell = globalThis.document.querySelector('.workspace-shell');
+    const documentWorkspace = screen.getByTestId('document-workspace');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open second note' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/library?page=2',
+      ),
+    );
+    expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
+    expect(screen.getByTestId('document-workspace')).toBe(documentWorkspace);
+    expect(screen.getByLabelText('Selected document')).toHaveTextContent(
+      documentB.id,
+    );
+    expect(
+      screen.queryByText('Opening your workspace…'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => routedDocument.resolve(documentB));
+
+    expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
+    expect(screen.getByTestId('document-workspace')).toBe(documentWorkspace);
+  });
+
+  it('uses the workspace-opening state for a cold Library Page deep link', async () => {
+    const routedDocument = deferred<WorkspaceDocument>();
+    mocks.getDocumentByNumber.mockReturnValue(routedDocument.promise);
+
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/library?page=1'],
+    });
+
+    await waitFor(() =>
+      expect(mocks.getDocumentByNumber).toHaveBeenCalledOnce(),
+    );
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+    expect(
+      globalThis.document.querySelector('.workspace-shell'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => routedDocument.resolve(document));
+
+    expect(await screen.findByLabelText('Selected document')).toHaveTextContent(
+      document.id,
+    );
+  });
+
+  it('does not expose a cached Project Page after current Project access is revoked', async () => {
+    const routedDocument = deferred<WorkspaceDocument>();
+    const projectAccess = deferred<Project[]>();
+    mocks.getDocumentByNumber.mockReturnValue(routedDocument.promise);
+    mocks.listProjects.mockReturnValue(projectAccess.promise);
+
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/p/project-2/library?page=2'],
+      seededProjects: [enabledViewsProject],
+      seededDocuments: [{ ...documentB, project_id: enabledViewsProject.id }],
+    });
+
+    await waitFor(() =>
+      expect(mocks.getDocumentByNumber).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() => expect(mocks.listProjects).toHaveBeenCalledOnce());
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+
+    await act(async () =>
+      projectAccess.resolve([
+        {
+          ...enabledViewsProject,
+          visibility: 'public',
+          effective_role: null,
+          can_join: true,
+        },
+      ]),
+    );
+
+    expect(screen.getByText('Opening your workspace…')).toBeVisible();
+    expect(
+      screen.queryByLabelText('Selected document'),
+    ).not.toBeInTheDocument();
+
+    await act(async () =>
+      routedDocument.reject(
+        new ApiError(403, 'forbidden', 'Page access denied'),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        /^\/w\/workspace-1\/p\/project-2$/,
+      ),
+    );
   });
 
   it('does not archive an open Task when its Markdown save fails', async () => {
@@ -2266,12 +2604,16 @@ function renderWorkspaceRoutes({
   routeUser = user,
   seededWorkspaces,
   seededProjects,
+  seededTasks,
+  seededDocuments,
 }: {
   initialEntries: InitialEntry[];
   flushDocumentSaves?: () => Promise<void>;
   routeUser?: User;
   seededWorkspaces?: Workspace[];
   seededProjects?: Project[];
+  seededTasks?: Task[];
+  seededDocuments?: WorkspaceDocument[];
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -2292,6 +2634,18 @@ function renderWorkspaceRoutes({
     queryClient.setQueryData(['projects', 'workspace-1'], seededProjects, {
       updatedAt: 0,
     });
+  }
+  if (seededTasks) {
+    queryClient.setQueryData(
+      ['tasks', 'workspace-1', 'seeded-route-cache'],
+      seededTasks,
+    );
+  }
+  if (seededDocuments) {
+    queryClient.setQueryData(
+      ['documents', 'workspace-1', 'seeded-route-cache'],
+      seededDocuments,
+    );
   }
   const shellProps = {
     serverUrl: 'http://server.test',
