@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Workspace } from './types';
 import { WorkspaceControl } from './WorkspaceControl';
@@ -16,6 +17,7 @@ const workspaces: Workspace[] = [
   workspace('workspace-1', 'Kanleaf Core'),
   workspace('workspace-2', 'Website'),
 ];
+const workspaceTriggerName = 'Switch workspace, current workspace Kanleaf Core';
 
 describe('WorkspaceControl', () => {
   it('forwards a selection of the routed Workspace so an in-flight switch can be repaired', () => {
@@ -37,7 +39,7 @@ describe('WorkspaceControl', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     fireEvent.click(screen.getByRole('button', { name: /^Kanleaf Core/ }));
 
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-1');
@@ -69,7 +71,7 @@ describe('WorkspaceControl', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     expect(screen.getByText('quang@example.com')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Settings for Kanleaf Core' }),
@@ -80,23 +82,23 @@ describe('WorkspaceControl', () => {
     fireEvent.click(screen.getByRole('button', { name: /Website/ }));
     expect(onSwitchWorkspace).toHaveBeenCalledWith('workspace-2');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     fireEvent.click(
       screen.getByRole('button', { name: 'Settings for Kanleaf Core' }),
     );
     expect(onOpenWorkspaceSettings).toHaveBeenCalledWith('general');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     fireEvent.click(
       screen.getByRole('button', { name: 'Workspace invitations' }),
     );
     expect(onOpenInvitations).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     fireEvent.click(screen.getByRole('button', { name: 'Import workspace' }));
     expect(onImportWorkspace).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
     fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
     fireEvent.change(screen.getByLabelText('Workspace name'), {
       target: { value: 'Personal notes' },
@@ -118,7 +120,37 @@ describe('WorkspaceControl', () => {
     expect(onToggleNavigation).toHaveBeenCalledOnce();
   });
 
-  it('keeps the Workspace switcher available as a compact rail control', () => {
+  it('keeps the expanded Workspace switcher and navigation toggle independent', async () => {
+    const user = userEvent.setup();
+    const onToggleNavigation = vi.fn();
+    renderControl({ onToggleNavigation });
+
+    const workspaceSwitcher = screen.getByRole('button', {
+      name: workspaceTriggerName,
+    });
+    const navigationToggle = screen.getByRole('button', {
+      name: 'Collapse navigation',
+    });
+    expect(workspaceSwitcher).not.toBe(navigationToggle);
+
+    await user.click(workspaceSwitcher);
+    expect(
+      screen.getByRole('dialog', { name: 'Workspace Switcher' }),
+    ).toBeVisible();
+    expect(onToggleNavigation).not.toHaveBeenCalled();
+
+    await user.keyboard('[Escape]');
+    await user.click(navigationToggle);
+    expect(onToggleNavigation).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole('dialog', { name: 'Workspace Switcher' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the Workspace switcher independent and fully usable in the rail', async () => {
+    const user = userEvent.setup();
+    const onOpenInvitations = vi.fn();
+    const onToggleNavigation = vi.fn();
     render(
       <WorkspaceControl
         context={context}
@@ -130,25 +162,41 @@ describe('WorkspaceControl', () => {
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
         onFinishWorkspace={vi.fn()}
         onOpenWorkspaceSettings={vi.fn()}
-        onOpenInvitations={vi.fn()}
+        onOpenInvitations={onOpenInvitations}
         onImportWorkspace={vi.fn()}
-        onToggleNavigation={vi.fn()}
+        onToggleNavigation={onToggleNavigation}
       />,
     );
 
-    const trigger = screen.getByRole('button', { name: 'Active workspace' });
+    const trigger = screen.getByRole('button', {
+      name: workspaceTriggerName,
+    });
     expect(trigger).toHaveTextContent('K');
     expect(trigger).not.toHaveTextContent('Kanleaf Core');
-    fireEvent.click(trigger);
+    await user.click(trigger);
+    expect(
+      screen.getByRole('dialog', { name: 'Workspace Switcher' }),
+    ).toBeVisible();
+    expect(onToggleNavigation).not.toHaveBeenCalled();
     expect(
       screen.getByRole('button', { name: /^Website/ }),
     ).toBeInTheDocument();
+    await user.keyboard('[Escape]');
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    await user.click(
+      screen.getByRole('button', { name: 'Workspace invitations' }),
+    );
+    expect(onOpenInvitations).toHaveBeenCalledOnce();
+    expect(onToggleNavigation).not.toHaveBeenCalled();
     expect(
       screen.queryByRole('button', { name: 'Collapse navigation' }),
     ).not.toBeInTheDocument();
   });
 
-  it('uses a close action inside the narrow drawer', () => {
+  it('keeps the full Workspace switcher independent from the drawer close action', async () => {
+    const user = userEvent.setup();
     const onToggleNavigation = vi.fn();
     render(
       <WorkspaceControl
@@ -167,14 +215,25 @@ describe('WorkspaceControl', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close navigation' }));
+    const workspaceSwitcher = screen.getByRole('button', {
+      name: workspaceTriggerName,
+    });
+    expect(workspaceSwitcher).toHaveTextContent('Kanleaf Core');
+    await user.click(workspaceSwitcher);
+    expect(
+      screen.getByRole('dialog', { name: 'Workspace Switcher' }),
+    ).toBeVisible();
+    expect(onToggleNavigation).not.toHaveBeenCalled();
+
+    await user.keyboard('[Escape]');
+    await user.click(screen.getByRole('button', { name: 'Close navigation' }));
     expect(onToggleNavigation).toHaveBeenCalledOnce();
   });
 
   it('restores focus to the stable Workspace switcher after closing creation', async () => {
     renderControl();
     const workspaceSwitcher = screen.getByRole('button', {
-      name: 'Active workspace',
+      name: workspaceTriggerName,
     });
 
     fireEvent.click(workspaceSwitcher);
@@ -193,7 +252,7 @@ describe('WorkspaceControl', () => {
       onFinishWorkspace: vi.fn().mockResolvedValue(undefined),
     });
     const workspaceSwitcher = screen.getByRole('button', {
-      name: 'Active workspace',
+      name: workspaceTriggerName,
     });
 
     fireEvent.click(workspaceSwitcher);
@@ -215,12 +274,14 @@ function renderControl({
     .fn()
     .mockResolvedValue(workspace('workspace-3', 'Personal notes')),
   onFinishWorkspace = vi.fn(),
+  onToggleNavigation = vi.fn(),
 }: {
   onCreateWorkspace?: (identity: {
     name: string;
     identifier: string;
   }) => Promise<Workspace>;
   onFinishWorkspace?: (workspace: Workspace) => void | Promise<void>;
+  onToggleNavigation?: () => void;
 } = {}) {
   return render(
     <WorkspaceControl
@@ -235,7 +296,7 @@ function renderControl({
       onOpenWorkspaceSettings={vi.fn()}
       onOpenInvitations={vi.fn()}
       onImportWorkspace={vi.fn()}
-      onToggleNavigation={vi.fn()}
+      onToggleNavigation={onToggleNavigation}
     />,
   );
 }

@@ -992,7 +992,11 @@ describe('WorkspaceShell routing integration', () => {
         'workspace-2',
       ),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Active workspace' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Switch workspace, current workspace Workspace One',
+      }),
+    );
     fireEvent.click(screen.getByRole('button', { name: /^Workspace One/ }));
 
     await act(async () => workspaceTwo.resolve());

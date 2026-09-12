@@ -221,7 +221,9 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByLabel('Issued invitation token')).toBeVisible();
   await page.getByRole('button', { name: 'Finish setup' }).click();
 
-  const workspaceSelect = page.getByLabel('Active workspace');
+  const workspaceSelect = page.getByRole('button', {
+    name: /^Switch workspace, current workspace /,
+  });
   await expect(workspaceSelect).toContainText('Studio');
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
@@ -1491,15 +1493,73 @@ test('keeps project navigation available through the rail and narrow drawer', as
     }
   });
 
-  await page.getByRole('button', { name: 'Collapse navigation' }).click();
+  const shell = page.locator('.workspace-shell');
+  const workspacePopover = page.getByRole('dialog', {
+    name: 'Workspace Switcher',
+  });
+  const expandedWorkspaceSwitcher = page.getByRole('button', {
+    name: `Switch workspace, current workspace ${account.workspaceName}`,
+  });
+  const collapseNavigation = page.getByRole('button', {
+    name: 'Collapse navigation',
+  });
+  const [workspaceSwitcherBox, navigationToggleBox] = await Promise.all([
+    expandedWorkspaceSwitcher.boundingBox(),
+    collapseNavigation.boundingBox(),
+  ]);
+  expect(workspaceSwitcherBox).not.toBeNull();
+  expect(navigationToggleBox).not.toBeNull();
+  expect(workspaceSwitcherBox?.x ?? 0).toBeLessThan(
+    navigationToggleBox?.x ?? 0,
+  );
+  expect(
+    (workspaceSwitcherBox?.x ?? 0) + (workspaceSwitcherBox?.width ?? 0),
+  ).toBeLessThan(navigationToggleBox?.x ?? 0);
+
+  await expandedWorkspaceSwitcher.click();
+  await expect(workspacePopover).toBeVisible();
+  await expect(workspacePopover.getByText(email)).toBeVisible();
+  await expect(
+    workspacePopover.getByRole('button', { name: 'New workspace' }),
+  ).toBeVisible();
+  await expect(
+    workspacePopover.getByRole('button', { name: 'Import workspace' }),
+  ).toBeVisible();
+  await expect(
+    workspacePopover.getByRole('button', {
+      name: 'Workspace invitations',
+    }),
+  ).toBeVisible();
+  await expect(shell).toHaveAttribute('data-navigation-mode', 'expanded');
+  expect(localWorkspaceRequests).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(expandedWorkspaceSwitcher).toBeFocused();
+
+  await collapseNavigation.click();
+  await expect(workspacePopover).not.toBeVisible();
   const desktopRail = page.getByRole('navigation', {
     name: 'Workspace navigation rail',
   });
   await expect(desktopRail).toBeVisible();
+  await expect(shell).toHaveAttribute('data-navigation-mode', 'rail');
   await expect(page.locator('.navigation-pane-rail')).toHaveCSS(
     'width',
     '44px',
   );
+  const railWorkspaceSwitcher = desktopRail.getByRole('button', {
+    name: `Switch workspace, current workspace ${account.workspaceName}`,
+  });
+  await expect(railWorkspaceSwitcher).toBeVisible();
+  await expect(railWorkspaceSwitcher).not.toContainText(account.workspaceName);
+  await railWorkspaceSwitcher.click();
+  await expect(workspacePopover).toBeVisible();
+  await expect(shell).toHaveAttribute('data-navigation-mode', 'rail');
+  await expect(
+    desktopRail.getByRole('button', { name: 'Expand navigation' }),
+  ).toBeVisible();
+  expect(localWorkspaceRequests).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(railWorkspaceSwitcher).toBeFocused();
   for (const destination of ['Inbox', 'My Work', 'All tasks', 'Library']) {
     await expect(
       desktopRail.getByRole('button', { name: destination }),
@@ -1532,6 +1592,11 @@ test('keeps project navigation available through the rail and narrow drawer', as
   const fullNavigation = page.getByRole('navigation', { name: 'Workspace' });
   await expect(fullNavigation).toBeVisible();
   await expect(
+    page.getByRole('button', {
+      name: `Switch workspace, current workspace ${account.workspaceName}`,
+    }),
+  ).toContainText(account.workspaceName);
+  await expect(
     fullNavigation.getByRole('button', { name: 'Work items' }),
   ).toHaveAttribute('aria-current', 'page');
 
@@ -1540,17 +1605,31 @@ test('keeps project navigation available through the rail and narrow drawer', as
   const narrowRail = page.getByRole('navigation', {
     name: 'Workspace navigation rail',
   });
+  const narrowWorkspaceSwitcher = narrowRail.getByRole('button', {
+    name: `Switch workspace, current workspace ${account.workspaceName}`,
+  });
+  await expect(narrowWorkspaceSwitcher).not.toContainText(
+    account.workspaceName,
+  );
+  await narrowWorkspaceSwitcher.click();
+  await expect(workspacePopover).toBeVisible();
+  await expect(shell).toHaveAttribute('data-navigation-mode', 'rail');
+  await page.keyboard.press('Escape');
+  await expect(narrowWorkspaceSwitcher).toBeFocused();
   await narrowRail.getByRole('button', { name: 'Open navigation' }).click();
   const drawer = page.getByRole('dialog', { name: 'Workspace navigation' });
   await expect(drawer).toBeVisible();
-  await expect(drawer.getByLabel('Active workspace')).toContainText(
-    account.workspaceName,
-  );
+  const drawerWorkspaceSwitcher = drawer.getByRole('button', {
+    name: `Switch workspace, current workspace ${account.workspaceName}`,
+  });
+  await expect(drawerWorkspaceSwitcher).toContainText(account.workspaceName);
   await expect(
     drawer.getByRole('button', { name: 'Switch account' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
-  await drawer.getByRole('button', { name: 'Active workspace' }).click();
+  await drawerWorkspaceSwitcher.click();
+  await expect(workspacePopover).toBeVisible();
+  await expect(drawer).toBeVisible();
   await page
     .getByRole('button', { name: `Settings for ${account.workspaceName}` })
     .click();
@@ -1793,9 +1872,11 @@ test('returns a new account to a direct invitation before explicit acceptance', 
     new RegExp(`/w/${owner.workspaceIdentifier}/my-work$`),
   );
   expect(acceptRequests).toBe(1);
-  await expect(page.getByLabel('Active workspace')).toContainText(
-    owner.workspaceName,
-  );
+  await expect(
+    page.getByRole('button', {
+      name: /^Switch workspace, current workspace /,
+    }),
+  ).toContainText(owner.workspaceName);
 });
 
 test('keeps an existing account on the invitation through sign in', async ({
@@ -1963,9 +2044,11 @@ test('delivers collaboration activity through the notification inbox', async ({
     owner.token,
   );
   await page.goto('/');
-  await expect(page.getByLabel('Active workspace')).toContainText(
-    owner.workspaceName,
-  );
+  await expect(
+    page.getByRole('button', {
+      name: /^Switch workspace, current workspace /,
+    }),
+  ).toContainText(owner.workspaceName);
   await expect(page.getByLabel('1 unread')).toBeVisible();
   await page.getByRole('button', { name: 'Notifications' }).click();
   await page

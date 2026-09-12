@@ -51,6 +51,8 @@ export function WorkspaceControl({
   const restoreWorkspaceSwitcher = useRef(false);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
   const compact = mode === 'rail';
+  const workspaceName = workspace?.name ?? 'Workspace';
+  const workspaceSwitcherLabel = `Switch workspace, current workspace ${workspaceName}`;
 
   useEffect(() => {
     if (creatingWorkspace || !restoreWorkspaceSwitcher.current) return;
@@ -63,11 +65,6 @@ export function WorkspaceControl({
     setCreatingWorkspace(false);
   }
 
-  function toggleNavigation() {
-    setCreatingWorkspace(false);
-    onToggleNavigation();
-  }
-
   return (
     <section
       className="workspace-control"
@@ -78,23 +75,22 @@ export function WorkspaceControl({
         <Popover
           key={compact ? 'compact' : 'full'}
           className="workspace-switcher-menu"
-          label="Active workspace"
+          label={workspaceSwitcherLabel}
+          contentLabel="Workspace Switcher"
           align="start"
           placement={compact ? 'right' : 'down'}
           sideOffset={7}
           triggerRef={workspaceSwitcherRef}
-          triggerTooltip={
-            compact ? (workspace?.name ?? 'Workspace') : undefined
-          }
+          triggerTooltip={compact ? workspaceName : undefined}
           trigger={
             <>
               <span className="workspace-trigger-mark" aria-hidden="true">
-                {initial(workspace?.name, 'W')}
+                {initial(workspaceName, 'W')}
               </span>
               {!compact ? (
                 <>
                   <span className="workspace-trigger-name">
-                    {workspace?.name ?? 'Workspace'}
+                    {workspaceName}
                   </span>
                   <ChevronDown
                     className="workspace-trigger-chevron"
@@ -179,22 +175,19 @@ export function WorkspaceControl({
           </div>
         </Popover>
         {!compact ? (
-          <>
-            <span className="workspace-control-divider" aria-hidden="true" />
-            <IconButton
-              className="workspace-control-toggle"
-              variant="ghost"
-              size="sm"
-              type="button"
-              aria-label={
-                mode === 'drawer' ? 'Close navigation' : 'Collapse navigation'
-              }
-              aria-expanded
-              onClick={toggleNavigation}
-            >
-              <PanelLeftClose aria-hidden="true" size={15} />
-            </IconButton>
-          </>
+          <IconButton
+            className="workspace-control-toggle"
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label={
+              mode === 'drawer' ? 'Close navigation' : 'Collapse navigation'
+            }
+            aria-expanded
+            onClick={onToggleNavigation}
+          >
+            <PanelLeftClose aria-hidden="true" size={15} />
+          </IconButton>
         ) : null}
       </div>
       {creatingWorkspace ? (
