@@ -40,6 +40,7 @@ import type { NavigationMode } from './workspacePaneLayout';
 interface WorkspaceNavigationProps {
   mode: NavigationMode;
   accountSwitcher: ReactNode;
+  railWorkspaceControl: ReactNode;
   context: ApiContext;
   workspace: Workspace;
   currentUser: { id: string; displayName: string };
@@ -71,6 +72,7 @@ export type WorkspaceSurface =
 export function WorkspaceNavigation({
   mode,
   accountSwitcher,
+  railWorkspaceControl,
   context,
   workspace,
   currentUser,
@@ -103,6 +105,7 @@ export function WorkspaceNavigation({
     return (
       <aside className="navigation-pane navigation-pane-rail">
         <NavigationRail
+          workspaceControl={railWorkspaceControl}
           canUseContent={canUseContent}
           projects={projects}
           workspaceViews={workspaceViews}
@@ -367,6 +370,7 @@ export function WorkspaceNavigation({
 }
 
 interface NavigationRailProps {
+  workspaceControl: ReactNode;
   canUseContent: boolean;
   projects: Project[];
   workspaceViews: SavedView[];
@@ -391,6 +395,7 @@ interface NavigationRailProps {
 }
 
 function NavigationRail({
+  workspaceControl,
   canUseContent,
   projects,
   workspaceViews,
@@ -447,6 +452,7 @@ function NavigationRail({
           ariaExpanded={toggleExpanded}
           ariaHasPopup={toggleOpensDrawer ? 'dialog' : undefined}
         />
+        {workspaceControl}
         <div className="navigation-rail-separator" role="separator" />
         {canUseContent ? (
           <>

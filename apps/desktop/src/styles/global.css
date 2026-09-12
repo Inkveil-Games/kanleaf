@@ -1539,6 +1539,10 @@ select {
   grid-row: 3;
 }
 
+.workspace-shell.navigation-rail-layout > .navigation-pane-rail {
+  grid-row: 2 / -1;
+}
+
 .collection-pane {
   grid-column: 2;
   grid-row: 2 / -1;
@@ -1922,6 +1926,14 @@ select {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.navigation-rail-actions > .workspace-control[data-navigation-mode='rail'] {
+  width: 100%;
+  grid-column: auto;
+  grid-row: auto;
+  border-right: 0;
+  border-bottom: 0;
 }
 
 .workspace-control[data-navigation-mode='rail'] .workspace-switcher-menu,

@@ -71,6 +71,9 @@ describe('WorkspaceNavigation', () => {
     const rail = screen.getByRole('navigation', {
       name: 'Workspace navigation rail',
     });
+    const railButtons = within(rail).getAllByRole('button');
+    expect(railButtons[0]).toHaveAccessibleName('Expand navigation');
+    expect(railButtons[1]).toHaveAccessibleName('Active workspace');
     expect(within(rail).getByRole('button', { name: 'Inbox' })).toBeVisible();
     expect(within(rail).getByRole('button', { name: 'My Work' })).toBeVisible();
     expect(
@@ -281,6 +284,11 @@ function navigation({
     <WorkspaceNavigation
       mode={mode}
       accountSwitcher={<button type="button">Account</button>}
+      railWorkspaceControl={
+        <button type="button" aria-label="Active workspace">
+          K
+        </button>
+      }
       context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
       workspace={currentWorkspace}
       currentUser={{ id: 'user-1', displayName: 'Quang Tran' }}

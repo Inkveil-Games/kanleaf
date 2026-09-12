@@ -1813,6 +1813,9 @@ export function WorkspaceShell({
         mode={mode}
         context={context}
         accountSwitcher={renderAccountSwitcher(mode === 'rail')}
+        railWorkspaceControl={
+          mode === 'rail' ? renderWorkspaceControl('rail') : null
+        }
         workspace={visibleWorkspace}
         currentUser={{ id: user.id, displayName: user.display_name }}
         projects={projects.data ?? []}
@@ -1860,7 +1863,9 @@ export function WorkspaceShell({
       style={shellStyle}
       data-navigation-mode={paneLayout.navigationMode}
     >
-      {renderWorkspaceControl(inlineNavigationMode)}
+      {inlineNavigationMode === 'expanded'
+        ? renderWorkspaceControl('expanded')
+        : null}
       <WorkspaceTopBar
         context={context}
         onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
