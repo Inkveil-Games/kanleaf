@@ -238,8 +238,13 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Workspace name').fill('Studio Workspace');
   await page.getByRole('button', { name: 'Save workspace' }).click();
   await expect(page.getByText('Workspace updated')).toBeVisible();
-  await expect(workspaceSelect).toContainText('Studio Workspace');
+  await expect(
+    page.getByRole('dialog', {
+      name: 'Studio Workspace Workspace settings',
+    }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await expect(workspaceSelect).toContainText('Studio Workspace');
   await page.getByRole('button', { name: 'Switch account' }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page).toHaveURL(
