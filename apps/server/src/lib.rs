@@ -11,6 +11,7 @@ pub mod http;
 pub mod mail;
 pub mod portability;
 pub mod project;
+pub mod realtime;
 pub mod saved_view;
 pub mod state;
 pub mod task;

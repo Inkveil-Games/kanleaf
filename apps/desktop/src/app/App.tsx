@@ -25,6 +25,7 @@ import { publicRouteFromPathname } from './routing/publicRoutes';
 import { InvitationPage } from '../features/workspace/InvitationPage';
 import { ForgotPasswordScreen } from '../features/auth/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../features/auth/ResetPasswordScreen';
+import { RealtimeProvider } from '../features/collaboration/RealtimeProvider';
 
 export function App() {
   const configuration = readServerConfiguration();
@@ -237,17 +238,19 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
   };
   return (
     <>
-      <AuthenticatedRoutes
-        serverUrl={serverUrl}
-        token={token}
-        user={session.data.user}
-        onSessionChanged={async () => {
-          const result = await session.refetch();
-          if (result.error) throw result.error;
-        }}
-        flushDocumentSaves={flushDocumentSaves}
-        {...accountProps}
-      />
+      <RealtimeProvider serverUrl={serverUrl} token={token}>
+        <AuthenticatedRoutes
+          serverUrl={serverUrl}
+          token={token}
+          user={session.data.user}
+          onSessionChanged={async () => {
+            const result = await session.refetch();
+            if (result.error) throw result.error;
+          }}
+          flushDocumentSaves={flushDocumentSaves}
+          {...accountProps}
+        />
+      </RealtimeProvider>
       {addingAccount && (
         <AddAccountDialog
           serverUrl={serverUrl}

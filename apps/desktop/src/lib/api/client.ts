@@ -55,7 +55,7 @@ export async function apiRequest<T>(
     ...options,
     headers,
   });
-  if (response.status === 401 && token) notifyUnauthorized(token);
+  if (response.status === 401 && token) notifyUnauthorizedSession(token);
   if (response.status === 204) {
     if (!response.ok) {
       throw new ApiError(response.status, 'request_failed', 'Request failed');
@@ -84,7 +84,7 @@ export async function apiDownload(
   const response = await fetch(`${serverUrl}${path}`, {
     headers: { authorization: `Bearer ${token}` },
   });
-  if (response.status === 401) notifyUnauthorized(token);
+  if (response.status === 401) notifyUnauthorizedSession(token);
   if (!response.ok) {
     const payload = (await readJson(response)) as ErrorEnvelope;
     throw new ApiError(
@@ -99,7 +99,7 @@ export async function apiDownload(
   };
 }
 
-function notifyUnauthorized(token: string) {
+export function notifyUnauthorizedSession(token: string) {
   for (const listener of unauthorizedListeners) listener(token);
 }
 

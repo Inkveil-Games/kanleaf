@@ -38,6 +38,7 @@ use crate::{
     domain::{TaskPriority, TaskTitle, VaultStorageName},
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
+    realtime::RealtimeEvent,
     task_config::{
         lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
         validate_task_type_assignment,
@@ -475,6 +476,9 @@ pub(crate) async fn create(
         }
         return Err(error.into());
     }
+    state
+        .realtime
+        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     project_now(&state, workspace_id, task_id).await;
     let task = find_task(&state.pool, workspace_id, task_id).await?;
     Ok((StatusCode::CREATED, Json(task)))
@@ -899,7 +903,8 @@ pub(crate) async fn update_task_with_properties(
     if !property_values.is_empty() {
         changed_fields.push("custom_properties");
     }
-    if !changed_fields.is_empty() {
+    let activity_changed = !changed_fields.is_empty();
+    if activity_changed {
         record_activity(
             &mut transaction,
             workspace_id,
@@ -960,6 +965,11 @@ pub(crate) async fn update_task_with_properties(
     }
     if let Some(file_update) = &file_update {
         finish_task_file_update(state, task_id, file_update).await;
+    }
+    if activity_changed {
+        state
+            .realtime
+            .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     }
     project_many(state, workspace_id, &projection_task_ids).await;
     find_task(&state.pool, workspace_id, task_id).await
@@ -1030,6 +1040,9 @@ pub(crate) async fn archive(
     projection_task_ids.extend(child_ids);
     enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
     transaction.commit().await?;
+    state
+        .realtime
+        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     project_many(&state, workspace_id, &projection_task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1349,6 +1362,11 @@ pub(crate) async fn bulk_update(
         rollback_task_file_updates(&state, workspace_id, &file_updates).await;
         return Err(error.into());
     }
+    for task_id in &task_ids {
+        state
+            .realtime
+            .publish(RealtimeEvent::task_activity_changed(workspace_id, *task_id));
+    }
     finish_task_file_updates(&state, &file_updates).await;
     project_many(&state, workspace_id, &projection_task_ids).await;
     let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
@@ -1435,6 +1453,9 @@ pub(crate) async fn add_relation(
     )
     .await?;
     transaction.commit().await?;
+    state
+        .realtime
+        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     Ok((
         StatusCode::CREATED,
         Json(find_task(&state.pool, workspace_id, task_id).await?),
@@ -1495,6 +1516,9 @@ pub(crate) async fn remove_relation(
     )
     .await?;
     transaction.commit().await?;
+    state
+        .realtime
+        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1580,6 +1604,9 @@ pub(crate) async fn write_document(
     )
     .await?;
     transaction.commit().await?;
+    state
+        .realtime
+        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     let projection = projection_health(&state, workspace_id, task_id).await?;
     Ok(Json(DocumentResponse {
         content: request.content,

@@ -22,6 +22,7 @@ use crate::{
     domain::ProjectRole,
     error::AppError,
     project::{require_project_access, require_project_commenter},
+    realtime::RealtimeEvent,
     workspace::workspace_role,
 };
 
@@ -316,6 +317,11 @@ async fn create_comment(
     )
     .await?;
     transaction.commit().await?;
+    state.realtime.publish(RealtimeEvent::comment_created(
+        workspace_id,
+        task_id,
+        comment_id,
+    ));
     Ok((
         StatusCode::CREATED,
         Json(find_comment(&state.pool, workspace_id, task_id, comment_id).await?),
@@ -406,6 +412,11 @@ async fn edit_comment(
     )
     .await?;
     transaction.commit().await?;
+    state.realtime.publish(RealtimeEvent::comment_edited(
+        workspace_id,
+        task_id,
+        comment_id,
+    ));
     Ok(Json(
         find_comment(&state.pool, workspace_id, task_id, comment_id).await?,
     ))
@@ -461,6 +472,11 @@ async fn delete_comment(
         .execute(&mut *transaction)
         .await?;
     transaction.commit().await?;
+    state.realtime.publish(RealtimeEvent::comment_deleted(
+        workspace_id,
+        task_id,
+        comment_id,
+    ));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -941,7 +957,7 @@ async fn notify_mentions(
     Ok(())
 }
 
-async fn authorize_task(
+pub(crate) async fn authorize_task(
     pool: &PgPool,
     user_id: Uuid,
     workspace_id: Uuid,

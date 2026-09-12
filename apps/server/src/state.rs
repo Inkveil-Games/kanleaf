@@ -2,12 +2,13 @@ use std::{path::PathBuf, time::Duration};
 
 use sqlx::PgPool;
 
-use crate::{domain::NormalizedEmail, mail::Mailer, vault::Vault};
+use crate::{domain::NormalizedEmail, mail::Mailer, realtime::RealtimeHub, vault::Vault};
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub vault: Vault,
+    pub(crate) realtime: RealtimeHub,
     pub session_ttl: Duration,
     host_email: Option<NormalizedEmail>,
     mailer: Mailer,
@@ -18,6 +19,7 @@ impl AppState {
         Self {
             pool,
             vault: Vault::new(data_dir),
+            realtime: RealtimeHub::new(),
             session_ttl,
             host_email: None,
             mailer: Mailer::disabled(),

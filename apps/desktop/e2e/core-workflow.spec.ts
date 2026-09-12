@@ -2104,6 +2104,97 @@ test('delivers collaboration activity through the notification inbox', async ({
   );
 });
 
+test('synchronizes Task comments between live browser sessions', async ({
+  browser,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const owner = await register(request, `live-owner-${suffix}@example.com`);
+  const memberEmail = `live-member-${suffix}@example.com`;
+  const member = await register(request, memberEmail);
+  const ownerHeaders = { authorization: `Bearer ${owner.token}` };
+  const memberHeaders = { authorization: `Bearer ${member.token}` };
+
+  const invitationResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/invitations`,
+    {
+      headers: ownerHeaders,
+      data: { email: memberEmail, role: 'member' },
+    },
+  );
+  expect(invitationResponse.status()).toBe(201);
+  const invitation = (await invitationResponse.json()) as { id: string };
+  const accepted = await request.post(
+    `${serverUrl}/api/invitations/${invitation.id}/accept`,
+    { headers: memberHeaders },
+  );
+  expect(accepted.status()).toBe(204);
+
+  const taskResponse = await request.post(
+    `${serverUrl}/api/workspaces/${owner.workspaceId}/tasks`,
+    {
+      headers: ownerHeaders,
+      data: { title: 'Realtime review' },
+    },
+  );
+  expect(taskResponse.status()).toBe(201);
+  const task = (await taskResponse.json()) as {
+    id: string;
+    task_number: number;
+  };
+
+  const ownerContext = await browser.newContext();
+  const memberContext = await browser.newContext();
+  try {
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+    await ownerPage.addInitScript(
+      (token) => localStorage.setItem('kanleaf.session-token', token),
+      owner.token,
+    );
+    await memberPage.addInitScript(
+      (token) => localStorage.setItem('kanleaf.session-token', token),
+      member.token,
+    );
+    const taskPath = `/w/${owner.workspaceIdentifier}/tasks?task=${task.task_number}`;
+    await Promise.all([ownerPage.goto(taskPath), memberPage.goto(taskPath)]);
+    await expect(ownerPage.getByLabel('Task title')).toHaveValue(
+      'Realtime review',
+    );
+    await expect(memberPage.getByLabel('Task title')).toHaveValue(
+      'Realtime review',
+    );
+    await expect(ownerPage.getByLabel('Add comment')).toBeVisible();
+    await expect(memberPage.getByLabel('Add comment')).toBeVisible();
+    await ownerPage.locator('.workspace-shell').evaluate((element) => {
+      element.setAttribute('data-live-session', 'owner');
+    });
+
+    const commentBody = 'Visible in both sessions without a reload.';
+    await memberPage.getByLabel('Add comment').fill(commentBody);
+    const commentSaved = memberPage.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith(`/tasks/${task.id}/comments`),
+    );
+    await memberPage
+      .getByRole('button', { name: 'Comment', exact: true })
+      .click();
+    expect((await commentSaved).status()).toBe(201);
+
+    await expect(
+      ownerPage.locator('.activity-comment').filter({ hasText: commentBody }),
+    ).toBeVisible();
+    await expect(ownerPage.locator('.workspace-shell')).toHaveAttribute(
+      'data-live-session',
+      'owner',
+    );
+  } finally {
+    await ownerContext.close();
+    await memberContext.close();
+  }
+});
+
 async function register(request: APIRequestContext, email: string) {
   const response = await request.post(`${serverUrl}/api/auth/register`, {
     data: { email, password: 'playwright-password' },

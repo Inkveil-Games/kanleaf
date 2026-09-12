@@ -489,10 +489,20 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             .filter(|token| (20..=200).contains(&token.len()))
             .filter(|token| !token.chars().any(char::is_whitespace))
             .ok_or(AppError::Unauthorized)?;
-        let token_hash = hash_secret_token(token);
+        authenticate_token(state, token).await
+    }
+}
 
-        let session = sqlx::query_as::<_, SessionUser>(
-            r#"
+pub(crate) async fn authenticate_token(
+    state: &AppState,
+    token: &str,
+) -> Result<AuthenticatedUser, AppError> {
+    if !(20..=200).contains(&token.len()) || token.chars().any(char::is_whitespace) {
+        return Err(AppError::Unauthorized);
+    }
+    let token_hash = hash_secret_token(token);
+    let session = sqlx::query_as::<_, SessionUser>(
+        r#"
             SELECT
                 sessions.id AS session_id,
                 sessions.expires_at,
@@ -519,31 +529,64 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                     )
                   )
             "#,
-        )
-        .bind(token_hash.as_slice())
-        .bind(state.host_email().map(NormalizedEmail::as_str))
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
-        let is_host = state.is_host_email(&session.email);
+    )
+    .bind(token_hash.as_slice())
+    .bind(state.host_email().map(NormalizedEmail::as_str))
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+    let is_host = state.is_host_email(&session.email);
 
-        Ok(Self {
-            session_id: session.session_id,
-            expires_at: session.expires_at,
-            user: UserResponse {
-                id: session.user_id,
-                email: session.email,
-                is_host,
-                display_name: session.display_name,
-                theme: session.theme,
-                timezone: session.timezone,
-                week_start: session.week_start,
-                date_format: session.date_format,
-                setup_stage: session.setup_stage,
-                active_workspace_id: session.active_workspace_id,
-            },
-        })
-    }
+    Ok(AuthenticatedUser {
+        session_id: session.session_id,
+        expires_at: session.expires_at,
+        user: UserResponse {
+            id: session.user_id,
+            email: session.email,
+            is_host,
+            display_name: session.display_name,
+            theme: session.theme,
+            timezone: session.timezone,
+            week_start: session.week_start,
+            date_format: session.date_format,
+            setup_stage: session.setup_stage,
+            active_workspace_id: session.active_workspace_id,
+        },
+    })
+}
+
+pub(crate) async fn session_is_active(
+    state: &AppState,
+    session_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM sessions
+            JOIN users ON users.id = sessions.user_id
+            CROSS JOIN instance_settings
+            WHERE sessions.id = $1
+              AND sessions.user_id = $2
+              AND sessions.expires_at > now()
+              AND (
+                    NOT instance_settings.restricted_access
+                    OR users.email = $3
+                    OR EXISTS (
+                        SELECT 1
+                        FROM instance_allowed_emails
+                        WHERE instance_allowed_emails.email = users.email
+                    )
+                  )
+        )
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(state.host_email().map(NormalizedEmail::as_str))
+    .fetch_one(&state.pool)
+    .await?)
 }
 
 impl FromRequestParts<AppState> for OptionalAuthenticatedUser {

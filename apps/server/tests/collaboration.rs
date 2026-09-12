@@ -7,19 +7,106 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use futures_util::{SinkExt, StreamExt};
 use http::HeaderValue;
 use kanleaf_server::{AppState, router};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
+use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message as WebSocketMessage,
+};
 use tower::ServiceExt;
 use uuid::Uuid;
+
+type TestWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+struct TestServer {
+    websocket_url: String,
+    task: JoinHandle<()>,
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
 
 fn test_app(pool: PgPool, data_dir: &TempDir) -> Router {
     router(
         AppState::new(pool, data_dir.path().to_owned(), Duration::from_secs(3600)),
         vec![HeaderValue::from_static("http://127.0.0.1:1420")],
     )
+}
+
+async fn start_test_server(app: Router) -> TestServer {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    TestServer {
+        websocket_url: format!("ws://{address}/api/realtime"),
+        task,
+    }
+}
+
+async fn connect_realtime(url: &str, token: &str) -> TestWebSocket {
+    let (mut socket, _) = connect_async(url).await.unwrap();
+    send_socket_message(
+        &mut socket,
+        json!({"version": 1, "type": "authenticate", "token": token}),
+    )
+    .await;
+    assert_eq!(
+        receive_socket_message(&mut socket).await["type"],
+        "authenticated"
+    );
+    socket
+}
+
+async fn subscribe_workspace(socket: &mut TestWebSocket, workspace_id: Uuid) -> Value {
+    send_socket_message(
+        socket,
+        json!({"version": 1, "type": "subscribe", "workspace_id": workspace_id}),
+    )
+    .await;
+    receive_socket_message(socket).await
+}
+
+async fn send_socket_message(socket: &mut TestWebSocket, message: Value) {
+    socket
+        .send(WebSocketMessage::Text(message.to_string().into()))
+        .await
+        .unwrap();
+}
+
+async fn receive_socket_message(socket: &mut TestWebSocket) -> Value {
+    loop {
+        let message = timeout(Duration::from_secs(2), socket.next())
+            .await
+            .expect("timed out waiting for realtime message")
+            .expect("realtime socket closed")
+            .expect("realtime socket failed");
+        match message {
+            WebSocketMessage::Text(text) => return serde_json::from_str(&text).unwrap(),
+            WebSocketMessage::Ping(payload) => {
+                socket.send(WebSocketMessage::Pong(payload)).await.unwrap();
+            }
+            WebSocketMessage::Close(frame) => panic!("realtime socket closed: {frame:?}"),
+            _ => {}
+        }
+    }
+}
+
+async fn expect_no_socket_message(socket: &mut TestWebSocket) {
+    assert!(
+        timeout(Duration::from_millis(200), socket.next())
+            .await
+            .is_err(),
+        "unexpected realtime message"
+    );
 }
 
 async fn send(
@@ -145,6 +232,245 @@ async fn project_task(
     )
     .await;
     (project_id, task["id"].as_str().unwrap().parse().unwrap())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn realtime_requires_authentication_and_workspace_membership(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "socket-owner@example.com").await;
+    let (outsider_token, outsider_id, _) = register(&app, "socket-outsider@example.com").await;
+    let server = start_test_server(app).await;
+
+    let (mut unauthenticated, _) = connect_async(&server.websocket_url).await.unwrap();
+    send_socket_message(
+        &mut unauthenticated,
+        json!({"version": 1, "type": "subscribe", "workspace_id": workspace_id}),
+    )
+    .await;
+    let denied = receive_socket_message(&mut unauthenticated).await;
+    assert_eq!(denied["type"], "error");
+    assert_eq!(denied["code"], "unauthorized");
+
+    let mut outsider = connect_realtime(&server.websocket_url, &outsider_token).await;
+    let denied = subscribe_workspace(&mut outsider, workspace_id).await;
+    assert_eq!(denied["type"], "error");
+    assert_eq!(denied["code"], "forbidden");
+
+    add_workspace_member(&pool, workspace_id, outsider_id, "member").await;
+    let subscribed = subscribe_workspace(&mut outsider, workspace_id).await;
+    assert_eq!(subscribed["type"], "subscribed");
+    assert_eq!(subscribed["workspace_id"], workspace_id.to_string());
+
+    let mut owner = connect_realtime(&server.websocket_url, &owner_token).await;
+    assert_eq!(
+        subscribe_workspace(&mut owner, workspace_id).await["type"],
+        "subscribed"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn realtime_delivers_committed_comment_changes_only_to_task_members(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "live-owner@example.com").await;
+    let (member_token, member_id, _) = register(&app, "live-member@example.com").await;
+    let (workspace_only_token, workspace_only_id, _) =
+        register(&app, "live-workspace-only@example.com").await;
+    add_workspace_member(&pool, workspace_id, member_id, "member").await;
+    add_workspace_member(&pool, workspace_id, workspace_only_id, "member").await;
+    let (project_id, task_id) = project_task(&app, &owner_token, workspace_id, &[]).await;
+    add_project_member(&pool, workspace_id, project_id, member_id, "commenter").await;
+    let server = start_test_server(app.clone()).await;
+
+    let mut owner = connect_realtime(&server.websocket_url, &owner_token).await;
+    let mut member = connect_realtime(&server.websocket_url, &member_token).await;
+    let mut workspace_only = connect_realtime(&server.websocket_url, &workspace_only_token).await;
+    for socket in [&mut owner, &mut member, &mut workspace_only] {
+        assert_eq!(
+            subscribe_workspace(socket, workspace_id).await["type"],
+            "subscribed"
+        );
+    }
+
+    let comments_uri = format!("/api/workspaces/{workspace_id}/tasks/{task_id}/comments");
+    let comment = create(
+        &app,
+        &member_token,
+        &comments_uri,
+        json!({"body": "Visible after commit"}),
+    )
+    .await;
+    let comment_id: Uuid = comment["id"].as_str().unwrap().parse().unwrap();
+    for socket in [&mut owner, &mut member] {
+        let event = receive_socket_message(socket).await;
+        assert_eq!(event["version"], 1);
+        assert_eq!(event["type"], "task.comment.created");
+        assert_eq!(event["workspace_id"], workspace_id.to_string());
+        assert_eq!(event["task_id"], task_id.to_string());
+        assert_eq!(event["entity_id"], comment_id.to_string());
+    }
+    expect_no_socket_message(&mut workspace_only).await;
+    let feed = body(
+        send(
+            &app,
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/activity"),
+            None,
+            &owner_token,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(feed["comments"][0]["body"], "Visible after commit");
+
+    let comment_uri = format!("{comments_uri}/{comment_id}");
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &comment_uri,
+            Some(json!({"body": "Edited live", "mention_ids": []})),
+            &member_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    for socket in [&mut owner, &mut member] {
+        let event = receive_socket_message(socket).await;
+        assert_eq!(event["type"], "task.comment.edited");
+        assert_eq!(event["workspace_id"], workspace_id.to_string());
+        assert_eq!(event["task_id"], task_id.to_string());
+        assert_eq!(event["entity_id"], comment_id.to_string());
+    }
+    expect_no_socket_message(&mut workspace_only).await;
+
+    assert_eq!(
+        send(&app, "DELETE", &comment_uri, None, &owner_token)
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    for socket in [&mut owner, &mut member] {
+        let event = receive_socket_message(socket).await;
+        assert_eq!(event["type"], "task.comment.deleted");
+        assert_eq!(event["workspace_id"], workspace_id.to_string());
+        assert_eq!(event["task_id"], task_id.to_string());
+        assert_eq!(event["entity_id"], comment_id.to_string());
+    }
+    expect_no_socket_message(&mut workspace_only).await;
+
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &comments_uri,
+            Some(json!({"body": "   "})),
+            &member_token,
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    expect_no_socket_message(&mut owner).await;
+    expect_no_socket_message(&mut member).await;
+
+    sqlx::query(
+        r#"
+        CREATE FUNCTION reject_realtime_test_comment() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            RAISE EXCEPTION 'forced comment transaction failure';
+        END
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        CREATE CONSTRAINT TRIGGER reject_realtime_test_comment
+        AFTER INSERT ON task_comments
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION reject_realtime_test_comment()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &comments_uri,
+            Some(json!({"body": "Must roll back"})),
+            &member_token,
+        )
+        .await
+        .status(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    expect_no_socket_message(&mut owner).await;
+    expect_no_socket_message(&mut member).await;
+    let rejected_comment_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_comments WHERE body = 'Must roll back'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rejected_comment_count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn realtime_reports_committed_task_activity_changes(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "live-activity@example.com").await;
+    let task = create(
+        &app,
+        &owner_token,
+        &format!("/api/workspaces/{workspace_id}/tasks"),
+        json!({"title": "Initial title"}),
+    )
+    .await;
+    let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
+    let server = start_test_server(app.clone()).await;
+    let mut owner = connect_realtime(&server.websocket_url, &owner_token).await;
+    assert_eq!(
+        subscribe_workspace(&mut owner, workspace_id).await["type"],
+        "subscribed"
+    );
+
+    assert_eq!(
+        send(
+            &app,
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+            Some(json!({"title": "Updated title"})),
+            &owner_token,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let event = receive_socket_message(&mut owner).await;
+    assert_eq!(event["type"], "task.activity.changed");
+    assert_eq!(event["task_id"], task_id.to_string());
+    let feed = body(
+        send(
+            &app,
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/activity"),
+            None,
+            &owner_token,
+        )
+        .await,
+    )
+    .await;
+    assert!(feed["activity"].as_array().unwrap().iter().any(|activity| {
+        activity["event_type"] == "task_updated" && activity["data"] == json!({"fields": ["title"]})
+    }));
 }
 
 #[sqlx::test(migrations = "./migrations")]

@@ -16,6 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { routePaths } from '../../app/routing/routePaths';
 import { ApiError } from '../../lib/api/client';
 import { getDocument, getDocumentByNumber } from '../document/api';
+import { useRealtimeWorkspace } from '../collaboration/realtimeWorkspace';
 import type { WorkspaceDocument } from '../document/types';
 import type {
   WorkspaceContentLocation,
@@ -312,6 +313,9 @@ export function WorkspaceRouteScreen({
     : routeActionErrorFromState(routerLocation.state);
   const currentPath = `${routerLocation.pathname}${routerLocation.search}`;
   const currentSettingsParent = settingsParentFromState(routerLocation.state);
+  useRealtimeWorkspace(
+    workspaceCacheAccessVerified && location ? location.workspaceId : null,
+  );
 
   const onNavigate = useCallback(
     (

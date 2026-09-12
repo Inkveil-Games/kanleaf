@@ -17,7 +17,7 @@ use tower_http::{
 };
 
 use crate::{
-    AppState, account, auth, collaboration, error::AppError, host, portability, workspace,
+    AppState, account, auth, collaboration, error::AppError, host, portability, realtime, workspace,
 };
 
 static REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -49,6 +49,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .merge(host::routes())
         .merge(account::routes())
         .merge(collaboration::routes())
+        .merge(realtime::routes())
         .merge(portability::routes())
         .merge(workspace::routes())
         .route("/api", any(api_not_found))

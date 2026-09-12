@@ -12,9 +12,9 @@ root Cargo and pnpm workspaces contain only packages that exist today.
 
 ```text
 React UI (Tauri or browser)
-   │ bearer-authenticated JSON
+   │ bearer-authenticated JSON + authenticated WebSocket invalidations
    ▼
-HTTP handlers ──► domain validation
+HTTP/WebSocket handlers ──► domain validation
    │
    ├──► SQLx transactions ──► PostgreSQL
    └──► typed vault paths ──► filesystem
@@ -118,7 +118,8 @@ User ──< Session
 - Subscriptions drive in-app notifications for comments and selected Task
   changes. Assignment, mention, reply, and invitation delivery remains enabled;
   each user may mute routine comment or metadata notifications. Only read state
-  and preferences are stored—there is no queue or realtime delivery service.
+  and preferences are stored; live delivery uses a process-local realtime
+  channel rather than a durable queue.
 - Inbox is represented by `tasks.project_id IS NULL`.
 - Project and Task archives are timestamps. Archiving a Project is reversible:
   it retains Tasks, documents, Views, planning data, memberships, configuration,
@@ -185,6 +186,15 @@ editing, commenting, and read-only access; task and vault operations inherit
 that boundary. Vault access occurs only while the authorized task identity is
 held by a database lock. API errors use a stable JSON envelope and do not expose
 database or filesystem details.
+
+`/api/realtime` upgrades without credentials in the URL and requires a
+versioned authentication message containing the current bearer token within a
+short timeout. An authenticated client may subscribe to one Workspace only
+after membership is checked. Before sending a Task event, the server rechecks
+the session and effective Task/Project access, so a Workspace subscription does
+not disclose private Project identities. Events contain only scoped identities
+needed for cache invalidation; clients read authoritative content through the
+normal authorized HTTP endpoints.
 
 Comment creation requires Inbox content access or Project Commenter and above.
 Only authors edit their comments; authors, Project Admin, and Workspace
@@ -398,7 +408,8 @@ The desktop app is feature-oriented:
   presentation controls, and List, Board, Calendar, Table, and Timeline
   layouts;
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
-  notification inbox, and account notification preferences;
+  notification inbox, account notification preferences, and the authenticated
+  Workspace realtime connection;
 - `features/host` owns the deployment Host's metadata-only Workspace list,
   guarded deletion action, and instance access policy surface;
 - `features/document` owns the Workspace Library and Project-filtered Library
@@ -458,7 +469,10 @@ Account, Workspace, and Project Settings are routed overlays, and task detail
 remains a pane rather than a modal. Closing a Settings overlay returns to its
 validated background route without adding another history entry. Task detail switches between structured
 Details and chronological Activity without losing its pane context. The top-bar
-inbox refreshes on focus and every 60 seconds; it does not require WebSockets.
+inbox still refreshes on focus and every 60 seconds, while live Task/comment
+events invalidate only the affected TanStack Query caches. WebSocket reconnects
+reconcile the active Workspace feed and notifications through REST so the live
+channel is never treated as event history.
 Host Console is a full-page Settings surface at `/host` and `/host/access`.
 Workspace invitation links open the exact public `/invite#token=…` route before
 authentication and setup routing. The fragment survives inline sign-in or
@@ -496,6 +510,12 @@ Without `KANLEAF_WEB_DIR` it remains an API-only process. When that variable
 points to a validated Vite build, Axum serves static assets and SPA navigation
 outside `/api`; unknown API routes remain structured JSON 404 responses.
 
+Realtime delivery is a bounded, process-local Workspace broadcast hub. Slow
+subscribers receive a reconciliation signal instead of creating unbounded
+queues or blocking other clients. This matches the current single Axum process;
+a future multi-process deployment would need a shared fan-out transport, while
+PostgreSQL and REST would remain authoritative.
+
 The self-host image builds the React client with
 `VITE_KANLEAF_SERVER_URL=same-origin`, copies only its production assets into
 the Rust runtime image, and configures `KANLEAF_WEB_DIR=/usr/share/kanleaf`.
@@ -515,5 +535,5 @@ container test; Compose parsing and local one-directory tests do not prove it.
 
 Offline caching and sync, automatic conflict merging or version history, attachments,
 full-text document indexing, wikilink resolution, backlinks/graph views, explicit
-file renames, plugins, real-time collaboration, mobile clients,
+file renames, plugins, collaborative Markdown editing, presence, mobile clients,
 release signing, and bundled TLS are not current implementation concerns.
