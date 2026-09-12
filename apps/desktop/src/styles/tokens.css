@@ -42,12 +42,16 @@
   --color-syntax-comment: #96988f;
   --color-syntax-operator: #6f756f;
   --shadow-popover: 0 10px 30px rgb(34 35 31 / 14%);
+  --layer-navigation-drawer-backdrop: 200;
+  --layer-navigation-drawer: 201;
+  --layer-tooltip: 250;
   --layer-settings-backdrop: 300;
   --layer-settings-dialog: 301;
   --layer-app-dialog-backdrop: 400;
   --layer-app-dialog: 401;
   --layer-nested-app-dialog-backdrop: 402;
   --layer-nested-app-dialog: 403;
+  --navigation-rail-width: 44px;
   --radius-sm: 4px;
   --radius-md: 7px;
   --space-1: 4px;

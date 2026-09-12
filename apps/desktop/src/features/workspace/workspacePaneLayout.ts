@@ -28,26 +28,26 @@ interface PanePreferences {
   navigationCollapsed: boolean;
 }
 
+export type NavigationMode = 'expanded' | 'rail' | 'drawer';
+
 export function useWorkspacePaneLayout() {
   const [preferences, setPreferences] = useState(readPreferences);
-  const narrow = useMediaQuery(NARROW_QUERY);
-  const [drawer, setDrawer] = useState({ narrow, open: false });
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const resetDrawer = useCallback(() => setDrawerOpen(false), []);
+  const narrow = useMediaQuery(NARROW_QUERY, resetDrawer);
 
   useEffect(() => {
     writePreferences(preferences);
   }, [preferences]);
 
-  const drawerOpen = drawer.narrow === narrow && drawer.open;
-  const navigationVisible = narrow
+  const navigationMode: NavigationMode = narrow
     ? drawerOpen
-    : !preferences.navigationCollapsed;
-  const closeNavigationDrawer = useCallback(
-    () =>
-      setDrawer((current) =>
-        current.open ? { ...current, open: false } : current,
-      ),
-    [],
-  );
+      ? 'drawer'
+      : 'rail'
+    : preferences.navigationCollapsed
+      ? 'rail'
+      : 'expanded';
+  const closeNavigationDrawer = useCallback(() => setDrawerOpen(false), []);
   const setNavigationWidth = useCallback(
     (next: SetStateAction<number>) =>
       setPaneWidth(
@@ -75,19 +75,19 @@ export function useWorkspacePaneLayout() {
   );
   const toggleNavigation = useCallback(() => {
     if (narrow) {
-      setDrawer({ narrow, open: !drawerOpen });
+      setDrawerOpen((current) => !current);
     } else {
       setPreferences((current) => ({
         ...current,
         navigationCollapsed: !current.navigationCollapsed,
       }));
     }
-  }, [drawerOpen, narrow]);
+  }, [narrow]);
 
   return {
     ...preferences,
     narrow,
-    navigationVisible,
+    navigationMode,
     setNavigationWidth,
     setCollectionWidth,
     setDetailWidth,
@@ -111,7 +111,7 @@ function setPaneWidth(
   }));
 }
 
-function useMediaQuery(query: string) {
+function useMediaQuery(query: string, onChange: () => void) {
   const [matches, setMatches] = useState(() =>
     typeof matchMedia === 'function' ? matchMedia(query).matches : false,
   );
@@ -119,10 +119,13 @@ function useMediaQuery(query: string) {
   useEffect(() => {
     if (typeof matchMedia !== 'function') return;
     const media = matchMedia(query);
-    const changed = (event: MediaQueryListEvent) => setMatches(event.matches);
+    const changed = (event: MediaQueryListEvent) => {
+      setMatches(event.matches);
+      onChange();
+    };
     media.addEventListener('change', changed);
     return () => media.removeEventListener('change', changed);
-  }, [query]);
+  }, [onChange, query]);
 
   return matches;
 }

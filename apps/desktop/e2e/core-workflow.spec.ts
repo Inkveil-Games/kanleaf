@@ -445,8 +445,20 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.goForward();
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
+  const narrowRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  await expect(narrowRail).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('button', { name: 'New project' }).click();
+  const navigationDrawer = page.getByRole('dialog', {
+    name: 'Workspace navigation',
+  });
+  await expect(navigationDrawer).toBeVisible();
+  await expect(
+    navigationDrawer.getByRole('navigation', { name: 'Workspace' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await navigationDrawer.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await expect(page.getByLabel('Project ID')).toHaveValue('kanleaf');
   await page.getByRole('button', { name: 'Choose Project icon' }).click();
@@ -457,12 +469,26 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/p/[^/]+$`),
   );
+  await expect(navigationDrawer).not.toBeVisible();
+  await expect(narrowRail).toBeVisible();
   const projectIdentifier = new URL(page.url()).pathname.split('/')[4];
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole('button', { name: 'Collapse navigation' }).click();
-  await expect(page.locator('.navigation-pane')).not.toBeVisible();
-  await page.getByRole('button', { name: 'Open navigation' }).click();
-  await expect(page.locator('.navigation-pane')).toBeVisible();
+  const desktopRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  await expect(desktopRail).toBeVisible();
+  await expect(page.locator('.navigation-pane-rail')).toHaveCSS(
+    'width',
+    '44px',
+  );
+  await expect(
+    desktopRail.getByRole('button', { name: 'Saved Views' }),
+  ).toBeVisible();
+  await desktopRail.getByRole('button', { name: 'Expand navigation' }).click();
+  await expect(
+    page.getByRole('navigation', { name: 'Workspace' }),
+  ).toBeVisible();
 
   await page
     .locator('.project-header-actions')
@@ -1330,9 +1356,86 @@ test('preserves open Task state through pane and responsive resizing', async ({
     detailWidth: 512,
   });
 
+  await page.getByRole('button', { name: 'Collapse navigation' }).click();
+  const desktopRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  await expect(desktopRail).toBeVisible();
+  await expect(
+    page.getByRole('separator', { name: 'Resize navigation' }),
+  ).toHaveCount(0);
+  await expect(source).toContainText('# Unsaved resize draft');
+  await expect(page.getByLabel('Add comment')).toHaveValue(
+    'Activity draft survives resizing',
+  );
+  await desktopRail.getByRole('button', { name: 'Expand navigation' }).click();
+  await expect(
+    page.getByRole('separator', { name: 'Resize navigation' }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ),
+  ).toMatchObject({ navigationWidth: 274, navigationCollapsed: false });
+  await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
+  await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
+
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(taskDetail).toBeVisible();
   await expect(taskList).not.toBeVisible();
+  const narrowRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  const openNavigation = narrowRail.getByRole('button', {
+    name: 'Open navigation',
+  });
+  await expect(openNavigation).toBeVisible();
+  await expect
+    .poll(async () => Math.round((await taskDetail.boundingBox())?.x ?? -1))
+    .toBe(44);
+  const detailBeforeDrawer = await taskDetail.boundingBox();
+  expect(detailBeforeDrawer).not.toBeNull();
+
+  await openNavigation.click();
+  const navigationDrawer = page.getByRole('dialog', {
+    name: 'Workspace navigation',
+  });
+  await expect(navigationDrawer).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await expect(
+    navigationDrawer.getByRole('button', { name: 'Switch account' }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        document
+          .elementFromPoint(22, 100)
+          ?.closest('.navigation-drawer-popup') !== null,
+    ),
+  ).toBe(true);
+  expect(await taskDetail.boundingBox()).toEqual(detailBeforeDrawer);
+  await expect(source).toContainText('# Unsaved resize draft');
+  await page.keyboard.press('Escape');
+  await expect(navigationDrawer).not.toBeVisible();
+  await expect(openNavigation).toBeFocused();
+
+  await openNavigation.click();
+  await page.locator('.navigation-drawer-backdrop').click({
+    position: { x: 8, y: 8 },
+  });
+  await expect(navigationDrawer).not.toBeVisible();
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openNavigation.click();
+  await expect(navigationDrawer).toBeVisible();
+  await expect(page.locator('.navigation-drawer-popup')).toHaveCSS(
+    'transition-duration',
+    '0s',
+  );
+  await page.keyboard.press('Escape');
+  await expect(navigationDrawer).not.toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(taskList).toBeVisible();
   await expect(page.getByLabel('Task title')).toHaveValue(secondTask.title);
@@ -1343,6 +1446,146 @@ test('preserves open Task state through pane and responsive resizing', async ({
   await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
   await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
   expect(workspaceRequests).toEqual([]);
+});
+
+test('keeps project navigation available through the rail and narrow drawer', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const email = `navigation-${suffix}@example.com`;
+  const account = await register(request, email);
+  const headers = { authorization: `Bearer ${account.token}` };
+  const projectResponse = await request.post(
+    `${serverUrl}/api/workspaces/${account.workspaceId}/projects`,
+    {
+      headers,
+      data: {
+        name: 'Rail Project',
+        identifier: 'rail-project',
+        icon: 'rocket',
+      },
+    },
+  );
+  expect(projectResponse.status()).toBe(201);
+
+  await page.goto('/');
+  await page.getByLabel('Email').fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/my-work$`),
+  );
+  await expect(
+    page.getByRole('button', { name: 'Rail Project' }),
+  ).toBeVisible();
+  await page.waitForLoadState('networkidle');
+
+  const localWorkspaceRequests: string[] = [];
+  page.on('request', (outgoing) => {
+    const path = new URL(outgoing.url()).pathname;
+    if (path.startsWith(`/api/workspaces/${account.workspaceId}/`)) {
+      localWorkspaceRequests.push(`${outgoing.method()} ${path}`);
+    }
+  });
+
+  await page.getByRole('button', { name: 'Collapse navigation' }).click();
+  const desktopRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  await expect(desktopRail).toBeVisible();
+  await expect(page.locator('.navigation-pane-rail')).toHaveCSS(
+    'width',
+    '44px',
+  );
+  for (const destination of ['Inbox', 'My Work', 'All tasks', 'Library']) {
+    await expect(
+      desktopRail.getByRole('button', { name: destination }),
+    ).toBeVisible();
+  }
+
+  await desktopRail.getByRole('button', { name: 'Saved Views' }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'No Saved Views yet' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+  await desktopRail.getByRole('button', { name: 'Projects' }).click();
+  expect(localWorkspaceRequests).toEqual([]);
+  await page.getByRole('menuitem', { name: 'Rail Project' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/p/rail-project$`),
+  );
+
+  const activeProject = desktopRail.getByRole('button', {
+    name: 'Rail Project',
+  });
+  await expect(activeProject).toHaveAttribute('aria-current', 'page');
+  await activeProject.click();
+  await page.getByRole('menuitem', { name: 'Work items' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/p/rail-project/work-items$`),
+  );
+
+  await desktopRail.getByRole('button', { name: 'Expand navigation' }).click();
+  const fullNavigation = page.getByRole('navigation', { name: 'Workspace' });
+  await expect(fullNavigation).toBeVisible();
+  await expect(
+    fullNavigation.getByRole('button', { name: 'Work items' }),
+  ).toHaveAttribute('aria-current', 'page');
+
+  await page.getByRole('button', { name: 'Collapse navigation' }).click();
+  await page.setViewportSize({ width: 960, height: 640 });
+  const narrowRail = page.getByRole('navigation', {
+    name: 'Workspace navigation rail',
+  });
+  await narrowRail.getByRole('button', { name: 'Open navigation' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Workspace navigation' });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByLabel('Active workspace')).toContainText(
+    account.workspaceName,
+  );
+  await expect(
+    drawer.getByRole('button', { name: 'Switch account' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await drawer.getByRole('button', { name: 'Active workspace' }).click();
+  await page
+    .getByRole('button', { name: `Settings for ${account.workspaceName}` })
+    .click();
+  await expect(drawer).not.toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Workspace settings' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Workspace' }).click();
+  await narrowRail.getByRole('button', { name: 'Open navigation' }).click();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: 'Inbox' }).click();
+  await expect(drawer).not.toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}/inbox$`),
+  );
+  await expect(
+    narrowRail.getByRole('button', { name: 'Inbox' }),
+  ).toHaveAttribute('aria-current', 'page');
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(
+    desktopRail.getByRole('button', { name: 'Expand navigation' }),
+  ).toBeVisible();
+  await desktopRail.getByRole('button', { name: 'Expand navigation' }).click();
+  await expect(fullNavigation).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test('switches retained accounts without crossing account data', async ({

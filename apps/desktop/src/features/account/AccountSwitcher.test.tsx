@@ -120,6 +120,31 @@ describe('AccountSwitcher', () => {
       screen.queryByRole('button', { name: 'Host Console' }),
     ).not.toBeInTheDocument();
   });
+
+  it('keeps the existing account menu behind an avatar-only rail trigger', () => {
+    render(
+      <AccountSwitcher
+        compact
+        accounts={[account('user-1'), account('user-2')]}
+        activeUserId="user-1"
+        transitioning={false}
+        error={null}
+        onSwitchAccount={vi.fn()}
+        onAddAccount={vi.fn()}
+        onOpenAccountSettings={vi.fn()}
+        onSignOutCurrent={vi.fn()}
+        onDismissError={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Switch account' });
+    expect(trigger).toHaveTextContent('A');
+    expect(trigger).not.toHaveTextContent('Account user-1');
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole('button', { name: /Account user-2/ }),
+    ).toBeInTheDocument();
+  });
 });
 
 function account(userId: string): AccountSession {

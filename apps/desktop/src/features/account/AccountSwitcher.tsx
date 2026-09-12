@@ -12,6 +12,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import type { AccountSession } from '../auth/accountSessionStore';
 
 interface AccountSwitcherProps {
+  compact?: boolean;
   accounts: AccountSession[];
   activeUserId: string;
   transitioning: boolean;
@@ -25,6 +26,7 @@ interface AccountSwitcherProps {
 }
 
 export function AccountSwitcher({
+  compact = false,
   accounts,
   activeUserId,
   transitioning,
@@ -41,24 +43,30 @@ export function AccountSwitcher({
 
   return (
     <Popover
-      className="account-switcher-menu"
+      key={compact ? 'compact' : 'full'}
+      className={`account-switcher-menu${compact ? ' account-switcher-compact' : ''}`}
       label="Switch account"
       align="start"
-      placement="up"
+      placement={compact ? 'right' : 'up'}
+      triggerTooltip={compact ? displayName : undefined}
       trigger={
         <>
           <span className="member-monogram" aria-hidden="true">
             {initial(displayName)}
           </span>
-          <span className="account-switcher-copy">
-            <strong>{displayName}</strong>
-            <small>{active?.email}</small>
-          </span>
-          <ChevronUp
-            className="account-switcher-chevron"
-            aria-hidden="true"
-            size={14}
-          />
+          {!compact ? (
+            <>
+              <span className="account-switcher-copy">
+                <strong>{displayName}</strong>
+                <small>{active?.email}</small>
+              </span>
+              <ChevronUp
+                className="account-switcher-chevron"
+                aria-hidden="true"
+                size={14}
+              />
+            </>
+          ) : null}
         </>
       }
     >

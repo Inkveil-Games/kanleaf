@@ -74,4 +74,30 @@ describe('DropdownMenu', () => {
       expect(trigger).toHaveFocus();
     });
   });
+
+  it('supports right-side rail menus, trigger tooltips, and current items', async () => {
+    const user = userEvent.setup();
+    render(
+      <DropdownMenu
+        label="Saved Views"
+        placement="right"
+        triggerTooltip="Saved Views"
+        tooltipDelay={0}
+      >
+        <DropdownMenuItem ariaCurrent="page" onClick={vi.fn()}>
+          Board View
+        </DropdownMenuItem>
+      </DropdownMenu>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Saved Views' });
+    await user.hover(trigger);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Saved Views');
+
+    await user.click(trigger);
+    expect(screen.getByRole('menu')).toHaveAttribute('data-side', 'right');
+    expect(
+      screen.getByRole('menuitem', { name: 'Board View' }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
 });

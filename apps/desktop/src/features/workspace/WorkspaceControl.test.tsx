@@ -26,7 +26,7 @@ describe('WorkspaceControl', () => {
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
-        navigationVisible
+        mode="expanded"
         onSwitchWorkspace={onSwitchWorkspace}
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
         onFinishWorkspace={vi.fn()}
@@ -58,7 +58,7 @@ describe('WorkspaceControl', () => {
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
-        navigationVisible
+        mode="expanded"
         onSwitchWorkspace={onSwitchWorkspace}
         onCreateWorkspace={onCreateWorkspace}
         onFinishWorkspace={onFinishWorkspace}
@@ -118,14 +118,14 @@ describe('WorkspaceControl', () => {
     expect(onToggleNavigation).toHaveBeenCalledOnce();
   });
 
-  it('keeps only the reopen control in the collapsed rail', () => {
+  it('keeps the Workspace switcher available as a compact rail control', () => {
     render(
       <WorkspaceControl
         context={context}
         userEmail="quang@example.com"
         workspaces={workspaces}
         workspaceId="workspace-1"
-        navigationVisible={false}
+        mode="rail"
         onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
         onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
         onFinishWorkspace={vi.fn()}
@@ -136,12 +136,39 @@ describe('WorkspaceControl', () => {
       />,
     );
 
+    const trigger = screen.getByRole('button', { name: 'Active workspace' });
+    expect(trigger).toHaveTextContent('K');
+    expect(trigger).not.toHaveTextContent('Kanleaf Core');
+    fireEvent.click(trigger);
     expect(
-      screen.getByRole('button', { name: 'Open navigation' }),
+      screen.getByRole('button', { name: /^Website/ }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Active workspace' }),
+      screen.queryByRole('button', { name: 'Collapse navigation' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('uses a close action inside the narrow drawer', () => {
+    const onToggleNavigation = vi.fn();
+    render(
+      <WorkspaceControl
+        context={context}
+        userEmail="quang@example.com"
+        workspaces={workspaces}
+        workspaceId="workspace-1"
+        mode="drawer"
+        onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
+        onCreateWorkspace={vi.fn().mockResolvedValue(undefined)}
+        onFinishWorkspace={vi.fn()}
+        onOpenWorkspaceSettings={vi.fn()}
+        onOpenInvitations={vi.fn()}
+        onImportWorkspace={vi.fn()}
+        onToggleNavigation={onToggleNavigation}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation' }));
+    expect(onToggleNavigation).toHaveBeenCalledOnce();
   });
 
   it('restores focus to the stable Workspace switcher after closing creation', async () => {
@@ -201,7 +228,7 @@ function renderControl({
       userEmail="quang@example.com"
       workspaces={workspaces}
       workspaceId="workspace-1"
-      navigationVisible
+      mode="expanded"
       onSwitchWorkspace={vi.fn().mockResolvedValue(undefined)}
       onCreateWorkspace={onCreateWorkspace}
       onFinishWorkspace={onFinishWorkspace}

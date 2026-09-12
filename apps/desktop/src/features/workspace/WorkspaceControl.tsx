@@ -4,7 +4,6 @@ import {
   FileUp,
   Mail,
   PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Settings,
 } from 'lucide-react';
@@ -16,13 +15,14 @@ import type { WorkspaceSettingsSection } from './settingsSections';
 import type { Workspace } from './types';
 import { WorkspaceCreateDialog } from './WorkspaceCreateDialog';
 import type { WorkspaceIdentity } from './WorkspaceIdentityForm';
+import type { NavigationMode } from './workspacePaneLayout';
 
 interface WorkspaceControlProps {
   context: ApiContext;
   userEmail: string;
   workspaces: Workspace[];
   workspaceId: string;
-  navigationVisible: boolean;
+  mode: NavigationMode;
   onSwitchWorkspace: (workspaceId: string) => Promise<void>;
   onCreateWorkspace: (identity: WorkspaceIdentity) => Promise<Workspace>;
   onFinishWorkspace: (workspace: Workspace) => void | Promise<void>;
@@ -37,7 +37,7 @@ export function WorkspaceControl({
   userEmail,
   workspaces,
   workspaceId,
-  navigationVisible,
+  mode,
   onSwitchWorkspace,
   onCreateWorkspace,
   onFinishWorkspace,
@@ -50,6 +50,7 @@ export function WorkspaceControl({
   const workspaceSwitcherRef = useRef<HTMLButtonElement>(null);
   const restoreWorkspaceSwitcher = useRef(false);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
+  const compact = mode === 'rail';
 
   useEffect(() => {
     if (creatingWorkspace || !restoreWorkspaceSwitcher.current) return;
@@ -71,21 +72,27 @@ export function WorkspaceControl({
     <section
       className="workspace-control"
       aria-label="Workspace navigation controls"
+      data-navigation-mode={mode}
     >
       <div className="workspace-control-group">
-        {navigationVisible && (
-          <>
-            <Popover
-              className="workspace-switcher-menu"
-              label="Active workspace"
-              align="start"
-              sideOffset={7}
-              triggerRef={workspaceSwitcherRef}
-              trigger={
+        <Popover
+          key={compact ? 'compact' : 'full'}
+          className="workspace-switcher-menu"
+          label="Active workspace"
+          align="start"
+          placement={compact ? 'right' : 'down'}
+          sideOffset={7}
+          triggerRef={workspaceSwitcherRef}
+          triggerTooltip={
+            compact ? (workspace?.name ?? 'Workspace') : undefined
+          }
+          trigger={
+            <>
+              <span className="workspace-trigger-mark" aria-hidden="true">
+                {initial(workspace?.name, 'W')}
+              </span>
+              {!compact ? (
                 <>
-                  <span className="workspace-trigger-mark" aria-hidden="true">
-                    {initial(workspace?.name, 'W')}
-                  </span>
                   <span className="workspace-trigger-name">
                     {workspace?.name ?? 'Workspace'}
                   </span>
@@ -95,100 +102,100 @@ export function WorkspaceControl({
                     size={14}
                   />
                 </>
-              }
-            >
-              <div className="workspace-menu-account" role="presentation">
-                <span className="workspace-menu-avatar" aria-hidden="true">
-                  {initial(userEmail, 'U')}
-                </span>
-                <span>
-                  <small>Signed in as</small>
-                  <strong title={userEmail}>{userEmail}</strong>
-                </span>
-              </div>
-              <div className="workspace-menu-divider" role="separator" />
-              <div
-                className="workspace-menu-list"
-                role="group"
-                aria-label="Workspaces"
-              >
-                {workspaces.map((candidate) => {
-                  const active = candidate.id === workspaceId;
-                  const canManage =
-                    candidate.role === 'owner' || candidate.role === 'admin';
-                  return (
-                    <div
-                      className="workspace-menu-row"
-                      key={candidate.id}
-                      role="presentation"
-                    >
-                      <PopoverClose
-                        className="workspace-menu-option"
-                        ariaCurrent={active ? 'page' : undefined}
-                        onClick={() => {
-                          void onSwitchWorkspace(candidate.id);
-                        }}
-                      >
-                        <span
-                          className="workspace-menu-workspace-mark"
-                          aria-hidden="true"
-                        >
-                          {initial(candidate.name, 'W')}
-                        </span>
-                        <span className="workspace-menu-workspace-copy">
-                          <strong>{candidate.name}</strong>
-                          <small>
-                            /{candidate.identifier} · {candidate.role}
-                          </small>
-                        </span>
-                        {active && <Check aria-hidden="true" size={14} />}
-                      </PopoverClose>
-                      {active && canManage && (
-                        <PopoverClose
-                          className="workspace-menu-settings"
-                          ariaLabel={`Settings for ${candidate.name}`}
-                          onClick={() => onOpenWorkspaceSettings('general')}
-                        >
-                          <Settings aria-hidden="true" size={14} />
-                        </PopoverClose>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="workspace-menu-divider" role="separator" />
-              <div className="workspace-menu-actions" role="group">
-                <PopoverClose onClick={() => setCreatingWorkspace(true)}>
-                  <Plus aria-hidden="true" size={14} /> New workspace
-                </PopoverClose>
-                <PopoverClose onClick={onImportWorkspace}>
-                  <FileUp aria-hidden="true" size={14} /> Import workspace
-                </PopoverClose>
-                <PopoverClose onClick={onOpenInvitations}>
-                  <Mail aria-hidden="true" size={14} /> Workspace invitations
-                </PopoverClose>
-              </div>
-            </Popover>
-            <span className="workspace-control-divider" aria-hidden="true" />
-          </>
-        )}
-        <IconButton
-          className="workspace-control-toggle"
-          variant="ghost"
-          size="sm"
-          type="button"
-          aria-label={
-            navigationVisible ? 'Collapse navigation' : 'Open navigation'
+              ) : null}
+            </>
           }
-          aria-expanded={navigationVisible}
-          onClick={toggleNavigation}
         >
-          {navigationVisible ? (
-            <PanelLeftClose aria-hidden="true" size={15} />
-          ) : (
-            <PanelLeftOpen aria-hidden="true" size={15} />
-          )}
-        </IconButton>
+          <div className="workspace-menu-account" role="presentation">
+            <span className="workspace-menu-avatar" aria-hidden="true">
+              {initial(userEmail, 'U')}
+            </span>
+            <span>
+              <small>Signed in as</small>
+              <strong title={userEmail}>{userEmail}</strong>
+            </span>
+          </div>
+          <div className="workspace-menu-divider" role="separator" />
+          <div
+            className="workspace-menu-list"
+            role="group"
+            aria-label="Workspaces"
+          >
+            {workspaces.map((candidate) => {
+              const active = candidate.id === workspaceId;
+              const canManage =
+                candidate.role === 'owner' || candidate.role === 'admin';
+              return (
+                <div
+                  className="workspace-menu-row"
+                  key={candidate.id}
+                  role="presentation"
+                >
+                  <PopoverClose
+                    className="workspace-menu-option"
+                    ariaCurrent={active ? 'page' : undefined}
+                    onClick={() => {
+                      void onSwitchWorkspace(candidate.id);
+                    }}
+                  >
+                    <span
+                      className="workspace-menu-workspace-mark"
+                      aria-hidden="true"
+                    >
+                      {initial(candidate.name, 'W')}
+                    </span>
+                    <span className="workspace-menu-workspace-copy">
+                      <strong>{candidate.name}</strong>
+                      <small>
+                        /{candidate.identifier} · {candidate.role}
+                      </small>
+                    </span>
+                    {active && <Check aria-hidden="true" size={14} />}
+                  </PopoverClose>
+                  {active && canManage && (
+                    <PopoverClose
+                      className="workspace-menu-settings"
+                      ariaLabel={`Settings for ${candidate.name}`}
+                      onClick={() => onOpenWorkspaceSettings('general')}
+                    >
+                      <Settings aria-hidden="true" size={14} />
+                    </PopoverClose>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="workspace-menu-divider" role="separator" />
+          <div className="workspace-menu-actions" role="group">
+            <PopoverClose onClick={() => setCreatingWorkspace(true)}>
+              <Plus aria-hidden="true" size={14} /> New workspace
+            </PopoverClose>
+            <PopoverClose onClick={onImportWorkspace}>
+              <FileUp aria-hidden="true" size={14} /> Import workspace
+            </PopoverClose>
+            <PopoverClose onClick={onOpenInvitations}>
+              <Mail aria-hidden="true" size={14} /> Workspace invitations
+            </PopoverClose>
+          </div>
+        </Popover>
+        {!compact ? (
+          <>
+            <span className="workspace-control-divider" aria-hidden="true" />
+            <IconButton
+              className="workspace-control-toggle"
+              variant="ghost"
+              size="sm"
+              type="button"
+              aria-label={
+                mode === 'drawer' ? 'Close navigation' : 'Collapse navigation'
+              }
+              aria-expanded
+              onClick={toggleNavigation}
+            >
+              <PanelLeftClose aria-hidden="true" size={15} />
+            </IconButton>
+          </>
+        ) : null}
       </div>
       {creatingWorkspace ? (
         <WorkspaceCreateDialog

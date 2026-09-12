@@ -48,4 +48,27 @@ describe('Popover', () => {
       expect(trigger).toHaveFocus();
     });
   });
+
+  it('supports right-side compact triggers with a tooltip', async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover
+        label="Switch account"
+        placement="right"
+        triggerTooltip="Quang Tran"
+        tooltipDelay={0}
+      >
+        <button type="button">Settings</button>
+      </Popover>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Switch account' });
+    await user.hover(trigger);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Quang Tran');
+
+    await user.click(trigger);
+    expect(
+      screen.getByRole('dialog', { name: 'Switch account' }),
+    ).toHaveAttribute('data-side', 'right');
+  });
 });

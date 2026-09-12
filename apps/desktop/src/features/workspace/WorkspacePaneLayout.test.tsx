@@ -28,8 +28,8 @@ describe('workspace pane layout', () => {
       String(PANE_LIMITS.navigation.max),
     );
     expect(screen.getByTestId('layout')).toHaveAttribute(
-      'data-navigation-visible',
-      'false',
+      'data-navigation-mode',
+      'rail',
     );
 
     unmount();
@@ -196,20 +196,20 @@ describe('workspace pane layout', () => {
     expect(screen.getByTestId('committed-width')).toHaveTextContent('360');
   });
 
-  it('uses a temporary navigation drawer in narrow windows', () => {
+  it('derives expanded, rail, and drawer modes without persisting the drawer', () => {
     const media = mockMatchMedia(true);
     render(<LayoutHarness />);
 
     expect(screen.getByTestId('layout')).toHaveAttribute('data-narrow', 'true');
     expect(screen.getByTestId('layout')).toHaveAttribute(
-      'data-navigation-visible',
-      'false',
+      'data-navigation-mode',
+      'rail',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
     expect(screen.getByTestId('layout')).toHaveAttribute(
-      'data-navigation-visible',
-      'true',
+      'data-navigation-mode',
+      'drawer',
     );
 
     act(() => media.change(false));
@@ -218,8 +218,44 @@ describe('workspace pane layout', () => {
       'false',
     );
     expect(screen.getByTestId('layout')).toHaveAttribute(
-      'data-navigation-visible',
-      'true',
+      'data-navigation-mode',
+      'expanded',
+    );
+
+    act(() => media.change(true));
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-mode',
+      'rail',
+    );
+  });
+
+  it('preserves the collapsed desktop preference across narrow mode', () => {
+    const media = mockMatchMedia(false);
+    render(<LayoutHarness />);
+
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-mode',
+      'expanded',
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Collapse navigation' }),
+    );
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-mode',
+      'rail',
+    );
+
+    act(() => media.change(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-mode',
+      'drawer',
+    );
+
+    act(() => media.change(false));
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-mode',
+      'rail',
     );
   });
 });
@@ -232,7 +268,7 @@ function LayoutHarness() {
       ref={layoutRef}
       data-testid="layout"
       data-narrow={layout.narrow}
-      data-navigation-visible={layout.navigationVisible}
+      data-navigation-mode={layout.navigationMode}
       data-navigation-width={layout.navigationWidth}
       style={
         {
@@ -241,7 +277,11 @@ function LayoutHarness() {
       }
     >
       <button type="button" onClick={layout.toggleNavigation}>
-        {layout.navigationVisible ? 'Collapse navigation' : 'Open navigation'}
+        {layout.navigationMode === 'rail'
+          ? 'Open navigation'
+          : layout.navigationMode === 'drawer'
+            ? 'Close navigation'
+            : 'Collapse navigation'}
       </button>
       <PaneResizeHandle
         label="Resize navigation"

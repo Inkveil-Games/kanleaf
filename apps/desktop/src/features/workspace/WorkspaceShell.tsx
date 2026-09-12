@@ -3,10 +3,12 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type RefObject,
 } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
@@ -104,9 +106,14 @@ import {
   type WorkspaceSettingsSection,
 } from './settingsSections';
 import { PaneResizeHandle } from './PaneResizeHandle';
-import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
+import {
+  PANE_LIMITS,
+  useWorkspacePaneLayout,
+  type NavigationMode,
+} from './workspacePaneLayout';
 import { WorkspaceTopBar } from './WorkspaceTopBar';
 import { WorkspaceControl } from './WorkspaceControl';
+import { WorkspaceNavigationDrawer } from './WorkspaceNavigationDrawer';
 import { WorkspaceImportDialog } from './WorkspaceImportDialog';
 import type { WorkspaceIdentity } from './WorkspaceIdentityForm';
 import type { WorkspaceImportOperation } from './portabilityApi';
@@ -219,7 +226,13 @@ export function WorkspaceShell({
   } | null>(null);
   const canonicalReplacement = useRef<string | null>(null);
   const shellRef = useRef<HTMLElement>(null);
+  const navigationDrawerTriggerRef = useRef<HTMLButtonElement>(null);
   const paneLayout = useWorkspacePaneLayout();
+  useNavigationModeTransition(
+    shellRef,
+    paneLayout.navigationMode,
+    paneLayout.narrow,
+  );
 
   useEffect(() => {
     if (!routeActionError) {
@@ -356,6 +369,7 @@ export function WorkspaceShell({
   const selectedTaskId = presentation?.selectedTaskId ?? null;
   const selectedDocumentId = presentation?.selectedDocumentId ?? null;
   const routeIdentity = location ? workspaceLocationIdentity(location) : null;
+  const navigationRouteKey = location ? JSON.stringify(location) : null;
   const canonicalTaskDraft = useMemo<TaskViewDraft | null>(() => {
     if (!routeIdentity || visibleSurface !== 'tasks') return null;
     if (presentation?.activeViewId && !activeView) return null;
@@ -407,13 +421,7 @@ export function WorkspaceShell({
 
   useEffect(() => {
     closeNavigationDrawer();
-  }, [
-    activeProjectId,
-    activeView?.id,
-    collectionKey,
-    closeNavigationDrawer,
-    visibleSurface,
-  ]);
+  }, [closeNavigationDrawer, navigationRouteKey]);
   const tasks = useQuery({
     queryKey: ['tasks', workspaceId, deferredTaskRequest.query],
     queryFn: () => queryTasks(context, workspaceId!, deferredTaskRequest.query),
@@ -1597,6 +1605,8 @@ export function WorkspaceShell({
       </main>
     );
   }
+  const visibleWorkspaceId = workspaceId;
+  const visibleWorkspace = activeWorkspace;
   const directActivationAttempt = `${user.id}:${activeWorkspace.id}`;
   if (
     directActivationError?.attempt === directActivationAttempt &&
@@ -1731,10 +1741,7 @@ export function WorkspaceShell({
       ? 'has-document-detail'
       : '',
     paneLayout.narrow ? 'is-narrow-window' : '',
-    paneLayout.navigationVisible ? '' : 'navigation-hidden',
-    paneLayout.narrow && paneLayout.navigationVisible
-      ? 'navigation-drawer-open'
-      : '',
+    paneLayout.navigationMode === 'expanded' ? '' : 'navigation-rail-layout',
   ]
     .filter(Boolean)
     .join(' ');
@@ -1743,15 +1750,43 @@ export function WorkspaceShell({
     '--collection-pane-width': `${paneLayout.collectionWidth}px`,
     '--detail-pane-width': `${paneLayout.detailWidth}px`,
   } as CSSProperties;
+  const inlineNavigationMode: NavigationMode =
+    paneLayout.navigationMode === 'expanded' ? 'expanded' : 'rail';
 
-  return (
-    <main ref={shellRef} className={shellClassName} style={shellStyle}>
+  function renderAccountSwitcher(compact: boolean) {
+    return (
+      <AccountSwitcher
+        compact={compact}
+        accounts={accountSessions}
+        activeUserId={user.id}
+        transitioning={accountTransitioning}
+        error={accountError}
+        onSwitchAccount={onSwitchAccount}
+        onAddAccount={onAddAccount}
+        onOpenAccountSettings={() => openAccountSettings('profile')}
+        onOpenHostConsole={
+          onOpenHostConsole
+            ? () => {
+                void flushDocumentSaves()
+                  .then(onOpenHostConsole)
+                  .catch((caught) => setActionError(errorMessage(caught)));
+              }
+            : undefined
+        }
+        onSignOutCurrent={onSignOut}
+        onDismissError={onDismissAccountError}
+      />
+    );
+  }
+
+  function renderWorkspaceControl(mode: NavigationMode) {
+    return (
       <WorkspaceControl
         context={context}
         userEmail={user.email}
         workspaces={workspaces.data ?? []}
-        workspaceId={workspaceId}
-        navigationVisible={paneLayout.navigationVisible}
+        workspaceId={visibleWorkspaceId}
+        mode={mode}
         onSwitchWorkspace={switchWorkspace}
         onCreateWorkspace={addWorkspace}
         onFinishWorkspace={finishWorkspaceCreation}
@@ -1763,47 +1798,22 @@ export function WorkspaceShell({
         }}
         onToggleNavigation={paneLayout.toggleNavigation}
       />
-      <WorkspaceTopBar
-        context={context}
-        onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
-          void openNotificationTask(notificationWorkspaceId, taskId)
-        }
-        onOpenInvitations={() => openAccountSettings('invitations')}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-      />
-      {paneLayout.narrow && paneLayout.navigationVisible && (
-        <button
-          className="navigation-scrim"
-          type="button"
-          aria-label="Close navigation"
-          onClick={paneLayout.closeNavigationDrawer}
-        />
-      )}
+    );
+  }
+
+  function renderWorkspaceNavigation(mode: NavigationMode) {
+    const closeAfterNavigation = mode === 'drawer';
+    const completeNavigation = (navigate: () => void) => {
+      navigate();
+      if (closeAfterNavigation) paneLayout.closeNavigationDrawer();
+    };
+
+    return (
       <WorkspaceNavigation
+        mode={mode}
         context={context}
-        accountSwitcher={
-          <AccountSwitcher
-            accounts={accountSessions}
-            activeUserId={user.id}
-            transitioning={accountTransitioning}
-            error={accountError}
-            onSwitchAccount={onSwitchAccount}
-            onAddAccount={onAddAccount}
-            onOpenAccountSettings={() => openAccountSettings('profile')}
-            onOpenHostConsole={
-              onOpenHostConsole
-                ? () => {
-                    void flushDocumentSaves()
-                      .then(onOpenHostConsole)
-                      .catch((caught) => setActionError(errorMessage(caught)));
-                  }
-                : undefined
-            }
-            onSignOutCurrent={onSignOut}
-            onDismissError={onDismissAccountError}
-          />
-        }
-        workspace={activeWorkspace}
+        accountSwitcher={renderAccountSwitcher(mode === 'rail')}
+        workspace={visibleWorkspace}
         currentUser={{ id: user.id, displayName: user.display_name }}
         projects={projects.data ?? []}
         workspaceViews={workspaceViews.data ?? []}
@@ -1812,15 +1822,68 @@ export function WorkspaceShell({
         surface={visibleSurface}
         activeProjectId={activeProjectId}
         activeViewId={activeView?.id ?? null}
+        navigationRouteKey={navigationRouteKey}
         onCreateProject={addProject}
-        onSelectCollection={selectCollection}
-        onOpenProjectOverview={openProjectOverview}
-        onOpenPlanning={openPlanning}
-        onOpenDocuments={openDocuments}
-        onOpenViews={openProjectViews}
-        onOpenSavedView={openSavedView}
+        onSelectCollection={(nextCollection) =>
+          completeNavigation(() => selectCollection(nextCollection))
+        }
+        onOpenProjectOverview={(projectId) =>
+          completeNavigation(() => openProjectOverview(projectId))
+        }
+        onOpenPlanning={(projectId, kind) =>
+          completeNavigation(() => openPlanning(projectId, kind))
+        }
+        onOpenDocuments={(projectId) =>
+          completeNavigation(() => openDocuments(projectId))
+        }
+        onOpenViews={(projectId) =>
+          completeNavigation(() => openProjectViews(projectId))
+        }
+        onOpenSavedView={(view) =>
+          completeNavigation(() => openSavedView(view))
+        }
+        onToggleNavigation={paneLayout.toggleNavigation}
+        railToggleLabel={
+          paneLayout.narrow ? 'Open navigation' : 'Expand navigation'
+        }
+        railToggleExpanded={paneLayout.navigationMode === 'drawer'}
+        railToggleOpensDrawer={paneLayout.narrow}
+        railToggleRef={navigationDrawerTriggerRef}
       />
-      {!paneLayout.narrow && paneLayout.navigationVisible && (
+    );
+  }
+
+  return (
+    <main
+      ref={shellRef}
+      className={shellClassName}
+      style={shellStyle}
+      data-navigation-mode={paneLayout.navigationMode}
+    >
+      {renderWorkspaceControl(inlineNavigationMode)}
+      <WorkspaceTopBar
+        context={context}
+        onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
+          void openNotificationTask(notificationWorkspaceId, taskId)
+        }
+        onOpenInvitations={() => openAccountSettings('invitations')}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+      />
+      {renderWorkspaceNavigation(inlineNavigationMode)}
+      {paneLayout.narrow ? (
+        <WorkspaceNavigationDrawer
+          navigationWidth={paneLayout.navigationWidth}
+          open={paneLayout.navigationMode === 'drawer'}
+          finalFocus={navigationDrawerTriggerRef}
+          onOpenChange={(open) => {
+            if (!open) paneLayout.closeNavigationDrawer();
+          }}
+        >
+          {renderWorkspaceControl('drawer')}
+          {renderWorkspaceNavigation('drawer')}
+        </WorkspaceNavigationDrawer>
+      ) : null}
+      {!paneLayout.narrow && paneLayout.navigationMode === 'expanded' && (
         <PaneResizeHandle
           className="navigation-resize-handle"
           label="Resize navigation"
@@ -2195,6 +2258,49 @@ export function WorkspaceShell({
       />
     </main>
   );
+}
+
+function useNavigationModeTransition(
+  shellRef: RefObject<HTMLElement | null>,
+  mode: NavigationMode,
+  narrow: boolean,
+) {
+  const previous = useRef({ mode, narrow });
+
+  useLayoutEffect(() => {
+    const prior = previous.current;
+    previous.current = { mode, narrow };
+    const shell = shellRef.current;
+    if (
+      !shell ||
+      prior.mode === mode ||
+      prior.narrow ||
+      narrow ||
+      prior.mode === 'drawer' ||
+      mode === 'drawer' ||
+      (typeof matchMedia === 'function' &&
+        matchMedia('(prefers-reduced-motion: reduce)').matches)
+    ) {
+      return;
+    }
+
+    shell.classList.add('is-navigation-transitioning');
+    const finish = (event: TransitionEvent) => {
+      if (
+        event.target === shell &&
+        event.propertyName === 'grid-template-columns'
+      ) {
+        shell.classList.remove('is-navigation-transitioning');
+      }
+    };
+    shell.addEventListener('transitionend', finish);
+    shell.addEventListener('transitioncancel', finish);
+    return () => {
+      shell.removeEventListener('transitionend', finish);
+      shell.removeEventListener('transitioncancel', finish);
+      shell.classList.remove('is-navigation-transitioning');
+    };
+  }, [mode, narrow, shellRef]);
 }
 
 function queryResolution<T>(query: {

@@ -9,6 +9,9 @@ import {
   type RefObject,
 } from 'react';
 import { popupPortalContainer } from './popupPortal';
+import { Tooltip } from './Tooltip';
+
+type PopupPlacement = 'down' | 'up' | 'right';
 
 interface PopoverProps {
   label: string;
@@ -16,13 +19,15 @@ interface PopoverProps {
   children: ReactNode;
   align?: 'start' | 'end';
   disabled?: boolean;
-  placement?: 'down' | 'up';
+  placement?: PopupPlacement;
   className?: string;
   trigger?: ReactNode;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   sideOffset?: number;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  triggerTooltip?: string;
+  tooltipDelay?: number;
 }
 
 interface PopoverCloseProps {
@@ -49,33 +54,66 @@ export function Popover({
   sideOffset = 4,
   open,
   onOpenChange,
+  triggerTooltip,
+  tooltipDelay,
 }: PopoverProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const [internallyControlled] = useState(() => triggerTooltip !== undefined);
+  const resolvedOpen =
+    open ?? (internallyControlled ? uncontrolledOpen : undefined);
+  const isOpen = resolvedOpen === true;
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (open === undefined && internallyControlled) {
+      setUncontrolledOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  };
   const triggerClassName = `context-menu context-menu-${placement}${className ? ` ${className}` : ''}`;
   const positionerClassName = `context-menu-positioner context-menu-${placement}${className ? ` ${className}` : ''}`;
+  const popoverTrigger = (
+    <BasePopover.Trigger
+      ref={(element: HTMLElement | null) => {
+        const button = element as HTMLButtonElement | null;
+        if (triggerRef) triggerRef.current = button;
+        setPortalContainer(popupPortalContainer(button));
+      }}
+      className="context-menu-trigger"
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => {
+        if (triggerTooltip && !isOpen) handleOpenChange(true);
+      }}
+    >
+      {trigger ?? <MoreHorizontal aria-hidden="true" size={16} />}
+    </BasePopover.Trigger>
+  );
 
   return (
-    <BasePopover.Root modal={false} open={open} onOpenChange={onOpenChange}>
+    <BasePopover.Root
+      modal={false}
+      open={resolvedOpen}
+      onOpenChange={handleOpenChange}
+    >
       <div className={triggerClassName}>
-        <BasePopover.Trigger
-          ref={(element: HTMLElement | null) => {
-            const button = element as HTMLButtonElement | null;
-            if (triggerRef) triggerRef.current = button;
-            setPortalContainer(popupPortalContainer(button));
-          }}
-          className="context-menu-trigger"
-          aria-label={label}
-          disabled={disabled}
-        >
-          {trigger ?? <MoreHorizontal aria-hidden="true" size={16} />}
-        </BasePopover.Trigger>
+        {triggerTooltip ? (
+          <Tooltip
+            label={triggerTooltip}
+            placement={placement === 'right' ? 'right' : 'top'}
+            delay={tooltipDelay}
+            disabled={isOpen}
+            trigger={popoverTrigger}
+          />
+        ) : (
+          popoverTrigger
+        )}
       </div>
       <BasePopover.Portal container={portalContainer}>
         <BasePopover.Positioner
           className={positionerClassName}
-          side={placement === 'up' ? 'top' : 'bottom'}
+          side={popupSide(placement)}
           align={align}
           sideOffset={sideOffset}
           collisionPadding={8}
@@ -90,6 +128,12 @@ export function Popover({
       </BasePopover.Portal>
     </BasePopover.Root>
   );
+}
+
+function popupSide(placement: PopupPlacement) {
+  if (placement === 'up') return 'top';
+  if (placement === 'right') return 'right';
+  return 'bottom';
 }
 
 export function PopoverClose({
