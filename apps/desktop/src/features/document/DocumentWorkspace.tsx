@@ -1,25 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText } from 'lucide-react';
+import { FileText, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
 import {
   archiveDocument,
   createDocument,
+  deleteDocument,
   listDocuments,
-  reorderDocuments,
+  moveDocument,
   updateDocument,
 } from './api';
 import { DocumentDetail } from './DocumentDetail';
 import { DocumentTree } from './DocumentTree';
 import {
   buildSections,
-  compareDocuments,
   descendantIds,
   isProjectEditor,
+  moveTreeNode,
   visibleSections,
+  type TreeDestination,
 } from './tree';
-import type { DocumentPatch, WorkspaceDocument } from './types';
+import type { DocumentPatch, MovedDocument, WorkspaceDocument } from './types';
 
 interface DocumentWorkspaceProps {
   context: ApiContext;
@@ -63,8 +66,14 @@ export function DocumentWorkspace({
   const [archiveCandidateId, setArchiveCandidateId] = useState<string | null>(
     null,
   );
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
+    null,
+  );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [suppressImplicitSelection, setSuppressImplicitSelection] =
+    useState(false);
   const availableDocuments = useMemo(
     () => (accessSettled ? (documents.data ?? []) : []),
     [accessSettled, documents.data],
@@ -91,11 +100,14 @@ export function DocumentWorkspace({
     () => sections.flatMap((section) => section.entries),
     [sections],
   );
-  const activeSelectedId = nearestVisibleSelection(
-    selectedDocumentId,
-    entries.map(({ document }) => document),
-    availableDocuments,
-  );
+  const activeSelectedId =
+    suppressImplicitSelection && selectedDocumentId === null
+      ? null
+      : nearestVisibleSelection(
+          selectedDocumentId,
+          entries.map(({ document }) => document),
+          availableDocuments,
+        );
   const selected =
     availableDocuments.find(({ id }) => id === activeSelectedId) ?? null;
   const activeProject = projectId
@@ -104,6 +116,28 @@ export function DocumentWorkspace({
   const canCreate =
     accessSettled &&
     (projectId ? isProjectEditor(activeProject) : canCreateWorkspaceDocuments);
+  const deleteCandidate =
+    availableDocuments.find(({ id }) => id === deleteCandidateId) ?? null;
+  const deleteDescendantCount = deleteCandidate
+    ? descendantIds(availableDocuments, deleteCandidate.id).size
+    : 0;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSuppressImplicitSelection(false),
+      0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [projectId, workspaceId]);
+
+  useEffect(() => {
+    if (selectedDocumentId === null) return;
+    const timeout = window.setTimeout(
+      () => setSuppressImplicitSelection(false),
+      0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [selectedDocumentId]);
 
   useEffect(() => {
     if (
@@ -198,41 +232,167 @@ export function DocumentWorkspace({
     });
   }
 
-  async function moveSibling(document: WorkspaceDocument, offset: -1 | 1) {
-    const siblings = (documents.data ?? [])
-      .filter(
-        (candidate) =>
-          candidate.project_id === document.project_id &&
-          candidate.parent_id === document.parent_id,
-      )
-      .sort(compareDocuments);
-    const current = siblings.findIndex(({ id }) => id === document.id);
-    const destination = current + offset;
-    if (current < 0 || destination < 0 || destination >= siblings.length)
-      return;
-    [siblings[current], siblings[destination]] = [
-      siblings[destination],
-      siblings[current],
-    ];
-    await run(async () => {
-      await reorderDocuments(context, workspaceId, {
-        project_id: document.project_id,
-        parent_id: document.parent_id,
-        document_ids: siblings.map(({ id }) => id),
-      });
-      await refresh();
+  async function moveTreeDocument(
+    documentId: string,
+    destination: TreeDestination,
+  ) {
+    const mutationIds = descendantIds(availableDocuments, documentId);
+    mutationIds.add(documentId);
+    if ([...mutationIds].some((id) => busyIds.has(id))) {
+      throw new Error('This Library note is already being changed.');
+    }
+    const snapshots = queryClient.getQueriesData<WorkspaceDocument[]>({
+      queryKey: ['documents', workspaceId],
     });
+    setBusy(mutationIds, true);
+    setActionError(null);
+    queryClient.setQueriesData<WorkspaceDocument[]>(
+      { queryKey: ['documents', workspaceId] },
+      (current) => {
+        if (!current?.some(({ id }) => id === documentId)) return current;
+        return (
+          moveTreeNode(current, { documentId, destination })?.documents ??
+          current
+        );
+      },
+    );
+    try {
+      if (!(await onPrepareDocumentMutation())) {
+        throw new Error('Save the open note before moving it.');
+      }
+      const response = await moveDocument(context, workspaceId, documentId, {
+        parent_id: destination.parentId,
+        index: destination.index,
+      });
+      reconcileMovedDocuments(response.documents);
+    } catch (caught) {
+      for (const [key, snapshot] of snapshots) {
+        queryClient.setQueryData(key, snapshot);
+      }
+      setActionError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(mutationIds, false);
+    }
   }
 
   async function confirmArchive(documentId: string) {
+    const mutationIds = descendantIds(availableDocuments, documentId);
+    mutationIds.add(documentId);
+    if ([...mutationIds].some((id) => busyIds.has(id))) return false;
     if (!(await onPrepareDocumentMutation())) return false;
-    await run(async () => {
-      await archiveDocument(context, workspaceId, documentId);
-      setArchiveCandidateId(null);
-      await refresh();
-      await onSelectDocument(null, { replace: true });
+    setBusy(mutationIds, true);
+    try {
+      await run(async () => {
+        await archiveDocument(context, workspaceId, documentId);
+        setArchiveCandidateId(null);
+        await refresh();
+        await onSelectDocument(null, { replace: true });
+      });
+      return true;
+    } finally {
+      setBusy(mutationIds, false);
+    }
+  }
+
+  async function confirmDelete(documentId: string) {
+    const mutationIds = descendantIds(availableDocuments, documentId);
+    mutationIds.add(documentId);
+    if ([...mutationIds].some((id) => busyIds.has(id))) return false;
+    if (!(await onPrepareDocumentMutation())) return false;
+    setBusy(mutationIds, true);
+    setActionError(null);
+    try {
+      const { deleted_ids: deletedIds } = await deleteDocument(
+        context,
+        workspaceId,
+        documentId,
+      );
+      const deleted = new Set(deletedIds);
+      queryClient.setQueriesData<WorkspaceDocument[]>(
+        { queryKey: ['documents', workspaceId] },
+        (current) => current?.filter(({ id }) => !deleted.has(id)),
+      );
+      queryClient.removeQueries({
+        predicate: (query) => {
+          if (query.queryKey[1] !== workspaceId) return false;
+          if (
+            query.queryKey[0] === 'document' &&
+            typeof query.queryKey[2] === 'string' &&
+            deleted.has(query.queryKey[2])
+          ) {
+            return true;
+          }
+          if (
+            query.queryKey[0] === 'routed-document' &&
+            query.queryKey[2] === 'id' &&
+            typeof query.queryKey[3] === 'string' &&
+            deleted.has(query.queryKey[3])
+          ) {
+            return true;
+          }
+          if (
+            query.queryKey[0] === 'markdown-document' &&
+            typeof query.queryKey[3] === 'string'
+          ) {
+            return deleted.has(query.queryKey[3]);
+          }
+          const cached = query.state.data;
+          return (
+            typeof cached === 'object' &&
+            cached !== null &&
+            'id' in cached &&
+            typeof cached.id === 'string' &&
+            deleted.has(cached.id)
+          );
+        },
+      });
+      setDeleteCandidateId(null);
+      if (activeSelectedId && deleted.has(activeSelectedId)) {
+        setSuppressImplicitSelection(true);
+        await onSelectDocument(null, { replace: true });
+      }
+      return true;
+    } catch (caught) {
+      setActionError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(mutationIds, false);
+    }
+  }
+
+  function setBusy(documentIds: ReadonlySet<string>, busy: boolean) {
+    setBusyIds((current) => {
+      const next = new Set(current);
+      for (const documentId of documentIds) {
+        if (busy) next.add(documentId);
+        else next.delete(documentId);
+      }
+      return next;
     });
-    return true;
+  }
+
+  function reconcileMovedDocuments(authoritative: MovedDocument[]) {
+    const byId = new Map(
+      authoritative.map((document) => [document.id, document]),
+    );
+    const reconcile = (current: WorkspaceDocument) => {
+      const moved = byId.get(current.id);
+      return moved ? { ...current, ...moved } : current;
+    };
+    queryClient.setQueriesData<WorkspaceDocument[]>(
+      { queryKey: ['documents', workspaceId] },
+      (current) => current?.map(reconcile),
+    );
+    queryClient.setQueriesData<WorkspaceDocument>(
+      {
+        predicate: (query) =>
+          query.queryKey[1] === workspaceId &&
+          (query.queryKey[0] === 'document' ||
+            query.queryKey[0] === 'routed-document'),
+      },
+      (current) => (current ? reconcile(current) : current),
+    );
   }
 
   async function toggleCollapsed(documentId: string) {
@@ -259,7 +419,7 @@ export function DocumentWorkspace({
   return (
     <>
       <DocumentTree
-        sections={sections}
+        sections={allSections}
         documents={availableDocuments}
         projectId={projectId}
         selectedId={activeSelectedId}
@@ -270,7 +430,9 @@ export function DocumentWorkspace({
         loading={!accessSettled || documents.isPending}
         error={documents.error ? errorMessage(documents.error) : null}
         actionError={actionError}
+        busyIds={busyIds}
         onSelect={(documentId) => {
+          setSuppressImplicitSelection(false);
           const document = documents.data?.find(({ id }) => id === documentId);
           if (document) void onSelectDocument(document);
           setArchiveCandidateId(null);
@@ -295,14 +457,47 @@ export function DocumentWorkspace({
         onStartRename={setRenamingId}
         onCancelRename={() => setRenamingId(null)}
         onRename={(documentId, title) => patchDocument(documentId, { title })}
-        onMove={(document, offset) => {
-          void moveSibling(document, offset).catch(() => undefined);
+        onMove={moveTreeDocument}
+        onKeepExpanded={(documentId) => {
+          setCollapsedIds((current) => {
+            const next = new Set(current);
+            next.delete(documentId);
+            return next;
+          });
         }}
         onArchive={(documentId) => {
           const document = documents.data?.find(({ id }) => id === documentId);
           if (document) void onSelectDocument(document);
           setArchiveCandidateId(documentId);
         }}
+        onDelete={setDeleteCandidateId}
+      />
+
+      <AppDialog
+        type="confirm"
+        open={deleteCandidate !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteCandidateId(null);
+        }}
+        variant="danger"
+        title={
+          deleteCandidate
+            ? deleteDescendantCount > 0
+              ? `Delete “${deleteCandidate.title}” and ${deleteDescendantCount} nested ${deleteDescendantCount === 1 ? 'note' : 'notes'}?`
+              : `Delete “${deleteCandidate.title}”?`
+            : 'Delete Library note?'
+        }
+        description={
+          deleteDescendantCount > 0
+            ? 'This permanently deletes this note and all of its nested notes. This action cannot be undone.'
+            : 'This permanently deletes this Library note and cannot be undone.'
+        }
+        icon={<Trash2 aria-hidden="true" size={18} />}
+        confirmLabel="Delete permanently"
+        loadingLabel="Deleting…"
+        onConfirm={() =>
+          deleteCandidate ? confirmDelete(deleteCandidate.id) : false
+        }
       />
 
       <section className="detail-pane document-detail-pane">

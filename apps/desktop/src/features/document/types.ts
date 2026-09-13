@@ -18,5 +18,20 @@ export interface DocumentPatch {
   title?: string;
   project_id?: string | null;
   parent_id?: string | null;
-  position?: number;
+}
+
+export interface MovedDocument {
+  id: string;
+  parent_id: string | null;
+  position: number;
+  library_path: string;
+  updated_at: string;
+}
+
+export interface MoveDocumentResponse {
+  documents: MovedDocument[];
+}
+
+export interface DeleteDocumentsResponse {
+  deleted_ids: string[];
 }

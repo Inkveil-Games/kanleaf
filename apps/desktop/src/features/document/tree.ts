@@ -13,6 +13,24 @@ export interface DocumentSection {
   entries: TreeEntry[];
 }
 
+export interface TreeDestination {
+  parentId: string | null;
+  index: number;
+}
+
+export type RowDropIntent = 'before' | 'after' | 'inside';
+
+export type DropRegion =
+  | { kind: 'edge'; intent: 'before' | 'after' }
+  | { kind: 'middle'; fallback: 'before' | 'after' };
+
+export interface TreeMoveProjection {
+  documents: WorkspaceDocument[];
+  movedIds: ReadonlySet<string>;
+  affectedIds: ReadonlySet<string>;
+  changed: boolean;
+}
+
 export function buildSections(
   documents: WorkspaceDocument[],
   projects: Project[],
@@ -77,16 +95,35 @@ export function visibleSections(
   });
 }
 
+export function projectSections(
+  sections: DocumentSection[],
+  documents: WorkspaceDocument[],
+): DocumentSection[] {
+  return sections.map((section) => {
+    const documentIds = new Set(
+      section.entries.map(({ document }) => document.id),
+    );
+    return {
+      ...section,
+      entries: flattenTree(
+        documents.filter((document) => documentIds.has(document.id)),
+      ),
+    };
+  });
+}
+
 export function descendantIds(
   documents: WorkspaceDocument[],
   documentId: string,
 ) {
   const descendants = new Set<string>();
+  const visited = new Set([documentId]);
   const pending = [documentId];
   while (pending.length > 0) {
     const parentId = pending.pop();
     for (const document of documents) {
-      if (document.parent_id === parentId && !descendants.has(document.id)) {
+      if (document.parent_id === parentId && !visited.has(document.id)) {
+        visited.add(document.id);
         descendants.add(document.id);
         pending.push(document.id);
       }
@@ -95,20 +132,152 @@ export function descendantIds(
   return descendants;
 }
 
-export function canMove(
-  document: WorkspaceDocument,
+export function destinationForRow(
   documents: WorkspaceDocument[],
-  offset: -1 | 1,
+  documentId: string,
+  targetId: string,
+  intent: RowDropIntent,
+): TreeDestination | null {
+  const source = documents.find(({ id }) => id === documentId);
+  const target = documents.find(({ id }) => id === targetId);
+  if (
+    !source ||
+    !target ||
+    source.archived_at !== null ||
+    target.archived_at !== null ||
+    !source.can_edit ||
+    !target.can_edit ||
+    source.workspace_id !== target.workspace_id ||
+    source.project_id !== target.project_id ||
+    source.id === target.id ||
+    descendantIds(documents, source.id).has(target.id)
+  ) {
+    return null;
+  }
+
+  if (intent === 'inside') {
+    return {
+      parentId: target.id,
+      index: activeSiblings(documents, source, target.id, source.id).length,
+    };
+  }
+
+  const siblings = activeSiblings(
+    documents,
+    source,
+    target.parent_id,
+    source.id,
+  );
+  const targetIndex = siblings.findIndex(({ id }) => id === target.id);
+  if (targetIndex < 0) return null;
+  return {
+    parentId: target.parent_id,
+    index: targetIndex + (intent === 'after' ? 1 : 0),
+  };
+}
+
+export function moveTreeNode(
+  documents: WorkspaceDocument[],
+  move: { documentId: string; destination: TreeDestination },
+): TreeMoveProjection | null {
+  const source = documents.find(({ id }) => id === move.documentId);
+  if (!source || source.archived_at !== null || !source.can_edit) return null;
+  const { parentId, index } = move.destination;
+  if (!Number.isInteger(index) || index < 0) return null;
+
+  const movedIds = descendantIds(documents, source.id);
+  movedIds.add(source.id);
+  if (parentId && movedIds.has(parentId)) return null;
+
+  const parent = parentId ? documents.find(({ id }) => id === parentId) : null;
+  if (
+    parentId &&
+    (!parent ||
+      parent.archived_at !== null ||
+      !parent.can_edit ||
+      parent.workspace_id !== source.workspace_id ||
+      parent.project_id !== source.project_id)
+  ) {
+    return null;
+  }
+
+  const oldSiblings = activeSiblings(
+    documents,
+    source,
+    source.parent_id,
+    source.id,
+  );
+  const destinationSiblings =
+    parentId === source.parent_id
+      ? oldSiblings
+      : activeSiblings(documents, source, parentId, source.id);
+  if (index > destinationSiblings.length) return null;
+
+  const orderedDestination = [...destinationSiblings];
+  orderedDestination.splice(index, 0, source);
+  const placements = new Map<
+    string,
+    { parentId: string | null; position: number }
+  >();
+  if (parentId !== source.parent_id) {
+    oldSiblings.forEach((document, position) => {
+      placements.set(document.id, {
+        parentId: source.parent_id,
+        position,
+      });
+    });
+  }
+  orderedDestination.forEach((document, position) => {
+    placements.set(document.id, { parentId, position });
+  });
+
+  let changed = false;
+  const projected = documents.map((document) => {
+    const placement = placements.get(document.id);
+    if (!placement) return document;
+    if (
+      document.parent_id === placement.parentId &&
+      document.position === placement.position
+    ) {
+      return document;
+    }
+    changed = true;
+    return {
+      ...document,
+      parent_id: placement.parentId,
+      position: placement.position,
+    };
+  });
+  return {
+    documents: projected,
+    movedIds,
+    affectedIds: new Set([...movedIds, ...placements.keys()]),
+    changed,
+  };
+}
+
+export function dropRegion(
+  rowTop: number,
+  rowHeight: number,
+  pointerY: number,
+): DropRegion {
+  const height = Math.max(1, rowHeight);
+  const edge = Math.min(8, height * 0.25);
+  if (pointerY <= rowTop + edge) return { kind: 'edge', intent: 'before' };
+  if (pointerY >= rowTop + height - edge) {
+    return { kind: 'edge', intent: 'after' };
+  }
+  return {
+    kind: 'middle',
+    fallback: pointerY < rowTop + height / 2 ? 'before' : 'after',
+  };
+}
+
+export function sameDestination(
+  left: TreeDestination | null,
+  right: TreeDestination | null,
 ) {
-  const siblings = documents
-    .filter(
-      (candidate) =>
-        candidate.project_id === document.project_id &&
-        candidate.parent_id === document.parent_id,
-    )
-    .sort(compareDocuments);
-  const index = siblings.findIndex(({ id }) => id === document.id);
-  return index >= 0 && index + offset >= 0 && index + offset < siblings.length;
+  return left?.parentId === right?.parentId && left?.index === right?.index;
 }
 
 export function compareDocuments(
@@ -142,4 +311,22 @@ function flattenTree(documents: WorkspaceDocument[]) {
   }
   for (const root of children.get(null) ?? []) visit(root, 0);
   return entries;
+}
+
+function activeSiblings(
+  documents: WorkspaceDocument[],
+  scope: Pick<WorkspaceDocument, 'workspace_id' | 'project_id'>,
+  parentId: string | null,
+  excludedId: string,
+) {
+  return documents
+    .filter(
+      (candidate) =>
+        candidate.id !== excludedId &&
+        candidate.archived_at === null &&
+        candidate.workspace_id === scope.workspace_id &&
+        candidate.project_id === scope.project_id &&
+        candidate.parent_id === parentId,
+    )
+    .sort(compareDocuments);
 }

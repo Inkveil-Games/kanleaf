@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { Project } from '../workspace/types';
 import { DocumentWorkspace } from './DocumentWorkspace';
+import { descendantIds, moveTreeNode } from './tree';
 import type { WorkspaceDocument } from './types';
 
 vi.mock('../markdown/MarkdownDocument', () => ({
@@ -74,6 +75,15 @@ function createServer(initial: WorkspaceDocument[]) {
     .fn()
     .mockImplementation((url: string, options?: RequestInit) => {
       const method = options?.method ?? 'GET';
+      if (method === 'POST' && url.endsWith('/delete')) {
+        const id = url.split('/').at(-2)!;
+        const deletedIds = descendantIds(documents, id);
+        deletedIds.add(id);
+        documents = documents.filter(
+          (candidate) => !deletedIds.has(candidate.id),
+        );
+        return response({ deleted_ids: [...deletedIds] });
+      }
       if (method === 'POST') {
         const input = JSON.parse(String(options?.body)) as {
           title: string;
@@ -110,13 +120,26 @@ function createServer(initial: WorkspaceDocument[]) {
       }
       if (method === 'PUT') {
         const input = JSON.parse(String(options?.body)) as {
-          document_ids: string[];
+          parent_id: string | null;
+          index: number;
         };
-        documents = documents.map((candidate) => {
-          const position = input.document_ids.indexOf(candidate.id);
-          return position < 0 ? candidate : { ...candidate, position };
+        const id = url.split('/').at(-2)!;
+        documents =
+          moveTreeNode(documents, {
+            documentId: id,
+            destination: { parentId: input.parent_id, index: input.index },
+          })?.documents ?? documents;
+        return response({
+          documents: documents.map(
+            ({ id, parent_id, position, library_path, updated_at }) => ({
+              id,
+              parent_id,
+              position,
+              library_path,
+              updated_at,
+            }),
+          ),
         });
-        return Promise.resolve(new Response(null, { status: 204 }));
       }
       if (method === 'DELETE') {
         const id = url.split('/').at(-1)!;
@@ -213,6 +236,7 @@ function renderWorkspace(
     );
   }
   render(<Harness />);
+  return { client };
 }
 
 describe('DocumentWorkspace', () => {
@@ -667,7 +691,7 @@ describe('DocumentWorkspace', () => {
     expect(onSelectDocument).not.toHaveBeenCalled();
   });
 
-  it('does not navigate when reordering the selected document', async () => {
+  it('uses drag handles without keeping Move up or Move down menu actions', async () => {
     const onSelectDocument = vi.fn();
     renderWorkspace(
       createServer([
@@ -678,17 +702,195 @@ describe('DocumentWorkspace', () => {
     );
     await screen.findByText('Editor release');
 
+    expect(
+      screen.getByRole('button', { name: 'Reorder Release notes' }),
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Actions for Release notes' }),
     );
-    fireEvent.click(screen.getByRole('menuitem', { name: /Move up/ }));
+    expect(screen.queryByRole('menuitem', { name: /Move up/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Move down/ })).toBeNull();
+    expect(
+      screen.getByRole('menuitem', { name: 'Add nested note' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Rename' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Archive' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    ).toHaveClass('danger-menu-item');
+    expect(onSelectDocument).not.toHaveBeenCalled();
+  });
+
+  it('opens a destructive confirmation and Cancel does not delete', async () => {
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock);
+    await screen.findByRole('treeitem', { name: 'Architecture' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+    expect(
+      screen.getByRole('alertdialog', { name: 'Delete “Architecture”?' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, request]) =>
+          String(url).endsWith('/delete') && request?.method === 'POST',
+      ),
+    ).toBe(false);
+    expect(
+      screen.getByRole('treeitem', { name: 'Architecture' }),
+    ).toBeInTheDocument();
+  });
+
+  it('deletes a recursive subtree and clears a selected descendant route', async () => {
+    const onSelectDocument = vi.fn();
+    const fetchMock = createServer([
+      document('root', 'Architecture'),
+      document('child', 'Vault', { parent_id: 'root' }),
+      document('deep', 'Recovery', { parent_id: 'child' }),
+      document('other', 'Release notes', { position: 1 }),
+    ]);
+    renderWorkspace(fetchMock, {
+      selectedDocumentId: 'deep',
+      onSelectDocument,
+    });
+    await screen.findByText('Editor deep');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+    expect(
+      screen.getByRole('alertdialog', {
+        name: 'Delete “Architecture” and 2 nested notes?',
+      }),
+    ).toHaveTextContent(
+      'This permanently deletes this note and all of its nested notes.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
+
+    await waitFor(() =>
+      expect(onSelectDocument).toHaveBeenLastCalledWith(null, {
+        replace: true,
+      }),
+    );
+    expect(screen.queryByRole('treeitem', { name: 'Architecture' })).toBeNull();
+    expect(screen.queryByRole('treeitem', { name: 'Vault' })).toBeNull();
+    expect(screen.queryByRole('treeitem', { name: 'Recovery' })).toBeNull();
+    expect(
+      screen.getByRole('treeitem', { name: 'Release notes' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Editor other')).not.toBeInTheDocument();
+    expect(screen.getByText('Select a Library note')).toBeInTheDocument();
+  });
+
+  it('keeps unrelated selection and removes a deleted subtree from every list cache', async () => {
+    const root = document('root', 'Architecture');
+    const child = document('child', 'Vault', { parent_id: 'root' });
+    const selected = document('selected', 'Release notes', { position: 1 });
+    const onSelectDocument = vi.fn();
+    const fetchMock = createServer([root, child, selected]);
+    const { client } = renderWorkspace(fetchMock, {
+      selectedDocumentId: 'selected',
+      onSelectDocument,
+    });
+    client.setQueryData(
+      ['documents', 'workspace-1', 'project-1'],
+      [root, child],
+    );
+    client.setQueryData(['document', 'workspace-1', 'child'], child);
+    client.setQueryData(
+      ['routed-document', 'workspace-1', 'id', 'child'],
+      child,
+    );
+    client.setQueryData(['markdown-document', 'workspace-1', 'page', 'child'], {
+      source: '# Vault',
+    });
+    await screen.findByText('Editor selected');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
 
     await waitFor(() =>
       expect(
-        screen.getAllByRole('treeitem').map((item) => item.textContent),
-      ).toEqual(['Release notes', 'Architecture']),
+        client.getQueryData<WorkspaceDocument[]>([
+          'documents',
+          'workspace-1',
+          'all',
+        ]),
+      ).toEqual([selected]),
     );
+    expect(
+      client.getQueryData<WorkspaceDocument[]>([
+        'documents',
+        'workspace-1',
+        'project-1',
+      ]),
+    ).toEqual([]);
+    expect(
+      client.getQueryData(['document', 'workspace-1', 'child']),
+    ).toBeUndefined();
+    expect(
+      client.getQueryData(['routed-document', 'workspace-1', 'id', 'child']),
+    ).toBeUndefined();
+    expect(
+      client.getQueryData([
+        'markdown-document',
+        'workspace-1',
+        'page',
+        'child',
+      ]),
+    ).toBeUndefined();
+    expect(screen.getByText('Editor selected')).toBeInTheDocument();
     expect(onSelectDocument).not.toHaveBeenCalled();
+  });
+
+  it('keeps the tree and dialog intact when permanent delete fails', async () => {
+    const baseServer = createServer([document('root', 'Architecture')]);
+    const fetchMock = vi.fn((url: string, request?: RequestInit) => {
+      if (request?.method === 'POST' && url.endsWith('/delete')) {
+        return Promise.reject(new Error('Vault trash is unavailable'));
+      }
+      return baseServer(url, request);
+    });
+    renderWorkspace(fetchMock);
+    await screen.findByRole('treeitem', { name: 'Architecture' });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
+
+    expect(
+      (await screen.findAllByText('Vault trash is unavailable')).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('alertdialog', { name: 'Delete “Architecture”?' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(
+      screen.getByRole('treeitem', { name: 'Architecture' }),
+    ).toBeInTheDocument();
   });
 
   it('navigates the tree by keyboard and keeps selection through rename and nesting', async () => {
@@ -747,7 +949,7 @@ describe('DocumentWorkspace', () => {
     expect(screen.getByText('Editor release')).toBeInTheDocument();
   });
 
-  it('creates, reorders, moves, and confirms subtree archive actions', async () => {
+  it('creates, moves, and confirms subtree archive actions', async () => {
     const fetchMock = createServer([
       document('root', 'Architecture'),
       document('release', 'Release notes', { position: 1 }),
@@ -763,17 +965,6 @@ describe('DocumentWorkspace', () => {
     expect(
       await screen.findByRole('treeitem', { name: /Meeting notes/ }),
     ).toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Actions for Release notes' }),
-    );
-    fireEvent.click(screen.getByRole('menuitem', { name: /Move up/ }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://kanleaf.example.com/api/workspaces/workspace-1/documents/reorder',
-        expect.objectContaining({ method: 'PUT' }),
-      ),
-    );
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Architecture/ }));
     await chooseSelectOption('Library location', 'Kanleaf');

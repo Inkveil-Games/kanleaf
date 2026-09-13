@@ -5143,10 +5143,52 @@ kbd {
 .document-tree-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 20px 20px minmax(0, 1fr) auto;
   align-items: center;
   padding-left: calc(var(--tree-depth) * 15px);
   border-radius: var(--radius-sm);
+}
+
+.document-tree-drag-handle,
+.document-tree-drag-spacer {
+  display: grid;
+  width: 20px;
+  height: 27px;
+  padding: 0;
+  place-items: center;
+}
+
+.document-tree-drag-handle {
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-subtle);
+  background: transparent;
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 120ms ease-out;
+}
+
+.document-tree-row:hover .document-tree-drag-handle,
+.document-tree-row:focus-within .document-tree-drag-handle,
+.document-tree-row[data-dragging='true'] .document-tree-drag-handle {
+  opacity: 1;
+}
+
+.document-tree-drag-handle:hover:not(:disabled),
+.document-tree-drag-handle:focus-visible {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.document-tree-drag-handle:active,
+.document-tree-row[data-dragging='true'] .document-tree-drag-handle {
+  cursor: grabbing;
+}
+
+.document-tree-drag-handle:disabled {
+  cursor: default;
+  opacity: 0.3;
 }
 
 .document-tree-toggle {
@@ -5170,9 +5212,23 @@ button.document-tree-toggle:hover {
   opacity: 0.25;
 }
 
+.document-tree-ghost-chevron {
+  color: var(--color-accent);
+  opacity: 0.8;
+}
+
 .document-tree-row:hover,
 .document-tree-row[data-selected='true'] {
   background: var(--color-surface-hover);
+}
+
+.document-tree-row[data-dragging='true'] {
+  opacity: 0.28;
+}
+
+.document-tree-row[data-drop-intent='inside'] {
+  box-shadow: inset 0 0 0 1px var(--color-focus);
+  background: var(--color-selection);
 }
 
 .document-tree-row[data-selected='true'] {
@@ -5217,6 +5273,40 @@ button.document-tree-toggle:hover {
 .document-tree-row .context-menu-trigger:focus-visible,
 .document-tree-row .context-menu-trigger[aria-expanded='true'] {
   opacity: 1;
+}
+
+.document-drag-overlay-container {
+  z-index: 40;
+}
+
+.document-drag-overlay {
+  display: grid;
+  min-width: 180px;
+  max-width: 300px;
+  height: 31px;
+  grid-template-columns: 18px 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-popover);
+  cursor: grabbing;
+  font-size: 0.74rem;
+}
+
+.document-drag-overlay span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-tree-drag-handle {
+    transition: none;
+  }
 }
 
 .document-name-form {

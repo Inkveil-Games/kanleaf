@@ -1,6 +1,3 @@
-use std::collections::HashSet;
-
-use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
@@ -22,7 +19,6 @@ pub(super) struct LockedDocument {
     pub(super) parent_id: Option<Uuid>,
     pub(super) storage_name: String,
     pub(super) position: i64,
-    pub(super) archived_at: Option<DateTime<Utc>>,
 }
 
 pub(super) async fn find_authorized_document(
@@ -186,7 +182,7 @@ pub(super) async fn lock_document(
 ) -> Result<LockedDocument, AppError> {
     sqlx::query_as::<_, LockedDocument>(
         r#"
-        SELECT project_id, parent_id, storage_name, position, archived_at
+        SELECT project_id, parent_id, storage_name, position
         FROM documents
         WHERE workspace_id = $1 AND id = $2
           AND ($3 OR archived_at IS NULL)
@@ -362,6 +358,93 @@ pub(super) async fn validate_parent(
     Ok(())
 }
 
+pub(super) async fn validate_subtree_scope(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    document_id: Uuid,
+    project_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let valid: bool = sqlx::query_scalar(
+        r#"
+        WITH RECURSIVE subtree AS (
+            SELECT id, project_id
+            FROM documents
+            WHERE workspace_id = $1 AND id = $2
+            UNION ALL
+            SELECT child.id, child.project_id
+            FROM documents AS child
+            JOIN subtree ON child.parent_id = subtree.id
+            WHERE child.workspace_id = $1
+        )
+        SELECT COALESCE(bool_and(project_id IS NOT DISTINCT FROM $3), false)
+        FROM subtree
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(document_id)
+    .bind(project_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !valid {
+        return Err(AppError::Validation(
+            "A document subtree must remain in one Workspace or Project scope".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) async fn active_sibling_ids(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    project_id: Option<Uuid>,
+    parent_id: Option<Uuid>,
+    excluded_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM documents
+        WHERE workspace_id = $1
+          AND project_id IS NOT DISTINCT FROM $2
+          AND parent_id IS NOT DISTINCT FROM $3
+          AND id <> $4
+          AND archived_at IS NULL
+        ORDER BY position, id
+        FOR UPDATE
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(parent_id)
+    .bind(excluded_id)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+pub(super) async fn set_sibling_order(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    parent_id: Option<Uuid>,
+    document_ids: &[Uuid],
+) -> Result<(), AppError> {
+    for (position, document_id) in document_ids.iter().enumerate() {
+        sqlx::query(
+            r#"
+            UPDATE documents
+            SET parent_id = $3, position = $4, updated_at = now()
+            WHERE workspace_id = $1 AND id = $2
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(document_id)
+        .bind(parent_id)
+        .bind(position as i64)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn next_position(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
@@ -383,16 +466,6 @@ pub(super) async fn next_position(
     .bind(parent_id)
     .fetch_one(&mut **transaction)
     .await?)
-}
-
-pub(super) fn unique_ids(ids: &[Uuid]) -> Result<Vec<Uuid>, AppError> {
-    let mut seen = HashSet::with_capacity(ids.len());
-    if ids.iter().any(|id| !seen.insert(*id)) {
-        return Err(AppError::Validation(
-            "Document reorder cannot contain duplicates".to_owned(),
-        ));
-    }
-    Ok(ids.to_vec())
 }
 
 pub(super) fn map_vault_create_error(error: VaultError) -> AppError {
@@ -418,17 +491,5 @@ pub(super) async fn cleanup_unattached_page(
 pub(super) async fn restore_library_trash(state: &AppState, trash: &crate::vault::LibraryTrash) {
     if let Err(error) = state.vault.restore_library_trash(trash).await {
         warn!(%error, "failed to restore Library subtree after transaction rollback");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::unique_ids;
-    use uuid::Uuid;
-
-    #[test]
-    fn rejects_duplicate_reorder_ids() {
-        let id = Uuid::new_v4();
-        assert!(unique_ids(&[id, id]).is_err());
     }
 }

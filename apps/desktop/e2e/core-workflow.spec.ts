@@ -839,6 +839,75 @@ let source_is_markdown = true;
   await expect(page.locator('.document-collection-pane')).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
 
+  await page.getByRole('button', { name: 'New Library note' }).click();
+  await page.getByLabel('Note title').fill('Drag persistence check');
+  await page.getByRole('button', { name: 'Create note' }).click();
+  const dragHandle = page.getByRole('button', {
+    name: 'Reorder Drag persistence check',
+  });
+  const parentRow = page
+    .getByRole('treeitem', { name: 'Project handbook' })
+    .locator('..');
+  const handleBounds = await dragHandle.boundingBox();
+  const parentBounds = await parentRow.boundingBox();
+  if (!handleBounds || !parentBounds) {
+    throw new Error('Library drag rows must have measurable bounds');
+  }
+  await page.mouse.move(
+    handleBounds.x + handleBounds.width / 2,
+    handleBounds.y + handleBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    parentBounds.x + parentBounds.width / 2,
+    parentBounds.y + parentBounds.height / 2,
+    { steps: 4 },
+  );
+  await expect(parentRow).toHaveAttribute('data-drop-intent', 'inside');
+  const pageMoved = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'PUT' &&
+      /\/api\/workspaces\/[^/]+\/documents\/[^/]+\/move$/.test(path)
+    );
+  });
+  await page.mouse.up();
+  expect((await pageMoved).ok()).toBe(true);
+  await expect(
+    page.getByRole('treeitem', { name: 'Drag persistence check' }),
+  ).toHaveAttribute('aria-level', '2');
+  await page.reload();
+  await expect(
+    page.getByRole('treeitem', { name: 'Drag persistence check' }),
+  ).toHaveAttribute('aria-level', '2');
+
+  await page
+    .getByRole('button', { name: 'Actions for Drag persistence check' })
+    .click();
+  await page.getByRole('menuitem', { name: 'Delete permanently' }).click();
+  const deleteDialog = page.getByRole('alertdialog', {
+    name: 'Delete “Drag persistence check”?',
+  });
+  await expect(deleteDialog).toBeVisible();
+  const pageDeleted = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'POST' &&
+      /\/api\/workspaces\/[^/]+\/documents\/[^/]+\/delete$/.test(path)
+    );
+  });
+  await deleteDialog
+    .getByRole('button', { name: 'Delete permanently' })
+    .click();
+  expect((await pageDeleted).ok()).toBe(true);
+  await expect(
+    page.getByRole('treeitem', { name: 'Drag persistence check' }),
+  ).not.toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole('treeitem', { name: 'Drag persistence check' }),
+  ).not.toBeVisible();
+
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
   await chooseSelectOption(page, 'Layout', 'List');
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();

@@ -4,26 +4,32 @@ import {
   ChevronRight,
   FilePlus2,
   FileText,
-  MoveDown,
-  MoveUp,
+  GripVertical,
   Pencil,
   Plus,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
   useState,
+  useLayoutEffect,
+  useRef,
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
+  type RefObject,
 } from 'react';
 import {
   DropdownMenu,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '../../components/ui/DropdownMenu';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
-import { canMove, type DocumentSection, type TreeEntry } from './tree';
+import { DocumentTreeDnd } from './DocumentTreeDnd';
+import type { DocumentSection, TreeDestination, TreeEntry } from './tree';
 import type { WorkspaceDocument } from './types';
+import { useDocumentTreeRowDnd } from './useDocumentTreeRowDnd';
 
 interface DocumentTreeProps {
   sections: DocumentSection[];
@@ -37,6 +43,7 @@ interface DocumentTreeProps {
   loading: boolean;
   error: string | null;
   actionError: string | null;
+  busyIds: ReadonlySet<string>;
   onSelect: (documentId: string) => void;
   onToggleCollapsed: (documentId: string) => void;
   onStartCreate: (parentId: string | null) => void;
@@ -45,8 +52,10 @@ interface DocumentTreeProps {
   onStartRename: (documentId: string) => void;
   onCancelRename: () => void;
   onRename: (documentId: string, title: string) => Promise<void>;
-  onMove: (document: WorkspaceDocument, offset: -1 | 1) => void;
+  onMove: (documentId: string, destination: TreeDestination) => Promise<void>;
+  onKeepExpanded: (documentId: string) => void;
   onArchive: (documentId: string) => void;
+  onDelete: (documentId: string) => void;
 }
 
 export function DocumentTree({
@@ -61,6 +70,7 @@ export function DocumentTree({
   loading,
   error,
   actionError,
+  busyIds,
   onSelect,
   onToggleCollapsed,
   onStartCreate,
@@ -70,9 +80,101 @@ export function DocumentTree({
   onCancelRename,
   onRename,
   onMove,
+  onKeepExpanded,
   onArchive,
+  onDelete,
 }: DocumentTreeProps) {
+  return (
+    <section className="collection-pane document-collection-pane">
+      <header className="document-collection-header">
+        <div>
+          <p className="pane-eyebrow">{projectId ? 'Project' : 'Workspace'}</p>
+          <h1>Library</h1>
+        </div>
+        {canCreate && (
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="New Library note"
+            onClick={() => onStartCreate(null)}
+          >
+            <Plus aria-hidden="true" size={16} />
+          </IconButton>
+        )}
+      </header>
+
+      <DocumentTreeDnd
+        collapsedIds={collapsedIds}
+        documents={documents}
+        sections={sections}
+        busyIds={busyIds}
+        onKeepExpanded={onKeepExpanded}
+        onMove={onMove}
+      >
+        {({ sections: visible, collapsedIds: effectiveCollapsedIds }) => (
+          <DocumentTreeContent
+            sections={visible}
+            projectId={projectId}
+            selectedId={selectedId}
+            collapsedIds={effectiveCollapsedIds}
+            creatingParentId={creatingParentId}
+            renamingId={renamingId}
+            canCreate={canCreate}
+            loading={loading}
+            error={error}
+            onSelect={onSelect}
+            onToggleCollapsed={onToggleCollapsed}
+            onStartCreate={onStartCreate}
+            onCancelCreate={onCancelCreate}
+            onCreate={onCreate}
+            onStartRename={onStartRename}
+            onCancelRename={onCancelRename}
+            onRename={onRename}
+            onArchive={onArchive}
+            onDelete={onDelete}
+          />
+        )}
+      </DocumentTreeDnd>
+      {actionError && (
+        <p className="document-action-error" role="alert">
+          {actionError}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DocumentTreeContent({
+  sections,
+  projectId,
+  selectedId,
+  collapsedIds,
+  creatingParentId,
+  renamingId,
+  canCreate,
+  loading,
+  error,
+  onSelect,
+  onToggleCollapsed,
+  onStartCreate,
+  onCancelCreate,
+  onCreate,
+  onStartRename,
+  onCancelRename,
+  onRename,
+  onArchive,
+  onDelete,
+}: Omit<
+  DocumentTreeProps,
+  'documents' | 'actionError' | 'busyIds' | 'onMove' | 'onKeepExpanded'
+>) {
   const entries = sections.flatMap((section) => section.entries);
+  const treeRef = useRef<HTMLDivElement>(null);
+  useTreeLayoutAnimation(
+    treeRef,
+    entries.map(({ document }) => document.id).join('|'),
+  );
 
   function treeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!selectedId || entries.length === 0) return;
@@ -117,138 +219,172 @@ export function DocumentTree({
   }
 
   return (
-    <section className="collection-pane document-collection-pane">
-      <header className="document-collection-header">
-        <div>
-          <p className="pane-eyebrow">{projectId ? 'Project' : 'Workspace'}</p>
-          <h1>Library</h1>
-        </div>
-        {canCreate && (
-          <IconButton
-            variant="ghost"
-            size="sm"
-            type="button"
-            aria-label="New Library note"
-            onClick={() => onStartCreate(null)}
-          >
-            <Plus aria-hidden="true" size={16} />
-          </IconButton>
-        )}
-      </header>
-
-      <div
-        className="document-tree-scroll"
-        role="tree"
-        aria-label={projectId ? 'Project Library' : 'Workspace Library'}
-        tabIndex={0}
-        onKeyDown={treeKeyDown}
-      >
-        {creatingParentId === null && (
-          <DocumentNameForm
-            label="Note title"
-            submitLabel="Create note"
-            onCancel={onCancelCreate}
-            onSubmit={(title) => onCreate(title, null)}
-          />
-        )}
-        {loading ? (
-          <DocumentCollectionState>Loading Library…</DocumentCollectionState>
-        ) : error ? (
-          <DocumentCollectionState error>{error}</DocumentCollectionState>
-        ) : sections.length === 0 ? (
-          <DocumentCollectionState>
-            {canCreate
-              ? 'Create a Markdown note to start this Library.'
-              : 'No Library notes are available in this scope.'}
-          </DocumentCollectionState>
-        ) : (
-          sections.map((section) => (
-            <section className="document-tree-section" key={section.id}>
-              {!projectId && <h2>{section.label}</h2>}
-              {section.entries.map((entry) => (
-                <div key={entry.document.id}>
-                  {renamingId === entry.document.id ? (
-                    <DocumentNameForm
-                      label="Note title"
-                      initialValue={entry.document.title}
-                      submitLabel="Rename note"
-                      depth={entry.depth}
-                      onCancel={onCancelRename}
-                      onSubmit={(title) => onRename(entry.document.id, title)}
-                    />
-                  ) : (
-                    <DocumentTreeRow
-                      entry={entry}
-                      active={entry.document.id === selectedId}
-                      collapsed={collapsedIds.has(entry.document.id)}
-                      canMoveUp={canMove(entry.document, documents, -1)}
-                      canMoveDown={canMove(entry.document, documents, 1)}
-                      onSelect={() => onSelect(entry.document.id)}
-                      onToggleCollapsed={() =>
-                        onToggleCollapsed(entry.document.id)
-                      }
-                      onCreateChild={() => onStartCreate(entry.document.id)}
-                      onRename={() => onStartRename(entry.document.id)}
-                      onMoveUp={() => onMove(entry.document, -1)}
-                      onMoveDown={() => onMove(entry.document, 1)}
-                      onArchive={() => onArchive(entry.document.id)}
-                    />
-                  )}
-                  {creatingParentId === entry.document.id && (
-                    <DocumentNameForm
-                      label="Nested note title"
-                      submitLabel="Create nested note"
-                      depth={entry.depth + 1}
-                      onCancel={onCancelCreate}
-                      onSubmit={(title) => onCreate(title, entry.document.id)}
-                    />
-                  )}
-                </div>
-              ))}
-            </section>
-          ))
-        )}
-      </div>
-      {actionError && (
-        <p className="document-action-error" role="alert">
-          {actionError}
-        </p>
+    <div
+      ref={treeRef}
+      className="document-tree-scroll"
+      role="tree"
+      aria-label={projectId ? 'Project Library' : 'Workspace Library'}
+      tabIndex={0}
+      onKeyDown={treeKeyDown}
+    >
+      {creatingParentId === null && (
+        <DocumentNameForm
+          label="Note title"
+          submitLabel="Create note"
+          onCancel={onCancelCreate}
+          onSubmit={(title) => onCreate(title, null)}
+        />
       )}
-    </section>
+      {loading ? (
+        <DocumentCollectionState>Loading Library…</DocumentCollectionState>
+      ) : error ? (
+        <DocumentCollectionState error>{error}</DocumentCollectionState>
+      ) : sections.length === 0 ? (
+        <DocumentCollectionState>
+          {canCreate
+            ? 'Create a Markdown note to start this Library.'
+            : 'No Library notes are available in this scope.'}
+        </DocumentCollectionState>
+      ) : (
+        sections.map((section) => (
+          <section className="document-tree-section" key={section.id}>
+            {!projectId && <h2>{section.label}</h2>}
+            {section.entries.map((entry) => (
+              <div key={entry.document.id}>
+                {renamingId === entry.document.id ? (
+                  <DocumentNameForm
+                    label="Note title"
+                    initialValue={entry.document.title}
+                    submitLabel="Rename note"
+                    depth={entry.depth}
+                    onCancel={onCancelRename}
+                    onSubmit={(title) => onRename(entry.document.id, title)}
+                  />
+                ) : (
+                  <DocumentTreeRow
+                    entry={entry}
+                    active={entry.document.id === selectedId}
+                    collapsed={collapsedIds.has(entry.document.id)}
+                    onSelect={() => onSelect(entry.document.id)}
+                    onToggleCollapsed={() =>
+                      onToggleCollapsed(entry.document.id)
+                    }
+                    onCreateChild={() => onStartCreate(entry.document.id)}
+                    onRename={() => onStartRename(entry.document.id)}
+                    onArchive={() => onArchive(entry.document.id)}
+                    onDelete={() => onDelete(entry.document.id)}
+                  />
+                )}
+                {creatingParentId === entry.document.id && (
+                  <DocumentNameForm
+                    label="Nested note title"
+                    submitLabel="Create nested note"
+                    depth={entry.depth + 1}
+                    onCancel={onCancelCreate}
+                    onSubmit={(title) => onCreate(title, entry.document.id)}
+                  />
+                )}
+              </div>
+            ))}
+          </section>
+        ))
+      )}
+    </div>
   );
+}
+
+function useTreeLayoutAnimation(
+  treeRef: RefObject<HTMLDivElement | null>,
+  layoutKey: string,
+) {
+  const previousPositions = useRef(new Map<string, DOMRect>());
+  useLayoutEffect(() => {
+    const rows = treeRef.current?.querySelectorAll<HTMLElement>(
+      '[data-document-tree-id]',
+    );
+    if (!rows) return;
+    const nextPositions = new Map<string, DOMRect>();
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    for (const row of rows) {
+      const documentId = row.dataset.documentTreeId;
+      if (!documentId) continue;
+      const next = row.getBoundingClientRect();
+      nextPositions.set(documentId, next);
+      const previous = previousPositions.current.get(documentId);
+      if (
+        !previous ||
+        reduceMotion ||
+        row.dataset.dragging === 'true' ||
+        typeof row.animate !== 'function'
+      )
+        continue;
+      const x = previous.left - next.left;
+      const y = previous.top - next.top;
+      if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
+      row.animate(
+        [
+          { transform: `translate(${x}px, ${y}px)` },
+          { transform: 'translate(0, 0)' },
+        ],
+        { duration: 140, easing: 'ease-out' },
+      );
+    }
+    previousPositions.current = nextPositions;
+  }, [layoutKey, treeRef]);
 }
 
 function DocumentTreeRow({
   entry,
   active,
   collapsed,
-  canMoveUp,
-  canMoveDown,
   onSelect,
   onToggleCollapsed,
   onCreateChild,
   onRename,
-  onMoveUp,
-  onMoveDown,
   onArchive,
+  onDelete,
 }: {
   entry: TreeEntry;
   active: boolean;
   collapsed: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
   onSelect: () => void;
   onToggleCollapsed: () => void;
   onCreateChild: () => void;
   onRename: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   onArchive: () => void;
+  onDelete: () => void;
 }) {
+  const { ref, handleRef, disabled, isDragging, dropIntent, hadChildren } =
+    useDocumentTreeRowDnd(entry.document);
+  const temporaryChevron = dropIntent === 'inside' && !hadChildren;
   const style = { '--tree-depth': entry.depth } as CSSProperties;
   return (
-    <div className="document-tree-row" style={style} data-selected={active}>
-      {entry.hasChildren ? (
+    <div
+      ref={ref}
+      className="document-tree-row"
+      style={style}
+      data-document-tree-id={entry.document.id}
+      data-selected={active}
+      data-dragging={isDragging || undefined}
+      data-drop-intent={dropIntent ?? undefined}
+    >
+      {entry.document.can_edit ? (
+        <button
+          ref={handleRef as (element: HTMLButtonElement | null) => void}
+          className="document-tree-drag-handle"
+          type="button"
+          aria-label={`Reorder ${entry.document.title}`}
+          disabled={disabled}
+          title="Drag or press Space, then use arrow keys"
+        >
+          <GripVertical aria-hidden="true" size={14} />
+        </button>
+      ) : (
+        <span className="document-tree-drag-spacer" aria-hidden="true" />
+      )}
+      {entry.hasChildren && !temporaryChevron ? (
         <button
           className="document-tree-toggle"
           type="button"
@@ -263,7 +399,11 @@ function DocumentTreeRow({
           )}
         </button>
       ) : (
-        <span className="document-tree-toggle tree-spacer" aria-hidden="true" />
+        <span className="document-tree-toggle tree-spacer" aria-hidden="true">
+          {temporaryChevron && (
+            <ChevronDown className="document-tree-ghost-chevron" size={13} />
+          )}
+        </span>
       )}
       <button
         className="document-tree-main"
@@ -278,21 +418,22 @@ function DocumentTreeRow({
         <span>{entry.document.title}</span>
       </button>
       {entry.document.can_edit && (
-        <DropdownMenu label={`Actions for ${entry.document.title}`}>
+        <DropdownMenu
+          label={`Actions for ${entry.document.title}`}
+          disabled={disabled}
+        >
           <DropdownMenuItem onClick={onCreateChild}>
             <FilePlus2 aria-hidden="true" size={14} /> Add nested note
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onRename}>
             <Pencil aria-hidden="true" size={14} /> Rename
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canMoveUp} onClick={onMoveUp}>
-            <MoveUp aria-hidden="true" size={14} /> Move up
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canMoveDown} onClick={onMoveDown}>
-            <MoveDown aria-hidden="true" size={14} /> Move down
-          </DropdownMenuItem>
-          <DropdownMenuItem className="danger-menu-item" onClick={onArchive}>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={onArchive}>
             <Archive aria-hidden="true" size={14} /> Archive
+          </DropdownMenuItem>
+          <DropdownMenuItem className="danger-menu-item" onClick={onDelete}>
+            <Trash2 aria-hidden="true" size={14} /> Delete permanently
           </DropdownMenuItem>
         </DropdownMenu>
       )}

@@ -336,17 +336,16 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
         .clone()
         .oneshot(request(
             "PUT",
-            &format!("/api/workspaces/{workspace_id}/documents/reorder"),
+            &format!("/api/workspaces/{workspace_id}/documents/{second_root_id}/move"),
             Some(json!({
-                "project_id": null,
                 "parent_id": null,
-                "document_ids": [second_root_id, root_id],
+                "index": 0,
             })),
             &token,
         ))
         .await
         .unwrap();
-    assert_eq!(reordered.status(), StatusCode::NO_CONTENT);
+    assert_eq!(reordered.status(), StatusCode::OK);
     let listed = app
         .clone()
         .oneshot(request(
@@ -388,7 +387,7 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
         ))
         .await
         .unwrap();
-    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    assert_eq!(deleted.status(), StatusCode::OK);
     assert!(!root_path.exists());
     assert!(!child_path.exists());
 
@@ -495,10 +494,438 @@ async fn reparenting_moves_the_portable_markdown_subtree(pool: PgPool) {
         ))
         .await
         .unwrap();
-    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    assert_eq!(deleted.status(), StatusCode::OK);
     assert!(!new_child.exists());
     assert!(!new_grandchild.exists());
     assert!(!vault.join("destination").exists());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn atomic_move_reorders_reparents_unnests_and_rejects_invalid_destinations(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "move-owner@example.com").await;
+    let a = create_document(&app, &token, workspace_id, "A", None, None).await;
+    let b = create_document(&app, &token, workspace_id, "B", None, None).await;
+    let c = create_document(&app, &token, workspace_id, "C", None, None).await;
+    let a_id: Uuid = a["id"].as_str().unwrap().parse().unwrap();
+    let b_id: Uuid = b["id"].as_str().unwrap().parse().unwrap();
+    let c_id: Uuid = c["id"].as_str().unwrap().parse().unwrap();
+    let a1 = create_document(&app, &token, workspace_id, "A1", None, Some(a_id)).await;
+    let a1_id: Uuid = a1["id"].as_str().unwrap().parse().unwrap();
+    let a1a = create_document(&app, &token, workspace_id, "A1a", None, Some(a1_id)).await;
+    let a1a_id: Uuid = a1a["id"].as_str().unwrap().parse().unwrap();
+    let b1 = create_document(&app, &token, workspace_id, "B1", None, Some(b_id)).await;
+    let b1_id: Uuid = b1["id"].as_str().unwrap().parse().unwrap();
+
+    let reordered = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{a_id}/move"),
+            Some(json!({"parent_id": null, "index": 2})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reordered.status(), StatusCode::OK);
+    let reordered = body(reordered).await;
+    let roots = reordered["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|document| document["parent_id"].is_null())
+        .map(|document| {
+            (
+                document["id"].as_str().unwrap().to_owned(),
+                document["position"].as_i64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        roots,
+        [
+            (b_id.to_string(), 0),
+            (c_id.to_string(), 1),
+            (a_id.to_string(), 2),
+        ]
+    );
+    let descendants: Vec<(Uuid, Option<Uuid>)> =
+        sqlx::query_as("SELECT id, parent_id FROM documents WHERE id = ANY($1) ORDER BY id")
+            .bind([a1_id, a1a_id])
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        descendants.iter().find(|(id, __)| *id == a1_id).unwrap().1,
+        Some(a_id)
+    );
+    assert_eq!(
+        descendants.iter().find(|(id, _)| *id == a1a_id).unwrap().1,
+        Some(a1_id)
+    );
+
+    let reparented = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{b1_id}/move"),
+            Some(json!({"parent_id": a_id, "index": 1})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reparented.status(), StatusCode::OK);
+    let reparented = body(reparented).await;
+    let moved = reparented["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|document| document["id"] == b1_id.to_string())
+        .unwrap();
+    assert_eq!(moved["parent_id"], a_id.to_string());
+    assert_eq!(moved["position"], 1);
+    assert_eq!(moved["library_path"], "Wiki/a/b1.md");
+    let vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Wiki");
+    assert!(!vault.join("b/b1.md").exists());
+    assert!(vault.join("a/b1.md").exists());
+
+    let unnested = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{b1_id}/move"),
+            Some(json!({"parent_id": null, "index": 1})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unnested.status(), StatusCode::OK);
+    let root_order: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM documents WHERE workspace_id = $1 AND parent_id IS NULL AND archived_at IS NULL ORDER BY position, id",
+    )
+    .bind(workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(root_order, [b_id, b1_id, c_id, a_id]);
+    assert!(vault.join("b1.md").exists());
+
+    for (parent_id, index) in [(Some(a1_id), 0_i64), (Some(a_id), 0_i64), (None, 99_i64)] {
+        let invalid = app
+            .clone()
+            .oneshot(request(
+                "PUT",
+                &format!("/api/workspaces/{workspace_id}/documents/{a_id}/move"),
+                Some(json!({"parent_id": parent_id, "index": index})),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    let project_id = create_project(&app, &token, workspace_id, "Other scope").await;
+    let project_document = create_document(
+        &app,
+        &token,
+        workspace_id,
+        "Project page",
+        Some(project_id),
+        None,
+    )
+    .await;
+    let project_document_id = project_document["id"].as_str().unwrap();
+    let cross_scope = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{a_id}/move"),
+            Some(json!({"parent_id": project_document_id, "index": 0})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cross_scope.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let (outsider_token, _, _) = register(&app, "move-outsider@example.com").await;
+    let unauthorized = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{a_id}/move"),
+            Some(json!({"parent_id": null, "index": 0})),
+            &outsider_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+
+    let unauthorized_delete = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{a_id}/delete"),
+            None,
+            &outsider_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthorized_delete.status(), StatusCode::FORBIDDEN);
+
+    sqlx::query("UPDATE documents SET project_id = $2 WHERE id = $1")
+        .bind(a1_id)
+        .bind(project_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let invalid_subtree_scope = app
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{a_id}/delete"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        invalid_subtree_scope.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn move_commit_failure_restores_database_and_markdown_tree(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "move-rollback@example.com").await;
+    let source = create_document(&app, &token, workspace_id, "Source", None, None).await;
+    let target = create_document(&app, &token, workspace_id, "Target", None, None).await;
+    let source_id: Uuid = source["id"].as_str().unwrap().parse().unwrap();
+    let target_id: Uuid = target["id"].as_str().unwrap().parse().unwrap();
+    let child = create_document(&app, &token, workspace_id, "Child", None, Some(source_id)).await;
+    let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    let vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Wiki");
+
+    sqlx::query(
+        r#"
+        CREATE FUNCTION fail_document_move_commit() RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'forced document move commit failure';
+        END;
+        $$ LANGUAGE plpgsql
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        CREATE CONSTRAINT TRIGGER fail_document_move_commit
+        AFTER UPDATE ON documents DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION fail_document_move_commit()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let failed = app
+        .oneshot(request(
+            "PUT",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}/move"),
+            Some(json!({"parent_id": target_id, "index": 0})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(failed.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let parent_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT parent_id FROM documents WHERE id = $1")
+            .bind(child_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(parent_id, Some(source_id));
+    assert!(vault.join("source/child.md").exists());
+    assert!(!vault.join("target/child.md").exists());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn direct_permanent_delete_removes_the_exact_subtree_but_archive_keeps_markdown(
+    pool: PgPool,
+) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "delete-owner@example.com").await;
+    let root = create_document(&app, &token, workspace_id, "Root", None, None).await;
+    let other = create_document(&app, &token, workspace_id, "Other", None, None).await;
+    let root_id: Uuid = root["id"].as_str().unwrap().parse().unwrap();
+    let other_id: Uuid = other["id"].as_str().unwrap().parse().unwrap();
+    let child = create_document(&app, &token, workspace_id, "Child", None, Some(root_id)).await;
+    let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    let grandchild = create_document(
+        &app,
+        &token,
+        workspace_id,
+        "Grandchild",
+        None,
+        Some(child_id),
+    )
+    .await;
+    let grandchild_id: Uuid = grandchild["id"].as_str().unwrap().parse().unwrap();
+    let vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Wiki");
+
+    let deleted = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{root_id}/delete"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK);
+    let mut deleted_ids = body(deleted).await["deleted_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().parse::<Uuid>().unwrap())
+        .collect::<Vec<_>>();
+    deleted_ids.sort_unstable();
+    let mut expected = vec![root_id, child_id, grandchild_id];
+    expected.sort_unstable();
+    assert_eq!(deleted_ids, expected);
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM documents WHERE id = ANY($1)")
+        .bind([root_id, child_id, grandchild_id])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
+    let other_position: i64 = sqlx::query_scalar("SELECT position FROM documents WHERE id = $1")
+        .bind(other_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(other_position, 0);
+    assert!(!vault.join("root.md").exists());
+    assert!(!vault.join("root/child.md").exists());
+
+    let inaccessible = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/documents/{child_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(inaccessible.status(), StatusCode::NOT_FOUND);
+
+    let archived = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/workspaces/{workspace_id}/documents/{other_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archived.status(), StatusCode::NO_CONTENT);
+    let archived_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT archived_at FROM documents WHERE id = $1")
+            .bind(other_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(archived_at.is_some());
+    assert!(vault.join("other.md").exists());
+
+    let deleted_leaf = app
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{other_id}/delete"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted_leaf.status(), StatusCode::OK);
+    assert_eq!(body(deleted_leaf).await["deleted_ids"], json!([other_id]));
+    assert!(!vault.join("other.md").exists());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn delete_commit_failure_restores_database_and_markdown_subtree(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "delete-rollback@example.com").await;
+    let root = create_document(&app, &token, workspace_id, "Root", None, None).await;
+    let root_id: Uuid = root["id"].as_str().unwrap().parse().unwrap();
+    let child = create_document(&app, &token, workspace_id, "Child", None, Some(root_id)).await;
+    let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
+    let vault = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Wiki");
+
+    sqlx::query(
+        r#"
+        CREATE FUNCTION fail_document_delete_commit() RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'forced document delete commit failure';
+        END;
+        $$ LANGUAGE plpgsql
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        CREATE CONSTRAINT TRIGGER fail_document_delete_commit
+        AFTER DELETE ON documents DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION fail_document_delete_commit()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let failed = app
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents/{root_id}/delete"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(failed.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM documents WHERE id = ANY($1)")
+        .bind([root_id, child_id])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 2);
+    assert!(vault.join("root.md").exists());
+    assert!(vault.join("root/child.md").exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]

@@ -1,6 +1,11 @@
 import { apiRequest } from '../../lib/api/client';
 import type { ApiContext } from '../workspace/api';
-import type { DocumentPatch, WorkspaceDocument } from './types';
+import type {
+  DeleteDocumentsResponse,
+  DocumentPatch,
+  MoveDocumentResponse,
+  WorkspaceDocument,
+} from './types';
 
 export function listDocuments(
   context: ApiContext,
@@ -76,18 +81,18 @@ export function updateDocument(
   );
 }
 
-export function reorderDocuments(
+export function moveDocument(
   context: ApiContext,
   workspaceId: string,
+  documentId: string,
   input: {
-    project_id: string | null;
     parent_id: string | null;
-    document_ids: string[];
+    index: number;
   },
 ) {
-  return apiRequest<void>(
+  return apiRequest<MoveDocumentResponse>(
     context.serverUrl,
-    `/api/workspaces/${workspaceId}/documents/reorder`,
+    `/api/workspaces/${workspaceId}/documents/${documentId}/move`,
     {
       method: 'PUT',
       token: context.token,
@@ -105,5 +110,17 @@ export function archiveDocument(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/documents/${documentId}`,
     { method: 'DELETE', token: context.token },
+  );
+}
+
+export function deleteDocument(
+  context: ApiContext,
+  workspaceId: string,
+  documentId: string,
+) {
+  return apiRequest<DeleteDocumentsResponse>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/documents/${documentId}/delete`,
+    { method: 'POST', token: context.token },
   );
 }
