@@ -211,19 +211,24 @@ describe('Library drop destination calculation', () => {
     });
   });
 
-  it('uses narrow immediate edges and a deterministic middle fallback', () => {
+  it('uses narrow immediate edges and a small directional hysteresis', () => {
     expect(dropRegion(100, 32, 101)).toEqual({
       kind: 'edge',
       intent: 'before',
     });
     expect(dropRegion(100, 32, 131)).toEqual({ kind: 'edge', intent: 'after' });
-    expect(dropRegion(100, 32, 110)).toEqual({
-      kind: 'middle',
-      fallback: 'before',
+    expect(dropRegion(100, 32, 110)).toEqual({ kind: 'middle' });
+    expect(dropRegion(100, 32, 122)).toEqual({ kind: 'middle' });
+
+    const middle = { kind: 'middle' } as const;
+    expect(dropRegion(100, 32, 107, middle)).toEqual(middle);
+    expect(dropRegion(100, 32, 106, middle)).toEqual({
+      kind: 'edge',
+      intent: 'before',
     });
-    expect(dropRegion(100, 32, 122)).toEqual({
-      kind: 'middle',
-      fallback: 'after',
-    });
+
+    const before = { kind: 'edge', intent: 'before' } as const;
+    expect(dropRegion(100, 32, 109, before)).toEqual(before);
+    expect(dropRegion(100, 32, 111, before)).toEqual(middle);
   });
 });

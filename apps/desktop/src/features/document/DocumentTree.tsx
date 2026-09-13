@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  useEffect,
   useState,
   useLayoutEffect,
   useRef,
@@ -173,7 +174,7 @@ function DocumentTreeContent({
   const treeRef = useRef<HTMLDivElement>(null);
   useTreeLayoutAnimation(
     treeRef,
-    entries.map(({ document }) => document.id).join('|'),
+    entries.map(({ document, depth }) => `${document.id}:${depth}`).join('|'),
   );
 
   function treeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -298,11 +299,16 @@ function useTreeLayoutAnimation(
   layoutKey: string,
 ) {
   const previousPositions = useRef(new Map<string, DOMRect>());
+  const runningAnimations = useRef(new Map<HTMLElement, Animation>());
   useLayoutEffect(() => {
     const rows = treeRef.current?.querySelectorAll<HTMLElement>(
       '[data-document-tree-id]',
     );
     if (!rows) return;
+    for (const animation of runningAnimations.current.values()) {
+      animation.cancel();
+    }
+    runningAnimations.current.clear();
     const nextPositions = new Map<string, DOMRect>();
     const reduceMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
@@ -323,16 +329,33 @@ function useTreeLayoutAnimation(
       const x = previous.left - next.left;
       const y = previous.top - next.top;
       if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
-      row.animate(
+      const animation = row.animate(
         [
           { transform: `translate(${x}px, ${y}px)` },
           { transform: 'translate(0, 0)' },
         ],
         { duration: 140, easing: 'ease-out' },
       );
+      runningAnimations.current.set(row, animation);
+      const clearAnimation = () => {
+        if (runningAnimations.current.get(row) === animation) {
+          runningAnimations.current.delete(row);
+        }
+      };
+      animation.onfinish = clearAnimation;
+      animation.oncancel = clearAnimation;
     }
     previousPositions.current = nextPositions;
   }, [layoutKey, treeRef]);
+  useEffect(
+    () => () => {
+      for (const animation of runningAnimations.current.values()) {
+        animation.cancel();
+      }
+      runningAnimations.current.clear();
+    },
+    [],
+  );
 }
 
 function DocumentTreeRow({
@@ -356,9 +379,9 @@ function DocumentTreeRow({
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const { ref, handleRef, disabled, isDragging, dropIntent, hadChildren } =
+  const { ref, handleRef, disabled, isDragging, dropIntent } =
     useDocumentTreeRowDnd(entry.document);
-  const temporaryChevron = dropIntent === 'inside' && !hadChildren;
+  const temporaryChevron = dropIntent === 'inside' && !entry.hasChildren;
   const style = { '--tree-depth': entry.depth } as CSSProperties;
   return (
     <div
@@ -384,7 +407,7 @@ function DocumentTreeRow({
       ) : (
         <span className="document-tree-drag-spacer" aria-hidden="true" />
       )}
-      {entry.hasChildren && !temporaryChevron ? (
+      {entry.hasChildren ? (
         <button
           className="document-tree-toggle"
           type="button"
@@ -399,10 +422,12 @@ function DocumentTreeRow({
           )}
         </button>
       ) : (
-        <span className="document-tree-toggle tree-spacer" aria-hidden="true">
-          {temporaryChevron && (
-            <ChevronDown className="document-tree-ghost-chevron" size={13} />
-          )}
+        <span
+          className="document-tree-chevron-slot"
+          data-open={temporaryChevron}
+          aria-hidden="true"
+        >
+          <ChevronDown className="document-tree-ghost-chevron" size={13} />
         </span>
       )}
       <button

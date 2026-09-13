@@ -142,6 +142,83 @@ describe('MarkdownDocument', () => {
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
+  it('keeps an interactive Reading task synchronized with every document mode', async () => {
+    const source = '- [ ] Test task\n- [x] Test task 2';
+    const fetchMock = vi.fn(
+      (_url: string, options: RequestInit | undefined) => {
+        const request = options?.body
+          ? (JSON.parse(String(options.body)) as { content: string })
+          : null;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              content: request?.content ?? source,
+              revision: (request ? 'b' : 'a').repeat(64),
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        );
+      },
+    );
+    renderDocument(fetchMock);
+    await screen.findByLabelText('Markdown source');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
+    const readingTask = screen.getAllByRole('checkbox')[0]!;
+    expect(readingTask).not.toBeDisabled();
+    fireEvent.click(readingTask);
+    expect(readingTask).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(screen.getByLabelText('Markdown source')).toHaveValue(
+      '- [x] Test task\n- [x] Test task 2',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Live' }));
+    expect(screen.getByLabelText('Markdown source')).toHaveValue(
+      '- [x] Test task\n- [x] Test task 2',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Split' }));
+    expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
+    expect(screen.getAllByRole('checkbox')[0]).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Markdown' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/tasks/task-1/document',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('- [x] Test task'),
+        }),
+      ),
+    );
+  });
+
+  it('keeps Reading task checkboxes disabled for a read-only document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: '- [ ] Viewer task',
+          revision: 'a'.repeat(64),
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    renderDocument(fetchMock, true);
+    await screen.findByLabelText('Markdown source');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('debounces autosave after source changes', async () => {
     const fetchMock = vi
       .fn()

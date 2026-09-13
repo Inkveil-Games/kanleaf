@@ -398,7 +398,12 @@ function LoadedMarkdownDocument({
           </div>
         )}
         {(mode === 'reading' || mode === 'split') && (
-          <MarkdownPreview content={content} />
+          <MarkdownPreview
+            content={content}
+            onTaskToggle={
+              mode === 'reading' && !readOnly ? changeContent : undefined
+            }
+          />
         )}
       </div>
     </DocumentFrame>

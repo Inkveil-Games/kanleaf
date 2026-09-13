@@ -20,9 +20,10 @@ export interface TreeDestination {
 
 export type RowDropIntent = 'before' | 'after' | 'inside';
 
+export type RowDropVisualIntent = RowDropIntent | 'inside-pending';
+
 export type DropRegion =
-  | { kind: 'edge'; intent: 'before' | 'after' }
-  | { kind: 'middle'; fallback: 'before' | 'after' };
+  { kind: 'edge'; intent: 'before' | 'after' } | { kind: 'middle' };
 
 export interface TreeMoveProjection {
   documents: WorkspaceDocument[];
@@ -92,23 +93,6 @@ export function visibleSections(
       return true;
     });
     return { ...section, entries };
-  });
-}
-
-export function projectSections(
-  sections: DocumentSection[],
-  documents: WorkspaceDocument[],
-): DocumentSection[] {
-  return sections.map((section) => {
-    const documentIds = new Set(
-      section.entries.map(({ document }) => document.id),
-    );
-    return {
-      ...section,
-      entries: flattenTree(
-        documents.filter((document) => documentIds.has(document.id)),
-      ),
-    };
   });
 }
 
@@ -260,17 +244,41 @@ export function dropRegion(
   rowTop: number,
   rowHeight: number,
   pointerY: number,
+  previousRegion?: DropRegion,
 ): DropRegion {
   const height = Math.max(1, rowHeight);
   const edge = Math.min(8, height * 0.25);
-  if (pointerY <= rowTop + edge) return { kind: 'edge', intent: 'before' };
-  if (pointerY >= rowTop + height - edge) {
+  const hysteresis = Math.min(2, height * 0.0625);
+  const beforeBoundary = rowTop + edge;
+  const afterBoundary = rowTop + height - edge;
+
+  if (
+    previousRegion?.kind === 'middle' &&
+    pointerY > beforeBoundary - hysteresis &&
+    pointerY < afterBoundary + hysteresis
+  ) {
+    return previousRegion;
+  }
+  if (
+    previousRegion?.kind === 'edge' &&
+    previousRegion.intent === 'before' &&
+    pointerY <= beforeBoundary + hysteresis
+  ) {
+    return previousRegion;
+  }
+  if (
+    previousRegion?.kind === 'edge' &&
+    previousRegion.intent === 'after' &&
+    pointerY >= afterBoundary - hysteresis
+  ) {
+    return previousRegion;
+  }
+
+  if (pointerY <= beforeBoundary) return { kind: 'edge', intent: 'before' };
+  if (pointerY >= afterBoundary) {
     return { kind: 'edge', intent: 'after' };
   }
-  return {
-    kind: 'middle',
-    fallback: pointerY < rowTop + height / 2 ? 'before' : 'after',
-  };
+  return { kind: 'middle' };
 }
 
 export function sameDestination(

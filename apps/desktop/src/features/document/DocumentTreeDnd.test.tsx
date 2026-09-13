@@ -25,8 +25,17 @@ interface DragOperationStub {
 
 interface ProviderHandlers {
   onDragStart?: (event: { operation: DragOperationStub }) => void;
-  onDragMove?: (event: { operation: DragOperationStub }) => void;
-  onDragEnd?: (event: { canceled: boolean }) => void;
+  onDragMove?: (event: {
+    operation: DragOperationStub;
+    to?: { y: number };
+    by?: { y: number };
+    nativeEvent?: Event;
+  }) => void;
+  onDragOver?: (event: { operation: DragOperationStub }) => void;
+  onDragEnd?: (event: {
+    canceled: boolean;
+    operation: DragOperationStub;
+  }) => void;
 }
 
 const dnd = vi.hoisted(() => ({ handlers: {} as ProviderHandlers }));
@@ -123,18 +132,59 @@ function start(documentId = 'b') {
   });
 }
 
-function moveOver(targetId: string, pointerY: number) {
+function moveOver(targetId: string, pointerY: number, rowTop = 0) {
   act(() => {
-    dnd.handlers.onDragMove?.({
+    dnd.handlers.onDragOver?.({
       operation: {
         target: {
           id: targetId,
-          shape: { boundingRectangle: { top: 0, height: 32 } },
+          shape: { boundingRectangle: { top: rowTop, height: 32 } },
         },
         position: { current: { y: pointerY } },
       },
     });
   });
+}
+
+function moveWithin(
+  targetId: string,
+  currentY: number,
+  nextY: number,
+  options: { keyboard?: boolean; rowTop?: number } = {},
+) {
+  act(() => {
+    dnd.handlers.onDragMove?.({
+      operation: {
+        target: {
+          id: targetId,
+          shape: {
+            boundingRectangle: { top: options.rowTop ?? 0, height: 32 },
+          },
+        },
+        position: { current: { y: currentY } },
+      },
+      to: options.keyboard ? undefined : { y: nextY },
+      by: options.keyboard ? { y: nextY - currentY } : undefined,
+      nativeEvent: options.keyboard
+        ? new KeyboardEvent('keydown', { key: 'ArrowUp' })
+        : new PointerEvent('pointermove'),
+    });
+  });
+}
+
+function endDrag(canceled: boolean, targetId: string | null = 'a') {
+  act(() => {
+    dnd.handlers.onDragEnd?.({
+      canceled,
+      operation: {
+        target: targetId ? { id: targetId } : undefined,
+      },
+    });
+  });
+}
+
+function treeOrder() {
+  return screen.getAllByRole('treeitem').map((item) => item.textContent);
 }
 
 function jsonResponse(payload: unknown) {
@@ -187,6 +237,7 @@ describe('DocumentTree drag and drop', () => {
   afterEach(() => {
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('reserves a handle only for editable notes and keeps row selection separate', () => {
@@ -206,38 +257,102 @@ describe('DocumentTree drag and drop', () => {
     ).not.toHaveAttribute('aria-grabbed');
   });
 
-  it('keeps the middle reorder fallback stable until INSIDE activates', () => {
+  it('keeps document order unchanged when a drag starts', () => {
     renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+
     start();
-    moveOver('a', 12);
-    const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
-    expect(target).toHaveAttribute('data-drop-intent', 'before');
 
-    moveOver('a', 20);
-    act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY - 1));
-    expect(target).toHaveAttribute('data-drop-intent', 'before');
-
-    act(() => vi.advanceTimersByTime(1));
-    expect(target).toHaveAttribute('data-drop-intent', 'inside');
-    expect(screen.getByRole('treeitem', { name: 'B' })).toHaveAttribute(
-      'aria-level',
-      '2',
-    );
+    expect(treeOrder()).toEqual(['A', 'B']);
+    expect(
+      screen.getByRole('treeitem', { name: 'B' }).parentElement,
+    ).toHaveAttribute('data-dragging', 'true');
   });
 
-  it('shows a temporary chevron for an active leaf INSIDE target', () => {
+  it('shows before and after indicators without reordering the visible tree', () => {
+    renderTree([note('a', 'A', 0), note('b', 'B', 1), note('c', 'C', 2)]);
+    start();
+
+    moveOver('a', 2);
+    expect(
+      screen.getByRole('treeitem', { name: 'A' }).parentElement,
+    ).toHaveAttribute('data-drop-intent', 'before');
+    expect(screen.getByRole('status')).toHaveTextContent('Move B before A.');
+    expect(treeOrder()).toEqual(['A', 'B', 'C']);
+
+    moveOver('c', 30);
+    expect(
+      screen.getByRole('treeitem', { name: 'C' }).parentElement,
+    ).toHaveAttribute('data-drop-intent', 'after');
+    expect(screen.getByRole('status')).toHaveTextContent('Move B after C.');
+    expect(treeOrder()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('uses a real pending state before activating INSIDE and does not commit it', async () => {
+    const { onMove } = renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 16);
+    const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
+
+    expect(target).toHaveAttribute('data-drop-intent', 'inside-pending');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Hold to move B inside A.',
+    );
+    expect(target.querySelector('.document-tree-chevron-slot')).toHaveAttribute(
+      'data-open',
+      'false',
+    );
+    expect(treeOrder()).toEqual(['A', 'B']);
+
+    act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY - 1));
+    expect(target).toHaveAttribute('data-drop-intent', 'inside-pending');
+    endDrag(false);
+    await act(async () => Promise.resolve());
+
+    expect(onMove).not.toHaveBeenCalled();
+    expect(target).not.toHaveAttribute('data-drop-intent');
+  });
+
+  it('opens a temporary chevron slot only after INSIDE activates on a leaf', () => {
     renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 16);
+    const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
+    const slot = target.querySelector('.document-tree-chevron-slot');
+    expect(slot).toHaveAttribute('data-open', 'false');
+    expect(target).toHaveAttribute('data-drop-intent', 'inside-pending');
+
+    act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY));
+
+    expect(target).toHaveAttribute('data-drop-intent', 'inside');
+    expect(screen.getByRole('status')).toHaveTextContent('Move B inside A.');
+    expect(slot).toHaveAttribute('data-open', 'true');
+    expect(target.querySelector('.document-tree-ghost-chevron')).toBeVisible();
+    expect(
+      within(target).queryByRole('button', { name: 'Collapse A' }),
+    ).toBeNull();
+    expect(screen.getByRole('treeitem', { name: 'B' })).toHaveAttribute(
+      'aria-level',
+      '1',
+    );
+    expect(treeOrder()).toEqual(['A', 'B']);
+  });
+
+  it('does not render a second chevron for an existing parent', () => {
+    renderTree([
+      note('a', 'A', 0),
+      note('child', 'Child', 0, 'a'),
+      note('b', 'B', 1),
+    ]);
     start();
     moveOver('a', 16);
     act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY));
 
     const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
     expect(
-      target.querySelector('.document-tree-ghost-chevron'),
-    ).toBeInTheDocument();
-    expect(
-      within(target).queryByRole('button', { name: 'Collapse A' }),
-    ).toBeNull();
+      within(target).getByRole('button', { name: 'Collapse A' }),
+    ).toBeVisible();
+    expect(target.querySelector('.document-tree-chevron-slot')).toBeNull();
+    expect(target.querySelector('.document-tree-ghost-chevron')).toBeNull();
   });
 
   it('restores temporary expansion on leave and keeps it after a successful drop', async () => {
@@ -262,7 +377,7 @@ describe('DocumentTree drag and drop', () => {
 
     moveOver('a', 16);
     act(() => vi.advanceTimersByTime(AUTO_EXPAND_DELAY));
-    act(() => dnd.handlers.onDragEnd?.({ canceled: false }));
+    endDrag(false);
     await act(async () => Promise.resolve());
     expect(onKeepExpanded).toHaveBeenCalledWith('a');
   });
@@ -271,16 +386,56 @@ describe('DocumentTree drag and drop', () => {
     renderTree([note('a', 'A', 0), note('b', 'B', 1), note('c', 'C', 2)]);
     start();
     moveOver('a', 16);
+    const firstTarget = screen.getByRole('treeitem', {
+      name: 'A',
+    }).parentElement!;
+    expect(firstTarget).toHaveAttribute('data-drop-intent', 'inside-pending');
     act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY - 1));
     moveOver('c', 2);
     act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY + 100));
 
+    expect(firstTarget).not.toHaveAttribute('data-drop-intent');
     expect(
-      screen.getByRole('treeitem', { name: 'A' }).parentElement,
-    ).not.toHaveAttribute('data-drop-intent', 'inside');
+      firstTarget.querySelector('.document-tree-chevron-slot'),
+    ).toHaveAttribute('data-open', 'false');
     expect(
       screen.getByRole('treeitem', { name: 'C' }).parentElement,
     ).toHaveAttribute('data-drop-intent', 'before');
+  });
+
+  it('switches from pending middle to a same-row edge without a dead zone', () => {
+    renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 16);
+    const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
+    expect(target).toHaveAttribute('data-drop-intent', 'inside-pending');
+
+    moveWithin('a', 16, 2);
+    act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY));
+
+    expect(target).toHaveAttribute('data-drop-intent', 'before');
+    expect(target.querySelector('.document-tree-chevron-slot')).toHaveAttribute(
+      'data-open',
+      'false',
+    );
+  });
+
+  it('restores a temporarily expanded parent when the drag is canceled', () => {
+    renderTree(
+      [note('a', 'A', 0), note('child', 'Child', 0, 'a'), note('b', 'B', 1)],
+      { collapsedIds: new Set(['a']) },
+    );
+    start();
+    moveOver('a', 16);
+    act(() => vi.advanceTimersByTime(AUTO_EXPAND_DELAY));
+    expect(screen.getByRole('treeitem', { name: 'Child' })).toBeInTheDocument();
+
+    endDrag(true);
+
+    expect(screen.queryByRole('treeitem', { name: 'Child' })).toBeNull();
+    expect(
+      screen.getByRole('treeitem', { name: 'A' }).parentElement,
+    ).not.toHaveAttribute('data-drop-intent');
   });
 
   it('rejects a descendant target using the full tree', () => {
@@ -303,24 +458,91 @@ describe('DocumentTree drag and drop', () => {
     start();
     moveOver('a', 16);
     act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY));
-    act(() => dnd.handlers.onDragEnd?.({ canceled: false }));
+    endDrag(false);
     await act(async () => Promise.resolve());
 
     expect(onMove).toHaveBeenCalledWith('b', { parentId: 'a', index: 0 });
 
     start();
     moveOver('a', 16);
-    act(() => dnd.handlers.onDragEnd?.({ canceled: true }));
+    endDrag(true);
     expect(
       screen.getByRole('treeitem', { name: 'A' }).parentElement,
     ).not.toHaveAttribute('data-drop-intent');
+  });
+
+  it('uses keyboard coordinates for the same static destination indicator', () => {
+    renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 16);
+    moveWithin('a', 16, 2, { keyboard: true });
+
+    expect(
+      screen.getByRole('treeitem', { name: 'A' }).parentElement,
+    ).toHaveAttribute('data-drop-intent', 'before');
+    expect(treeOrder()).toEqual(['A', 'B']);
+  });
+
+  it('resolves the authoritative target after dragmove updates its position', () => {
+    renderTree([note('a', 'A', 0), note('b', 'B', 1), note('c', 'C', 2)]);
+    start();
+    moveOver('a', 2);
+
+    moveWithin('a', 2, 48);
+    expect(
+      screen.getByRole('treeitem', { name: 'A' }).parentElement,
+    ).not.toHaveAttribute('data-drop-intent');
+
+    moveOver('c', 48, 32);
+    expect(
+      screen.getByRole('treeitem', { name: 'C' }).parentElement,
+    ).toHaveAttribute('data-drop-intent', 'inside-pending');
+    expect(treeOrder()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('does not commit a stale preview when the final target is empty', async () => {
+    const { onMove } = renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 2);
+
+    endDrag(false, null);
+    await act(async () => Promise.resolve());
+
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('keeps INSIDE interaction state functional with reduced motion enabled', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string): MediaQueryList => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(() => false),
+      })),
+    );
+    renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
+    start();
+    moveOver('a', 16);
+    act(() => vi.advanceTimersByTime(INSIDE_HOVER_DELAY));
+
+    const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
+    expect(target).toHaveAttribute('data-drop-intent', 'inside');
+    expect(target.querySelector('.document-tree-chevron-slot')).toHaveAttribute(
+      'data-open',
+      'true',
+    );
   });
 });
 
 describe('DocumentWorkspace optimistic move', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('keeps the preview after drop and reconciles authoritative paths', async () => {
+  it('applies the move after drop and reconciles authoritative paths', async () => {
     const documents = [note('a', 'A', 0), note('b', 'B', 1)];
     let resolveMove!: (response: Response) => void;
     const moveResponse = new Promise<Response>((resolve) => {
@@ -337,7 +559,7 @@ describe('DocumentWorkspace optimistic move', () => {
 
     start();
     moveOver('a', 2);
-    act(() => dnd.handlers.onDragEnd?.({ canceled: false }));
+    endDrag(false);
     await act(async () => Promise.resolve());
 
     expect(
@@ -404,7 +626,7 @@ describe('DocumentWorkspace optimistic move', () => {
 
     start();
     moveOver('a', 2);
-    act(() => dnd.handlers.onDragEnd?.({ canceled: false }));
+    endDrag(false);
     await act(async () => Promise.resolve());
     expect(
       screen.getAllByRole('treeitem').map((item) => item.textContent),

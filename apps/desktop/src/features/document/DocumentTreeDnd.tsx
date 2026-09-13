@@ -13,10 +13,10 @@ import {
   destinationForRow,
   dropRegion,
   moveTreeNode,
-  projectSections,
   sameDestination,
   visibleSections,
   type DocumentSection,
+  type DropRegion,
   type TreeDestination,
 } from './tree';
 import type { WorkspaceDocument } from './types';
@@ -30,10 +30,17 @@ export const AUTO_EXPAND_DELAY = 500;
 
 interface MiddleHover {
   targetId: string;
-  fallback: 'before' | 'after';
   insideActivated: boolean;
-  rowTop: number;
-  rowHeight: number;
+}
+
+interface DragTarget {
+  id: string | number;
+  shape?: {
+    boundingRectangle: {
+      top: number;
+      height: number;
+    };
+  };
 }
 
 export function DocumentTreeDnd({
@@ -65,6 +72,10 @@ export function DocumentTreeDnd({
   const insideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const middleHover = useRef<MiddleHover | null>(null);
+  const hoverRegion = useRef<{
+    targetId: string;
+    region: DropRegion;
+  } | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const previewRef = useRef<DocumentTreeDragPreview | null>(null);
   const documentsRef = useRef(documents);
@@ -99,6 +110,7 @@ export function DocumentTreeDnd({
   const resetDrag = useCallback(() => {
     clearTimers();
     middleHover.current = null;
+    hoverRegion.current = null;
     activeIdRef.current = null;
     previewRef.current = null;
     setActiveId(null);
@@ -155,12 +167,7 @@ export function DocumentTreeDnd({
     updatePreview(destination ? { targetId, intent, destination } : null);
   }
 
-  function activateMiddle(
-    targetId: string,
-    fallback: 'before' | 'after',
-    rowTop: number,
-    rowHeight: number,
-  ) {
+  function activateMiddle(targetId: string) {
     const current = middleHover.current;
     if (current?.targetId === targetId) return;
     clearTimers();
@@ -168,24 +175,21 @@ export function DocumentTreeDnd({
     const documentId = activeIdRef.current;
     if (!documentId) return updatePreview(null);
 
-    const fallbackDestination = destinationForRow(
+    const insideDestination = destinationForRow(
       documentsRef.current,
       documentId,
       targetId,
-      fallback,
+      'inside',
     );
+    if (!insideDestination) {
+      middleHover.current = null;
+      return updatePreview(null);
+    }
     middleHover.current = {
       targetId,
-      fallback,
       insideActivated: false,
-      rowTop,
-      rowHeight,
     };
-    updatePreview(
-      fallbackDestination
-        ? { targetId, intent: fallback, destination: fallbackDestination }
-        : null,
-    );
+    updatePreview({ targetId, intent: 'inside-pending', destination: null });
 
     insideTimer.current = setTimeout(() => {
       const hover = middleHover.current;
@@ -220,43 +224,70 @@ export function DocumentTreeDnd({
     }, AUTO_EXPAND_DELAY);
   }
 
-  const projection = useMemo(() => {
-    if (!activeId || !preview) return null;
-    return moveTreeNode(documents, {
-      documentId: activeId,
-      destination: preview.destination,
-    });
-  }, [activeId, documents, preview]);
-  const previewDocuments = projection?.documents ?? documents;
+  function clearHover(restoreTemporaryExpansions: boolean) {
+    clearTimers();
+    middleHover.current = null;
+    hoverRegion.current = null;
+    updatePreview(null);
+    if (restoreTemporaryExpansions) retainTemporaryExpansions(null);
+  }
+
+  function resolveHover(
+    target: DragTarget | null | undefined,
+    pointerY: number,
+    useHysteresis: boolean,
+    restoreTemporaryExpansionsOnClear: boolean,
+  ) {
+    const bounds = target?.shape?.boundingRectangle;
+    if (
+      !target ||
+      !bounds ||
+      pointerY < bounds.top ||
+      pointerY > bounds.top + bounds.height
+    ) {
+      clearHover(restoreTemporaryExpansionsOnClear);
+      return;
+    }
+    const targetId = String(target.id);
+    const previousRegion =
+      useHysteresis && hoverRegion.current?.targetId === targetId
+        ? hoverRegion.current.region
+        : undefined;
+    const region = dropRegion(
+      bounds.top,
+      bounds.height,
+      pointerY,
+      previousRegion,
+    );
+    hoverRegion.current = { targetId, region };
+    if (region.kind === 'edge') {
+      activateEdge(targetId, region.intent);
+    } else {
+      activateMiddle(targetId);
+    }
+  }
+
   const effectiveCollapsedIds = useMemo(() => {
     const next = new Set(collapsedIds);
     for (const documentId of temporarilyExpandedIds) next.delete(documentId);
     return next;
   }, [collapsedIds, temporarilyExpandedIds]);
   const renderedSections = useMemo(
-    () =>
-      visibleSections(
-        projectSections(sections, previewDocuments),
-        effectiveCollapsedIds,
-      ),
-    [effectiveCollapsedIds, previewDocuments, sections],
+    () => visibleSections(sections, effectiveCollapsedIds),
+    [effectiveCollapsedIds, sections],
   );
   const activeDocument = activeId
-    ? documents.find(({ id }) => id === activeId)
+    ? (documents.find(({ id }) => id === activeId) ?? null)
     : null;
+  const announcement = dragAnnouncement(activeDocument, preview, documents);
   const context = useMemo(
     () => ({
       activeId,
       busyIds,
-      originalParentIds: new Set(
-        documents.flatMap(({ parent_id: parentId }) =>
-          parentId ? [parentId] : [],
-        ),
-      ),
       preview,
       persisting,
     }),
-    [activeId, busyIds, documents, persisting, preview],
+    [activeId, busyIds, persisting, preview],
   );
 
   return (
@@ -269,49 +300,58 @@ export function DocumentTreeDnd({
           );
           if (!document?.can_edit || busyIds.has(documentId)) return;
           clearTimers();
+          middleHover.current = null;
+          hoverRegion.current = null;
+          updatePreview(null);
+          setTemporarilyExpandedIds(new Set());
           activeIdRef.current = documentId;
           setActiveId(documentId);
         }}
-        onDragMove={({ operation, to }) => {
+        onDragMove={({ operation, to, by, nativeEvent }) => {
           if (persisting) return;
-          const pointerY = to?.y ?? operation.position.current.y;
-          const target = operation.target;
-          const lockedHover = middleHover.current;
-          if (
-            lockedHover &&
-            target &&
-            String(target.id) === lockedHover.targetId &&
-            dropRegion(lockedHover.rowTop, lockedHover.rowHeight, pointerY)
-              .kind === 'middle'
-          ) {
-            return;
-          }
-          if (!target) {
-            clearTimers();
-            middleHover.current = null;
-            updatePreview(null);
-            retainTemporaryExpansions(null);
-            return;
-          }
-          const targetId = String(target.id);
-          const bounds = target.shape?.boundingRectangle;
-          if (!bounds) return;
-          const region = dropRegion(bounds.top, bounds.height, pointerY);
-          if (region.kind === 'edge') {
-            activateEdge(targetId, region.intent);
-          } else {
-            activateMiddle(
-              targetId,
-              region.fallback,
-              bounds.top,
-              bounds.height,
-            );
-          }
+          const pointerY = to?.y ?? operation.position.current.y + (by?.y ?? 0);
+          resolveHover(
+            operation.target,
+            pointerY,
+            !(
+              typeof KeyboardEvent !== 'undefined' &&
+              nativeEvent instanceof KeyboardEvent
+            ),
+            false,
+          );
         }}
-        onDragEnd={({ canceled }) => {
+        onDragOver={({ operation }) => {
+          if (persisting) return;
+          resolveHover(
+            operation.target,
+            operation.position.current.y,
+            false,
+            true,
+          );
+        }}
+        onDragEnd={({ canceled, operation }) => {
           const documentId = activeIdRef.current;
-          const destination = previewRef.current?.destination;
-          if (canceled || !documentId || !destination) {
+          const currentPreview = previewRef.current;
+          const finalTargetId = operation.target
+            ? String(operation.target.id)
+            : null;
+          if (
+            canceled ||
+            !documentId ||
+            !currentPreview?.destination ||
+            currentPreview.targetId !== finalTargetId ||
+            currentPreview.intent === 'inside-pending'
+          ) {
+            resetDrag();
+            return;
+          }
+          const destination = destinationForRow(
+            documentsRef.current,
+            documentId,
+            currentPreview.targetId,
+            currentPreview.intent,
+          );
+          if (!destination) {
             resetDrag();
             return;
           }
@@ -354,6 +394,14 @@ export function DocumentTreeDnd({
           sections: renderedSections,
           collapsedIds: effectiveCollapsedIds,
         })}
+        <span
+          className="sr-only document-tree-dnd-announcement"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
+        </span>
         <DragOverlay
           className="document-drag-overlay-container"
           dropAnimation={{ duration: 140, easing: 'ease-out' }}
@@ -369,4 +417,19 @@ export function DocumentTreeDnd({
       </DragDropProvider>
     </DocumentTreeDndContext.Provider>
   );
+}
+
+function dragAnnouncement(
+  activeDocument: WorkspaceDocument | null,
+  preview: DocumentTreeDragPreview | null,
+  documents: WorkspaceDocument[],
+) {
+  if (!activeDocument) return '';
+  if (!preview) return `Moving ${activeDocument.title}.`;
+  const target = documents.find(({ id }) => id === preview.targetId);
+  if (!target) return `Moving ${activeDocument.title}.`;
+  if (preview.intent === 'inside-pending') {
+    return `Hold to move ${activeDocument.title} inside ${target.title}.`;
+  }
+  return `Move ${activeDocument.title} ${preview.intent} ${target.title}.`;
 }

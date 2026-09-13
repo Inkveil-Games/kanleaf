@@ -39,6 +39,5 @@ export function useDocumentTreeRowDnd(document: WorkspaceDocument) {
     disabled,
     isDragging: context.activeId === document.id,
     dropIntent: preview?.intent ?? null,
-    hadChildren: context.originalParentIds.has(document.id),
   };
 }
