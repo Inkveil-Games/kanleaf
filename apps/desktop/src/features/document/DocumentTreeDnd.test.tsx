@@ -257,6 +257,33 @@ describe('DocumentTree drag and drop', () => {
     ).not.toHaveAttribute('aria-grabbed');
   });
 
+  it('aligns leaf and parent content with a non-interactive leaf chevron spacer', () => {
+    renderTree([
+      note('parent', 'Parent', 0),
+      note('child', 'Child', 0, 'parent'),
+      note('leaf', 'Leaf', 1),
+    ]);
+
+    const parentRow = screen.getByRole('treeitem', {
+      name: 'Parent',
+    }).parentElement!;
+    const leafRow = screen.getByRole('treeitem', {
+      name: 'Leaf',
+    }).parentElement!;
+    const parentChevron = within(parentRow).getByRole('button', {
+      name: 'Collapse Parent',
+    });
+    const leafSlot = leafRow.querySelector('.document-tree-chevron-slot');
+
+    expect(parentChevron).toBe(parentRow.children[1]);
+    expect(leafSlot).toBe(leafRow.children[1]);
+    expect(leafSlot).toHaveAttribute('aria-hidden', 'true');
+    expect(leafSlot).toHaveAttribute('data-open', 'false');
+    expect(
+      within(leafRow).queryByRole('button', { name: /expand|collapse/i }),
+    ).toBeNull();
+  });
+
   it('keeps document order unchanged when a drag starts', () => {
     renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
 
@@ -312,12 +339,15 @@ describe('DocumentTree drag and drop', () => {
     expect(target).not.toHaveAttribute('data-drop-intent');
   });
 
-  it('opens a temporary chevron slot only after INSIDE activates on a leaf', () => {
+  it('shows a temporary chevron in the reserved leaf slot after INSIDE activates', () => {
     renderTree([note('a', 'A', 0), note('b', 'B', 1)]);
     start();
     moveOver('a', 16);
     const target = screen.getByRole('treeitem', { name: 'A' }).parentElement!;
     const slot = target.querySelector('.document-tree-chevron-slot');
+    const main = screen.getByRole('treeitem', { name: 'A' });
+    expect(slot).toBe(target.children[1]);
+    expect(main).toBe(target.children[2]);
     expect(slot).toHaveAttribute('data-open', 'false');
     expect(target).toHaveAttribute('data-drop-intent', 'inside-pending');
 
@@ -326,6 +356,8 @@ describe('DocumentTree drag and drop', () => {
     expect(target).toHaveAttribute('data-drop-intent', 'inside');
     expect(screen.getByRole('status')).toHaveTextContent('Move B inside A.');
     expect(slot).toHaveAttribute('data-open', 'true');
+    expect(slot).toBe(target.children[1]);
+    expect(main).toBe(target.children[2]);
     expect(target.querySelector('.document-tree-ghost-chevron')).toBeVisible();
     expect(
       within(target).queryByRole('button', { name: 'Collapse A' }),

@@ -5144,7 +5144,7 @@ kbd {
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 20px auto minmax(0, 1fr) auto;
+  grid-template-columns: 20px 20px minmax(0, 1fr) auto;
   align-items: center;
   padding-left: calc(var(--tree-depth) * 15px);
   border-radius: var(--radius-sm);
@@ -5162,12 +5162,14 @@ kbd {
 .document-tree-drag-handle {
   border: 0;
   border-radius: var(--radius-sm);
-  color: var(--color-text-subtle);
+  color: var(--color-text-muted);
   background: transparent;
   cursor: grab;
   opacity: 0;
   touch-action: none;
-  transition: opacity 120ms ease-out;
+  transition:
+    color 120ms ease-out,
+    opacity 120ms ease-out;
 }
 
 .document-tree-row:hover .document-tree-drag-handle,
@@ -5202,33 +5204,32 @@ kbd {
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   background: transparent;
+  transition: color 120ms ease-out;
 }
 
-button.document-tree-toggle:hover {
+.document-tree-toggle:hover,
+.document-tree-toggle:focus-visible {
   color: var(--color-text);
-  background: var(--color-surface-hover);
+  background: transparent;
 }
 
 .document-tree-chevron-slot {
   display: grid;
-  width: 0;
+  width: 20px;
   height: 27px;
-  overflow: hidden;
   place-items: center;
   color: var(--color-accent);
-  opacity: 0;
-  transition:
-    width 140ms ease-out,
-    opacity 100ms ease-out;
-}
-
-.document-tree-chevron-slot[data-open='true'] {
-  width: 20px;
-  opacity: 1;
+  pointer-events: none;
 }
 
 .document-tree-ghost-chevron {
   min-width: 13px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.document-tree-chevron-slot[data-open='true'] .document-tree-ghost-chevron {
+  opacity: 1;
 }
 
 .document-tree-row:hover,
@@ -5348,7 +5349,8 @@ button.document-tree-toggle:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .document-tree-drag-handle,
-  .document-tree-chevron-slot {
+  .document-tree-toggle,
+  .document-tree-ghost-chevron {
     transition: none;
   }
 }
