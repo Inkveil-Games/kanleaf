@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/desktop/public/brand/kanleaf-logo.png" alt="" width="180" />
+</p>
+
 # Kanleaf
 
 Kanleaf is a self-hosted project and task manager with desktop and browser
