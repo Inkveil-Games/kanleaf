@@ -7,11 +7,16 @@ use crate::{
     domain::LibraryStorageName,
     error::AppError,
     project::{require_project_access, require_project_editor},
-    vault::{LibraryPath, VaultError},
+    vault::{LibraryMove, LibraryPath, VaultError},
     workspace::workspace_role,
 };
 
 use super::DocumentResponse;
+
+pub(super) enum LibraryMoveCommitOutcome {
+    Committed,
+    RolledBack,
+}
 
 #[derive(FromRow)]
 pub(super) struct LockedDocument {
@@ -473,6 +478,9 @@ pub(super) fn map_vault_create_error(error: VaultError) -> AppError {
         VaultError::ExistingDocument => {
             AppError::Conflict("A Markdown file already exists for this document".to_owned())
         }
+        VaultError::PendingLibraryOperation => AppError::Conflict(
+            "Another Library move or deletion is still being finalized".to_owned(),
+        ),
         error => AppError::internal(error),
     }
 }
@@ -488,8 +496,51 @@ pub(super) async fn cleanup_unattached_page(
         .await;
 }
 
-pub(super) async fn restore_library_trash(state: &AppState, trash: &crate::vault::LibraryTrash) {
-    if let Err(error) = state.vault.restore_library_trash(trash).await {
-        warn!(%error, "failed to restore Library subtree after transaction rollback");
+pub(super) async fn reconcile_library_move_commit_error(
+    state: &AppState,
+    movement: &LibraryMove,
+    workspace_id: Uuid,
+    document_id: Uuid,
+    source: &LibraryPath,
+    destination: &LibraryPath,
+) -> Result<LibraryMoveCommitOutcome, AppError> {
+    let mut transaction = state.pool.begin().await.map_err(|error| {
+        AppError::internal(std::io::Error::other(format!(
+            "Library move commit result is unknown because the database could not be inspected ({error})"
+        )))
+    })?;
+    let current = library_path(&mut transaction, workspace_id, document_id)
+        .await
+        .map_err(|error| {
+            AppError::internal(std::io::Error::other(format!(
+                "Library move commit result is unknown because its database path could not be resolved ({error})"
+            )))
+        })?;
+    transaction.commit().await.map_err(|error| {
+        AppError::internal(std::io::Error::other(format!(
+            "Library move commit result is unknown because its reconciliation transaction failed ({error})"
+        )))
+    })?;
+
+    if current == *destination {
+        if let Err(error) = state.vault.finish_library_move(movement).await {
+            warn!(document_id = %document_id, %error, "failed to finish a committed Library move after commit reconciliation");
+        }
+        return Ok(LibraryMoveCommitOutcome::Committed);
     }
+    if current == *source {
+        state
+            .vault
+            .rollback_library_move(movement)
+            .await
+            .map_err(|error| {
+                AppError::internal(std::io::Error::other(format!(
+                    "Library move was rolled back by the database but vault compensation failed ({error})"
+                )))
+            })?;
+        return Ok(LibraryMoveCommitOutcome::RolledBack);
+    }
+    Err(AppError::internal(std::io::Error::other(format!(
+        "Library move commit result is inconsistent with both its source and destination for document {document_id}"
+    ))))
 }

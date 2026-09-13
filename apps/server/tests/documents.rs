@@ -8,7 +8,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, document::migrate_legacy_library, router};
+use kanleaf_server::{
+    AppState,
+    document::{migrate_legacy_library, recover_library_operations},
+    router,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -757,6 +761,12 @@ async fn move_commit_failure_restores_database_and_markdown_tree(pool: PgPool) {
     assert_eq!(parent_id, Some(source_id));
     assert!(vault.join("source/child.md").exists());
     assert!(!vault.join("target/child.md").exists());
+    assert_eq!(
+        fs::read_dir(data_dir.path().join("vaults/.trash/library-operations"))
+            .unwrap()
+            .count(),
+        0
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -926,6 +936,85 @@ async fn delete_commit_failure_restores_database_and_markdown_subtree(pool: PgPo
     assert_eq!(remaining, 2);
     assert!(vault.join("root.md").exists());
     assert!(vault.join("root/child.md").exists());
+    assert_eq!(
+        fs::read_dir(data_dir.path().join("vaults/.trash/library"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert_eq!(
+        fs::read_dir(data_dir.path().join("vaults/.trash/library-operations"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn startup_retires_superseded_library_moves_without_touching_current_markdown(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "superseded-move@example.com").await;
+    let document = create_document(&app, &token, workspace_id, "Current", None, None).await;
+    let document_id: Uuid = document["id"].as_str().unwrap().parse().unwrap();
+    let operations = data_dir.path().join("operations");
+    fs::create_dir(&operations).unwrap();
+    let stale = operations.join(format!("{}.json", Uuid::new_v4()));
+    fs::write(
+        &stale,
+        serde_json::to_vec(&json!({
+            "operation": "move",
+            "workspace_id": workspace_id,
+            "document_id": document_id,
+            "source": ["a"],
+            "destination": ["b"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    recover_library_operations(&state).await.unwrap();
+
+    let wiki = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Wiki");
+    assert!(!stale.exists());
+    assert!(wiki.join("current.md").exists());
+
+    sqlx::query("DELETE FROM documents WHERE workspace_id = $1 AND id = $2")
+        .bind(workspace_id)
+        .bind(document_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    fs::remove_file(wiki.join("current.md")).unwrap();
+    let missing = operations.join(format!("{}.json", Uuid::new_v4()));
+    fs::write(
+        &missing,
+        serde_json::to_vec(&json!({
+            "operation": "move",
+            "workspace_id": workspace_id,
+            "document_id": document_id,
+            "source": ["b"],
+            "destination": ["c"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    recover_library_operations(&state).await.unwrap();
+
+    assert!(!missing.exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]

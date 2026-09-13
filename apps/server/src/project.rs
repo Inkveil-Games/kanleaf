@@ -658,6 +658,30 @@ async fn delete_project(
             "Project identifier does not match".to_owned(),
         ));
     }
+    let project_document_ids: HashSet<Uuid> =
+        sqlx::query_scalar("SELECT id FROM documents WHERE workspace_id = $1 AND project_id = $2")
+            .bind(workspace_id)
+            .bind(project_id)
+            .fetch_all(&mut *transaction)
+            .await?
+            .into_iter()
+            .collect();
+    let has_pending_library_operation = state
+        .vault
+        .pending_library_operations()
+        .await
+        .map_err(AppError::internal)?
+        .iter()
+        .any(|operation| {
+            operation.workspace_id == workspace_id
+                && project_document_ids.contains(&operation.document_id)
+        });
+    if has_pending_library_operation {
+        return Err(AppError::Conflict(
+            "Project deletion is blocked while a Library move or deletion is being finalized"
+                .to_owned(),
+        ));
+    }
     let deletion = state
         .vault
         .begin_project_deletion(workspace_id, project_id, &storage_name)

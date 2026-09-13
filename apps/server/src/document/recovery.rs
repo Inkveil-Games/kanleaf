@@ -82,10 +82,18 @@ async fn recover_operation(
             destination,
         } => {
             if !document_exists {
-                bail!(
-                    "pending Library move references missing document {}",
-                    operation.document_id
-                );
+                if !state
+                    .vault
+                    .retire_superseded_library_operation(operation)
+                    .await
+                    .context("failed to inspect a superseded Library move")?
+                {
+                    bail!(
+                        "pending Library move references missing document {} but still has live vault files",
+                        operation.document_id
+                    );
+                }
+                return Ok(());
             }
             let mut transaction = state.pool.begin().await?;
             let current = library_path(
@@ -100,9 +108,16 @@ async fn recover_operation(
                 true
             } else if current == *source {
                 false
+            } else if state
+                .vault
+                .retire_superseded_library_operation(operation)
+                .await
+                .context("failed to inspect a superseded Library move")?
+            {
+                return Ok(());
             } else {
                 bail!(
-                    "pending Library move does not match the database path for document {}",
+                    "pending Library move does not match the database path for document {} and still has live vault files",
                     operation.document_id
                 );
             };
@@ -120,6 +135,20 @@ async fn recover_operation(
                 .context("failed to recover an interrupted Library deletion")?;
         }
         PendingLibraryOperationKind::Legacy { .. } => {
+            if !document_exists {
+                if !state
+                    .vault
+                    .retire_superseded_library_operation(operation)
+                    .await
+                    .context("failed to inspect a superseded legacy Page migration")?
+                {
+                    bail!(
+                        "pending legacy Page migration references missing document {} but still has live vault files",
+                        operation.document_id
+                    );
+                }
+                return Ok(());
+            }
             state
                 .vault
                 .recover_legacy_library_move(operation)

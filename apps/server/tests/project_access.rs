@@ -1,6 +1,6 @@
 #![cfg(feature = "postgres-tests")]
 
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 use axum::{
     Router,
@@ -472,6 +472,58 @@ async fn project_archive_restores_data_and_delete_frees_the_identifier(pool: PgP
             .unwrap()
             > task["task_number"].as_i64().unwrap()
     );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn project_delete_is_blocked_by_a_pending_library_operation(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "pending-library@example.com").await;
+    let project = create_project(&app, &owner_token, workspace_id, "Pending Library").await;
+    let project_id = project["id"].as_str().unwrap();
+    let document = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/documents"),
+            json!({"title": "Pending", "project_id": project_id, "parent_id": null}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(document.status(), StatusCode::CREATED);
+    let document = response_json(document).await;
+    let document_id = document["id"].as_str().unwrap();
+    let operations = data_dir.path().join("vaults/.trash/library-operations");
+    fs::create_dir_all(&operations).unwrap();
+    let manifest = operations.join(format!("{workspace_id}.{document_id}.library.json"));
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&json!({
+            "operation": "move",
+            "workspace_id": workspace_id,
+            "document_id": document_id,
+            "source_project": project["storage_name"],
+            "source": [document["storage_name"].as_str().unwrap()],
+            "destination_project": project["storage_name"],
+            "destination": ["parent", document["storage_name"].as_str().unwrap()]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let blocked = app
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/projects/{project_id}/delete"),
+            json!({"identifier": project["identifier"]}),
+            Some(&owner_token),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(blocked.status(), StatusCode::CONFLICT);
+    assert!(manifest.exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]

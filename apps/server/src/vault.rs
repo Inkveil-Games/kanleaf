@@ -125,6 +125,8 @@ pub enum VaultError {
     InvalidLibraryPath,
     #[error("the managed vault path is invalid")]
     InvalidManagedPath,
+    #[error("the Library document has an unfinished structural operation")]
+    PendingLibraryOperation,
 }
 
 impl Vault {
@@ -884,9 +886,18 @@ impl Vault {
                 Err(error) if error.kind() == io::ErrorKind::NotFound && create => {
                     match fs::create_dir(&current).await {
                         Ok(()) => {}
-                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                            let metadata = fs::symlink_metadata(&current).await?;
+                            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                                return Err(VaultError::InvalidManagedPath);
+                            }
+                        }
                         Err(error) => return Err(error.into()),
                     }
+                    let parent = current.parent().ok_or(VaultError::InvalidManagedPath)?;
+                    // A later structural rename may unlink its source, so publish each
+                    // newly observed directory entry before relying on descendants.
+                    sync_directory(parent).await?;
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -1299,6 +1310,12 @@ mod tests {
             .trash_library_tree(workspace_id, Uuid::new_v4(), &path)
             .await
             .unwrap();
+        let persisted_trash = data_dir.path().join("vaults/.trash/library");
+        let persisted_manifests = data_dir.path().join("vaults/.trash/library-operations");
+        assert_eq!(std::fs::read_dir(&persisted_trash).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&persisted_manifests).unwrap().count(), 1);
+        assert!(!data_dir.path().join("trash/library").exists());
+        assert!(!data_dir.path().join("operations").exists());
         vault.restore_library_trash(&trashed).await.unwrap();
         assert!(vault.read_page_document(workspace_id, &path).await.is_ok());
         assert!(
@@ -1338,6 +1355,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(
+            std::fs::read_dir(data_dir.path().join("vaults/.trash/library-operations"))
+                .unwrap()
+                .count(),
+            1
+        );
+        assert!(!data_dir.path().join("operations").exists());
         assert!(
             vault
                 .read_page_document(workspace_id, &destination)
@@ -1377,6 +1401,211 @@ mod tests {
                 .is_err()
         );
         assert!(vault.pending_library_operations().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pending_library_manifest_blocks_another_operation_for_the_same_document() {
+        let data_dir = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let source = library_path(&["source"]);
+        let destination_parent = library_path(&["destination"]);
+        let destination = library_path(&["destination", "source"]);
+        let vault = Vault::new(data_dir.path().to_owned());
+        for path in [&source, &destination_parent] {
+            vault
+                .create_page_document(workspace_id, path)
+                .await
+                .unwrap();
+        }
+
+        let movement = vault
+            .move_library_tree(workspace_id, document_id, &source, &destination)
+            .await
+            .unwrap()
+            .unwrap();
+        let second = vault
+            .move_library_tree(workspace_id, document_id, &destination, &source)
+            .await;
+
+        assert!(matches!(second, Err(VaultError::PendingLibraryOperation)));
+        let manifest_names =
+            std::fs::read_dir(data_dir.path().join("vaults/.trash/library-operations"))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>();
+        assert_eq!(
+            manifest_names,
+            [std::ffi::OsString::from(format!(
+                "{workspace_id}.{document_id}.library.json"
+            ))]
+        );
+        assert_eq!(vault.pending_library_operations().await.unwrap().len(), 1);
+        vault.rollback_library_move(&movement).await.unwrap();
+        assert!(
+            vault
+                .read_page_document(workspace_id, &source)
+                .await
+                .is_ok()
+        );
+        assert!(vault.pending_library_operations().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_library_delete_manifest_recovers_from_the_previous_data_root_layout() {
+        let data_dir = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let trash_id = Uuid::new_v4();
+        let path = library_path(&["legacy_delete"]);
+        let child_path = library_path(&["legacy_delete", "child"]);
+        let vault = Vault::new(data_dir.path().to_owned());
+        vault
+            .create_page_document(workspace_id, &path)
+            .await
+            .unwrap();
+        vault
+            .create_page_document(workspace_id, &child_path)
+            .await
+            .unwrap();
+
+        let wiki = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string())
+            .join("Wiki");
+        let trash = data_dir
+            .path()
+            .join("trash/library")
+            .join(format!("{workspace_id}.{trash_id}"));
+        std::fs::create_dir_all(&trash).unwrap();
+        std::fs::rename(wiki.join("legacy_delete.md"), trash.join("document.md")).unwrap();
+        std::fs::rename(wiki.join("legacy_delete"), trash.join("children")).unwrap();
+        let operations = data_dir.path().join("operations");
+        std::fs::create_dir_all(&operations).unwrap();
+        let manifest = operations.join(format!("{}.json", Uuid::new_v4()));
+        std::fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "delete",
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "path": ["legacy_delete"],
+                "trash_id": trash_id
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let pending = vault.pending_library_operations().await.unwrap();
+        assert_eq!(pending.len(), 1);
+        vault
+            .recover_library_delete(&pending[0], true)
+            .await
+            .unwrap();
+
+        assert!(vault.read_page_document(workspace_id, &path).await.is_ok());
+        assert!(
+            vault
+                .read_page_document(workspace_id, &child_path)
+                .await
+                .is_ok()
+        );
+        assert!(!trash.exists());
+        assert!(!manifest.exists());
+    }
+
+    #[tokio::test]
+    async fn recovered_library_delete_can_finish_after_trash_was_already_restored() {
+        let data_dir = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let path = library_path(&["already_restored"]);
+        let vault = Vault::new(data_dir.path().to_owned());
+        vault
+            .create_page_document(workspace_id, &path)
+            .await
+            .unwrap();
+        let operations = data_dir.path().join("vaults/.trash/library-operations");
+        std::fs::create_dir_all(&operations).unwrap();
+        let manifest = operations.join(format!("{}.library.json", Uuid::new_v4()));
+        std::fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "delete",
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "path": ["already_restored"],
+                "trash_id": Uuid::new_v4()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let pending = vault.pending_library_operations().await.unwrap();
+        assert_eq!(pending.len(), 1);
+        vault
+            .recover_library_delete(&pending[0], true)
+            .await
+            .unwrap();
+
+        assert!(vault.read_page_document(workspace_id, &path).await.is_ok());
+        assert!(!manifest.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn library_recovery_rejects_symlinked_trash_ancestors() {
+        let data_dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let trash_id = Uuid::new_v4();
+        let path = library_path(&["unsafe_recovery"]);
+        let vault = Vault::new(data_dir.path().to_owned());
+        vault
+            .create_page_document(workspace_id, &path)
+            .await
+            .unwrap();
+        let operations = data_dir.path().join("operations");
+        std::fs::create_dir(&operations).unwrap();
+        let manifest = operations.join(format!("{}.json", Uuid::new_v4()));
+        std::fs::write(
+            &manifest,
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "delete",
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "path": ["unsafe_recovery"],
+                "trash_id": trash_id
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(outside.path().join("library")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), data_dir.path().join("trash")).unwrap();
+
+        let pending = vault.pending_library_operations().await.unwrap();
+        let result = vault.recover_library_delete(&pending[0], true).await;
+
+        assert!(matches!(result, Err(VaultError::InvalidLibraryPath)));
+        assert!(manifest.exists());
+        assert!(vault.read_page_document(workspace_id, &path).await.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pending_library_operations_reject_a_symlinked_persisted_root() {
+        let data_dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        std::fs::create_dir(data_dir.path().join("vaults")).unwrap();
+        std::fs::create_dir(outside.path().join("library-operations")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), data_dir.path().join("vaults/.trash")).unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+
+        let result = vault.pending_library_operations().await;
+
+        assert!(matches!(result, Err(VaultError::InvalidLibraryPath)));
     }
 
     #[tokio::test]

@@ -27,11 +27,11 @@ use crate::{
 };
 
 use persistence::{
-    active_sibling_ids, authorize_scope, available_storage_name, cleanup_unattached_page,
-    ensure_storage_name_available, find_authorized_document, library_path, lock_document,
-    lock_workspace_documents, map_vault_create_error, next_position,
-    resolve_authorized_document_number, restore_library_trash, set_sibling_order, validate_parent,
-    validate_subtree_scope,
+    LibraryMoveCommitOutcome, active_sibling_ids, authorize_scope, available_storage_name,
+    cleanup_unattached_page, ensure_storage_name_available, find_authorized_document, library_path,
+    lock_document, lock_workspace_documents, map_vault_create_error, next_position,
+    reconcile_library_move_commit_error, resolve_authorized_document_number, set_sibling_order,
+    validate_parent, validate_subtree_scope,
 };
 
 #[derive(Debug, Serialize, FromRow)]
@@ -422,15 +422,34 @@ async fn update(
         .move_library_tree(workspace_id, document_id, &source_path, &destination_path)
         .await
         .map_err(map_vault_create_error)?;
-    if let Err(error) = transaction.commit().await {
-        if let Some(movement) = &movement
-            && let Err(rollback_error) = state.vault.rollback_library_move(movement).await
+    let commit_result = transaction.commit().await;
+    let reconciled_commit = if let Err(error) = commit_result {
+        let Some(movement) = &movement else {
+            return Err(error.into());
+        };
+        match reconcile_library_move_commit_error(
+            &state,
+            movement,
+            workspace_id,
+            document_id,
+            &source_path,
+            &destination_path,
+        )
+        .await
         {
-            warn!(document_id = %document_id, %rollback_error, "failed to roll back Library move");
+            Ok(LibraryMoveCommitOutcome::Committed) => true,
+            Ok(LibraryMoveCommitOutcome::RolledBack) => return Err(error.into()),
+            Err(reconcile_error) => {
+                return Err(AppError::internal(std::io::Error::other(format!(
+                    "Library move commit failed ({error}); {reconcile_error}"
+                ))));
+            }
         }
-        return Err(error.into());
-    }
-    if let Some(movement) = &movement
+    } else {
+        false
+    };
+    if !reconciled_commit
+        && let Some(movement) = &movement
         && let Err(error) = state.vault.finish_library_move(movement).await
     {
         warn!(document_id = %document_id, %error, "failed to finish Library move cleanup");
@@ -547,15 +566,34 @@ async fn move_document(
             return Err(error);
         }
     };
-    if let Err(error) = transaction.commit().await {
-        if let Some(movement) = &movement
-            && let Err(rollback_error) = state.vault.rollback_library_move(movement).await
+    let commit_result = transaction.commit().await;
+    let reconciled_commit = if let Err(error) = commit_result {
+        let Some(movement) = &movement else {
+            return Err(error.into());
+        };
+        match reconcile_library_move_commit_error(
+            &state,
+            movement,
+            workspace_id,
+            document_id,
+            &source_path,
+            &destination_path,
+        )
+        .await
         {
-            warn!(document_id = %document_id, %rollback_error, "failed to roll back Library move");
+            Ok(LibraryMoveCommitOutcome::Committed) => true,
+            Ok(LibraryMoveCommitOutcome::RolledBack) => return Err(error.into()),
+            Err(reconcile_error) => {
+                return Err(AppError::internal(std::io::Error::other(format!(
+                    "Library move commit failed ({error}); {reconcile_error}"
+                ))));
+            }
         }
-        return Err(error.into());
-    }
-    if let Some(movement) = &movement
+    } else {
+        false
+    };
+    if !reconciled_commit
+        && let Some(movement) = &movement
         && let Err(error) = state.vault.finish_library_move(movement).await
     {
         warn!(document_id = %document_id, %error, "failed to finish Library move cleanup");
@@ -683,7 +721,7 @@ async fn delete_permanently(
         .vault
         .trash_library_tree(workspace_id, document_id, &root_path)
         .await
-        .map_err(AppError::internal)?;
+        .map_err(map_vault_create_error)?;
     let database_result: Result<(), AppError> = async {
         sqlx::query("DELETE FROM documents WHERE workspace_id = $1 AND id = $2")
             .bind(workspace_id)
@@ -703,17 +741,60 @@ async fn delete_permanently(
     }
     .await;
     if let Err(error) = database_result {
-        restore_library_trash(&state, &trash).await;
-        return Err(error);
+        let database_rollback = transaction.rollback().await;
+        let vault_rollback = state.vault.restore_library_trash(&trash).await;
+        return match (database_rollback, vault_rollback) {
+            (Ok(()), Ok(())) => Err(error),
+            (database_rollback, vault_rollback) => {
+                Err(AppError::internal(std::io::Error::other(format!(
+                    "Library deletion failed ({error}); database rollback: {}; vault rollback: {}",
+                    result_description(&database_rollback),
+                    result_description(&vault_rollback),
+                ))))
+            }
+        };
     }
     if let Err(error) = transaction.commit().await {
-        restore_library_trash(&state, &trash).await;
-        return Err(error.into());
+        let document_exists: Result<bool, sqlx::Error> = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM documents WHERE workspace_id = $1 AND id = $2)",
+        )
+        .bind(workspace_id)
+        .bind(document_id)
+        .fetch_one(&state.pool)
+        .await;
+        match document_exists {
+            Ok(true) => {
+                if let Err(rollback_error) = state.vault.restore_library_trash(&trash).await {
+                    return Err(AppError::internal(std::io::Error::other(format!(
+                        "Library deletion commit failed ({error}); vault rollback failed ({rollback_error})"
+                    ))));
+                }
+                return Err(error.into());
+            }
+            Ok(false) => {
+                if let Err(purge_error) = state.vault.purge_library_trash(&trash).await {
+                    warn!(document_id = %document_id, %purge_error, "failed to purge committed Library deletion after an ambiguous commit result");
+                }
+                return Ok(Json(DeleteDocumentsResponse { deleted_ids: ids }));
+            }
+            Err(reconcile_error) => {
+                return Err(AppError::internal(std::io::Error::other(format!(
+                    "Library deletion commit result is unknown ({error}); recovery is pending because the database could not be inspected ({reconcile_error})"
+                ))));
+            }
+        }
     }
     if let Err(error) = state.vault.purge_library_trash(&trash).await {
         warn!(document_id = %document_id, %error, "failed to purge deleted Library subtree");
     }
     Ok(Json(DeleteDocumentsResponse { deleted_ids: ids }))
+}
+
+fn result_description<T, E: std::fmt::Display>(result: &Result<T, E>) -> String {
+    match result {
+        Ok(_) => "succeeded".to_owned(),
+        Err(error) => format!("failed ({error})"),
+    }
 }
 
 fn deserialize_nullable_uuid<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>

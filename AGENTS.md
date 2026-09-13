@@ -145,12 +145,12 @@ owning feature instead of scattering it through unrelated handlers.
   trash-first deletion. Live vaults, internal `operations/`, and `trash/` must
   remain on a filesystem topology where the required renames are atomic; test
   deployment mount changes against that invariant.
-- Workspace-deletion manifests and trash live below the persisted `vaults/`
-  mount so their rename remains local. The current Compose mount still splits
-  that mount from container-local `operations/` and top-level `trash/`; do not
-  treat a successful Compose parse as recovery coverage for other structural
-  operations or silently change the layout without a migration-compatible
-  deployment decision.
+- Workspace, Project, Task, and Library deletion state, plus Library move
+  manifests, live below the persisted `vaults/` mount so their rename remains
+  local. The current Compose mount still splits that mount from container-local
+  `operations/` and top-level `trash/`; do not treat a successful Compose parse
+  as recovery coverage for other structural operations or silently change the
+  layout without a migration-compatible deployment decision.
 - Filesystem tests use temporary directories. PostgreSQL tests use isolated
   databases and must not depend on developer data.
 - Secrets, vaults, databases, build output, and machine state stay untracked.

@@ -45,18 +45,31 @@ async fn migrate_workspace(state: &AppState, workspace_id: Uuid) -> anyhow::Resu
     let mut movements = Vec::new();
     let result = apply_workspace_migration(state, workspace_id, &mut movements).await;
     if let Err(error) = result {
-        for movement in movements.iter().rev() {
-            state
-                .vault
-                .rollback_legacy_library_move(movement)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to roll back legacy Library migration for Workspace {workspace_id}; original error: {error:#}"
-                    )
-                })?;
+        if movements.is_empty() {
+            return Err(error);
         }
-        return Err(error);
+        match legacy_migration_database_outcome(state, workspace_id, &movements).await {
+            Ok(LegacyMigrationDatabaseOutcome::RolledBack) => {
+                for movement in movements.iter().rev() {
+                    state
+                        .vault
+                        .rollback_legacy_library_move(movement)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to roll back legacy Library migration for Workspace {workspace_id}; original error: {error:#}"
+                            )
+                        })?;
+                }
+                return Err(error);
+            }
+            Ok(LegacyMigrationDatabaseOutcome::Committed) => {}
+            Err(reconcile_error) => {
+                return Err(reconcile_error.context(format!(
+                    "legacy Library migration failed for Workspace {workspace_id} ({error:#}); recovery manifests were retained because the database outcome is unknown"
+                )));
+            }
+        }
     }
 
     for movement in &movements {
@@ -67,6 +80,45 @@ async fn migrate_workspace(state: &AppState, workspace_id: Uuid) -> anyhow::Resu
             .context("failed to finish legacy Library migration cleanup")?;
     }
     Ok(movements.len())
+}
+
+enum LegacyMigrationDatabaseOutcome {
+    Committed,
+    RolledBack,
+}
+
+async fn legacy_migration_database_outcome(
+    state: &AppState,
+    workspace_id: Uuid,
+    movements: &[LegacyLibraryMove],
+) -> anyhow::Result<LegacyMigrationDatabaseOutcome> {
+    let document_ids = movements
+        .iter()
+        .map(LegacyLibraryMove::document_id)
+        .collect::<Vec<_>>();
+    let versions: Vec<(Uuid, i16)> = sqlx::query_as(
+        r#"
+        SELECT id, storage_layout_version
+        FROM documents
+        WHERE workspace_id = $1 AND id = ANY($2)
+        ORDER BY id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&document_ids)
+    .fetch_all(&state.pool)
+    .await
+    .context("failed to inspect the database after a legacy Library migration error")?;
+    if versions.len() != document_ids.len() {
+        bail!("legacy Library migration documents disappeared while reconciling the commit");
+    }
+    if versions.iter().all(|(_, version)| *version == 1) {
+        return Ok(LegacyMigrationDatabaseOutcome::Committed);
+    }
+    if versions.iter().all(|(_, version)| *version == 0) {
+        return Ok(LegacyMigrationDatabaseOutcome::RolledBack);
+    }
+    bail!("legacy Library migration committed an inconsistent set of document layout versions")
 }
 
 async fn apply_workspace_migration(

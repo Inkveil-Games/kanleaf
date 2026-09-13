@@ -344,8 +344,22 @@ compensation when the SQL transaction fails. Startup also migrates legacy
 the previous Workspace directory as a timestamped recovery copy. Fully atomic
 transactions across PostgreSQL and a filesystem are not
 possible. Library move, delete, and legacy migration operations therefore write
-recovery manifests under `KANLEAF_DATA_DIR/operations`; startup reconciles them
-against PostgreSQL before binding the HTTP listener.
+recovery manifests under the persisted
+`KANLEAF_DATA_DIR/vaults/.trash/library-operations` directory; Library deletion
+trash lives beside them under `vaults/.trash/library`, so staging renames stay on
+the same filesystem as the live vault. Startup reconciles those manifests
+against PostgreSQL before binding the HTTP listener and continues to read the
+previous `KANLEAF_DATA_DIR/operations` plus `trash/library` layout for upgrade
+recovery when those legacy container-local paths were preserved. Restoring a
+legacy deletion validates and copies its file tree into vault-local staging
+before an atomic live rename when the old trash is on another filesystem. A
+document has at most one published structural manifest; publication uses a
+synced temporary file and an atomic no-replace link so a torn manifest cannot
+block startup or overwrite pending recovery state. A database commit error is
+treated as an unknown outcome: the server reads the authoritative document path
+or legacy layout version through a fresh connection before it finishes or
+reverses the filesystem change, and retains the manifest when that decision
+cannot be made safely.
 
 Permanent Task/Library deletion uses the same trash-first boundary: the document is
 renamed before the database commit, restored if the transaction fails, and
@@ -354,12 +368,16 @@ leaves internal trash for operator cleanup instead of encouraging an unsafe
 client retry.
 
 Permanent Project deletion stages the complete Project vault below the persisted
-`vaults/.trash` tree before deleting its relational footprint. A database failure
-restores the staged directory; after commit, request handling or startup recovery
-finishes the purge. Project-owned Tasks, documents, Views, planning records,
-memberships, configuration, and Markdown are removed together. Cross-Project
-hierarchy pointers are cleared and projected before their surviving Task records
-return to a steady state.
+`vaults/.trash` tree before deleting its relational footprint. It refuses to
+start while one of the Project's Library documents still has a published
+structural recovery manifest. Startup may retire a superseded move manifest only
+after it proves that neither referenced live path nor staged path remains;
+otherwise recovery fails closed for operator review. A database failure restores
+the staged directory; after commit, request handling or startup recovery finishes
+the purge. Project-owned Tasks, documents, Views, planning records, memberships,
+configuration, and Markdown are removed together. Cross-Project hierarchy
+pointers are cleared and projected before their surviving Task records return to
+a steady state.
 
 Confirmed Workspace deletion first records a durable manifest and renames its
 typed UUID vault beneath `vaults/.trash`, on the same persisted mount. A
@@ -523,13 +541,16 @@ Node and pnpm are build-stage tools and are absent at runtime. The image briefly
 starts as root to set ownership on a mounted vault, then executes the server as
 the unprivileged `kanleaf` user. Compose exposes one application service and
 port. Its current bind mounts persist PostgreSQL and `vaults/`;
-Workspace-deletion manifests and trash are therefore deliberately stored under
-`/data/vaults/.trash`. Other recovery state under `/data/operations` and
-`/data/trash` remains container-local. A rename between the vault bind mount and
-those container-local paths can still cross a mount boundary, so the topology
-does not yet satisfy every import or structural trash assumption. Resolving the
-remaining gap requires a migration-compatible persistence layout and runtime
-container test; Compose parsing and local one-directory tests do not prove it.
+Workspace, Project, Task, and Library deletion state, plus Library move
+manifests, are therefore deliberately stored under `/data/vaults/.trash`.
+Library startup recovery also scans the previous container-local
+`/data/operations` and `/data/trash/library` locations when an operator has
+preserved them across an upgrade, including cross-filesystem restoration into
+the vault mount. Other recovery state under `/data/operations` remains
+container-local, so the topology does not yet satisfy every import or Task-move
+assumption. Resolving that remaining gap requires a migration-compatible
+persistence layout and runtime container test; Compose parsing and local
+one-directory tests do not prove it.
 
 ## Deferred intentionally
 
