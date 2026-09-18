@@ -15,6 +15,8 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
+    domain::events::EventType,
+    domain_event::task_event,
     error::AppError,
     task::{
         CustomProperty, authorize_task_location, enqueue_projection, lock_task_location,
@@ -87,8 +89,24 @@ pub(crate) async fn set_value(
     let response =
         set_value_in_transaction(&mut transaction, workspace_id, property_id, requested_value)
             .await?;
+    let previous: Option<sqlx::types::Json<Value>> = sqlx::query_scalar("SELECT value FROM task_custom_property_values WHERE workspace_id=$1 AND task_id=$2 AND property_id=$3")
+        .bind(workspace_id).bind(task_id).bind(property_id).fetch_optional(&mut *transaction).await?;
+    let changed = previous
+        .as_ref()
+        .is_none_or(|value| value.0 != response.value);
     let response = upsert_value(&mut transaction, workspace_id, task_id, response).await?;
     enqueue_projection(&mut transaction, workspace_id, &[task_id]).await?;
+    if changed {
+        task_event(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            actor_id,
+            EventType::TaskUpdated,
+            &["custom_properties"],
+        )
+        .await?;
+    }
     transaction.commit().await?;
     project_now(state, workspace_id, task_id).await;
     Ok(response)
@@ -123,6 +141,15 @@ pub(crate) async fn clear_value(
         ));
     }
     enqueue_projection(&mut transaction, workspace_id, &[task_id]).await?;
+    task_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        actor_id,
+        EventType::TaskUpdated,
+        &["custom_properties"],
+    )
+    .await?;
     transaction.commit().await?;
     project_now(state, workspace_id, task_id).await;
     Ok(())

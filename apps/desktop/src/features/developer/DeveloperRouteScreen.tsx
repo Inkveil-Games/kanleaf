@@ -12,7 +12,7 @@ import { developerPath, type DeveloperSection } from './developerLocation';
 
 export type DeveloperRouteScreenProps = Omit<
   DeveloperShellProps,
-  'context' | 'workspace' | 'workspaces' | 'section'
+  'context' | 'workspace' | 'workspaces' | 'section' | 'webhookId'
 > & {
   serverUrl: string;
   token: string;
@@ -25,7 +25,7 @@ export function DeveloperRouteScreen({
   section,
   ...props
 }: DeveloperRouteScreenProps) {
-  const { workspaceIdentifier } = useParams();
+  const { workspaceIdentifier, webhookId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const context = useMemo(() => ({ serverUrl, token }), [serverUrl, token]);
@@ -81,7 +81,7 @@ export function DeveloperRouteScreen({
     );
   }
   if (workspace && section) {
-    const pathname = developerPath(workspace.identifier, section);
+    const pathname = developerPath(workspace.identifier, section, webhookId);
     if (pathname !== location.pathname) {
       return (
         <Navigate
@@ -100,6 +100,7 @@ export function DeveloperRouteScreen({
       workspaces={workspaces.data ?? []}
       workspace={workspace ?? null}
       section={section}
+      webhookId={webhookId}
     />
   );
 }

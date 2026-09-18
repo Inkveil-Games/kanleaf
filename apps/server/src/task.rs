@@ -35,7 +35,9 @@ use crate::{
     AppState,
     auth::AuthenticatedUser,
     collaboration::{notify_assignments, notify_task_change, record_activity, subscribe},
+    domain::events::EventType,
     domain::{TaskPriority, TaskTitle, VaultStorageName},
+    domain_event::task_event,
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
     realtime::RealtimeEvent,
@@ -459,6 +461,15 @@ pub(crate) async fn create(
     .await?;
 
     let vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
+    task_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        EventType::TaskCreated,
+        &[],
+    )
+    .await?;
     let task_path = vault_row.path()?;
     let source = frontmatter::render_new(&vault_row.properties(), "");
     state
@@ -938,6 +949,17 @@ pub(crate) async fn update_task_with_properties(
         .await?;
     }
     let mut projection_task_ids = Vec::with_capacity(dependent_task_ids.len() + 1);
+    if activity_changed {
+        task_event(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            actor_id,
+            EventType::TaskUpdated,
+            &changed_fields,
+        )
+        .await?;
+    }
     projection_task_ids.push(task_id);
     projection_task_ids.extend(dependent_task_ids);
     enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
@@ -982,6 +1004,7 @@ pub(crate) async fn archive(
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
     let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
     let result = sqlx::query(
@@ -1036,6 +1059,15 @@ pub(crate) async fn archive(
     )
     .await?;
     let mut projection_task_ids = Vec::with_capacity(child_ids.len() + 1);
+    task_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        EventType::TaskUpdated,
+        &["archived_at"],
+    )
+    .await?;
     projection_task_ids.push(task_id);
     projection_task_ids.extend(child_ids);
     enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
@@ -1056,6 +1088,7 @@ pub(crate) async fn delete_permanently(
     let Path((workspace_id, task_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, true).await?;
     let task = find_task_in_transaction(&mut transaction, workspace_id, task_id).await?;
@@ -1068,6 +1101,15 @@ pub(crate) async fn delete_permanently(
     let task_path = task_vault_row(&mut transaction, workspace_id, task_id, true)
         .await?
         .path()?;
+    task_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        auth.user.id,
+        EventType::TaskDeleted,
+        &[],
+    )
+    .await?;
     let child_ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM tasks WHERE workspace_id = $1 AND parent_id = $2 ORDER BY id",
     )
@@ -1335,6 +1377,27 @@ pub(crate) async fn bulk_update(
         .await?;
     }
     let mut projection_task_ids = Vec::with_capacity(task_ids.len() + dependent_task_ids.len());
+    for task_id in &task_ids {
+        let fields = [
+            request.state_id.map(|_| "state"),
+            request.priority.map(|_| "priority"),
+            request.project_id.map(|_| "project"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        if !fields.is_empty() {
+            task_event(
+                &mut transaction,
+                workspace_id,
+                *task_id,
+                auth.user.id,
+                EventType::TaskUpdated,
+                &fields,
+            )
+            .await?;
+        }
+    }
     projection_task_ids.extend(task_ids.iter().copied());
     projection_task_ids.extend(dependent_task_ids);
     enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;

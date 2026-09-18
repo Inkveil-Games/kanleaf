@@ -37,6 +37,7 @@ export interface DeveloperShellProps {
   workspaces: Workspace[];
   workspace: Workspace | null;
   section: DeveloperSection | null;
+  webhookId?: string;
   accountSessions: AccountSession[];
   accountTransitioning: boolean;
   accountError: string | null;
@@ -95,7 +96,10 @@ export function DeveloperShell(props: DeveloperShellProps) {
     const target = eligible.find((candidate) => candidate.id === id);
     if (target)
       await navigateSafely(
-        developerPath(target.identifier, section ?? 'overview'),
+        developerPath(
+          target.identifier,
+          section && section !== 'overview' ? 'webhooks' : 'overview',
+        ),
       );
   }
   function navigateLink(event: MouseEvent<HTMLAnchorElement>) {
@@ -232,8 +236,16 @@ export function DeveloperShell(props: DeveloperShellProps) {
           </p>
         ) : null}
         {workspace ? (
-          section === 'webhooks' ? (
-            <DeveloperWebhooks />
+          section !== 'overview' ? (
+            <DeveloperWebhooks
+              key={`${context.serverUrl}:${context.token}:${workspace.id}:${section}:${props.webhookId ?? ''}`}
+              context={context}
+              workspace={workspace}
+              section={section ?? 'webhooks'}
+              webhookId={props.webhookId}
+              onNavigate={navigateLink}
+              navigateTo={(path) => void navigateSafely(path)}
+            />
           ) : (
             <DeveloperOverview
               workspace={workspace}

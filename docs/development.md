@@ -282,3 +282,12 @@ different password.
   migration, bind-address, or data-directory context in its error chain.
 - Linux Tauri build failures generally indicate missing WebKitGTK/system
   packages rather than a frontend TypeScript failure.
+
+## Webhook receiver testing
+
+See [Webhooks](webhooks.md) for instance-key and destination policy setup.
+Playwright uses an explicit test-only signing-key fixture and permits
+loopback/HTTP for its controlled local receiver. Always provide a disposable
+database to these suites, since persisted webhooks require their original key.
+The two suites share that fixture because CI runs them against one disposable
+database. Production defaults continue to reject private destinations and HTTP.

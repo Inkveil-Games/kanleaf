@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{error::AppError, task_config::lock_workspace_for_assignment};
 
 #[derive(Clone, Copy)]
 pub(super) enum PlanningFeature {
@@ -55,6 +55,7 @@ pub(super) async fn lock_feature(
     project_id: Uuid,
     feature: PlanningFeature,
 ) -> Result<(), AppError> {
+    lock_workspace_for_assignment(transaction, workspace_id).await?;
     let enabled: Option<bool> = sqlx::query_scalar(&format!(
         "SELECT {} FROM projects WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL FOR UPDATE",
         feature.column()

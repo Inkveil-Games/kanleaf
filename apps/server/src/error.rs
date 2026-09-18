@@ -22,6 +22,8 @@ pub enum AppError {
     StalePreview(String),
     #[error("vault storage is unavailable")]
     VaultUnavailable,
+    #[error("webhooks are not configured on this instance")]
+    WebhooksUnavailable,
     #[error(transparent)]
     Internal(#[from] Error),
 }
@@ -105,6 +107,11 @@ impl IntoResponse for AppError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "vault_unavailable",
                 "Vault storage is temporarily unavailable".to_owned(),
+            ),
+            Self::WebhooksUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "webhooks_unavailable",
+                "Webhooks require an instance signing key. Ask your instance administrator to configure KANLEAF_WEBHOOK_SIGNING_KEY.".to_owned(),
             ),
             Self::Internal(source) => {
                 error!(error = ?source, "request failed");

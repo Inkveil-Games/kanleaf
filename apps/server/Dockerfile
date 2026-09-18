@@ -6,6 +6,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/desktop/package.json apps/desktop/package.json
 RUN pnpm install --frozen-lockfile
 COPY apps/desktop apps/desktop
+COPY apps/server/tests/fixtures/webhook-payloads.json apps/server/tests/fixtures/webhook-payloads.json
 RUN pnpm --filter @kanleaf/desktop build:self-host
 
 FROM rust:1.90-bookworm AS builder

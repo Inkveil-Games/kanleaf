@@ -39,6 +39,10 @@ export async function startKanleafServer(options: ServerOptions = {}) {
       KANLEAF_PUBLIC_URL:
         options.publicUrl ?? options.corsOrigins ?? 'http://127.0.0.1:1421',
       KANLEAF_SMTP_HOST: '',
+      // Explicit fixture shared by both suites on their disposable database.
+      KANLEAF_WEBHOOK_SIGNING_KEY: Buffer.alloc(32, 0x42).toString('base64'),
+      KANLEAF_WEBHOOK_ALLOW_PRIVATE_NETWORKS: 'true',
+      KANLEAF_WEBHOOK_ALLOW_HTTP: 'true',
       RUST_LOG: 'kanleaf_server=warn',
     },
     stdio: ['ignore', 'ignore', 'pipe'],

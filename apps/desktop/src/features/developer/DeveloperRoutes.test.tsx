@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthenticatedRoutes } from '../../app/routing/AuthenticatedRoutes';
+import examples from '../../../../server/tests/fixtures/webhook-payloads.json';
 import type { Workspace } from '../workspace/types';
 
 const mocks = vi.hoisted(() => ({
@@ -18,14 +19,26 @@ const mocks = vi.hoisted(() => ({
   flush: vi.fn(),
   signOut: vi.fn(),
   addAccount: vi.fn(),
+  listWebhooks: vi.fn(),
+  getWebhook: vi.fn(),
+  listProjects: vi.fn(),
+  catalog: vi.fn(),
 }));
 vi.mock('../workspace/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace/api')>()),
   listWorkspaces: mocks.listWorkspaces,
+  listProjects: mocks.listProjects,
 }));
 vi.mock('../collaboration/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../collaboration/api')>()),
   listNotifications: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('./webhooks/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./webhooks/api')>()),
+  listWebhooks: mocks.listWebhooks,
+  getWebhook: mocks.getWebhook,
+  getWebhookCatalog: mocks.catalog,
 }));
 
 const workspace: Workspace = {
@@ -48,6 +61,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mocks.flush.mockResolvedValue(undefined);
+  mocks.listWebhooks.mockResolvedValue([]);
+  mocks.listProjects.mockResolvedValue([]);
+  mocks.catalog.mockResolvedValue({
+    event_types: Object.keys(examples),
+    examples,
+    allow_http: false,
+  });
+  mocks.getWebhook.mockRejectedValue(new Error('Webhook not found'));
+
   mocks.listWorkspaces.mockResolvedValue([workspace, second]);
 });
 
@@ -118,6 +140,26 @@ function HistoryProbe() {
 const browserLocation = () => screen.getByLabelText('Browser location');
 
 describe('Developer routes', () => {
+  it.each(['new', 'webhook-a'])(
+    'drops %s when switching Workspace from a webhook form/detail',
+    async (suffix) => {
+      renderRoutes(`/developer/w/kanleaf/webhooks/${suffix}`);
+      await screen.findByRole('button', {
+        name: /Switch workspace, current workspace Kanleaf team/,
+      });
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: /Switch workspace, current workspace Kanleaf team/,
+        }),
+      );
+      fireEvent.click(await screen.findByRole('button', { name: /Inkveil/ }));
+      await waitFor(() =>
+        expect(browserLocation()).toHaveTextContent(
+          /^\/developer\/w\/inkveil\/webhooks$/,
+        ),
+      );
+    },
+  );
   it.each(['owner', 'admin'] as const)(
     'allows %s deep links and preserves global chrome',
     async (role) => {
@@ -173,6 +215,25 @@ describe('Developer routes', () => {
       );
     },
   );
+  it('keeps Back to Workspace in a footer above the account control', async () => {
+    renderRoutes('/developer/w/kanleaf');
+    await screen.findByRole('heading', { name: 'Developer overview' });
+    const footer = screen.getByLabelText('Developer footer');
+    const back = within(footer).getByRole('link', {
+      name: 'Back to Workspace',
+    });
+    const account = within(footer).getByRole('button', {
+      name: 'Switch account',
+    });
+    expect(
+      back.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole('navigation', { name: 'Developer navigation' }),
+      ).queryByRole('link', { name: 'Back to Workspace' }),
+    ).not.toBeInTheDocument();
+  });
   it('offers only eligible workspaces at the global entry', async () => {
     mocks.listWorkspaces.mockResolvedValue([
       workspace,
@@ -228,13 +289,13 @@ describe('Developer routes', () => {
       await screen.findByRole('heading', { name: 'Webhooks', level: 1 }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        'Webhook endpoints and subscriptions will be managed here.',
+      await screen.findByText(
+        'Create a webhook to send task and comment events to an external service.',
       ),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Create webhook' }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: 'Create webhook' }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Switch workspace/ }));
     await user.click(await screen.findByRole('button', { name: /Inkveil/ }));
     await waitFor(() =>
@@ -330,6 +391,14 @@ describe('Developer routes', () => {
     ).toBeInTheDocument();
   });
   it.each([
+    [
+      '/developer/w/workspace-1/webhooks/new',
+      '/developer/w/kanleaf/webhooks/new',
+    ],
+    [
+      '/developer/w/workspace-1/webhooks/hook-a',
+      '/developer/w/kanleaf/webhooks/hook-a',
+    ],
     [
       '/developer/w/workspace-1/webhooks?source=link#page',
       '/developer/w/kanleaf/webhooks?source=link#page',

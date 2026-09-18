@@ -14,6 +14,7 @@ use kanleaf_server::{
     project::recover_project_deletions,
     router, router_with_web_client,
     task::{recover_projection_jobs, spawn_projection_worker},
+    webhook::{spawn_webhook_workers, validate_signing_key},
     workspace::{migrate_workspace_vaults, recover_workspace_deletions},
 };
 use sqlx::postgres::PgPoolOptions;
@@ -47,7 +48,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState::new(pool, config.data_dir, config.session_ttl)
         .with_host_email(config.host_email)
-        .with_mailer(mailer);
+        .with_mailer(mailer)
+        .with_webhooks(config.webhook_key, config.webhook_policy);
+    validate_signing_key(&state)
+        .await
+        .context("failed to configure webhook signing")?;
     recover_workspace_deletions(&state)
         .await
         .context("failed to recover interrupted Workspace deletions")?;
@@ -84,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_config_projection_worker(state.clone());
     spawn_export_cleanup_worker(state.clone());
     spawn_import_cleanup_worker(state.clone());
+    let webhook_workers = spawn_webhook_workers(state.clone());
     let app = match config.web_dir {
         Some(web_dir) => router_with_web_client(state, config.cors_origins, web_dir),
         None => router(state, config.cors_origins),
@@ -94,6 +100,9 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("server stopped unexpectedly")?;
+    for worker in webhook_workers {
+        worker.abort();
+    }
 
     Ok(())
 }

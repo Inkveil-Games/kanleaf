@@ -1,0 +1,175 @@
+{
+  "comment.created": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "comment.created",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "comment": {
+        "id": "00000000-0000-0000-0000-000000000005",
+        "task_id": "00000000-0000-0000-0000-000000000002",
+        "parent_id": null,
+        "body": "Example comment (preview only)",
+        "updated_at": "2026-01-01T12:00:00Z"
+      }
+    }
+  },
+  "comment.deleted": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "comment.deleted",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "comment": {
+        "id": "00000000-0000-0000-0000-000000000005",
+        "task_id": "00000000-0000-0000-0000-000000000002",
+        "parent_id": null,
+        "updated_at": "2026-01-01T12:00:00Z"
+      }
+    }
+  },
+  "comment.updated": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "comment.updated",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "comment": {
+        "id": "00000000-0000-0000-0000-000000000005",
+        "task_id": "00000000-0000-0000-0000-000000000002",
+        "parent_id": null,
+        "body": "Example comment (preview only)",
+        "updated_at": "2026-01-01T12:00:00Z"
+      }
+    }
+  },
+  "task.created": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "task.created",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "task": {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "task_number": 42,
+        "reference": "#42",
+        "title": "Example task (preview only)",
+        "state_id": "00000000-0000-0000-0000-000000000003",
+        "task_type_id": "00000000-0000-0000-0000-000000000004",
+        "priority": "medium",
+        "archived_at": null,
+        "updated_at": "2026-01-01T12:00:00Z"
+      },
+      "changed_fields": []
+    }
+  },
+  "task.deleted": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "task.deleted",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "task": {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "task_number": 42,
+        "reference": "#42",
+        "title": "Example task (preview only)",
+        "state_id": "00000000-0000-0000-0000-000000000003",
+        "task_type_id": "00000000-0000-0000-0000-000000000004",
+        "priority": "medium",
+        "archived_at": null,
+        "updated_at": "2026-01-01T12:00:00Z"
+      },
+      "changed_fields": []
+    }
+  },
+  "task.updated": {
+    "version": 1,
+    "id": "00000000-0000-0000-0000-000000000001",
+    "type": "task.updated",
+    "occurred_at": "2026-01-01T12:00:00Z",
+    "workspace": {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "identifier": "example-workspace"
+    },
+    "project": {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "identifier": "example-project"
+    },
+    "actor": {
+      "id": "00000000-0000-0000-0000-000000000006"
+    },
+    "data": {
+      "task": {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "task_number": 42,
+        "reference": "#42",
+        "title": "Example task (preview only)",
+        "state_id": "00000000-0000-0000-0000-000000000003",
+        "task_type_id": "00000000-0000-0000-0000-000000000004",
+        "priority": "medium",
+        "archived_at": null,
+        "updated_at": "2026-01-01T12:00:00Z"
+      },
+      "changed_fields": [
+        "title",
+        "priority"
+      ]
+    }
+  }
+}

@@ -20,6 +20,8 @@ use crate::{
     AppState,
     auth::AuthenticatedUser,
     domain::ProjectRole,
+    domain::events::EventType,
+    domain_event::comment_event,
     error::AppError,
     project::{require_project_access, require_project_commenter},
     realtime::RealtimeEvent,
@@ -249,14 +251,16 @@ async fn create_comment(
     let Json(request) = payload.map_err(AppError::from)?;
     validate_comment_body(&request.body)?;
     let mention_ids = unique_mentions(&request.mention_ids)?;
-    let project_id = authorize_task(&state.pool, auth.user.id, workspace_id, task_id, true).await?;
+    authorize_task(&state.pool, auth.user.id, workspace_id, task_id, true).await?;
     let mut transaction = state.pool.begin().await?;
-    sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM tasks WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+    let project_id = lock_comment_task(
+        &state,
+        &mut transaction,
+        auth.user.id,
+        workspace_id,
+        task_id,
+        true,
     )
-    .bind(workspace_id)
-    .bind(task_id)
-    .fetch_one(&mut *transaction)
     .await?;
     if let Some(parent_id) = request.parent_id {
         let parent: Option<Option<Uuid>> = sqlx::query_scalar(
@@ -316,6 +320,15 @@ async fn create_comment(
         &mention_ids,
     )
     .await?;
+    comment_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        comment_id,
+        auth.user.id,
+        EventType::CommentCreated,
+    )
+    .await?;
     transaction.commit().await?;
     state.realtime.publish(RealtimeEvent::comment_created(
         workspace_id,
@@ -338,8 +351,17 @@ async fn edit_comment(
     let Json(request) = payload.map_err(AppError::from)?;
     validate_comment_body(&request.body)?;
     let mention_ids = unique_mentions(&request.mention_ids)?;
-    let project_id = authorize_task(&state.pool, auth.user.id, workspace_id, task_id, true).await?;
+    authorize_task(&state.pool, auth.user.id, workspace_id, task_id, true).await?;
     let mut transaction = state.pool.begin().await?;
+    let project_id = lock_comment_task(
+        &state,
+        &mut transaction,
+        auth.user.id,
+        workspace_id,
+        task_id,
+        true,
+    )
+    .await?;
     let current: Option<(Option<Uuid>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
         "SELECT author_id, body, deleted_at FROM task_comments WHERE workspace_id = $1 AND task_id = $2 AND id = $3 FOR UPDATE",
     )
@@ -365,7 +387,8 @@ async fn edit_comment(
             .bind(comment_id)
             .fetch_all(&mut *transaction)
             .await?;
-    if current_body != request.body {
+    let body_changed = current_body != request.body;
+    if body_changed {
         sqlx::query(
             "INSERT INTO task_comment_revisions (id, workspace_id, task_id, comment_id, body, editor_id) VALUES ($1, $2, $3, $4, $5, $6)",
         )
@@ -411,6 +434,17 @@ async fn edit_comment(
         &new_mentions,
     )
     .await?;
+    if body_changed || previous != mention_ids.iter().copied().collect() {
+        comment_event(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            comment_id,
+            auth.user.id,
+            EventType::CommentUpdated,
+        )
+        .await?;
+    }
     transaction.commit().await?;
     state.realtime.publish(RealtimeEvent::comment_edited(
         workspace_id,
@@ -428,9 +462,17 @@ async fn delete_comment(
     path: Result<Path<(Uuid, Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, task_id, comment_id)) = path.map_err(AppError::from)?;
-    let project_id =
-        authorize_task(&state.pool, auth.user.id, workspace_id, task_id, false).await?;
+    authorize_task(&state.pool, auth.user.id, workspace_id, task_id, false).await?;
     let mut transaction = state.pool.begin().await?;
+    let project_id = lock_comment_task(
+        &state,
+        &mut transaction,
+        auth.user.id,
+        workspace_id,
+        task_id,
+        false,
+    )
+    .await?;
     let current: Option<(Option<Uuid>, String, Option<DateTime<Utc>>)> = sqlx::query_as(
         "SELECT author_id, body, deleted_at FROM task_comments WHERE workspace_id = $1 AND task_id = $2 AND id = $3 FOR UPDATE",
     )
@@ -471,6 +513,15 @@ async fn delete_comment(
         .bind(comment_id)
         .execute(&mut *transaction)
         .await?;
+    comment_event(
+        &mut transaction,
+        workspace_id,
+        task_id,
+        comment_id,
+        auth.user.id,
+        EventType::CommentDeleted,
+    )
+    .await?;
     transaction.commit().await?;
     state.realtime.publish(RealtimeEvent::comment_deleted(
         workspace_id,
@@ -955,6 +1006,19 @@ async fn notify_mentions(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+async fn lock_comment_task(
+    state: &AppState,
+    transaction: &mut Transaction<'_, Postgres>,
+    actor: Uuid,
+    workspace: Uuid,
+    task: Uuid,
+    comment: bool,
+) -> Result<Option<Uuid>, AppError> {
+    crate::task_config::lock_workspace_for_assignment(transaction, workspace).await?;
+    crate::task::lock_task_location(transaction, workspace, task, true).await?;
+    authorize_task(&state.pool, actor, workspace, task, comment).await
 }
 
 pub(crate) async fn authorize_task(

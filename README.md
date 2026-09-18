@@ -185,6 +185,12 @@ variants, so the same Compose deployment works on x86-64 hosts and a 64-bit
 Raspberry Pi 5. Use a release tag in `KANLEAF_IMAGE` when one is available, or
 run `docker compose build kanleaf` to build the checked-out source locally.
 
+Workspace webhooks are optional. Configure `KANLEAF_WEBHOOK_SIGNING_KEY` with
+a securely generated 32-byte base64 key and retain it across restarts/backups.
+HTTPS and public destinations are the defaults; private destinations and HTTP
+require explicit instance permission. See [Webhooks](docs/webhooks.md) for the
+event contract, signature verification, retries, and self-host settings.
+
 `KANLEAF_HOST_EMAIL` is optional. When set, sign in or register with that exact
 email and open `/host` to view Workspace Owners, permanently delete a Workspace
 after two confirmations, or enable Restricted access. Open access remains the

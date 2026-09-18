@@ -13,6 +13,9 @@ export const routePatterns = {
   developer: '/developer',
   developerWorkspace: '/developer/w/:workspaceIdentifier',
   developerWebhooks: '/developer/w/:workspaceIdentifier/webhooks',
+  developerWebhookNew: '/developer/w/:workspaceIdentifier/webhooks/new',
+  developerWebhookDetail:
+    '/developer/w/:workspaceIdentifier/webhooks/:webhookId',
   developerWorkspaceWildcard: '/developer/w/:workspaceIdentifier/*',
   developerWildcard: '/developer/*',
   host: '/host',
@@ -71,6 +74,10 @@ export const routePaths = {
     `/developer/w/${segment(workspaceIdentifier)}`,
   developerWebhooks: (workspaceIdentifier: string) =>
     `/developer/w/${segment(workspaceIdentifier)}/webhooks`,
+  developerWebhookNew: (workspaceIdentifier: string) =>
+    `/developer/w/${segment(workspaceIdentifier)}/webhooks/new`,
+  developerWebhookDetail: (workspaceIdentifier: string, webhookId: string) =>
+    `/developer/w/${segment(workspaceIdentifier)}/webhooks/${segment(webhookId)}`,
   host: () => '/host',
   hostAccess: () => '/host/access',
   setupAccount: () => '/setup/account',

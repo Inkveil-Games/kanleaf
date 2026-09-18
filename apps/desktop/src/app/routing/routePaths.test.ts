@@ -31,6 +31,9 @@ describe('routePatterns', () => {
       developer: '/developer',
       developerWorkspace: '/developer/w/:workspaceIdentifier',
       developerWebhooks: '/developer/w/:workspaceIdentifier/webhooks',
+      developerWebhookNew: '/developer/w/:workspaceIdentifier/webhooks/new',
+      developerWebhookDetail:
+        '/developer/w/:workspaceIdentifier/webhooks/:webhookId',
       developerWorkspaceWildcard: '/developer/w/:workspaceIdentifier/*',
       developerWildcard: '/developer/*',
       host: '/host',
@@ -86,6 +89,12 @@ describe('routePaths', () => {
     );
     expect(routePaths.developerWebhooks('team/one')).toBe(
       '/developer/w/team%2Fone/webhooks',
+    );
+    expect(routePaths.developerWebhookNew('team/one')).toBe(
+      '/developer/w/team%2Fone/webhooks/new',
+    );
+    expect(routePaths.developerWebhookDetail('team/one', 'hook/id')).toBe(
+      '/developer/w/team%2Fone/webhooks/hook%2Fid',
     );
   });
   it('uses compact Workspace, Project, and numeric Task locators', () => {

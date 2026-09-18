@@ -2,6 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use sqlx::PgPool;
 
+use crate::webhook::{SigningKey, WebhookPolicy};
 use crate::{domain::NormalizedEmail, mail::Mailer, realtime::RealtimeHub, vault::Vault};
 
 #[derive(Clone)]
@@ -12,6 +13,8 @@ pub struct AppState {
     pub session_ttl: Duration,
     host_email: Option<NormalizedEmail>,
     mailer: Mailer,
+    pub(crate) webhook_key: Option<SigningKey>,
+    pub(crate) webhook_policy: WebhookPolicy,
 }
 
 impl AppState {
@@ -23,6 +26,8 @@ impl AppState {
             session_ttl,
             host_email: None,
             mailer: Mailer::disabled(),
+            webhook_key: None,
+            webhook_policy: WebhookPolicy::default(),
         }
     }
 
@@ -33,6 +38,12 @@ impl AppState {
 
     pub fn with_mailer(mut self, mailer: Mailer) -> Self {
         self.mailer = mailer;
+        self
+    }
+
+    pub fn with_webhooks(mut self, key: Option<SigningKey>, policy: WebhookPolicy) -> Self {
+        self.webhook_key = key;
+        self.webhook_policy = policy;
         self
     }
 

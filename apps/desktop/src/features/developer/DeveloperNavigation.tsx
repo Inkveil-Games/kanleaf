@@ -95,7 +95,15 @@ export function DeveloperNavigation({
                   className={compact ? 'navigation-rail-button' : 'nav-button'}
                   aria-label={label}
                   title={compact ? label : undefined}
-                  aria-current={section === itemSection ? 'page' : undefined}
+                  aria-current={
+                    (
+                      itemSection === 'webhooks'
+                        ? section !== 'overview'
+                        : section === itemSection
+                    )
+                      ? 'page'
+                      : undefined
+                  }
                   to={path}
                   onClick={onNavigate}
                 >
@@ -105,25 +113,27 @@ export function DeveloperNavigation({
               </section>
             ),
           )}
-          <section className={compact ? undefined : 'nav-section'}>
-            <Link
-              className={compact ? 'navigation-rail-button' : 'nav-button'}
-              aria-label="Back to Workspace"
-              title={compact ? 'Back to Workspace' : undefined}
-              to={
-                workspace
-                  ? routePaths.workspaceMyWork(workspace.identifier)
-                  : routePaths.root()
-              }
-              onClick={onNavigate}
-            >
-              <ArrowLeft aria-hidden="true" size={16} />
-              {!compact && <span>Back to Workspace</span>}
-            </Link>
-          </section>
         </div>
       </nav>
-      <div className="navigation-footer">{accountControl}</div>
+      <footer aria-label="Developer footer">
+        <div className="developer-workspace-return">
+          <Link
+            className={compact ? 'navigation-rail-button' : 'nav-button'}
+            aria-label="Back to Workspace"
+            title={compact ? 'Back to Workspace' : undefined}
+            to={
+              workspace
+                ? routePaths.workspaceMyWork(workspace.identifier)
+                : routePaths.root()
+            }
+            onClick={onNavigate}
+          >
+            <ArrowLeft aria-hidden="true" size={16} />
+            {!compact && <span>Back to Workspace</span>}
+          </Link>
+        </div>
+        <div className="navigation-footer">{accountControl}</div>
+      </footer>
     </aside>
   );
 }

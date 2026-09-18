@@ -12,6 +12,7 @@ use thiserror::Error;
 use url::{Host, Url};
 
 use crate::domain::NormalizedEmail;
+use crate::webhook::{SigningKey, WebhookPolicy};
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:3000";
 const DEFAULT_CORS_ORIGINS: &str =
@@ -31,6 +32,8 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     pub host_email: Option<NormalizedEmail>,
     pub mail: MailConfig,
+    pub webhook_key: Option<SigningKey>,
+    pub webhook_policy: WebhookPolicy,
 }
 
 pub struct MailConfig {
@@ -101,6 +104,10 @@ pub enum ConfigError {
     InvalidMailFromEmail,
     #[error("KANLEAF_PUBLIC_URL is required when SMTP is enabled")]
     MissingPublicUrl,
+    #[error("KANLEAF_WEBHOOK_SIGNING_KEY must be base64 encoding exactly 32 bytes")]
+    InvalidWebhookSigningKey,
+    #[error("{0} must be true or false")]
+    InvalidWebhookPolicy(&'static str),
 }
 
 impl Config {
@@ -123,6 +130,19 @@ impl Config {
         let web_dir = parse_web_dir(env::var_os("KANLEAF_WEB_DIR"))?;
         let host_email = parse_host_email(env::var_os("KANLEAF_HOST_EMAIL"))?;
         let mail = parse_mail_config(MailEnvironment::from_env()?)?;
+        let webhook_key =
+            parse_webhook_key(optional_environment("KANLEAF_WEBHOOK_SIGNING_KEY")?.as_deref())?;
+        let webhook_policy = WebhookPolicy {
+            allow_private_networks: parse_webhook_boolean(
+                "KANLEAF_WEBHOOK_ALLOW_PRIVATE_NETWORKS",
+                optional_environment("KANLEAF_WEBHOOK_ALLOW_PRIVATE_NETWORKS")?.as_deref(),
+            )?,
+            allow_http: parse_webhook_boolean(
+                "KANLEAF_WEBHOOK_ALLOW_HTTP",
+                optional_environment("KANLEAF_WEBHOOK_ALLOW_HTTP")?.as_deref(),
+            )?,
+            ..Default::default()
+        };
 
         Ok(Self {
             database_url,
@@ -133,7 +153,23 @@ impl Config {
             web_dir,
             host_email,
             mail,
+            webhook_key,
+            webhook_policy,
         })
+    }
+}
+
+fn parse_webhook_key(value: Option<&str>) -> Result<Option<SigningKey>, ConfigError> {
+    non_empty(value)
+        .map(|value| SigningKey::parse(value).map_err(|_| ConfigError::InvalidWebhookSigningKey))
+        .transpose()
+}
+
+fn parse_webhook_boolean(name: &'static str, value: Option<&str>) -> Result<bool, ConfigError> {
+    match non_empty(value) {
+        None | Some("false") => Ok(false),
+        Some("true") => Ok(true),
+        _ => Err(ConfigError::InvalidWebhookPolicy(name)),
     }
 }
 
@@ -360,6 +396,33 @@ mod tests {
         ConfigError, MailEnvironment, SmtpSecurity, parse_bind_address, parse_cors_origins,
         parse_host_email, parse_mail_config, parse_session_ttl, parse_web_dir,
     };
+
+    #[test]
+    fn webhook_configuration_has_no_insecure_defaults() {
+        assert!(super::parse_webhook_key(None).unwrap().is_none());
+        assert!(
+            super::parse_webhook_key(Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="))
+                .unwrap()
+                .is_some()
+        );
+        assert!(super::parse_webhook_key(Some("invalid-secret-material")).is_err());
+        assert_eq!(
+            super::parse_webhook_key(Some("invalid-secret-material"))
+                .err()
+                .unwrap()
+                .to_string(),
+            "KANLEAF_WEBHOOK_SIGNING_KEY must be base64 encoding exactly 32 bytes"
+        );
+        for name in [
+            "KANLEAF_WEBHOOK_ALLOW_HTTP",
+            "KANLEAF_WEBHOOK_ALLOW_PRIVATE_NETWORKS",
+        ] {
+            assert!(!super::parse_webhook_boolean(name, None).unwrap());
+            assert!(!super::parse_webhook_boolean(name, Some("false")).unwrap());
+            assert!(super::parse_webhook_boolean(name, Some("true")).unwrap());
+            assert!(super::parse_webhook_boolean(name, Some("yes")).is_err());
+        }
+    }
 
     #[test]
     fn parses_server_configuration_values() {

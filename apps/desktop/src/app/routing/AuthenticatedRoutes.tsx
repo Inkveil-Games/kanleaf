@@ -110,6 +110,26 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         }
       />
       <Route
+        path={routePatterns.developerWebhookNew}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section="webhook-new"
+          />
+        }
+      />
+      <Route
+        path={routePatterns.developerWebhookDetail}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section="webhook-detail"
+          />
+        }
+      />
+      <Route
         path={routePatterns.developerWorkspaceWildcard}
         element={
           <DeveloperRouteScreen

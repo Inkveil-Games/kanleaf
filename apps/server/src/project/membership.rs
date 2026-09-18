@@ -15,6 +15,7 @@ use crate::{
     domain::{ProjectRole, ProjectVisibility},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
+    task_config::lock_workspace_for_assignment,
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -157,6 +158,7 @@ async fn update(
     validate_explicit_role(workspace_role, request.role)?;
 
     let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     lock_project(&mut transaction, workspace_id, project_id).await?;
     if request.role != ProjectRole::Admin {
         reject_lead_change(&mut transaction, workspace_id, project_id, user_id, false).await?;
@@ -191,6 +193,7 @@ async fn remove(
     let Path((workspace_id, project_id, user_id)) = path.map_err(AppError::from)?;
     require_project_admin(&state.pool, auth.user.id, workspace_id, project_id).await?;
     let mut transaction = state.pool.begin().await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     lock_project(&mut transaction, workspace_id, project_id).await?;
     reject_lead_change(&mut transaction, workspace_id, project_id, user_id, true).await?;
     let task_ids: Vec<Uuid> = sqlx::query_scalar(

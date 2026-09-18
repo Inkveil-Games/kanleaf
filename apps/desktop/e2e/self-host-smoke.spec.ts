@@ -129,7 +129,9 @@ test('opens Developer deep links and preserves app navigation and responsive chr
     page.getByRole('heading', { name: 'Webhooks', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Webhook endpoints and subscriptions will be managed here.'),
+    page.getByText(
+      'Create a webhook to send task and comment events to an external service.',
+    ),
   ).toBeVisible();
   await page.getByRole('button', { name: /Switch workspace/ }).click();
   await page
@@ -191,6 +193,11 @@ test('opens Developer deep links and preserves app navigation and responsive chr
     name: 'Workspace navigation',
     exact: true,
   });
+  await expect(
+    drawer
+      .getByLabel('Developer footer')
+      .getByRole('link', { name: 'Back to Workspace' }),
+  ).toBeVisible();
   await expect(
     drawer.getByRole('button', { name: /Switch workspace/ }),
   ).toBeVisible();

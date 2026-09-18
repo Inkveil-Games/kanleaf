@@ -408,6 +408,27 @@ opening the deletion transaction, then lock and compare the current stored hash
 to the verified snapshot before any vault mutation so a concurrent password
 change invalidates the request.
 
+## Durable domain events and webhooks
+
+Business mutations enqueue curated, versioned `domain_events` and per-consumer
+`domain_event_outbox` rows in their owning PostgreSQL transaction. The webhook
+consumer matches Workspace subscriptions/project scope and creates independent
+`webhook_deliveries`. Row locks and `SKIP LOCKED` protect dispatch and attempts
+across server processes. Bounded asynchronous workers provide at-least-once
+HTTP delivery with finite backoff; the existing realtime hub stays independent.
+Workspace fences precede membership, Task, and comment locks in participating
+operations, including reauthorization of the locked comment Task's scope.
+
+`webhooks`, `webhook_projects`, and `webhook_event_subscriptions` keep
+Workspace ownership and Project selections relational. Signing secrets derive
+from an explicit protected instance key and random per-webhook material; only
+creation/regeneration disclose them. Destination addresses are validated and
+pinned, redirects/proxies are disabled, and requests have bounded deadlines.
+The public V1 envelope, catalog/preview, HMAC receiver example, security policy,
+retry/disable behavior, and cross-store limitations are in [Webhooks](webhooks.md).
+Webhooks and delivery history do not enter portable Workspace exports/imports;
+copying a Workspace never duplicates endpoints or signing authority.
+
 ## Desktop client
 
 The desktop app is feature-oriented:
@@ -429,7 +450,7 @@ The desktop app is feature-oriented:
   notification inbox, account notification preferences, and the authenticated
   Workspace realtime connection;
 - `features/developer` owns the separate Developer Console shell, eligible
-  Workspace navigation, overview, and the initial Webhooks empty state;
+  Workspace navigation, overview, and Workspace webhook management;
 - `features/app-shell` owns the shared branding and notification top bar;
 - `features/host` owns the deployment Host's metadata-only Workspace list,
   guarded deletion action, and instance access policy surface;
@@ -503,8 +524,11 @@ Workspace list before exposing Owner/Admin pages. The URL owns its Workspace
 selection; switching keeps the selected Developer section. Member/Guest links
 show an access-required state, and missing Workspaces return to `/developer`.
 Workspace Settings links to the overview through its rail footer after pending
-Markdown saves flush. Webhooks currently has no management API or persisted
-controls; future operations must enforce Owner/Admin access on the server.
+Markdown saves flush. Webhook management uses current Owner/Admin authorization
+on every internal API request. Creation/detail are routed at `/webhooks/new` and
+`/webhooks/:webhookId`;
+switching Workspace from either returns to its webhook list. Back to Workspace
+lives above the final account control in the sidebar footer.
 
 Host Console is a full-page Settings surface at `/host` and `/host/access`.
 Workspace invitation links open the exact public `/invite#token=…` route before

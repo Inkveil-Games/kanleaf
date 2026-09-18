@@ -5,6 +5,7 @@ pub mod config;
 pub mod custom_property;
 pub mod document;
 pub mod domain;
+pub mod domain_event;
 pub mod error;
 pub mod host;
 pub mod http;
@@ -17,6 +18,7 @@ pub mod state;
 pub mod task;
 pub mod task_config;
 pub mod vault;
+pub mod webhook;
 pub mod workspace;
 
 pub use http::{router, router_with_web_client};
