@@ -139,7 +139,7 @@ vi.mock('./WorkspaceControl', async (importOriginal) => {
           type="button"
           onClick={() => {
             void props
-              .onCreateWorkspace({ name: 'New', identifier: 'new' })
+              .onCreateWorkspace?.({ name: 'New', identifier: 'new' })
               .then(props.onFinishWorkspace);
           }}
         >
@@ -150,7 +150,7 @@ vi.mock('./WorkspaceControl', async (importOriginal) => {
         </button>
         <button
           type="button"
-          onClick={() => props.onOpenWorkspaceSettings('general')}
+          onClick={() => props.onOpenWorkspaceSettings?.('general')}
         >
           Open Workspace Settings
         </button>
@@ -436,6 +436,7 @@ vi.mock('../settings/SettingsShell', () => ({
     onSectionChange,
     onDetailChange,
     onClose,
+    onOpenDeveloperConsole,
     onWorkspaceUpdated,
     onRemoveWorkspace,
   }: {
@@ -448,6 +449,7 @@ vi.mock('../settings/SettingsShell', () => ({
       options?: { history?: 'push' | 'replace' | 'back' },
     ) => void;
     onClose: () => void;
+    onOpenDeveloperConsole?: () => void;
     onWorkspaceUpdated: () => Promise<void>;
     onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
   }) => {
@@ -464,6 +466,9 @@ vi.mock('../settings/SettingsShell', () => ({
 
     return (
       <section aria-label="Workspace Settings">
+        <button type="button" onClick={onOpenDeveloperConsole}>
+          Developer console shortcut
+        </button>
         <output>Settings section: {section}</output>
         <output>Settings detail: {detail ?? 'none'}</output>
         <output aria-label="Workspace save status">{saveStatus}</output>
@@ -1367,6 +1372,46 @@ describe('WorkspaceShell routing integration', () => {
         'token',
       ])?.user.active_workspace_id,
     ).toBe('workspace-3');
+  });
+
+  it('flushes Markdown before opening Developer Console from Workspace Settings', async () => {
+    const saves = deferred<void>();
+    const flush = vi.fn().mockReturnValue(saves.promise);
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
+      flushDocumentSaves: flush,
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Developer console shortcut' }),
+    );
+    expect(flush).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/settings/workspace/general',
+    );
+    await act(async () => saves.resolve());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/developer/w/workspace-1',
+      ),
+    );
+  });
+
+  it('keeps Workspace Settings open if Markdown cannot flush before Developer navigation', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/general'],
+      flushDocumentSaves: vi
+        .fn()
+        .mockRejectedValue(new Error('Cannot save Markdown')),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Developer console shortcut' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cannot save Markdown',
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/settings/workspace/general',
+    );
   });
 
   it('uses one Settings history entry across section changes and close', async () => {
@@ -2669,6 +2714,10 @@ function renderWorkspaceRoutes({
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
         <Routes>
+          <Route
+            path="/developer/w/:workspaceIdentifier"
+            element={<output>Developer destination</output>}
+          />
           <Route path="/sentinel" element={<output>Sentinel</output>} />
           <Route
             path="/"

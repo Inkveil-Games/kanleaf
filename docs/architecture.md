@@ -72,9 +72,9 @@ User ──< Session
   is created in the same transaction as the Workspace and removed only when
   permanent deletion commits, so archive and failed deletion retain the
   reservation while a successfully deleted identifier may be used again. The
-  top-level route names `api`, `assets`, `forgot-password`, `host`, `reset-password`,
-  `setup`, and `w` stay reserved; the Workspace UUID remains the database, API
-  authorization, and vault identity.
+  top-level route names `api`, `assets`, `developer`, `forgot-password`, `host`,
+  `reset-password`, `setup`, and `w` stay reserved; the Workspace UUID remains the
+  database, API authorization, and vault identity.
 - A project belongs to exactly one workspace. Its immutable lowercase public
   identifier is unique among active and archived Projects in that Workspace;
   permanent deletion frees it for reuse. Owner/Admin access is implicit; other
@@ -428,6 +428,9 @@ The desktop app is feature-oriented:
 - `features/collaboration` owns the merged Task feed, comments, subscriptions,
   notification inbox, account notification preferences, and the authenticated
   Workspace realtime connection;
+- `features/developer` owns the separate Developer Console shell, eligible
+  Workspace navigation, overview, and the initial Webhooks empty state;
+- `features/app-shell` owns the shared branding and notification top bar;
 - `features/host` owns the deployment Host's metadata-only Workspace list,
   guarded deletion action, and instance access policy surface;
 - `features/document` owns the Workspace Library and Project-filtered Library
@@ -491,6 +494,18 @@ inbox still refreshes on focus and every 60 seconds, while live Task/comment
 events invalidate only the affected TanStack Query caches. WebSocket reconnects
 reconcile the active Workspace feed and notifications through REST so the live
 channel is never treated as event history.
+Developer Console is a separate application area at `/developer`,
+`/developer/w/:workspaceIdentifier`, and
+`/developer/w/:workspaceIdentifier/webhooks`. It shares the app top bar,
+Workspace control, account footer, pane preferences, and narrow navigation drawer
+with the Workspace shell. Its route boundary revalidates the authenticated
+Workspace list before exposing Owner/Admin pages. The URL owns its Workspace
+selection; switching keeps the selected Developer section. Member/Guest links
+show an access-required state, and missing Workspaces return to `/developer`.
+Workspace Settings links to the overview through its rail footer after pending
+Markdown saves flush. Webhooks currently has no management API or persisted
+controls; future operations must enforce Owner/Admin access on the server.
+
 Host Console is a full-page Settings surface at `/host` and `/host/access`.
 Workspace invitation links open the exact public `/invite#token=…` route before
 authentication and setup routing. The fragment survives inline sign-in or

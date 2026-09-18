@@ -10,6 +10,11 @@ export const routePatterns = {
   invite: '/invite',
   forgotPassword: '/forgot-password',
   resetPassword: '/reset-password',
+  developer: '/developer',
+  developerWorkspace: '/developer/w/:workspaceIdentifier',
+  developerWebhooks: '/developer/w/:workspaceIdentifier/webhooks',
+  developerWorkspaceWildcard: '/developer/w/:workspaceIdentifier/*',
+  developerWildcard: '/developer/*',
   host: '/host',
   hostAccess: '/host/access',
   setupAccount: '/setup/account',
@@ -61,6 +66,11 @@ export const routePaths = {
   invite: () => '/invite',
   forgotPassword: () => '/forgot-password',
   resetPassword: () => '/reset-password',
+  developer: () => '/developer',
+  developerWorkspace: (workspaceIdentifier: string) =>
+    `/developer/w/${segment(workspaceIdentifier)}`,
+  developerWebhooks: (workspaceIdentifier: string) =>
+    `/developer/w/${segment(workspaceIdentifier)}/webhooks`,
   host: () => '/host',
   hostAccess: () => '/host/access',
   setupAccount: () => '/setup/account',

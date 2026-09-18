@@ -48,7 +48,11 @@ import {
 
 export type WorkspaceRouteScreenProps = Omit<
   WorkspaceShellProps,
-  'location' | 'onNavigate' | 'routeActionError' | 'workspaceAccessVerified'
+  | 'location'
+  | 'onNavigate'
+  | 'routeActionError'
+  | 'workspaceAccessVerified'
+  | 'onOpenDeveloperConsole'
 > & {
   routeKind: WorkspaceRouteKind;
 };
@@ -435,6 +439,10 @@ export function WorkspaceRouteScreen({
       routeActionError={routeActionError}
       workspaceAccessVerified
       onNavigate={onNavigate}
+      onOpenDeveloperConsole={(workspaceId) => {
+        const identifier = resolveWorkspaceIdentifier(workspaceId);
+        if (identifier) navigate(routePaths.developerWorkspace(identifier));
+      }}
     />
   );
 }

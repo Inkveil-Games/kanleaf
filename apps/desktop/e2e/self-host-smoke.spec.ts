@@ -73,6 +73,144 @@ test('serves the browser client and protected Host route from one origin', async
   expect(missingAsset.status()).toBe(404);
 });
 
+test('opens Developer deep links and preserves app navigation and responsive chrome', async ({
+  page,
+  request,
+}, testInfo) => {
+  const suffix = `${Date.now()}-${testInfo.workerIndex}`;
+  const owner = await registerReady(request, `developer-${suffix}@example.com`);
+  const secondResponse = await request.post('/api/workspaces', {
+    headers: { authorization: `Bearer ${owner.token}` },
+    data: {
+      name: 'Second developer Workspace',
+      identifier: `dev-second-${suffix}`,
+    },
+  });
+  expect(secondResponse.status()).toBe(201);
+  const second = (await secondResponse.json()) as WorkspacePayload;
+  await page.addInitScript(
+    (token) => localStorage.setItem('kanleaf.session-token', token),
+    owner.token,
+  );
+  await page.goto(
+    `/w/${owner.workspace.identifier}/settings/workspace/properties`,
+  );
+  const settings = page.getByRole('dialog', {
+    name: `${owner.workspace.name} Workspace settings`,
+  });
+  await expect(settings).toBeVisible();
+  const propertyGroup = settings.getByRole('region', {
+    name: 'Task properties',
+  });
+  await expect(
+    propertyGroup.getByRole('button', { name: 'New property' }),
+  ).toHaveCount(0);
+  await expect(
+    settings.getByRole('button', { name: 'New property' }),
+  ).toBeVisible();
+  await settings.getByRole('link', { name: 'Developer console' }).click();
+  await expect(page).toHaveURL(
+    `${serverUrl}/developer/w/${owner.workspace.identifier}`,
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Developer overview' }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('developer-overview-wide.png'),
+  });
+  await page.evaluate(() => {
+    document.documentElement.dataset.developerSmoke = 'loaded';
+  });
+  await page.getByRole('link', { name: 'Open Webhooks' }).click();
+  await expect(page).toHaveURL(
+    `${serverUrl}/developer/w/${owner.workspace.identifier}/webhooks`,
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Webhooks', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Webhook endpoints and subscriptions will be managed here.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /Switch workspace/ }).click();
+  await page
+    .getByRole('button', { name: /Second developer Workspace/ })
+    .click();
+  await expect(page).toHaveURL(
+    `${serverUrl}/developer/w/${second.identifier}/webhooks`,
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.dataset.developerSmoke),
+  ).toBe('loaded');
+  await page.goBack();
+  await expect(page).toHaveURL(
+    `${serverUrl}/developer/w/${owner.workspace.identifier}/webhooks`,
+  );
+  await page.goForward();
+  await expect(page).toHaveURL(
+    `${serverUrl}/developer/w/${second.identifier}/webhooks`,
+  );
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Webhooks', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Notifications', exact: true })
+    .click();
+  await expect(page.getByText('No notifications yet')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('button', { name: 'Switch account', exact: true })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Sign out this account' }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 960, height: 640 });
+  await page.screenshot({
+    path: testInfo.outputPath('developer-webhooks-minimum.png'),
+  });
+  await page.setViewportSize({ width: 480, height: 720 });
+  await page.evaluate(() =>
+    document.documentElement.setAttribute('data-theme', 'dark'),
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('developer-webhooks-narrow-dark.png'),
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await expect(
+    page.getByRole('button', { name: 'Notifications', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Open navigation', exact: true })
+    .click();
+  const drawer = page.getByRole('dialog', {
+    name: 'Workspace navigation',
+    exact: true,
+  });
+  await expect(
+    drawer.getByRole('button', { name: /Switch workspace/ }),
+  ).toBeVisible();
+  await expect(
+    drawer.getByRole('button', { name: 'Switch account', exact: true }),
+  ).toBeVisible();
+  await drawer.getByRole('link', { name: 'Overview', exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Developer overview' }),
+  ).toBeVisible();
+  await page.goto('/developer');
+  await expect(
+    page.getByRole('heading', { name: 'Developer console', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: /Second developer Workspace/ }),
+  ).toBeVisible();
+});
+
 test('serves a direct invitation route without accepting on load', async ({
   page,
   request,

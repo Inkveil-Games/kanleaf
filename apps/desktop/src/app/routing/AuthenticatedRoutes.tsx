@@ -6,6 +6,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router';
+import { DeveloperRouteScreen } from '../../features/developer/DeveloperRouteScreen';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { Button } from '../../components/ui/Button';
 import { HostConsole, type HostSection } from '../../features/host/HostConsole';
@@ -78,6 +79,50 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
 
   return (
     <Routes>
+      <Route
+        path={routePatterns.developer}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section={null}
+          />
+        }
+      />
+      <Route
+        path={routePatterns.developerWorkspace}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section="overview"
+          />
+        }
+      />
+      <Route
+        path={routePatterns.developerWebhooks}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section="webhooks"
+          />
+        }
+      />
+      <Route
+        path={routePatterns.developerWorkspaceWildcard}
+        element={
+          <DeveloperRouteScreen
+            {...props}
+            onOpenHostConsole={onOpenHostConsole}
+            section="overview"
+          />
+        }
+      />
+      <Route
+        path={routePatterns.developerWildcard}
+        element={<Navigate replace to={routePaths.developer()} />}
+      />
       <Route
         path={routePatterns.host}
         element={<HostRoute {...props} section="workspaces" />}

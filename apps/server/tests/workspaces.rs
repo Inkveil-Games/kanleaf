@@ -419,7 +419,7 @@ async fn workspace_identifier_validation_rejects_reserved_and_noncanonical_value
     let app = test_app(pool, &data_dir);
     let (token, _, _) = register(&app, "owner@example.com").await;
 
-    for identifier in ["setup", "Kanleaf", "bad--id", "bad id"] {
+    for identifier in ["setup", "developer", "Kanleaf", "bad--id", "bad id"] {
         let response = app
             .clone()
             .oneshot(json_request(

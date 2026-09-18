@@ -1,6 +1,5 @@
 import { Search } from 'lucide-react';
-import { Wordmark } from '../../components/ui/Wordmark';
-import { Notifications } from '../collaboration/Notifications';
+import { AppTopBar } from '../app-shell/AppTopBar';
 import type { ApiContext } from './api';
 
 interface WorkspaceTopBarProps {
@@ -17,23 +16,22 @@ export function WorkspaceTopBar({
   onOpenCommandPalette,
 }: WorkspaceTopBarProps) {
   return (
-    <header className="workspace-topbar">
-      <Wordmark quiet />
-      <button
-        className="topbar-command-trigger"
-        type="button"
-        aria-label="Search and commands (Ctrl or Command K)"
-        onClick={onOpenCommandPalette}
-      >
-        <Search aria-hidden="true" size={15} />
-        <span>Search or jump</span>
-        <kbd>Ctrl/⌘ K</kbd>
-      </button>
-      <Notifications
-        context={context}
-        onOpenTask={onOpenNotificationTask}
-        onOpenInvitations={onOpenInvitations}
-      />
-    </header>
+    <AppTopBar
+      context={context}
+      onOpenNotificationTask={onOpenNotificationTask}
+      onOpenInvitations={onOpenInvitations}
+      command={
+        <button
+          className="topbar-command-trigger"
+          type="button"
+          aria-label="Search and commands (Ctrl or Command K)"
+          onClick={onOpenCommandPalette}
+        >
+          <Search aria-hidden="true" size={15} />
+          <span>Search or jump</span>
+          <kbd>Ctrl/⌘ K</kbd>
+        </button>
+      }
+    />
   );
 }

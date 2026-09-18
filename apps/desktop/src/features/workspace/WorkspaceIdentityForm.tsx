@@ -6,7 +6,16 @@ import { ApiError } from '../../lib/api/client';
 import { errorMessage } from '../settings/utils';
 import { normalizeWorkspaceIdentifier } from './workspaceIdentifier';
 
-const RESERVED_IDENTIFIERS = new Set(['api', 'assets', 'host', 'setup', 'w']);
+const RESERVED_IDENTIFIERS = new Set([
+  'api',
+  'assets',
+  'developer',
+  'forgot-password',
+  'host',
+  'reset-password',
+  'setup',
+  'w',
+]);
 
 export interface WorkspaceIdentity {
   name: string;

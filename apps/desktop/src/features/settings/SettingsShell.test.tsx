@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { User } from '../../lib/api/types';
 import type { Workspace } from '../workspace/types';
@@ -121,14 +122,14 @@ describe('settings shells', () => {
       within(taskProperties)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['New property', 'States', 'Labels', 'Task types', 'Properties']);
+    ).toEqual(['States', 'Labels', 'Task types', 'Properties']);
   });
 
-  it('pushes the routed property editor from the Properties list shortcut', () => {
+  it('keeps property creation in the Properties page', async () => {
     const onDetailChange = vi.fn();
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => new Promise<Response>(() => undefined)),
+      vi.fn().mockResolvedValue(new Response(JSON.stringify([]))),
     );
     renderWithClient(
       <WorkspaceSettingsShell
@@ -146,12 +147,54 @@ describe('settings shells', () => {
         onRemoveWorkspace={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'New property' }));
+    expect(
+      within(
+        screen.getByRole('navigation', { name: 'Workspace settings sections' }),
+      ).queryByRole('button', { name: 'New property' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New property' }),
+    );
 
     expect(onDetailChange).toHaveBeenCalledWith('properties', 'new', {
       history: 'push',
     });
   });
+
+  it.each(['owner', 'admin', 'member', 'guest'] as const)(
+    'shows the Developer shortcut only to administrators (%s)',
+    (role) => {
+      renderWithClient(
+        <WorkspaceSettingsShell
+          context={context}
+          user={user}
+          workspace={{ ...workspace, role }}
+          workspaceCount={2}
+          section="general"
+          onSectionChange={vi.fn()}
+          onDetailChange={vi.fn()}
+          onClose={vi.fn()}
+          onWorkspaceUpdated={vi.fn()}
+          onConfigurationUpdated={vi.fn()}
+          onProjectsChanged={vi.fn()}
+          onRemoveWorkspace={vi.fn()}
+        />,
+      );
+      const shortcut = screen.queryByRole('link', {
+        name: 'Developer console',
+      });
+      if (role === 'owner' || role === 'admin') {
+        expect(shortcut).toHaveAttribute('href', '/developer/w/kanleaf-core');
+        expect(shortcut?.closest('.settings-navigation-footer')).not.toBeNull();
+        fireEvent.click(shortcut as HTMLAnchorElement);
+        expect(screen.getByLabelText('Browser location')).toHaveTextContent(
+          '/developer/w/kanleaf-core',
+        );
+      } else {
+        expect(shortcut).not.toBeInTheDocument();
+      }
+    },
+  );
 
   it('hides administrative Workspace pages from members', () => {
     renderWithClient(
@@ -183,7 +226,12 @@ function renderWithClient(children: ReactNode) {
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   render(
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        {children}
+        <LocationProbe />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -209,3 +257,8 @@ const workspace: Workspace = {
   created_at: '2026-08-20T01:00:00Z',
   updated_at: '2026-08-20T01:00:00Z',
 };
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="Browser location">{location.pathname}</output>;
+}

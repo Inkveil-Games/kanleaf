@@ -33,31 +33,36 @@ describe('WorkspaceIdentityForm', () => {
     );
   });
 
-  it('keeps reserved identifiers local and associated with the field', () => {
-    const submit = vi.fn();
-    render(
-      <WorkspaceIdentityForm
-        submitLabel="Create Workspace"
-        onSubmit={submit}
-      />,
-    );
+  it.each(['host', 'developer', 'forgot-password', 'reset-password'])(
+    'keeps reserved identifier %s local and associated with the field',
+    (identifier) => {
+      const submit = vi.fn();
+      render(
+        <WorkspaceIdentityForm
+          submitLabel="Create Workspace"
+          onSubmit={submit}
+        />,
+      );
 
-    fireEvent.change(screen.getByLabelText('Workspace name'), {
-      target: { value: 'Host' },
-    });
-    fireEvent.submit(
-      screen.getByRole('button', { name: 'Create Workspace' }).closest('form')!,
-    );
+      fireEvent.change(screen.getByLabelText('Workspace name'), {
+        target: { value: identifier },
+      });
+      fireEvent.submit(
+        screen
+          .getByRole('button', { name: 'Create Workspace' })
+          .closest('form')!,
+      );
 
-    expect(
-      screen.getByText('This Workspace ID is reserved'),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Workspace ID')).toHaveAttribute(
-      'aria-invalid',
-      'true',
-    );
-    expect(submit).not.toHaveBeenCalled();
-  });
+      expect(
+        screen.getByText('This Workspace ID is reserved'),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText('Workspace ID')).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      );
+      expect(submit).not.toHaveBeenCalled();
+    },
+  );
 
   it('allows invite because canonical Workspace routes are namespaced under /w', async () => {
     const submit = vi.fn().mockResolvedValue(undefined);

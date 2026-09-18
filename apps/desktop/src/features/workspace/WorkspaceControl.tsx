@@ -21,14 +21,14 @@ interface WorkspaceControlProps {
   context: ApiContext;
   userEmail: string;
   workspaces: Workspace[];
-  workspaceId: string;
+  workspaceId: string | null;
   mode: NavigationMode;
   onSwitchWorkspace: (workspaceId: string) => Promise<void>;
-  onCreateWorkspace: (identity: WorkspaceIdentity) => Promise<Workspace>;
-  onFinishWorkspace: (workspace: Workspace) => void | Promise<void>;
-  onOpenWorkspaceSettings: (section: WorkspaceSettingsSection) => void;
-  onOpenInvitations: () => void;
-  onImportWorkspace: () => void;
+  onCreateWorkspace?: (identity: WorkspaceIdentity) => Promise<Workspace>;
+  onFinishWorkspace?: (workspace: Workspace) => void | Promise<void>;
+  onOpenWorkspaceSettings?: (section: WorkspaceSettingsSection) => void;
+  onOpenInvitations?: () => void;
+  onImportWorkspace?: () => void;
   onToggleNavigation: () => void;
 }
 
@@ -51,7 +51,7 @@ export function WorkspaceControl({
   const restoreWorkspaceSwitcher = useRef(false);
   const workspace = workspaces.find(({ id }) => id === workspaceId);
   const compact = mode === 'rail';
-  const workspaceName = workspace?.name ?? 'Workspace';
+  const workspaceName = workspace?.name ?? 'Choose Workspace';
   const workspaceSwitcherLabel = `Switch workspace, current workspace ${workspaceName}`;
 
   useEffect(() => {
@@ -148,7 +148,7 @@ export function WorkspaceControl({
                     </span>
                     {active && <Check aria-hidden="true" size={14} />}
                   </PopoverClose>
-                  {active && canManage && (
+                  {active && canManage && onOpenWorkspaceSettings && (
                     <PopoverClose
                       className="workspace-menu-settings"
                       ariaLabel={`Settings for ${candidate.name}`}
@@ -161,18 +161,28 @@ export function WorkspaceControl({
               );
             })}
           </div>
-          <div className="workspace-menu-divider" role="separator" />
-          <div className="workspace-menu-actions" role="group">
-            <PopoverClose onClick={() => setCreatingWorkspace(true)}>
-              <Plus aria-hidden="true" size={14} /> New workspace
-            </PopoverClose>
-            <PopoverClose onClick={onImportWorkspace}>
-              <FileUp aria-hidden="true" size={14} /> Import workspace
-            </PopoverClose>
-            <PopoverClose onClick={onOpenInvitations}>
-              <Mail aria-hidden="true" size={14} /> Workspace invitations
-            </PopoverClose>
-          </div>
+          {onCreateWorkspace || onImportWorkspace || onOpenInvitations ? (
+            <>
+              <div className="workspace-menu-divider" role="separator" />
+              <div className="workspace-menu-actions" role="group">
+                {onCreateWorkspace && onFinishWorkspace ? (
+                  <PopoverClose onClick={() => setCreatingWorkspace(true)}>
+                    <Plus aria-hidden="true" size={14} /> New workspace
+                  </PopoverClose>
+                ) : null}
+                {onImportWorkspace ? (
+                  <PopoverClose onClick={onImportWorkspace}>
+                    <FileUp aria-hidden="true" size={14} /> Import workspace
+                  </PopoverClose>
+                ) : null}
+                {onOpenInvitations ? (
+                  <PopoverClose onClick={onOpenInvitations}>
+                    <Mail aria-hidden="true" size={14} /> Workspace invitations
+                  </PopoverClose>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </Popover>
         {!compact ? (
           <IconButton
@@ -190,7 +200,7 @@ export function WorkspaceControl({
           </IconButton>
         ) : null}
       </div>
-      {creatingWorkspace ? (
+      {creatingWorkspace && onCreateWorkspace && onFinishWorkspace ? (
         <WorkspaceCreateDialog
           context={context}
           onCreate={onCreateWorkspace}

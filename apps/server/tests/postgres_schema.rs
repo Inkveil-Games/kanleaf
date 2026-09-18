@@ -673,7 +673,7 @@ async fn password_reset_tokens_enforce_hash_shape_indexes_and_user_cascade(pool:
     .unwrap();
     assert!(identifier_constraints_validated);
 
-    for identifier in ["forgot-password", "reset-password"] {
+    for identifier in ["developer", "forgot-password", "reset-password"] {
         let rejected = sqlx::query(
             "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
         )

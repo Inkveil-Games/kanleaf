@@ -102,7 +102,14 @@ impl WorkspaceIdentifier {
                 .is_some_and(u8::is_ascii_alphanumeric);
         let reserved = matches!(
             value,
-            "api" | "assets" | "forgot-password" | "host" | "reset-password" | "setup" | "w"
+            "api"
+                | "assets"
+                | "developer"
+                | "forgot-password"
+                | "host"
+                | "reset-password"
+                | "setup"
+                | "w"
         );
         if !valid_length || !valid_characters || !valid_edges || value.contains("--") || reserved {
             return Err(ValidationError::new(
@@ -846,6 +853,7 @@ mod tests {
             "kanleaf core",
             "api",
             "assets",
+            "developer",
             "host",
             "forgot-password",
             "reset-password",

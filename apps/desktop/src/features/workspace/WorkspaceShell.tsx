@@ -142,6 +142,7 @@ export interface WorkspaceShellProps {
   onSwitchAccount: (userId: string) => void;
   onAddAccount: () => void;
   onOpenHostConsole?: () => void;
+  onOpenDeveloperConsole?: (workspaceId: string) => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
   location: WorkspaceLocation | null;
@@ -180,6 +181,7 @@ export function WorkspaceShell({
   onSwitchAccount,
   onAddAccount,
   onOpenHostConsole,
+  onOpenDeveloperConsole,
   onDismissAccountError,
   onSignOut,
   location,
@@ -2169,6 +2171,11 @@ export function WorkspaceShell({
               user={user}
               workspace={activeWorkspace}
               workspaceCount={workspaces.data?.length ?? 0}
+              onOpenDeveloperConsole={() => {
+                void flushDocumentSaves()
+                  .then(() => onOpenDeveloperConsole?.(activeWorkspace.id))
+                  .catch((caught) => setActionError(errorMessage(caught)));
+              }}
               section={location.section}
               detail={location.detail}
               definePropertyName={location.definePropertyName}

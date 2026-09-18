@@ -28,6 +28,11 @@ describe('routePatterns', () => {
       invite: '/invite',
       forgotPassword: '/forgot-password',
       resetPassword: '/reset-password',
+      developer: '/developer',
+      developerWorkspace: '/developer/w/:workspaceIdentifier',
+      developerWebhooks: '/developer/w/:workspaceIdentifier/webhooks',
+      developerWorkspaceWildcard: '/developer/w/:workspaceIdentifier/*',
+      developerWildcard: '/developer/*',
       host: '/host',
       hostAccess: '/host/access',
       setupAccount: '/setup/account',
@@ -71,6 +76,18 @@ describe('routePatterns', () => {
 });
 
 describe('routePaths', () => {
+  it('builds Developer routes through the canonical path contract', () => {
+    expect(routePaths.developer()).toBe('/developer');
+    expect(routePaths.developerWorkspace('kanleaf')).toBe(
+      '/developer/w/kanleaf',
+    );
+    expect(routePaths.developerWebhooks('inkveil')).toBe(
+      '/developer/w/inkveil/webhooks',
+    );
+    expect(routePaths.developerWebhooks('team/one')).toBe(
+      '/developer/w/team%2Fone/webhooks',
+    );
+  });
   it('uses compact Workspace, Project, and numeric Task locators', () => {
     expect(routePaths.workspaceMyWork('kanleaf-core')).toBe(
       '/w/kanleaf-core/my-work',

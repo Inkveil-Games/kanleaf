@@ -1,12 +1,13 @@
 import {
   ArrowLeft,
+  ArrowUpRight,
   Archive,
   ArchiveRestore,
   Bell,
+  Code2,
   KeyRound,
   Mail,
   Palette,
-  Plus,
   SlidersHorizontal,
   Shapes,
   Settings2,
@@ -17,9 +18,11 @@ import {
   Workflow,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import type { User } from '../../lib/api/types';
 import { Button } from '../../components/ui/Button';
-import { IconButton } from '../../components/ui/IconButton';
+import { routePaths } from '../../app/routing/routePaths';
+import { canManageWorkspace } from '../workspace/permissions';
 import { AccountSettings } from '../account/AccountSettings';
 import type { AccountSettingsSection } from '../account/settingsSections';
 import type { ApiContext } from '../workspace/api';
@@ -119,6 +122,7 @@ interface WorkspaceSettingsShellProps {
   onProjectsChanged: () => Promise<void>;
   onRemoveWorkspace: (remove: () => Promise<void>) => Promise<void>;
   definePropertyName?: string;
+  onOpenDeveloperConsole?: () => void;
 }
 
 export function WorkspaceSettingsShell({
@@ -136,9 +140,9 @@ export function WorkspaceSettingsShell({
   onProjectsChanged,
   onRemoveWorkspace,
   definePropertyName,
+  onOpenDeveloperConsole,
 }: WorkspaceSettingsShellProps) {
-  const canManageWorkspace =
-    workspace.role === 'owner' || workspace.role === 'admin';
+  const canManage = canManageWorkspace(workspace);
 
   return (
     <SettingsFrame
@@ -169,7 +173,7 @@ export function WorkspaceSettingsShell({
                 onClick={() => onSectionChange('projects')}
               />
             )}
-            {canManageWorkspace && (
+            {canManage && (
               <SettingsLink
                 active={section === 'storage'}
                 icon={<Archive aria-hidden="true" size={15} />}
@@ -185,33 +189,7 @@ export function WorkspaceSettingsShell({
               danger
             />
           </SettingsGroup>
-          <SettingsGroup
-            label="Task properties"
-            action={
-              canManageWorkspace ? (
-                <IconButton
-                  className="settings-group-action"
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  aria-label="New property"
-                  title="New property"
-                  onClick={() => {
-                    onDetailChange(
-                      'properties',
-                      'new',
-                      section === 'properties' && !detail
-                        ? { history: 'push' }
-                        : undefined,
-                    );
-                  }}
-                >
-                  <Plus aria-hidden="true" size={14} />
-                  <span className="sr-only">New property</span>
-                </IconButton>
-              ) : undefined
-            }
-          >
+          <SettingsGroup label="Task properties">
             <SettingsLink
               active={section === 'states'}
               icon={<Workflow aria-hidden="true" size={15} />}
@@ -238,6 +216,31 @@ export function WorkspaceSettingsShell({
             />
           </SettingsGroup>
         </>
+      }
+      footer={
+        canManage ? (
+          <Link
+            className="settings-link settings-developer-link"
+            to={routePaths.developerWorkspace(workspace.identifier)}
+            onClick={(event) => {
+              if (
+                onOpenDeveloperConsole &&
+                event.button === 0 &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                onOpenDeveloperConsole();
+              }
+            }}
+          >
+            <Code2 aria-hidden="true" size={15} />
+            <span>Developer console</span>
+            <ArrowUpRight aria-hidden="true" size={14} />
+          </Link>
+        ) : undefined
       }
     >
       <WorkspaceSettings
@@ -305,17 +308,14 @@ export function SettingsFrame({
 export function SettingsGroup({
   label,
   children,
-  action,
 }: {
   label: string;
   children: ReactNode;
-  action?: ReactNode;
 }) {
   return (
     <section className="settings-nav-group" aria-label={label}>
       <div className="settings-nav-group-header">
         <h2>{label}</h2>
-        {action}
       </div>
       {children}
     </section>
