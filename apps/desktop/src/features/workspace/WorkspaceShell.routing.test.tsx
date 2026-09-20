@@ -2085,9 +2085,11 @@ describe('WorkspaceShell routing integration', () => {
         '/w/workspace-1/tasks',
       ),
     );
-    expect(
-      screen.queryByRole('separator', { name: 'Resize task detail' }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('separator', { name: 'Resize task detail' }),
+      ).not.toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
     await waitFor(() =>
