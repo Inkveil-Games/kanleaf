@@ -43,6 +43,37 @@ describe('workspace pane layout', () => {
     ).toBeVisible();
   });
 
+  it('ignores an obsolete stored detail width without losing other preferences', () => {
+    localStorage.setItem(
+      'kanleaf.workspace-pane-layout',
+      JSON.stringify({
+        navigationWidth: 280,
+        collectionWidth: 480,
+        detailWidth: 640,
+        navigationCollapsed: true,
+      }),
+    );
+    mockMatchMedia(false);
+
+    render(<LayoutHarness />);
+
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-navigation-width',
+      '280',
+    );
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-collection-width',
+      '480',
+    );
+    expect(
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ).toEqual({
+      navigationWidth: 280,
+      collectionWidth: 480,
+      navigationCollapsed: true,
+    });
+  });
+
   it('supports pointer and keyboard resizing with constrained values', () => {
     render(<ResizeHarness />);
     const separator = screen.getByRole('separator', {
@@ -270,6 +301,7 @@ function LayoutHarness() {
       data-narrow={layout.narrow}
       data-navigation-mode={layout.navigationMode}
       data-navigation-width={layout.navigationWidth}
+      data-collection-width={layout.collectionWidth}
       style={
         {
           '--navigation-pane-width': `${layout.navigationWidth}px`,

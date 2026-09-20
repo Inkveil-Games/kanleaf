@@ -42,6 +42,7 @@
   --color-syntax-comment: #96988f;
   --color-syntax-operator: #6f756f;
   --shadow-popover: 0 10px 30px rgb(34 35 31 / 14%);
+  --layer-task-detail: 20;
   --layer-navigation-drawer-backdrop: 200;
   --layer-navigation-drawer: 201;
   --layer-tooltip: 250;

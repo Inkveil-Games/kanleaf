@@ -135,6 +135,15 @@ describe('TaskListPane', () => {
     expect(onClearSelection).not.toHaveBeenCalled();
   });
 
+  it('closes the selected task with Escape outside an editor or transient surface', () => {
+    const onClearSelection = vi.fn();
+    renderList({ selectedTaskId: 'task-1', onClearSelection });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClearSelection).toHaveBeenCalledOnce();
+  });
+
   it('keeps read-only collections navigable without mutation controls', () => {
     renderList({ canCreate: false, canEditTask: () => false });
 

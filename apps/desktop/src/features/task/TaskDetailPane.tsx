@@ -1,12 +1,4 @@
-import {
-  Archive,
-  ArrowLeft,
-  FileText,
-  Link2,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Archive, FileText, Link2, Plus, Trash2, X } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -16,6 +8,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import type {
   Project,
@@ -97,25 +90,22 @@ interface TaskDetailPaneProps {
 }
 
 export function TaskDetailPane(props: TaskDetailPaneProps) {
+  let content: ReactNode;
+
   if (props.loading && !props.task) {
-    return (
-      <section
-        className="detail-pane detail-loading"
-        aria-label="Task detail"
-        aria-busy="true"
-      >
+    content = (
+      <div className="detail-loading">
         <span className="sr-only" role="status">
           Loading task…
         </span>
         <span />
         <span />
         <span />
-      </section>
+      </div>
     );
-  }
-  if (props.error && !props.task) {
-    return (
-      <section className="detail-pane detail-empty" aria-label="Task detail">
+  } else if (props.error && !props.task) {
+    content = (
+      <div className="detail-empty">
         <div role="alert">
           <p>{props.error}</p>
           <Button
@@ -127,12 +117,112 @@ export function TaskDetailPane(props: TaskDetailPaneProps) {
             Try again
           </Button>
         </div>
-      </section>
+      </div>
+    );
+  } else if (!props.task) {
+    content = <EmptyDetail />;
+  } else {
+    content = (
+      <SelectedTaskDetail key={props.task.id} {...props} task={props.task} />
     );
   }
-  if (!props.task) return <EmptyDetail />;
+
   return (
-    <SelectedTaskDetail key={props.task.id} {...props} task={props.task} />
+    <section
+      className="detail-pane task-detail-drawer"
+      aria-label="Task detail"
+      aria-busy={props.loading && !props.task ? 'true' : undefined}
+    >
+      <header className="detail-toolbar">
+        {props.task ? (
+          <span className="task-reference">{props.task.reference}</span>
+        ) : (
+          <span />
+        )}
+        <div>
+          {props.task && (
+            <TaskDetailActions
+              key={props.task.id}
+              task={props.task}
+              canEdit={props.canEdit}
+              onArchive={props.onArchive}
+              onDelete={props.onDelete}
+            />
+          )}
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="Close task"
+            onClick={props.onClose}
+          >
+            <X aria-hidden="true" size={16} />
+          </IconButton>
+        </div>
+      </header>
+      {content}
+    </section>
+  );
+}
+
+function TaskDetailActions({
+  task,
+  canEdit,
+  onArchive,
+  onDelete,
+}: Pick<TaskDetailPaneProps, 'canEdit' | 'onArchive' | 'onDelete'> & {
+  task: Task;
+}) {
+  const [confirmation, setConfirmation] = useState<'archive' | 'delete' | null>(
+    null,
+  );
+
+  return (
+    <>
+      {canEdit && (
+        <DropdownMenu label="Task actions" className="detail-menu">
+          <DropdownMenuItem
+            className="danger-menu-item"
+            onClick={() => setConfirmation('archive')}
+          >
+            <Archive aria-hidden="true" size={14} /> Archive task
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="danger-menu-item"
+            onClick={() => setConfirmation('delete')}
+          >
+            <Trash2 aria-hidden="true" size={14} /> Delete permanently
+          </DropdownMenuItem>
+        </DropdownMenu>
+      )}
+      <AppDialog
+        open={confirmation === 'archive'}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        type="confirm"
+        variant="warning"
+        title={`Archive ${task.title}?`}
+        description="The Task can be restored later from archived Tasks."
+        confirmLabel="Archive Task"
+        loadingLabel="Archiving…"
+        onConfirm={onArchive}
+      />
+      <AppDialog
+        open={confirmation === 'delete'}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        type="typed-confirm"
+        variant="danger"
+        title={`Delete ${task.title} permanently?`}
+        description="This removes the Task and its Markdown file. This cannot be undone."
+        confirmationText={task.reference}
+        confirmLabel="Delete Task"
+        loadingLabel="Deleting…"
+        onConfirm={() => onDelete(task.reference)}
+      />
+    </>
   );
 }
 
@@ -147,12 +237,9 @@ function SelectedTaskDetail({
   assigneeCandidates,
   taskCandidates,
   onPatch,
-  onArchive,
-  onDelete,
   onAddRelation,
   onRemoveRelation,
   onOpenTask,
-  onClose,
   serverUrl,
   token,
   workspaceId,
@@ -180,9 +267,6 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
-  const [confirmation, setConfirmation] = useState<'archive' | 'delete' | null>(
-    null,
-  );
 
   const fitTitle = useCallback(() => {
     const input = titleRef.current;
@@ -263,40 +347,7 @@ function SelectedTaskDetail({
   );
 
   return (
-    <section className="detail-pane" aria-label="Task detail">
-      <header className="detail-toolbar">
-        <span className="task-reference">{task.reference}</span>
-        <div>
-          {canEdit && (
-            <DropdownMenu label="Task actions" className="detail-menu">
-              <DropdownMenuItem
-                className="danger-menu-item"
-                onClick={() => setConfirmation('archive')}
-              >
-                <Archive aria-hidden="true" size={14} /> Archive task
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="danger-menu-item"
-                onClick={() => setConfirmation('delete')}
-              >
-                <Trash2 aria-hidden="true" size={14} /> Delete permanently
-              </DropdownMenuItem>
-            </DropdownMenu>
-          )}
-          <Button
-            className="detail-back-button"
-            variant="ghost"
-            size="sm"
-            type="button"
-            aria-label="Close task"
-            onClick={onClose}
-          >
-            <ArrowLeft aria-hidden="true" size={16} />
-            <span>Back</span>
-          </Button>
-        </div>
-      </header>
-
+    <>
       <div className="detail-scroll">
         <Textarea
           ref={titleRef}
@@ -467,34 +518,7 @@ function SelectedTaskDetail({
           canModerate={canModerate}
         />
       </div>
-      <AppDialog
-        open={confirmation === 'archive'}
-        onOpenChange={(open) => {
-          if (!open) setConfirmation(null);
-        }}
-        type="confirm"
-        variant="warning"
-        title={`Archive ${task.title}?`}
-        description="The Task can be restored later from archived Tasks."
-        confirmLabel="Archive Task"
-        loadingLabel="Archiving…"
-        onConfirm={onArchive}
-      />
-      <AppDialog
-        open={confirmation === 'delete'}
-        onOpenChange={(open) => {
-          if (!open) setConfirmation(null);
-        }}
-        type="typed-confirm"
-        variant="danger"
-        title={`Delete ${task.title} permanently?`}
-        description="This removes the Task and its Markdown file. This cannot be undone."
-        confirmationText={task.reference}
-        confirmLabel="Delete Task"
-        loadingLabel="Deleting…"
-        onConfirm={() => onDelete(task.reference)}
-      />
-    </section>
+    </>
   );
 }
 
@@ -513,12 +537,12 @@ function errorMessage(error: unknown) {
 
 function EmptyDetail() {
   return (
-    <section className="detail-pane detail-empty" aria-label="Task detail">
+    <div className="detail-empty">
       <div>
         <FileText aria-hidden="true" size={22} />
         <h2>Select a task</h2>
         <p>Structured details and its Markdown document will open here.</p>
       </div>
-    </section>
+    </div>
   );
 }

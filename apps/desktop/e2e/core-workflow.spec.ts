@@ -1038,10 +1038,8 @@ let source_is_markdown = true;
     new RegExp(`/w/${workspaceIdentifier}/my-work\\?task=\\d+$`),
   );
   await page.setViewportSize({ width: 960, height: 640 });
-  await expect(page.getByRole('button', { name: 'Close task' })).toContainText(
-    'Back',
-  );
-  await expect(taskRow).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close task' })).toBeVisible();
+  await expect(taskRow).toBeVisible();
   const markdown = `# Architecture
 
 Kanleaf keeps **structured work** beside durable notes.
@@ -1260,7 +1258,7 @@ Kanleaf keeps **structured work** beside durable notes.
   expect(consoleErrors).toEqual([]);
 });
 
-test('preserves open Task state through pane and responsive resizing', async ({
+test('preserves open Task state through overlay and responsive resizing', async ({
   page,
   request,
 }) => {
@@ -1305,8 +1303,30 @@ test('preserves open Task state through pane and responsive resizing', async ({
     .filter({ hasText: secondTask.title });
   await expect(firstRow).toBeVisible();
   await expect(secondRow).toBeVisible();
+  const taskSurface = page.locator('.collection-pane');
+  const closedTaskSurfaceBounds = await taskSurface.boundingBox();
+  const closedShellBounds = await page
+    .locator('.workspace-shell')
+    .boundingBox();
+  expect(closedTaskSurfaceBounds).not.toBeNull();
+  expect(closedShellBounds).not.toBeNull();
+  expect(
+    Math.round(closedTaskSurfaceBounds!.x + closedTaskSurfaceBounds!.width),
+  ).toBe(Math.round(closedShellBounds!.x + closedShellBounds!.width));
   await firstRow.click();
   await expect(page.getByLabel('Task title')).toHaveValue(firstTask.title);
+  const taskDetail = page.getByRole('region', { name: 'Task detail' });
+  const openTaskSurfaceBounds = await taskSurface.boundingBox();
+  const openTaskDetailBounds = await taskDetail.boundingBox();
+  expect(openTaskSurfaceBounds).toEqual(closedTaskSurfaceBounds);
+  expect(openTaskDetailBounds).not.toBeNull();
+  expect(openTaskDetailBounds!.x).toBeGreaterThan(openTaskSurfaceBounds!.x);
+  expect(openTaskDetailBounds!.x).toBeLessThan(
+    openTaskSurfaceBounds!.x + openTaskSurfaceBounds!.width,
+  );
+  expect(
+    Math.round(openTaskDetailBounds!.x + openTaskDetailBounds!.width),
+  ).toBe(Math.round(openTaskSurfaceBounds!.x + openTaskSurfaceBounds!.width));
 
   let releaseResolver = () => undefined;
   const holdResolver = new Promise<void>((resolve) => {
@@ -1332,7 +1352,7 @@ test('preserves open Task state through pane and responsive resizing', async ({
     element.setAttribute('data-resize-continuity', 'task-list');
   });
 
-  await secondRow.click();
+  await secondRow.click({ position: { x: 40, y: 12 } });
 
   await expect(page).toHaveURL(
     new RegExp(
@@ -1378,7 +1398,6 @@ test('preserves open Task state through pane and responsive resizing', async ({
   await expect(page.getByLabel('Add comment')).toBeVisible();
   await page.getByLabel('Add comment').fill('Activity draft survives resizing');
   const editor = page.locator('.cm-editor');
-  const taskDetail = page.getByRole('region', { name: 'Task detail' });
   await editor.evaluate((element) => {
     element.setAttribute('data-resize-continuity', 'editor');
   });
@@ -1410,10 +1429,14 @@ test('preserves open Task state through pane and responsive resizing', async ({
     await page.mouse.up();
   };
 
-  await drag('Resize detail', -72);
+  await expect(
+    page.getByRole('separator', { name: 'Resize detail' }),
+  ).toHaveCount(0);
   await drag('Resize navigation', 48);
   await chooseSelectOption(page, 'Layout', 'List');
-  await drag('Resize collection', 64);
+  await expect(
+    page.getByRole('separator', { name: 'Resize collection' }),
+  ).toHaveCount(0);
 
   await expect(source).toContainText('# Unsaved resize draft');
   await expect(page.getByLabel('Add comment')).toHaveValue(
@@ -1422,15 +1445,14 @@ test('preserves open Task state through pane and responsive resizing', async ({
   await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
   await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
   await expect(shell).toHaveAttribute('data-resize-continuity', 'shell');
-  expect(
-    await page.evaluate(() =>
-      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
-    ),
-  ).toMatchObject({
+  const storedPaneLayout = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+  );
+  expect(storedPaneLayout).toMatchObject({
     navigationWidth: 274,
-    collectionWidth: 424,
-    detailWidth: 512,
+    collectionWidth: 360,
   });
+  expect(storedPaneLayout).not.toHaveProperty('detailWidth');
 
   await page.getByRole('button', { name: 'Collapse navigation' }).click();
   const desktopRail = page.getByRole('navigation', {
@@ -1458,7 +1480,7 @@ test('preserves open Task state through pane and responsive resizing', async ({
 
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(taskDetail).toBeVisible();
-  await expect(taskList).not.toBeVisible();
+  await expect(taskSurface).toBeVisible();
   const narrowRail = page.getByRole('navigation', {
     name: 'Workspace navigation rail',
   });
@@ -1469,8 +1491,21 @@ test('preserves open Task state through pane and responsive resizing', async ({
   await expect
     .poll(async () => Math.round((await taskDetail.boundingBox())?.x ?? -1))
     .toBe(44);
+  const narrowTaskSurfaceBounds = await taskSurface.boundingBox();
   const detailBeforeDrawer = await taskDetail.boundingBox();
+  const topBarBounds = await page.locator('.workspace-topbar').boundingBox();
+  expect(narrowTaskSurfaceBounds).not.toBeNull();
   expect(detailBeforeDrawer).not.toBeNull();
+  expect(topBarBounds).not.toBeNull();
+  expect(Math.round(detailBeforeDrawer!.x)).toBe(
+    Math.round(narrowTaskSurfaceBounds!.x),
+  );
+  expect(Math.round(detailBeforeDrawer!.width)).toBe(
+    Math.round(narrowTaskSurfaceBounds!.width),
+  );
+  expect(Math.round(detailBeforeDrawer!.y)).toBe(
+    Math.round(topBarBounds!.y + topBarBounds!.height),
+  );
 
   await openNavigation.click();
   const navigationDrawer = page.getByRole('dialog', {
@@ -1522,6 +1557,187 @@ test('preserves open Task state through pane and responsive resizing', async ({
   await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
   await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
   expect(workspaceRequests).toEqual([]);
+});
+
+test('keeps Board geometry and scroll state beneath the Task detail overlay', async ({
+  page,
+  request,
+}) => {
+  const suffix = `${Date.now()}-${test.info().workerIndex}`;
+  const email = `task-overlay-${suffix}@example.com`;
+  const account = await register(request, email);
+  const headers = { authorization: `Bearer ${account.token}` };
+  const createTask = async (title: string) => {
+    const response = await request.post(
+      `${serverUrl}/api/workspaces/${account.workspaceId}/tasks`,
+      { headers, data: { title } },
+    );
+    expect(response.status()).toBe(201);
+    return (await response.json()) as {
+      id: string;
+      task_number: number;
+      title: string;
+    };
+  };
+  const firstTask = await createTask('Overlay board A');
+  const secondTask = await createTask('Overlay board B');
+
+  await page.goto('/');
+  await page.getByLabel('Email').fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'All tasks' }).click();
+  await expect(
+    page.locator('.task-row-main', { hasText: firstTask.title }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.task-row-main', { hasText: secondTask.title }),
+  ).toBeVisible();
+  await chooseSelectOption(page, 'Layout', 'Board');
+  await page.waitForLoadState('networkidle');
+
+  const board = page.locator('.task-board');
+  const taskSurface = page.locator('.collection-pane');
+  const shell = page.locator('.workspace-shell');
+  await expect(board).toBeVisible();
+  await shell.evaluate((element) => {
+    Reflect.set(element, '__kanleafOverlayContinuity', 'shell');
+  });
+  await taskSurface.evaluate((element) => {
+    Reflect.set(element, '__kanleafOverlayContinuity', 'task-surface');
+  });
+  await board.evaluate((element) => {
+    Reflect.set(element, '__kanleafOverlayContinuity', 'board');
+    element.scrollLeft = 80;
+    element.scrollTop = 20;
+  });
+  const boardBounds = await board.boundingBox();
+  const taskSurfaceBounds = await taskSurface.boundingBox();
+  const boardScroll = await board.evaluate((element) => ({
+    left: element.scrollLeft,
+    top: element.scrollTop,
+  }));
+  expect(boardBounds).not.toBeNull();
+  expect(taskSurfaceBounds).not.toBeNull();
+  expect(boardScroll.left).toBeGreaterThan(0);
+
+  const taskListRequests: string[] = [];
+  page.on('request', (outgoing) => {
+    const url = new URL(outgoing.url());
+    if (
+      outgoing.method() === 'GET' &&
+      url.pathname === `/api/workspaces/${account.workspaceId}/tasks`
+    ) {
+      taskListRequests.push(url.pathname);
+    }
+  });
+
+  await page.locator('.board-task', { hasText: firstTask.title }).click();
+  const drawer = page.getByRole('region', { name: 'Task detail' });
+  await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
+  await drawer.evaluate((element) => {
+    Reflect.set(element, '__kanleafOverlayContinuity', 'drawer');
+  });
+  const drawerScroll = await drawer
+    .locator('.detail-scroll')
+    .evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      return element.scrollTop;
+    });
+  expect(drawerScroll).toBeGreaterThan(0);
+  expect(
+    await shell.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('shell');
+  expect(
+    await taskSurface.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('task-surface');
+  expect(await board.boundingBox()).toEqual(boardBounds);
+  expect(
+    await board.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('board');
+  expect(
+    await board.evaluate((element) => ({
+      left: element.scrollLeft,
+      top: element.scrollTop,
+    })),
+  ).toEqual(boardScroll);
+  const drawerBounds = await drawer.boundingBox();
+  expect(drawerBounds).not.toBeNull();
+  expect(drawerBounds!.x).toBeGreaterThan(taskSurfaceBounds!.x);
+  expect(drawerBounds!.x).toBeLessThan(
+    taskSurfaceBounds!.x + taskSurfaceBounds!.width,
+  );
+  expect(Math.round(drawerBounds!.x + drawerBounds!.width)).toBe(
+    Math.round(taskSurfaceBounds!.x + taskSurfaceBounds!.width),
+  );
+  await page.locator('.board-task', { hasText: secondTask.title }).click();
+  await expect(drawer.getByLabel('Task title')).toHaveValue(secondTask.title);
+  expect(
+    await drawer.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('drawer');
+  expect(
+    await board.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('board');
+
+  await drawer.getByRole('button', { name: 'Task actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete permanently' }).click();
+  const deleteDialog = page.getByRole('alertdialog', {
+    name: `Delete ${secondTask.title} permanently?`,
+  });
+  await expect(deleteDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(deleteDialog).not.toBeVisible();
+  await expect(drawer).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(drawer).not.toBeVisible();
+  expect(
+    await board.evaluate((element) =>
+      Reflect.get(element, '__kanleafOverlayContinuity'),
+    ),
+  ).toBe('board');
+  expect(await board.boundingBox()).toEqual(boardBounds);
+
+  await page.setViewportSize({ width: 960, height: 640 });
+  await expect(shell).toHaveClass(/is-narrow-window/);
+  const narrowBoardBounds = await board.boundingBox();
+  const narrowTaskSurfaceBounds = await taskSurface.boundingBox();
+  await page.locator('.board-task', { hasText: firstTask.title }).click();
+  await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
+  const narrowDrawerBounds = await drawer.boundingBox();
+  const topBarBounds = await page.locator('.workspace-topbar').boundingBox();
+  expect(narrowBoardBounds).not.toBeNull();
+  expect(narrowTaskSurfaceBounds).not.toBeNull();
+  expect(narrowDrawerBounds).not.toBeNull();
+  expect(topBarBounds).not.toBeNull();
+  expect(await board.boundingBox()).toEqual(narrowBoardBounds);
+  expect(Math.round(narrowDrawerBounds!.x)).toBe(
+    Math.round(narrowTaskSurfaceBounds!.x),
+  );
+  expect(Math.round(narrowDrawerBounds!.width)).toBe(
+    Math.round(narrowTaskSurfaceBounds!.width),
+  );
+  expect(Math.round(narrowDrawerBounds!.y)).toBe(
+    Math.round(topBarBounds!.y + topBarBounds!.height),
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(960);
+  await drawer.getByRole('button', { name: 'Close task' }).click();
+  await expect(drawer).not.toBeVisible();
+  expect(taskListRequests).toEqual([]);
 });
 
 test('keeps project navigation available through the rail and narrow drawer', async ({

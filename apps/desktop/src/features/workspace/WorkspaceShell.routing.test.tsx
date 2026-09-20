@@ -99,17 +99,14 @@ vi.mock('./workspacePaneLayout', () => ({
   PANE_LIMITS: {
     navigation: { min: 180, max: 320, defaultValue: 226 },
     collection: { min: 300, max: 560, defaultValue: 360 },
-    detail: { min: 340, max: 720, defaultValue: 440 },
   },
   useWorkspacePaneLayout: () => ({
     navigationWidth: 226,
     collectionWidth: 360,
-    detailWidth: 440,
     narrow: false,
     navigationMode: 'expanded',
     setNavigationWidth: vi.fn(),
     setCollectionWidth: vi.fn(),
-    setDetailWidth: vi.fn(),
     toggleNavigation: vi.fn(),
     closeNavigationDrawer: vi.fn(),
   }),
@@ -231,26 +228,29 @@ vi.mock('../task/TaskDetailPane', () => ({
     onClose: () => void;
     onArchive: () => Promise<void>;
     onDelete: (reference: string) => Promise<void>;
-  }) =>
-    loading && !task ? (
-      <output aria-label="Task detail loading">Loading task detail</output>
-    ) : task ? (
-      <div>
-        <output aria-label="Selected task">{task.id}</output>
-        <button type="button" onClick={onClose}>
-          Close Task
-        </button>
-        <button type="button" onClick={() => void onArchive()}>
-          Archive Task
-        </button>
-        <button
-          type="button"
-          onClick={() => void onDelete('#1').catch(() => undefined)}
-        >
-          Delete Task
-        </button>
-      </div>
-    ) : null,
+  }) => (
+    <section aria-label="Task detail">
+      {loading && !task ? (
+        <output aria-label="Task detail loading">Loading task detail</output>
+      ) : task ? (
+        <>
+          <output aria-label="Selected task">{task.id}</output>
+          <button type="button" onClick={onClose}>
+            Close Task
+          </button>
+          <button type="button" onClick={() => void onArchive()}>
+            Archive Task
+          </button>
+          <button
+            type="button"
+            onClick={() => void onDelete('#1').catch(() => undefined)}
+          >
+            Delete Task
+          </button>
+        </>
+      ) : null}
+    </section>
+  ),
 }));
 
 vi.mock('../document/DocumentWorkspace', () => ({
@@ -2052,12 +2052,18 @@ describe('WorkspaceShell routing integration', () => {
   it('pushes a Task selection and strips it with replace when closing', async () => {
     renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/tasks'] });
 
+    await screen.findByTestId('task-list');
+    expect(
+      screen.queryByRole('region', { name: 'Task detail' }),
+    ).not.toBeInTheDocument();
+
     fireEvent.click(await screen.findByRole('button', { name: 'Open Task' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
         '/w/workspace-1/tasks?task=1',
       ),
     );
+    expect(screen.getByRole('region', { name: 'Task detail' })).toBeVisible();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Close Task' }));
     await waitFor(() =>
@@ -2076,14 +2082,14 @@ describe('WorkspaceShell routing integration', () => {
 
   it('keeps the shell and Task list mounted while an uncached Task resolves', async () => {
     const routedTask = deferred<Task>();
-    const taskDetail = deferred<Task>();
+    const taskDetailRequest = deferred<Task>();
     mocks.getTaskByNumber.mockImplementation(
       (_context, _workspaceId, taskNumber: number) =>
         taskNumber === taskB.task_number ? routedTask.promise : task,
     );
     mocks.getTask.mockImplementation(
       (_context, _workspaceId, taskId: string) =>
-        taskId === taskB.id ? taskDetail.promise : task,
+        taskId === taskB.id ? taskDetailRequest.promise : task,
     );
     mocks.queryTasks.mockResolvedValue([task]);
     const { queryClient } = renderWorkspaceRoutes({
@@ -2100,6 +2106,7 @@ describe('WorkspaceShell routing integration', () => {
     const shell = globalThis.document.querySelector('.workspace-shell');
     const navigation = screen.getByTestId('workspace-navigation');
     const taskList = screen.getByTestId('task-list');
+    const taskDetail = screen.getByRole('region', { name: 'Task detail' });
     taskList.scrollTop = 48;
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Task B' }));
@@ -2112,6 +2119,9 @@ describe('WorkspaceShell routing integration', () => {
     expect(globalThis.document.querySelector('.workspace-shell')).toBe(shell);
     expect(screen.getByTestId('workspace-navigation')).toBe(navigation);
     expect(screen.getByTestId('task-list')).toBe(taskList);
+    expect(screen.getByRole('region', { name: 'Task detail' })).toBe(
+      taskDetail,
+    );
     expect(taskList.scrollTop).toBe(48);
     expect(screen.getByLabelText('Task detail loading')).toBeVisible();
     expect(
@@ -2121,7 +2131,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await act(async () => routedTask.resolve(taskB));
     expect(screen.getByLabelText('Task detail loading')).toBeVisible();
-    await act(async () => taskDetail.resolve(taskB));
+    await act(async () => taskDetailRequest.resolve(taskB));
 
     expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
       taskB.id,

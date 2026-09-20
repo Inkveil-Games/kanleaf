@@ -148,7 +148,48 @@ const modules: ProjectModule[] = [
 ];
 
 describe('TaskDetailPane', () => {
+  it('uses a compact inspector close control', () => {
+    const props = {
+      serverUrl: 'https://kanleaf.example.com',
+      token: 'session-token',
+      workspaceId: 'workspace-1',
+      projects,
+      states,
+      taskTypes,
+      labels: [],
+      cycles: [],
+      modules: [],
+      assigneeCandidates: [],
+      taskCandidates: [task],
+      loading: false,
+      error: null,
+      canEdit: true,
+      onPatch: vi.fn(),
+      onArchive: vi.fn(),
+      onDelete: vi.fn(),
+      onAddRelation: vi.fn(),
+      onRemoveRelation: vi.fn(),
+      onOpenTask: vi.fn(),
+      onClose: vi.fn(),
+      onRetry: vi.fn(),
+    };
+    const { rerender } = render(<TaskDetailPane {...props} task={task} />);
+    const drawer = screen.getByRole('region', { name: 'Task detail' });
+
+    expect(screen.getByRole('button', { name: 'Close task' })).toBeVisible();
+    expect(screen.queryByText('Back')).not.toBeInTheDocument();
+
+    rerender(
+      <TaskDetailPane
+        {...props}
+        task={{ ...task, id: 'task-2', title: 'Second task' }}
+      />,
+    );
+    expect(screen.getByRole('region', { name: 'Task detail' })).toBe(drawer);
+  });
+
   it('shows a local loading state when the selected Task is unresolved', () => {
+    const onClose = vi.fn();
     render(
       <TaskDetailPane
         serverUrl="https://kanleaf.example.com"
@@ -172,7 +213,7 @@ describe('TaskDetailPane', () => {
         onAddRelation={vi.fn()}
         onRemoveRelation={vi.fn()}
         onOpenTask={vi.fn()}
-        onClose={vi.fn()}
+        onClose={onClose}
         onRetry={vi.fn()}
       />,
     );
@@ -183,6 +224,47 @@ describe('TaskDetailPane', () => {
     );
     expect(screen.getByRole('status')).toHaveTextContent('Loading task…');
     expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the drawer present for a selected Task error', () => {
+    const onRetry = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="session-token"
+        workspaceId="workspace-1"
+        task={null}
+        projects={projects}
+        states={states}
+        taskTypes={taskTypes}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[]}
+        loading={false}
+        error="Task detail failed"
+        canEdit={false}
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={vi.fn()}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={onClose}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Task detail' })).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Task detail failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('uses the shared typed confirmation dialog for permanent deletion', async () => {

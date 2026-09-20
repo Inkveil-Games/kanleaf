@@ -82,8 +82,10 @@ another icon family or draw text-like symbols when an established icon exists.
 
 ## Layout and hierarchy
 
-- Preserve the desktop-first three-pane model where the feature belongs:
-  navigation, compact collection, and adjacent detail. Task detail stays a pane.
+- Preserve the desktop-first pane model where the feature belongs. Task Detail
+  is a shared right-edge overlay inspector above the full-width Task view;
+  Library/document detail remains an adjacent resizable pane. Do not give the
+  Task inspector modal semantics, a backdrop, or layout-reserving grid space.
 - Workspace switching uses the compact control above navigation; global search
   and notifications live in `WorkspaceTopBar`; account switching remains in the
   navigation footer. Host Console keeps account switching in its Settings rail

@@ -18,13 +18,11 @@ export interface PaneLimits {
 export const PANE_LIMITS = {
   navigation: { min: 180, max: 320, defaultValue: 226 },
   collection: { min: 300, max: 560, defaultValue: 360 },
-  detail: { min: 340, max: 720, defaultValue: 440 },
 } satisfies Record<string, PaneLimits>;
 
 interface PanePreferences {
   navigationWidth: number;
   collectionWidth: number;
-  detailWidth: number;
   navigationCollapsed: boolean;
 }
 
@@ -68,11 +66,6 @@ export function useWorkspacePaneLayout() {
       ),
     [],
   );
-  const setDetailWidth = useCallback(
-    (next: SetStateAction<number>) =>
-      setPaneWidth(setPreferences, 'detailWidth', PANE_LIMITS.detail, next),
-    [],
-  );
   const toggleNavigation = useCallback(() => {
     if (narrow) {
       setDrawerOpen((current) => !current);
@@ -90,7 +83,6 @@ export function useWorkspacePaneLayout() {
     navigationMode,
     setNavigationWidth,
     setCollectionWidth,
-    setDetailWidth,
     toggleNavigation,
     closeNavigationDrawer,
   };
@@ -98,7 +90,7 @@ export function useWorkspacePaneLayout() {
 
 function setPaneWidth(
   setPreferences: Dispatch<SetStateAction<PanePreferences>>,
-  key: 'navigationWidth' | 'collectionWidth' | 'detailWidth',
+  key: 'navigationWidth' | 'collectionWidth',
   limits: PaneLimits,
   next: SetStateAction<number>,
 ) {
@@ -134,7 +126,6 @@ function readPreferences(): PanePreferences {
   const defaults: PanePreferences = {
     navigationWidth: PANE_LIMITS.navigation.defaultValue,
     collectionWidth: PANE_LIMITS.collection.defaultValue,
-    detailWidth: PANE_LIMITS.detail.defaultValue,
     navigationCollapsed: false,
   };
   try {
@@ -151,11 +142,6 @@ function readPreferences(): PanePreferences {
         stored.collectionWidth,
         PANE_LIMITS.collection,
         defaults.collectionWidth,
-      ),
-      detailWidth: constrain(
-        stored.detailWidth,
-        PANE_LIMITS.detail,
-        defaults.detailWidth,
       ),
       navigationCollapsed: stored.navigationCollapsed === true,
     };

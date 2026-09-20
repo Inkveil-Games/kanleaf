@@ -1728,17 +1728,11 @@ export function WorkspaceShell({
   const collectionResizable =
     visibleSurface === 'documents' ||
     visibleSurface === 'cycles' ||
-    visibleSurface === 'modules' ||
-    (visibleSurface === 'tasks' && taskLayout === 'list');
-  const detailResizable =
-    visibleSurface === 'tasks' &&
-    taskLayout !== 'list' &&
-    Boolean(selectedTaskId);
+    visibleSurface === 'modules';
   const shellClassName = [
     'workspace-shell',
     `surface-${visibleSurface}`,
     `view-layout-${taskLayout}`,
-    selectedTaskId ? 'has-task-detail' : '',
     visibleSurface === 'documents' && selectedDocumentId
       ? 'has-document-detail'
       : '',
@@ -1750,7 +1744,6 @@ export function WorkspaceShell({
   const shellStyle = {
     '--navigation-pane-width': `${paneLayout.navigationWidth}px`,
     '--collection-pane-width': `${paneLayout.collectionWidth}px`,
-    '--detail-pane-width': `${paneLayout.detailWidth}px`,
   } as CSSProperties;
   const inlineNavigationMode: NavigationMode =
     paneLayout.navigationMode === 'expanded' ? 'expanded' : 'rail';
@@ -1912,18 +1905,6 @@ export function WorkspaceShell({
           onChange={paneLayout.setCollectionWidth}
         />
       )}
-      {!paneLayout.narrow && detailResizable && (
-        <PaneResizeHandle
-          className="detail-resize-handle"
-          label="Resize detail"
-          value={paneLayout.detailWidth}
-          limits={PANE_LIMITS.detail}
-          inverted
-          resizeTarget={shellRef}
-          resizeProperty="--detail-pane-width"
-          onChange={paneLayout.setDetailWidth}
-        />
-      )}
       {visibleSurface === 'project-overview' && activeProject ? (
         <ProjectOverview
           project={activeProject}
@@ -2061,82 +2042,84 @@ export function WorkspaceShell({
             onRetry={() => void tasks.refetch()}
             onClearSelection={() => navigateTask(null, true)}
           />
-          <TaskDetailPane
-            serverUrl={serverUrl}
-            token={token}
-            workspaceId={workspaceId}
-            task={selectedTask}
-            projects={editableProjects}
-            states={taskConfiguration.data?.states ?? []}
-            taskTypes={taskConfiguration.data?.task_types ?? []}
-            labels={taskConfiguration.data?.labels ?? []}
-            cycles={selectedProjectCycles.data ?? []}
-            modules={selectedProjectModules.data ?? []}
-            assigneeCandidates={
-              selectedProjectId
-                ? (selectedProjectMembers.data ?? [])
-                : (workspaceMembers.data ?? []).filter(
-                    ({ role }) => role !== 'guest',
-                  )
-            }
-            taskCandidates={visibleTasks}
-            loading={Boolean(selectedTaskId) && task.isPending}
-            error={task.error ? errorMessage(task.error) : null}
-            canEdit={selectedTask ? canEditTask(selectedTask) : false}
-            canManageProperties={
-              activeWorkspace.role === 'owner' ||
-              activeWorkspace.role === 'admin'
-            }
-            customProperties={customProperties.data ?? []}
-            customPropertiesLoading={customProperties.isPending}
-            customPropertiesError={
-              customProperties.error
-                ? errorMessage(customProperties.error)
-                : null
-            }
-            onRetryCustomProperties={() => void customProperties.refetch()}
-            undefinedProperties={undefinedTaskProperties.data ?? []}
-            undefinedPropertiesLoading={undefinedTaskProperties.isPending}
-            undefinedPropertiesError={
-              undefinedTaskProperties.error
-                ? errorMessage(undefinedTaskProperties.error)
-                : null
-            }
-            onRetryUndefinedProperties={() =>
-              void undefinedTaskProperties.refetch()
-            }
-            currentUserId={user.id}
-            canComment={selectedTask ? canCommentTask(selectedTask) : false}
-            canModerate={selectedTask ? canModerateTask(selectedTask) : false}
-            onPatch={(patch) => patchTask(selectedTaskId!, patch)}
-            onCustomPropertyChange={(propertyId, value) =>
-              changeTaskProperty(selectedTaskId!, propertyId, value)
-            }
-            onDefineProperty={async (name) => {
-              if (!workspaceId) return;
-              setActionError(null);
-              try {
-                await flushDocumentSaves();
-                onNavigate({
-                  kind: 'workspace-settings',
-                  workspaceId,
-                  section: 'properties',
-                  detail: 'new',
-                  definePropertyName: name,
-                  returnTo: presentation?.content ?? null,
-                });
-              } catch (caught) {
-                setActionError(errorMessage(caught));
+          {selectedTaskId !== null && (
+            <TaskDetailPane
+              serverUrl={serverUrl}
+              token={token}
+              workspaceId={workspaceId}
+              task={selectedTask}
+              projects={editableProjects}
+              states={taskConfiguration.data?.states ?? []}
+              taskTypes={taskConfiguration.data?.task_types ?? []}
+              labels={taskConfiguration.data?.labels ?? []}
+              cycles={selectedProjectCycles.data ?? []}
+              modules={selectedProjectModules.data ?? []}
+              assigneeCandidates={
+                selectedProjectId
+                  ? (selectedProjectMembers.data ?? [])
+                  : (workspaceMembers.data ?? []).filter(
+                      ({ role }) => role !== 'guest',
+                    )
               }
-            }}
-            onArchive={removeTask}
-            onDelete={permanentlyDeleteTask}
-            onAddRelation={addRelation}
-            onRemoveRelation={removeRelation}
-            onOpenTask={(taskId) => navigateTask(taskId)}
-            onClose={() => navigateTask(null, true)}
-            onRetry={() => void task.refetch()}
-          />
+              taskCandidates={visibleTasks}
+              loading={Boolean(selectedTaskId) && task.isPending}
+              error={task.error ? errorMessage(task.error) : null}
+              canEdit={selectedTask ? canEditTask(selectedTask) : false}
+              canManageProperties={
+                activeWorkspace.role === 'owner' ||
+                activeWorkspace.role === 'admin'
+              }
+              customProperties={customProperties.data ?? []}
+              customPropertiesLoading={customProperties.isPending}
+              customPropertiesError={
+                customProperties.error
+                  ? errorMessage(customProperties.error)
+                  : null
+              }
+              onRetryCustomProperties={() => void customProperties.refetch()}
+              undefinedProperties={undefinedTaskProperties.data ?? []}
+              undefinedPropertiesLoading={undefinedTaskProperties.isPending}
+              undefinedPropertiesError={
+                undefinedTaskProperties.error
+                  ? errorMessage(undefinedTaskProperties.error)
+                  : null
+              }
+              onRetryUndefinedProperties={() =>
+                void undefinedTaskProperties.refetch()
+              }
+              currentUserId={user.id}
+              canComment={selectedTask ? canCommentTask(selectedTask) : false}
+              canModerate={selectedTask ? canModerateTask(selectedTask) : false}
+              onPatch={(patch) => patchTask(selectedTaskId!, patch)}
+              onCustomPropertyChange={(propertyId, value) =>
+                changeTaskProperty(selectedTaskId!, propertyId, value)
+              }
+              onDefineProperty={async (name) => {
+                if (!workspaceId) return;
+                setActionError(null);
+                try {
+                  await flushDocumentSaves();
+                  onNavigate({
+                    kind: 'workspace-settings',
+                    workspaceId,
+                    section: 'properties',
+                    detail: 'new',
+                    definePropertyName: name,
+                    returnTo: presentation?.content ?? null,
+                  });
+                } catch (caught) {
+                  setActionError(errorMessage(caught));
+                }
+              }}
+              onArchive={removeTask}
+              onDelete={permanentlyDeleteTask}
+              onAddRelation={addRelation}
+              onRemoveRelation={removeRelation}
+              onOpenTask={(taskId) => navigateTask(taskId)}
+              onClose={() => navigateTask(null, true)}
+              onRetry={() => void task.refetch()}
+            />
+          )}
         </>
       )}
       {location?.kind === 'account-settings' &&
