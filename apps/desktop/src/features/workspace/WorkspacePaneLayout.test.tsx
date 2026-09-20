@@ -5,7 +5,10 @@ import { PANE_LIMITS, useWorkspacePaneLayout } from './workspacePaneLayout';
 import { PaneResizeHandle } from './PaneResizeHandle';
 
 describe('workspace pane layout', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubGlobal('innerWidth', 1280);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -49,7 +52,7 @@ describe('workspace pane layout', () => {
       JSON.stringify({
         navigationWidth: 280,
         collectionWidth: 480,
-        detailWidth: 640,
+        detailWidth: 440,
         navigationCollapsed: true,
       }),
     );
@@ -65,6 +68,10 @@ describe('workspace pane layout', () => {
       'data-collection-width',
       '480',
     );
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-task-detail-drawer-width',
+      '742',
+    );
     expect(
       JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
     ).toEqual({
@@ -72,6 +79,106 @@ describe('workspace pane layout', () => {
       collectionWidth: 480,
       navigationCollapsed: true,
     });
+  });
+
+  it('persists a Task Detail drawer width and resets to the responsive default', () => {
+    mockMatchMedia(false);
+    const setItem = vi.spyOn(localStorage, 'setItem');
+    const { unmount } = render(<LayoutHarness />);
+    const layout = screen.getByTestId('layout');
+    const separator = screen.getByRole('separator', {
+      name: 'Resize task detail',
+    });
+    const writesBeforeDrag = setItem.mock.calls.length;
+
+    expect(layout).toHaveAttribute('data-task-detail-drawer-width', '742');
+    expect(separator).toHaveAttribute('aria-valuemax', '894');
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600 });
+    fireEvent.pointerMove(window, { clientX: 550 });
+    fireEvent.pointerMove(window, { clientX: 500 });
+
+    expect(layout.style.getPropertyValue('--task-detail-drawer-width')).toBe(
+      '842px',
+    );
+    expect(layout).toHaveAttribute('data-task-detail-drawer-width', '742');
+    expect(setItem).toHaveBeenCalledTimes(writesBeforeDrag);
+
+    fireEvent.pointerUp(window);
+    expect(layout).toHaveAttribute('data-task-detail-drawer-width', '842');
+    expect(setItem).toHaveBeenCalledTimes(writesBeforeDrag + 1);
+    expect(
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ).toMatchObject({ taskDetailDrawerWidth: 842 });
+
+    unmount();
+    render(<LayoutHarness />);
+    const restoredSeparator = screen.getByRole('separator', {
+      name: 'Resize task detail',
+    });
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-task-detail-drawer-width',
+      '842',
+    );
+
+    fireEvent.doubleClick(restoredSeparator);
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-task-detail-drawer-width',
+      '742',
+    );
+    expect(
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ).not.toHaveProperty('taskDetailDrawerWidth');
+  });
+
+  it('keeps inverted pointer and keyboard resizing directionally consistent', () => {
+    mockMatchMedia(false);
+    render(<LayoutHarness />);
+    const separator = screen.getByRole('separator', {
+      name: 'Resize task detail',
+    });
+
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    expect(separator).toHaveAttribute('aria-valuenow', '750');
+
+    fireEvent.keyDown(separator, { key: 'ArrowRight' });
+    expect(separator).toHaveAttribute('aria-valuenow', '742');
+
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(separator).toHaveAttribute('aria-valuenow', '894');
+
+    fireEvent.keyDown(separator, { key: 'End' });
+    expect(separator).toHaveAttribute('aria-valuenow', '560');
+  });
+
+  it('temporarily clamps a persisted drawer width without overwriting it', () => {
+    localStorage.setItem(
+      'kanleaf.workspace-pane-layout',
+      JSON.stringify({
+        navigationWidth: 280,
+        collectionWidth: 480,
+        taskDetailDrawerWidth: 1000,
+        navigationCollapsed: false,
+      }),
+    );
+    mockMatchMedia(false);
+    render(<LayoutHarness />);
+
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-task-detail-drawer-width',
+      '840',
+    );
+    expect(
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ).toMatchObject({ taskDetailDrawerWidth: 1000 });
+
+    vi.stubGlobal('innerWidth', 1600);
+    fireEvent(window, new Event('resize'));
+
+    expect(screen.getByTestId('layout')).toHaveAttribute(
+      'data-task-detail-drawer-width',
+      '1000',
+    );
   });
 
   it('supports pointer and keyboard resizing with constrained values', () => {
@@ -302,9 +409,11 @@ function LayoutHarness() {
       data-navigation-mode={layout.navigationMode}
       data-navigation-width={layout.navigationWidth}
       data-collection-width={layout.collectionWidth}
+      data-task-detail-drawer-width={layout.taskDetailDrawerWidth}
       style={
         {
           '--navigation-pane-width': `${layout.navigationWidth}px`,
+          '--task-detail-drawer-width': `${layout.taskDetailDrawerWidth}px`,
         } as CSSProperties
       }
     >
@@ -322,6 +431,16 @@ function LayoutHarness() {
         resizeTarget={layoutRef}
         resizeProperty="--navigation-pane-width"
         onChange={layout.setNavigationWidth}
+      />
+      <PaneResizeHandle
+        label="Resize task detail"
+        value={layout.taskDetailDrawerWidth}
+        limits={layout.taskDetailDrawerLimits}
+        inverted
+        resizeTarget={layoutRef}
+        resizeProperty="--task-detail-drawer-width"
+        onChange={layout.setTaskDetailDrawerWidth}
+        onReset={layout.resetTaskDetailDrawerWidth}
       />
     </div>
   );

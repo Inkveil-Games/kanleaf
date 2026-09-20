@@ -2,10 +2,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
-  type SetStateAction,
 } from 'react';
 import type { PaneLimits } from './workspacePaneLayout';
 
@@ -20,6 +18,7 @@ export function PaneResizeHandle({
   resizeTarget,
   resizeProperty,
   onChange,
+  onReset,
 }: {
   label: string;
   value: number;
@@ -28,7 +27,8 @@ export function PaneResizeHandle({
   className?: string;
   resizeTarget: RefObject<HTMLElement | null>;
   resizeProperty: `--${string}`;
-  onChange: Dispatch<SetStateAction<number>>;
+  onChange: (value: number) => void;
+  onReset?: () => void;
 }) {
   const handleRef = useRef<HTMLDivElement>(null);
   const dragValue = useRef(value);
@@ -102,13 +102,27 @@ export function PaneResizeHandle({
 
   function keyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     let next: number | null = null;
-    if (event.key === 'ArrowLeft') next = value - KEYBOARD_STEP;
-    if (event.key === 'ArrowRight') next = value + KEYBOARD_STEP;
-    if (event.key === 'Home') next = limits.min;
-    if (event.key === 'End') next = limits.max;
+    if (event.key === 'ArrowLeft')
+      next = value + (inverted ? KEYBOARD_STEP : -KEYBOARD_STEP);
+    if (event.key === 'ArrowRight')
+      next = value + (inverted ? -KEYBOARD_STEP : KEYBOARD_STEP);
+    if (event.key === 'Home') next = inverted ? limits.max : limits.min;
+    if (event.key === 'End') next = inverted ? limits.min : limits.max;
     if (next === null) return;
     event.preventDefault();
     commitValue(next);
+  }
+
+  function reset() {
+    dragValue.current = limits.defaultValue;
+    updatePresentation(
+      resizeTarget.current,
+      handleRef.current,
+      resizeProperty,
+      limits.defaultValue,
+    );
+    if (onReset) onReset();
+    else onChange(limits.defaultValue);
   }
 
   return (
@@ -122,7 +136,7 @@ export function PaneResizeHandle({
       aria-valuemax={limits.max}
       aria-valuenow={value}
       tabIndex={0}
-      onDoubleClick={() => commitValue(limits.defaultValue)}
+      onDoubleClick={reset}
       onKeyDown={keyDown}
       onPointerDown={startDrag}
     />

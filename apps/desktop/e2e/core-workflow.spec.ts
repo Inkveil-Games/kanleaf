@@ -1327,6 +1327,14 @@ test('preserves open Task state through overlay and responsive resizing', async 
   expect(
     Math.round(openTaskDetailBounds!.x + openTaskDetailBounds!.width),
   ).toBe(Math.round(openTaskSurfaceBounds!.x + openTaskSurfaceBounds!.width));
+  expect(openTaskDetailBounds!.width).toBeGreaterThan(
+    closedShellBounds!.width * 0.5,
+  );
+  expect(openTaskDetailBounds!.width).toBeGreaterThanOrEqual(560);
+  expect(openTaskDetailBounds!.width).toBeLessThanOrEqual(1100);
+  await expect(
+    page.getByRole('separator', { name: 'Resize task detail' }),
+  ).toBeVisible();
 
   let releaseResolver = () => undefined;
   const holdResolver = new Promise<void>((resolve) => {
@@ -1429,9 +1437,16 @@ test('preserves open Task state through overlay and responsive resizing', async 
     await page.mouse.up();
   };
 
-  await expect(
-    page.getByRole('separator', { name: 'Resize detail' }),
-  ).toHaveCount(0);
+  const taskSurfaceBeforeDrawerResize = await taskSurface.boundingBox();
+  const detailBeforeResize = await taskDetail.boundingBox();
+  await drag('Resize task detail', -96);
+  const detailAfterResize = await taskDetail.boundingBox();
+  expect(detailBeforeResize).not.toBeNull();
+  expect(detailAfterResize).not.toBeNull();
+  expect(detailAfterResize!.width).toBeGreaterThan(detailBeforeResize!.width);
+  expect(await taskSurface.boundingBox()).toEqual(
+    taskSurfaceBeforeDrawerResize,
+  );
   await drag('Resize navigation', 48);
   await chooseSelectOption(page, 'Layout', 'List');
   await expect(
@@ -1451,6 +1466,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
   expect(storedPaneLayout).toMatchObject({
     navigationWidth: 274,
     collectionWidth: 360,
+    taskDetailDrawerWidth: Math.round(detailAfterResize!.width),
   });
   expect(storedPaneLayout).not.toHaveProperty('detailWidth');
 
@@ -1481,6 +1497,9 @@ test('preserves open Task state through overlay and responsive resizing', async 
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(taskDetail).toBeVisible();
   await expect(taskSurface).toBeVisible();
+  await expect(
+    page.getByRole('separator', { name: 'Resize task detail' }),
+  ).toHaveCount(0);
   const narrowRail = page.getByRole('navigation', {
     name: 'Workspace navigation rail',
   });
@@ -1506,6 +1525,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
   expect(Math.round(detailBeforeDrawer!.y)).toBe(
     Math.round(topBarBounds!.y + topBarBounds!.height),
   );
+  await expect(taskDetail).toHaveCSS('border-top-left-radius', '0px');
 
   await openNavigation.click();
   const navigationDrawer = page.getByRole('dialog', {
@@ -1556,6 +1576,10 @@ test('preserves open Task state through overlay and responsive resizing', async 
   );
   await expect(taskDetail).toHaveAttribute('data-resize-continuity', 'detail');
   await expect(editor).toHaveAttribute('data-resize-continuity', 'editor');
+  await expect(
+    page.getByRole('separator', { name: 'Resize task detail' }),
+  ).toBeVisible();
+  await expect(taskDetail).toHaveCSS('border-top-left-radius', '7px');
   expect(workspaceRequests).toEqual([]);
 });
 
@@ -1671,6 +1695,11 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   ).toEqual(boardScroll);
   const drawerBounds = await drawer.boundingBox();
   expect(drawerBounds).not.toBeNull();
+  expect(drawerBounds!.width).toBeGreaterThan(
+    (await shell.boundingBox())!.width * 0.5,
+  );
+  expect(drawerBounds!.width).toBeGreaterThanOrEqual(560);
+  expect(drawerBounds!.width).toBeLessThanOrEqual(1100);
   expect(drawerBounds!.x).toBeGreaterThan(taskSurfaceBounds!.x);
   expect(drawerBounds!.x).toBeLessThan(
     taskSurfaceBounds!.x + taskSurfaceBounds!.width,
@@ -1678,7 +1707,30 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   expect(Math.round(drawerBounds!.x + drawerBounds!.width)).toBe(
     Math.round(taskSurfaceBounds!.x + taskSurfaceBounds!.width),
   );
-  await page.locator('.board-task', { hasText: secondTask.title }).click();
+  await expect(drawer).toHaveCSS('border-top-left-radius', '7px');
+  await expect(drawer).toHaveCSS('border-top-right-radius', '0px');
+  const detailResizeHandle = page.getByRole('separator', {
+    name: 'Resize task detail',
+  });
+  await expect(detailResizeHandle).toBeVisible();
+  const resizeBounds = await detailResizeHandle.boundingBox();
+  expect(resizeBounds).not.toBeNull();
+  const resizeStartX = resizeBounds!.x + resizeBounds!.width / 2;
+  const resizeY = resizeBounds!.y + Math.min(resizeBounds!.height / 2, 120);
+  await page.mouse.move(resizeStartX, resizeY);
+  await page.mouse.down();
+  for (let step = 1; step <= 12; step += 1) {
+    await page.mouse.move(resizeStartX - (96 * step) / 12, resizeY);
+  }
+  await page.mouse.up();
+  const resizedDrawerBounds = await drawer.boundingBox();
+  expect(resizedDrawerBounds).not.toBeNull();
+  expect(resizedDrawerBounds!.width).toBeGreaterThan(drawerBounds!.width);
+  expect(await board.boundingBox()).toEqual(boardBounds);
+  expect(await taskSurface.boundingBox()).toEqual(taskSurfaceBounds);
+  await page
+    .locator('.board-task', { hasText: secondTask.title })
+    .click({ position: { x: 20, y: 12 } });
   await expect(drawer.getByLabel('Task title')).toHaveValue(secondTask.title);
   expect(
     await drawer.evaluate((element) =>
@@ -1710,12 +1762,51 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   ).toBe('board');
   expect(await board.boundingBox()).toEqual(boardBounds);
 
+  await page
+    .locator('.board-task', { hasText: firstTask.title })
+    .click({ position: { x: 20, y: 12 } });
+  await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
+  expect(Math.round((await drawer.boundingBox())!.width)).toBe(
+    Math.round(resizedDrawerBounds!.width),
+  );
+  expect(taskListRequests).toEqual([]);
+
+  await page.reload();
+  await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
+  expect(Math.round((await drawer.boundingBox())!.width)).toBe(
+    Math.round(resizedDrawerBounds!.width),
+  );
+  await page.waitForLoadState('networkidle');
+  taskListRequests.length = 0;
+  const reloadedTaskSurfaceBounds = await taskSurface.boundingBox();
+  await page.getByRole('separator', { name: 'Resize task detail' }).dblclick();
+  const resetDrawerBounds = await drawer.boundingBox();
+  expect(resetDrawerBounds).not.toBeNull();
+  expect(resetDrawerBounds!.width).toBeLessThan(resizedDrawerBounds!.width);
+  expect(resetDrawerBounds!.width).toBeGreaterThan(
+    (await shell.boundingBox())!.width * 0.5,
+  );
+  expect(await taskSurface.boundingBox()).toEqual(reloadedTaskSurfaceBounds);
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('kanleaf.workspace-pane-layout') ?? '{}'),
+    ),
+  ).not.toHaveProperty('taskDetailDrawerWidth');
+  await drawer.getByRole('button', { name: 'Close task' }).click();
+  await expect(drawer).not.toBeVisible();
+  await chooseSelectOption(page, 'Layout', 'Board');
+  await expect(board).toBeVisible();
+
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(shell).toHaveClass(/is-narrow-window/);
   const narrowBoardBounds = await board.boundingBox();
   const narrowTaskSurfaceBounds = await taskSurface.boundingBox();
   await page.locator('.board-task', { hasText: firstTask.title }).click();
   await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
+  await expect(
+    page.getByRole('separator', { name: 'Resize task detail' }),
+  ).toHaveCount(0);
+  await expect(drawer).toHaveCSS('border-top-left-radius', '0px');
   const narrowDrawerBounds = await drawer.boundingBox();
   const topBarBounds = await page.locator('.workspace-topbar').boundingBox();
   expect(narrowBoardBounds).not.toBeNull();

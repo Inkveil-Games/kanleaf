@@ -103,10 +103,14 @@ vi.mock('./workspacePaneLayout', () => ({
   useWorkspacePaneLayout: () => ({
     navigationWidth: 226,
     collectionWidth: 360,
+    taskDetailDrawerWidth: 742,
+    taskDetailDrawerLimits: { min: 560, max: 894, defaultValue: 742 },
     narrow: false,
     navigationMode: 'expanded',
     setNavigationWidth: vi.fn(),
     setCollectionWidth: vi.fn(),
+    setTaskDetailDrawerWidth: vi.fn(),
+    resetTaskDetailDrawerWidth: vi.fn(),
     toggleNavigation: vi.fn(),
     closeNavigationDrawer: vi.fn(),
   }),
@@ -374,7 +378,11 @@ vi.mock('./WorkspaceTopBar', () => ({
     </button>
   ),
 }));
-vi.mock('./PaneResizeHandle', () => ({ PaneResizeHandle: () => null }));
+vi.mock('./PaneResizeHandle', () => ({
+  PaneResizeHandle: ({ label }: { label: string }) => (
+    <div role="separator" aria-label={label} />
+  ),
+}));
 vi.mock('./WorkspaceImportDialog', () => ({
   WorkspaceImportDialog: ({
     onApplyImport,
@@ -2056,6 +2064,9 @@ describe('WorkspaceShell routing integration', () => {
     expect(
       screen.queryByRole('region', { name: 'Task detail' }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('separator', { name: 'Resize task detail' }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open Task' }));
     await waitFor(() =>
@@ -2064,6 +2075,9 @@ describe('WorkspaceShell routing integration', () => {
       ),
     );
     expect(screen.getByRole('region', { name: 'Task detail' })).toBeVisible();
+    expect(
+      screen.getByRole('separator', { name: 'Resize task detail' }),
+    ).toBeVisible();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Close Task' }));
     await waitFor(() =>
@@ -2071,6 +2085,9 @@ describe('WorkspaceShell routing integration', () => {
         '/w/workspace-1/tasks',
       ),
     );
+    expect(
+      screen.queryByRole('separator', { name: 'Resize task detail' }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
     await waitFor(() =>

@@ -1744,6 +1744,7 @@ export function WorkspaceShell({
   const shellStyle = {
     '--navigation-pane-width': `${paneLayout.navigationWidth}px`,
     '--collection-pane-width': `${paneLayout.collectionWidth}px`,
+    '--task-detail-drawer-width': `${paneLayout.taskDetailDrawerWidth}px`,
   } as CSSProperties;
   const inlineNavigationMode: NavigationMode =
     paneLayout.navigationMode === 'expanded' ? 'expanded' : 'rail';
@@ -2042,6 +2043,19 @@ export function WorkspaceShell({
             onRetry={() => void tasks.refetch()}
             onClearSelection={() => navigateTask(null, true)}
           />
+          {!paneLayout.narrow && selectedTaskId !== null && (
+            <PaneResizeHandle
+              className="task-detail-resize-handle"
+              label="Resize task detail"
+              value={paneLayout.taskDetailDrawerWidth}
+              limits={paneLayout.taskDetailDrawerLimits}
+              inverted
+              resizeTarget={shellRef}
+              resizeProperty="--task-detail-drawer-width"
+              onChange={paneLayout.setTaskDetailDrawerWidth}
+              onReset={paneLayout.resetTaskDetailDrawerWidth}
+            />
+          )}
           {selectedTaskId !== null && (
             <TaskDetailPane
               serverUrl={serverUrl}

@@ -1547,10 +1547,11 @@ select {
   position: absolute;
   z-index: var(--layer-task-detail);
   inset: 0 0 0 auto;
-  width: clamp(480px, 45vw, 720px);
+  width: min(var(--task-detail-drawer-width, clamp(560px, 58vw, 1100px)), 100%);
   grid-column: 2 / -1;
   grid-row: 2 / -1;
   border-left: 1px solid var(--color-border);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
   box-shadow: var(--shadow-popover);
 }
 
@@ -1593,6 +1594,13 @@ select {
   left: calc(
     var(--navigation-pane-width, 226px) + var(--collection-pane-width, 360px)
   );
+}
+
+.task-detail-resize-handle {
+  z-index: calc(var(--layer-task-detail) + 1);
+  right: var(--task-detail-drawer-width);
+  transform: translateX(50%);
+  cursor: ew-resize;
 }
 
 .navigation-rail-layout .collection-resize-handle {
@@ -8520,6 +8528,7 @@ kbd {
 
   .task-detail-drawer {
     width: 100%;
+    border-radius: 0;
   }
 
   .workspace-shell.is-narrow-window .narrow-detail-back {
