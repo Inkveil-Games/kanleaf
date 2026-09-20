@@ -1,12 +1,11 @@
 import {
-  act,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type {
@@ -20,12 +19,11 @@ import type {
 import { TaskDetailPane } from './TaskDetailPane';
 
 vi.mock('../markdown/MarkdownDocument', () => ({
-  MarkdownDocument: ({ documentContext }: { documentContext?: ReactNode }) => (
-    <div>
+  MarkdownDocument: () => (
+    <section aria-label="Markdown document">
       <div>Editor shell header</div>
-      {documentContext}
       <div>Markdown editor</div>
-    </div>
+    </section>
   ),
 }));
 
@@ -359,12 +357,17 @@ describe('TaskDetailPane', () => {
       />,
     );
 
-    expect(await screen.findByText('Undefined')).toBeInTheDocument();
+    const properties = screen.getByRole('region', { name: 'Task properties' });
     expect(
-      screen.getByText('{"source":"Obsidian","score":9}'),
+      await within(properties).findByText('Undefined'),
+    ).toBeInTheDocument();
+    expect(
+      within(properties).getByText('{"source":"Obsidian","score":9}'),
     ).toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole('button', { name: 'Define External context' }),
+      within(properties).getByRole('button', {
+        name: 'Define External context',
+      }),
     );
     expect(onDefineProperty).toHaveBeenCalledWith('External context');
   });
@@ -499,8 +502,14 @@ describe('TaskDetailPane', () => {
       />,
     );
 
-    expect(screen.getByText('Keep this')).toBeInTheDocument();
-    expect(screen.getByText('Archived')).toBeInTheDocument();
+    const propertySection = screen.getByRole('region', {
+      name: 'Task properties',
+    });
+    expect(within(propertySection).getByText('Keep this')).toBeInTheDocument();
+    expect(within(propertySection).getByText('Archived')).toBeInTheDocument();
+    expect(
+      within(propertySection).queryByText('Workspace properties'),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
     fireEvent.click(
       screen.getByRole('button', { name: 'Add Impact property' }),
@@ -625,10 +634,14 @@ describe('TaskDetailPane', () => {
       />,
     );
 
+    const editor = screen.getByText('Markdown editor');
     await screen.findByRole('combobox', { name: 'State' });
     await chooseSelectOption('State', 'In Review');
     await chooseSelectOption('Task type', 'Bug');
     await chooseSelectOption('Priority', 'High');
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2026-09-01' },
+    });
     fireEvent.change(screen.getByLabelText('Due date'), {
       target: { value: '2026-09-04' },
     });
@@ -661,6 +674,7 @@ describe('TaskDetailPane', () => {
       expect(patch).toHaveBeenCalledWith({ state_id: 'state-progress' });
       expect(patch).toHaveBeenCalledWith({ task_type_id: 'type-bug' });
       expect(patch).toHaveBeenCalledWith({ priority: 'high' });
+      expect(patch).toHaveBeenCalledWith({ start_date: '2026-09-01' });
       expect(patch).toHaveBeenCalledWith({ due_date: '2026-09-04' });
       expect(patch).toHaveBeenCalledWith({ assignee_ids: ['user-1'] });
       expect(patch).toHaveBeenCalledWith({
@@ -672,7 +686,7 @@ describe('TaskDetailPane', () => {
       });
     });
 
-    const editor = screen.getByText('Markdown editor');
+    expect(screen.getByText('Markdown editor')).toBe(editor);
     const activity = screen.getByText('Task activity feed');
     expect(
       screen.queryByRole('tab', { name: 'Details' }),
@@ -694,7 +708,7 @@ describe('TaskDetailPane', () => {
         token="session-token"
         workspaceId="workspace-1"
         task={{ ...task, project_id: 'project-1' }}
-        projects={projects}
+        projects={[{ ...projects[0], effective_role: 'viewer' }]}
         states={states}
         taskTypes={taskTypes}
         labels={[]}
@@ -717,7 +731,17 @@ describe('TaskDetailPane', () => {
     );
 
     expect(screen.getByLabelText('Task title')).toHaveAttribute('readonly');
-    expect(screen.getByLabelText('State')).toBeDisabled();
+    expect(screen.queryByLabelText('State')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Priority')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Task type')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: 'Pinned task properties' }),
+    ).toHaveTextContent('TodoNo priorityUnassignedStart dateDue date');
+    expect(
+      screen.getByRole('region', { name: 'Task properties' }),
+    ).toHaveTextContent('TypeTaskProjectKanleaf');
     expect(
       screen.queryByRole('button', { name: 'Task actions' }),
     ).not.toBeInTheDocument();
@@ -726,7 +750,7 @@ describe('TaskDetailPane', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('pins core fields and reveals only selected extended properties', async () => {
+  it('orders pinned properties before Markdown and keeps remaining properties below it', async () => {
     render(
       <TaskDetailPane
         serverUrl="https://kanleaf.example.com"
@@ -755,17 +779,54 @@ describe('TaskDetailPane', () => {
       />,
     );
 
-    expect(screen.getByLabelText('State')).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Edit assignees' }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Priority')).toBeVisible();
-    expect(screen.getByLabelText('Due date')).toBeVisible();
-    expect(screen.getByLabelText('Task type')).toBeVisible();
-    expect(screen.queryByLabelText('Project')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+    const title = screen.getByLabelText('Task title');
+    const pinned = screen.getByRole('region', {
+      name: 'Pinned task properties',
+    });
+    const markdown = screen.getByRole('region', { name: 'Markdown document' });
+    const properties = screen.getByRole('region', { name: 'Task properties' });
+    const structure = screen.getByRole('region', { name: 'Task structure' });
+    const activity = screen.getByText('Task activity feed');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
+    expect(
+      [...pinned.querySelectorAll<HTMLElement>('[data-task-property]')].map(
+        (property) => property.dataset.taskProperty,
+      ),
+    ).toEqual(['state', 'priority', 'assignees', 'start-date', 'due-date']);
+    expect(
+      within(pinned).queryByLabelText('Task type'),
+    ).not.toBeInTheDocument();
+    expect(within(properties).getByLabelText('Task type')).toBeVisible();
+    expect(
+      within(properties).queryByLabelText('Project'),
+    ).not.toBeInTheDocument();
+    expect(
+      within(properties).queryByLabelText('Start date'),
+    ).not.toBeInTheDocument();
+    expect(title).toAppearBefore(pinned);
+    expect(pinned).toAppearBefore(markdown);
+    expect(markdown).toAppearBefore(properties);
+    expect(properties).toAppearBefore(structure);
+    expect(structure).toAppearBefore(activity);
+
+    fireEvent.click(
+      within(properties).getByRole('button', { name: 'Add property' }),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Add Start date property' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add State property' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add Priority property' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add Assignees property' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add Due date property' }),
+    ).not.toBeInTheDocument();
     const search = screen.getByLabelText('Search properties');
     fireEvent.change(search, { target: { value: 'label' } });
     expect(
@@ -777,20 +838,19 @@ describe('TaskDetailPane', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Add Labels property' }),
     );
-    expect(screen.getByRole('button', { name: 'Edit labels' })).toBeVisible();
+    expect(
+      within(properties).getByRole('button', { name: 'Edit labels' }),
+    ).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
-    fireEvent.change(screen.getByLabelText('Search properties'), {
-      target: { value: 'start' },
+    const labelsControl = within(properties).getByRole('button', {
+      name: 'Edit labels',
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Add Start date property' }),
-    );
-    const startDate = screen.getByLabelText('Start date');
-    await waitFor(() => expect(startDate).toHaveFocus());
+    await waitFor(() => expect(labelsControl).toHaveFocus());
     screen.getByLabelText('Task title').focus();
     await waitFor(() =>
-      expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument(),
+      expect(
+        within(properties).queryByRole('button', { name: 'Edit labels' }),
+      ).not.toBeInTheDocument(),
     );
   });
 
@@ -880,21 +940,16 @@ describe('TaskDetailPane', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add property' }));
     fireEvent.click(
-      screen.getByRole('button', { name: 'Add Start date property' }),
+      screen.getByRole('button', { name: 'Add Estimate property' }),
     );
-    fireEvent.change(screen.getByLabelText('Start date'), {
-      target: { value: '2026-09-04' },
+    fireEvent.change(screen.getByLabelText('Estimate'), {
+      target: { value: '3' },
     });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Task update failed',
     );
-    screen.getByLabelText('Task title').focus();
-    await act(
-      () =>
-        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-    );
-    expect(screen.getByLabelText('Start date')).toBeVisible();
+    expect(screen.getByLabelText('Estimate')).toBeVisible();
   });
 });
 

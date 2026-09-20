@@ -23,6 +23,7 @@ export async function startKanleafServer(options: ServerOptions = {}) {
 
   const repositoryRoot = resolve(import.meta.dirname, '../../..');
   const dataDir = await mkdtemp(join(tmpdir(), 'kanleaf-e2e-'));
+  process.env.KANLEAF_E2E_DATA_DIR = dataDir;
   const serverEnv = { ...process.env };
   delete serverEnv.KANLEAF_WEB_DIR;
   if (options.webDir) serverEnv.KANLEAF_WEB_DIR = options.webDir;

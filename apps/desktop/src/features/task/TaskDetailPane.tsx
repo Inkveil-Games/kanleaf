@@ -35,7 +35,9 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
 import { Textarea } from '../../components/ui/Textarea';
 import { TaskActivity } from '../collaboration/TaskActivity';
+import { TaskPinnedProperties } from './TaskPinnedProperties';
 import { TaskProperties } from './TaskProperties';
+import { useTaskPropertyEditing } from './useTaskPropertyEditing';
 
 const MarkdownDocument = lazy(() =>
   import('../markdown/MarkdownDocument').then((module) => ({
@@ -267,6 +269,7 @@ function SelectedTaskDetail({
   const [relationType, setRelationType] =
     useState<TaskRelationType>('relates_to');
   const [relationSaving, setRelationSaving] = useState(false);
+  const propertyEditing = useTaskPropertyEditing(canEdit, onPatch);
 
   const fitTitle = useCallback(() => {
     const input = titleRef.current;
@@ -312,40 +315,6 @@ function SelectedTaskDetail({
     }
   }
 
-  const documentContext = (
-    <>
-      <TaskProperties
-        task={task}
-        projects={projects}
-        states={states}
-        taskTypes={taskTypes}
-        labels={labels}
-        cycles={cycles}
-        modules={modules}
-        assigneeCandidates={assigneeCandidates}
-        taskCandidates={taskCandidates}
-        canEdit={canEdit}
-        canManageProperties={canManageProperties}
-        onPatch={onPatch}
-        customProperties={customProperties}
-        customPropertiesLoading={customPropertiesLoading}
-        customPropertiesError={customPropertiesError}
-        onRetryCustomProperties={onRetryCustomProperties}
-        undefinedProperties={undefinedProperties}
-        undefinedPropertiesLoading={undefinedPropertiesLoading}
-        undefinedPropertiesError={undefinedPropertiesError}
-        onRetryUndefinedProperties={onRetryUndefinedProperties}
-        onCustomPropertyChange={onCustomPropertyChange}
-        onDefineProperty={onDefineProperty}
-      />
-      {error && (
-        <p className="detail-error" role="alert">
-          {error}
-        </p>
-      )}
-    </>
-  );
-
   return (
     <>
       <div className="detail-scroll">
@@ -363,12 +332,25 @@ function SelectedTaskDetail({
           onKeyDown={titleKeyDown}
         />
 
+        <TaskPinnedProperties
+          task={task}
+          states={states}
+          assigneeCandidates={assigneeCandidates}
+          canEdit={canEdit}
+          editing={propertyEditing}
+        />
+
+        <div className="task-detail-error-slot">
+          {error ? (
+            <p className="detail-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
         <Suspense
           fallback={
-            <section
-              className="task-document task-document-contextual"
-              aria-label="Markdown document"
-            >
+            <section className="task-document" aria-label="Markdown document">
               <header className="document-toolbar document-toolbar-pending">
                 <span>Markdown</span>
                 <span className="save-indicator" role="status">
@@ -385,9 +367,31 @@ function SelectedTaskDetail({
             workspaceId={workspaceId}
             target={{ kind: 'task', id: task.id }}
             readOnly={!canEdit}
-            documentContext={documentContext}
           />
         </Suspense>
+
+        <TaskProperties
+          task={task}
+          projects={projects}
+          taskTypes={taskTypes}
+          labels={labels}
+          cycles={cycles}
+          modules={modules}
+          taskCandidates={taskCandidates}
+          canEdit={canEdit}
+          canManageProperties={canManageProperties}
+          editing={propertyEditing}
+          customProperties={customProperties}
+          customPropertiesLoading={customPropertiesLoading}
+          customPropertiesError={customPropertiesError}
+          onRetryCustomProperties={onRetryCustomProperties}
+          undefinedProperties={undefinedProperties}
+          undefinedPropertiesLoading={undefinedPropertiesLoading}
+          undefinedPropertiesError={undefinedPropertiesError}
+          onRetryUndefinedProperties={onRetryUndefinedProperties}
+          onCustomPropertyChange={onCustomPropertyChange}
+          onDefineProperty={onDefineProperty}
+        />
 
         <section className="task-secondary-details" aria-label="Task structure">
           <details className="task-structure-disclosure">

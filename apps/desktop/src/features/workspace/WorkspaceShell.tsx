@@ -1661,10 +1661,6 @@ export function WorkspaceShell({
   const visibleTasks = tasks.data ?? [];
   const selectedListTask = visibleTasks.find(({ id }) => id === selectedTaskId);
   const selectedTask = task.data ?? selectedListTask ?? null;
-  const editableProjects = (projects.data ?? []).filter(
-    ({ effective_role }) =>
-      effective_role === 'admin' || effective_role === 'contributor',
-  );
 
   function canEditTask(currentTask: Task) {
     if (!currentTask.project_id) return hasContentAccess;
@@ -2062,7 +2058,7 @@ export function WorkspaceShell({
               token={token}
               workspaceId={workspaceId}
               task={selectedTask}
-              projects={editableProjects}
+              projects={projects.data ?? []}
               states={taskConfiguration.data?.states ?? []}
               taskTypes={taskConfiguration.data?.task_types ?? []}
               labels={taskConfiguration.data?.labels ?? []}

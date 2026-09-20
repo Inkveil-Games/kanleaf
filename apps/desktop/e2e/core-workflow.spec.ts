@@ -5,6 +5,8 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { serverUrl } from './environment';
 
 async function chooseSelectOption(
@@ -39,6 +41,19 @@ async function addTaskProperty(page: Page, property: string) {
   await expect(page.getByLabel('Search properties')).toBeVisible();
   await page.getByLabel('Search properties').fill(property);
   await page.getByRole('button', { name: `Add ${property} property` }).click();
+}
+
+async function readTaskVaultSource(workspaceId: string, taskId: string) {
+  const dataDir = process.env.KANLEAF_E2E_DATA_DIR;
+  if (!dataDir) throw new Error('KANLEAF_E2E_DATA_DIR is not available');
+  const workspaceRoot = join(dataDir, 'vaults', workspaceId);
+  const paths = await readdir(workspaceRoot, { recursive: true });
+  for (const relativePath of paths) {
+    if (!relativePath.endsWith('.md')) continue;
+    const source = await readFile(join(workspaceRoot, relativePath), 'utf8');
+    if (source.includes(`Kanleaf ID: ${taskId}`)) return source;
+  }
+  throw new Error(`Could not find Markdown for Task ${taskId}`);
 }
 
 async function textGeometry(locator: Locator, text: string) {
@@ -196,7 +211,8 @@ test('manages structured work and durable Markdown across reloads', async ({
     page.getByRole('heading', { name: 'Sign in to Kanleaf' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'New account' }).click();
-  await page.getByLabel('Email').fill(`e2e-${suffix}@example.com`);
+  const email = `e2e-${suffix}@example.com`;
+  await page.getByLabel('Email').fill(email);
   await page
     .getByLabel('Password', { exact: true })
     .fill('playwright-password');
@@ -214,7 +230,17 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page.getByLabel('Workspace ID')).toHaveValue('studio');
   const workspaceIdentifier = `studio-${suffix}`;
   await page.getByLabel('Workspace ID').fill(workspaceIdentifier);
+  const createdWorkspaceResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === 'POST' &&
+      url.pathname === '/api/workspaces'
+    );
+  });
   await page.getByRole('button', { name: 'Create Workspace' }).click();
+  const { id: workspaceId } = (await (
+    await createdWorkspaceResponse
+  ).json()) as { id: string };
   await expect(page).toHaveURL(/\/setup\/invite$/);
   await page.getByLabel('Email').fill(`invitee-${suffix}@example.com`);
   await page.getByRole('button', { name: 'Create invitation' }).click();
@@ -958,7 +984,17 @@ let source_is_markdown = true;
   await page.getByRole('button', { name: 'New task' }).click();
   const taskTitleInput = page.getByLabel('Task title');
   await taskTitleInput.fill('Complete the v0.1 workflow');
+  const createdTaskResponse = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'POST' &&
+      new RegExp(`/api/workspaces/${workspaceId}/tasks$`).test(path)
+    );
+  });
   await taskTitleInput.press('Enter');
+  const createdTask = (await (await createdTaskResponse).json()) as {
+    id: string;
+  };
   await expect(page).toHaveURL(
     new RegExp(
       `/w/${workspaceIdentifier}/p/${projectIdentifier}/work-items\\?task=\\d+$`,
@@ -1016,7 +1052,6 @@ let source_is_markdown = true;
   await expectTaskPatch(page, () =>
     page.getByLabel('Due date').fill('2026-09-30'),
   );
-  await addTaskProperty(page, 'Start date');
   await expectTaskPatch(page, () =>
     page.getByLabel('Start date').fill('2026-09-01'),
   );
@@ -1109,9 +1144,35 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(page.getByLabel('Start date')).toHaveValue('2026-09-01');
   await expect(
+    page.getByRole('spinbutton', { name: 'Story points' }),
+  ).toHaveValue('3');
+  await expect(
     page.getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
+  await page.getByRole('button', { name: 'Source' }).click();
+  const reloadedTaskSource = page.locator(
+    '.cm-content[contenteditable="true"]',
+  );
+  await expect(reloadedTaskSource).toContainText('# Architecture');
+  await expect(reloadedTaskSource).toContainText('Filesystem Markdown');
+  await expect
+    .poll(async () => {
+      const source = await readTaskVaultSource(workspaceId, createdTask.id);
+      return (
+        source.includes('State:\n  - Review\n') &&
+        source.includes('Type:\n  - Bug\n') &&
+        source.includes('Priority:\n  - Urgent\n') &&
+        source.includes(`Assignees:\n  - ${email}\n`) &&
+        source.includes('Start date: 2026-09-01\n') &&
+        source.includes('Due date: 2026-09-30\n') &&
+        source.includes('Story points: 3\n') &&
+        source.includes('# Architecture') &&
+        source.includes('Filesystem Markdown')
+      );
+    })
+    .toBe(true);
+  await page.getByRole('button', { name: 'Reading' }).click();
 
   await page.getByRole('button', { name: 'Urgent work' }).click();
   await expect(page.getByLabel('Layout')).toHaveAttribute(
@@ -1335,6 +1396,14 @@ test('preserves open Task state through overlay and responsive resizing', async 
   await expect(
     page.getByRole('separator', { name: 'Resize task detail' }),
   ).toBeVisible();
+  const pinnedProperties = taskDetail.locator('.task-pinned-properties');
+  await expect
+    .poll(() =>
+      pinnedProperties.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    )
+    .toBe(true);
 
   let releaseResolver = () => undefined;
   const holdResolver = new Promise<void>((resolve) => {
@@ -1438,6 +1507,32 @@ test('preserves open Task state through overlay and responsive resizing', async 
   };
 
   const taskSurfaceBeforeDrawerResize = await taskSurface.boundingBox();
+  const detailResizeHandle = page.getByRole('separator', {
+    name: 'Resize task detail',
+  });
+  await detailResizeHandle.focus();
+  await detailResizeHandle.press('End');
+  const detailAtMinimum = await taskDetail.boundingBox();
+  expect(detailAtMinimum).not.toBeNull();
+  expect(detailAtMinimum!.width).toBeGreaterThanOrEqual(560);
+  expect(await taskSurface.boundingBox()).toEqual(
+    taskSurfaceBeforeDrawerResize,
+  );
+  const pinnedItemsAtMinimum = pinnedProperties.locator(
+    ':scope > [data-task-property]',
+  );
+  const firstPinnedBounds = await pinnedItemsAtMinimum.nth(0).boundingBox();
+  const thirdPinnedBounds = await pinnedItemsAtMinimum.nth(2).boundingBox();
+  expect(firstPinnedBounds).not.toBeNull();
+  expect(thirdPinnedBounds).not.toBeNull();
+  expect(thirdPinnedBounds!.y).toBeGreaterThan(firstPinnedBounds!.y);
+  await expect
+    .poll(() =>
+      pinnedProperties.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    )
+    .toBe(true);
   const detailBeforeResize = await taskDetail.boundingBox();
   await drag('Resize task detail', -96);
   const detailAfterResize = await taskDetail.boundingBox();
@@ -1566,6 +1661,29 @@ test('preserves open Task state through overlay and responsive resizing', async 
   await page.keyboard.press('Escape');
   await expect(navigationDrawer).not.toBeVisible();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  await page.setViewportSize({ width: 520, height: 700 });
+  await expect(taskDetail).toBeVisible();
+  await expect
+    .poll(() =>
+      pinnedProperties.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    )
+    .toBe(true);
+  const mobilePinnedItems = pinnedProperties.locator(
+    ':scope > [data-task-property]',
+  );
+  const mobileFirstPinnedBounds = await mobilePinnedItems.nth(0).boundingBox();
+  const mobileThirdPinnedBounds = await mobilePinnedItems.nth(2).boundingBox();
+  expect(mobileFirstPinnedBounds).not.toBeNull();
+  expect(mobileThirdPinnedBounds).not.toBeNull();
+  expect(mobileThirdPinnedBounds!.y).toBeGreaterThan(
+    mobileFirstPinnedBounds!.y,
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(520);
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(taskList).toBeVisible();
@@ -1799,6 +1917,10 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
 
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(shell).toHaveClass(/is-narrow-window/);
+  await expect(board).toBeVisible();
+  await expect(taskSurface).toBeVisible();
+  await expect.poll(() => board.boundingBox()).not.toBeNull();
+  await expect.poll(() => taskSurface.boundingBox()).not.toBeNull();
   const narrowBoardBounds = await board.boundingBox();
   const narrowTaskSurfaceBounds = await taskSurface.boundingBox();
   await page.locator('.board-task', { hasText: firstTask.title }).click();

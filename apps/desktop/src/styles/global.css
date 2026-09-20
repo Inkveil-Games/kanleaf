@@ -4201,6 +4201,7 @@ kbd {
 }
 
 .detail-scroll {
+  container: task-detail / inline-size;
   min-height: 0;
   padding: clamp(24px, 4vw, 48px);
   overflow: auto;
@@ -4228,9 +4229,121 @@ kbd {
   box-shadow: inset 0 -1px var(--color-border);
 }
 
+.task-pinned-property-area {
+  margin-top: var(--space-4);
+}
+
+.task-pinned-properties {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.task-pinned-property {
+  display: grid;
+  min-width: 0;
+  height: 32px;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding-left: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+
+.task-pinned-property:focus-within,
+.task-pinned-property:hover {
+  background: var(--color-surface-muted);
+}
+
+.task-pinned-property[data-invalid] {
+  color: var(--color-danger);
+}
+
+.task-pinned-property > .kanleaf-select,
+.task-pinned-property > .property-picker,
+.task-pinned-property > .property-readonly-value,
+.task-pinned-date {
+  min-width: 0;
+}
+
+.task-pinned-property .select-trigger,
+.task-pinned-property .property-picker .context-menu-trigger {
+  height: 32px;
+  padding: 0 6px 0 0;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  font-size: var(--font-size-sm);
+}
+
+.task-pinned-property .select-trigger:hover:not(:disabled),
+.task-pinned-property .select-trigger[aria-expanded='true'],
+.task-pinned-property .property-picker .context-menu-trigger:hover,
+.task-pinned-property
+  .property-picker
+  .context-menu-trigger[aria-expanded='true'] {
+  background: transparent;
+}
+
+.task-pinned-property .property-readonly-value {
+  padding: 0 6px 0 0;
+  color: var(--color-text);
+}
+
+.task-pinned-date {
+  position: relative;
+  display: block;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.task-pinned-date > span {
+  display: block;
+  padding: 7px 6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-pinned-date > .ui-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.task-pinned-date:has(.ui-input:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.task-pinned-date:has(.ui-input:disabled) {
+  opacity: 0.68;
+}
+
+.task-detail-error-slot:empty {
+  display: none;
+}
+
+.task-pinned-property-area + .task-detail-error-slot + .task-document {
+  margin-top: var(--space-5);
+}
+
 .task-property-area {
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  margin-top: var(--space-6);
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+.task-property-area > h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 0.86rem;
+  font-weight: 620;
 }
 
 .task-properties {
@@ -4320,23 +4433,6 @@ kbd {
   min-width: 0;
   align-items: center;
   gap: var(--space-1);
-}
-
-.task-property-section-heading {
-  margin-top: var(--space-2);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-subtle);
-  font-size: 0.7rem;
-  font-weight: 620;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.task-property-section-heading dd {
-  margin: 0;
-  font-weight: 500;
-  text-align: left;
 }
 
 .custom-property-control > .ui-input,
@@ -4461,6 +4557,18 @@ kbd {
 
 .menu-empty-state {
   padding: var(--space-2);
+}
+
+@container task-detail (max-width: 620px) {
+  .task-pinned-properties {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container task-detail (max-width: 340px) {
+  .task-pinned-properties {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .detail-error {

@@ -1,28 +1,33 @@
 import type { Task, TaskState, TaskType } from '../workspace/types';
 
-export type PropertyKey =
-  'state' | 'assignees' | 'priority' | 'due-date' | ExtendedPropertyKey;
+export type PinnedPropertyKey =
+  'state' | 'priority' | 'assignees' | 'start-date' | 'due-date';
+
+export type PropertyKey = PinnedPropertyKey | ExtendedPropertyKey;
 
 export type ExtendedPropertyKey =
-  | 'type'
-  | 'project'
-  | 'labels'
-  | 'start-date'
-  | 'estimate'
-  | 'parent'
-  | 'cycle'
-  | 'modules';
+  'type' | 'project' | 'labels' | 'estimate' | 'parent' | 'cycle' | 'modules';
 
 export interface TaskPropertyDefinition {
   key: ExtendedPropertyKey;
   label: string;
 }
 
+export const PINNED_PROPERTIES = [
+  { key: 'state', label: 'State' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'assignees', label: 'Assignees' },
+  { key: 'start-date', label: 'Start date' },
+  { key: 'due-date', label: 'Due date' },
+] as const satisfies ReadonlyArray<{
+  key: PinnedPropertyKey;
+  label: string;
+}>;
+
 export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [
   { key: 'type', label: 'Type' },
   { key: 'project', label: 'Project' },
   { key: 'labels', label: 'Labels' },
-  { key: 'start-date', label: 'Start date' },
   { key: 'estimate', label: 'Estimate' },
   { key: 'parent', label: 'Parent' },
   { key: 'cycle', label: 'Cycle' },
@@ -37,8 +42,6 @@ export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
       return task.project_id !== null;
     case 'labels':
       return task.labels.length > 0;
-    case 'start-date':
-      return task.start_date !== null;
     case 'estimate':
       return task.estimate !== null;
     case 'parent':
@@ -50,10 +53,8 @@ export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
   }
 }
 
-export function isExtendedProperty(
-  key: PropertyKey,
-): key is ExtendedPropertyKey {
-  return EXTENDED_PROPERTIES.some((property) => property.key === key);
+export function isPinnedProperty(key: PropertyKey): key is PinnedPropertyKey {
+  return PINNED_PROPERTIES.some((property) => property.key === key);
 }
 
 export function selectableStates(states: TaskState[], task: Task) {
