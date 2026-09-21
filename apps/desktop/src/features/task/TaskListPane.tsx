@@ -252,35 +252,38 @@ export function TaskListPane({
     <section className="collection-pane" aria-label={title}>
       <div className="collection-controls">
         <div className="task-search">
-          <Search aria-hidden="true" size={15} />
-          <label className="sr-only" htmlFor="task-search-input">
-            Search tasks
-          </label>
-          <Input
-            id="task-search-input"
-            ref={searchRef}
-            type="search"
-            value={query.search ?? ''}
-            placeholder="Search tasks"
-            onChange={(event) =>
-              onQueryChange({
-                ...query,
-                search: event.target.value || null,
-              })
-            }
-          />
-          {query.search && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              type="button"
-              aria-label="Clear search"
-              onClick={() => onQueryChange({ ...query, search: null })}
-            >
-              <X aria-hidden="true" size={14} />
-            </IconButton>
-          )}
-          <kbd>/</kbd>
+          <div className="task-search-field">
+            <Search aria-hidden="true" size={15} />
+            <label className="sr-only" htmlFor="task-search-input">
+              Search tasks
+            </label>
+            <Input
+              id="task-search-input"
+              ref={searchRef}
+              type="search"
+              aria-keyshortcuts="/"
+              value={query.search ?? ''}
+              placeholder="Search tasks"
+              onChange={(event) =>
+                onQueryChange({
+                  ...query,
+                  search: event.target.value || null,
+                })
+              }
+            />
+            {query.search && (
+              <IconButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                aria-label="Clear search"
+                onClick={() => onQueryChange({ ...query, search: null })}
+              >
+                <X aria-hidden="true" size={14} />
+              </IconButton>
+            )}
+            <kbd aria-hidden="true">/</kbd>
+          </div>
           {canCreate && (
             <Tooltip
               label="New task"

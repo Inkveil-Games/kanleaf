@@ -3066,16 +3066,17 @@ html[data-input-modality='keyboard']
 .collection-controls {
   container: task-controls / inline-size;
   min-width: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border) 72%, transparent);
 }
 
 .view-toolbar {
   display: flex;
   min-width: 0;
-  min-height: 35px;
+  min-height: 40px;
   align-items: center;
-  gap: 3px;
-  padding: 3px var(--collection-content-gutter) 5px;
+  gap: 2px;
+  padding: 4px var(--collection-content-gutter) 6px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -3094,26 +3095,29 @@ html[data-input-modality='keyboard']
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .view-secondary-select > span {
+  margin-inline: 2px;
   color: var(--color-text-muted);
-  font-size: 0.6rem;
+  font-size: 0.64rem;
+  line-height: 1;
 }
 
 .view-layout-select .select-trigger,
 .view-compact-select .select-trigger {
   width: auto;
-  height: 28px;
-  gap: 5px;
-  padding: 0 6px;
+  height: var(--control-height-sm);
+  gap: 6px;
+  padding: 0 var(--space-2);
   border-color: transparent;
   color: var(--color-text-muted);
   background: transparent;
   font: inherit;
-  font-size: 0.72rem;
-  font-weight: 590;
+  font-size: 0.75rem;
+  font-weight: 570;
+  line-height: 1;
 }
 
 .view-layout-select .select-value,
@@ -3126,27 +3130,36 @@ html[data-input-modality='keyboard']
 .view-compact-select .select-trigger:hover:not(:disabled),
 .view-layout-select .select-trigger[aria-expanded='true'],
 .view-compact-select .select-trigger[aria-expanded='true'] {
-  border-color: var(--color-border);
+  border-color: transparent;
   color: var(--color-text);
-  background: var(--color-surface-muted);
+  background: var(--color-surface-hover);
 }
 
 .view-control-menu .context-menu-trigger,
 .view-range-menu .context-menu-trigger,
 .view-actions-menu .context-menu-trigger {
+  display: inline-flex;
   width: auto;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 7px;
-  gap: 5px;
+  min-width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
   color: var(--color-text-muted);
-  font-size: 0.72rem;
-  font-weight: 590;
+  font-size: 0.75rem;
+  font-weight: 570;
+  line-height: 1;
 }
 
 .view-actions-menu .context-menu-trigger {
-  width: 28px;
+  width: var(--control-height-sm);
   padding: 0;
+}
+
+.view-control-label {
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .view-sort-direction {
@@ -3235,16 +3248,16 @@ html[data-input-modality='keyboard']
 }
 
 .view-toolbar-spacer {
-  flex: 1 0 8px;
+  flex: 1 0 var(--space-2);
 }
 
 .view-save-button {
   flex: 0 0 auto;
 }
 
-@container task-controls (max-width: 900px) {
+@container task-controls (max-width: 940px) {
   .view-secondary-control .context-menu-trigger {
-    width: 28px;
+    width: var(--control-height-sm);
     padding: 0;
   }
 
@@ -3253,10 +3266,10 @@ html[data-input-modality='keyboard']
   }
 }
 
-@container task-controls (max-width: 700px) {
+@container task-controls (max-width: 720px) {
   .view-layout-select .select-trigger,
   .view-compact-select .select-trigger {
-    width: 28px;
+    width: var(--control-height-sm);
     justify-content: center;
     padding: 0;
   }
@@ -3270,7 +3283,7 @@ html[data-input-modality='keyboard']
   }
 }
 
-@container task-controls (max-width: 560px) {
+@container task-controls (max-width: 600px) {
   .view-save-button {
     width: 30px;
     padding: 0;
@@ -3405,18 +3418,49 @@ html[data-input-modality='keyboard']
 }
 
 .task-search {
-  display: grid;
-  min-height: 43px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  display: flex;
+  min-height: 48px;
   align-items: center;
-  gap: 7px;
-  padding: 5px var(--collection-content-gutter);
+  gap: var(--space-2);
+  padding: 6px var(--collection-content-gutter) 4px;
   border-bottom: 0;
   color: var(--color-text-muted);
 }
 
+.task-search-field {
+  display: flex;
+  width: min(100%, 520px);
+  max-width: 520px;
+  min-width: 0;
+  height: 32px;
+  flex: 1 1 360px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.task-search-field:hover,
+.task-search-field:focus-within {
+  background: color-mix(in srgb, var(--color-surface-muted) 62%, transparent);
+}
+
+html[data-input-modality='keyboard'] .task-search-field:focus-within {
+  box-shadow:
+    inset 0 0 0 1px var(--color-focus),
+    0 0 0 2px color-mix(in srgb, var(--color-focus) 18%, transparent);
+}
+
+.task-search-field > svg {
+  flex: 0 0 auto;
+}
+
+.task-search-field > kbd {
+  flex: 0 0 auto;
+}
+
 .task-new-button {
-  margin-left: var(--space-1);
+  margin-left: auto;
 }
 
 .bulk-toolbar {
@@ -3454,6 +3498,7 @@ html[data-input-modality='keyboard']
 .task-search .ui-input {
   min-width: 0;
   height: 100%;
+  flex: 1 1 auto;
   padding: 0;
   border: 0;
   background: transparent;
@@ -3461,8 +3506,7 @@ html[data-input-modality='keyboard']
 
 html[data-input-modality='keyboard'] .task-search .ui-input:focus-visible {
   border-color: transparent;
-  outline: 1px solid color-mix(in srgb, var(--color-focus) 58%, transparent);
-  outline-offset: -2px;
+  outline: 0;
 }
 
 .task-search .ui-input::-webkit-search-cancel-button {
@@ -3495,40 +3539,52 @@ html[data-input-modality='keyboard'] .task-list:focus-visible {
   z-index: 1;
   top: 0;
   display: flex;
-  min-height: 31px;
+  min-height: 32px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 6px;
   padding: 0 var(--collection-content-gutter);
   border-bottom: 1px solid
-    color-mix(in srgb, var(--color-border) 72%, transparent);
+    color-mix(in srgb, var(--color-border) 44%, transparent);
   color: var(--color-text-muted);
-  background: color-mix(in srgb, var(--color-canvas) 72%, var(--color-surface));
-  font-size: 0.67rem;
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-canvas));
+  font-size: 0.68rem;
 }
 
 .task-list-group > header strong {
   color: var(--color-text);
-  font-weight: 630;
+  font-weight: 650;
+}
+
+.task-list-group > header > span {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-list-group + .task-list-group {
+  margin-top: 6px;
 }
 
 .task-list-subgroup > h3 {
   display: flex;
   min-height: 26px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 6px;
   margin: 0;
   padding: 0 var(--collection-content-gutter) 0
     calc(var(--collection-content-gutter) + var(--space-3));
   border-bottom: 1px solid
-    color-mix(in srgb, var(--color-border) 58%, transparent);
+    color-mix(in srgb, var(--color-border) 38%, transparent);
   color: var(--color-text-muted);
-  background: color-mix(
-    in srgb,
-    var(--color-surface-muted) 58%,
-    var(--color-surface)
-  );
+  background: var(--color-surface);
   font-size: 0.63rem;
   font-weight: 620;
+}
+
+.task-list-subgroup > h3 > span:last-child {
+  font-size: 0.59rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-board {
@@ -4172,11 +4228,11 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 
 .task-row {
   display: grid;
-  min-height: 46px;
-  grid-template-columns: 24px 28px minmax(0, 1fr);
+  min-height: 48px;
+  grid-template-columns: 26px 26px minmax(0, 1fr);
   padding: 0 var(--collection-content-gutter);
   border-bottom: 1px solid
-    color-mix(in srgb, var(--color-border) 62%, transparent);
+    color-mix(in srgb, var(--color-border) 42%, transparent);
 }
 
 .task-select-control {
@@ -4187,14 +4243,18 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 .task-row:hover {
   background: color-mix(
     in srgb,
-    var(--color-surface-muted) 72%,
+    var(--color-surface-hover) 48%,
     var(--color-surface)
   );
 }
 
 .task-row[aria-selected='true'] {
-  background: var(--color-selection);
-  box-shadow: inset 3px 0 var(--color-accent);
+  background: color-mix(
+    in srgb,
+    var(--color-selection) 82%,
+    var(--color-surface)
+  );
+  box-shadow: inset 2px 0 var(--color-accent);
 }
 
 .task-status-button {
@@ -4251,8 +4311,8 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   display: grid;
   min-width: 0;
   align-content: center;
-  gap: 3px;
-  padding: 6px 0;
+  gap: 2px;
+  padding: 7px 0;
   border: 0;
   background: transparent;
   text-align: left;
@@ -4261,8 +4321,8 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 .task-row-title {
   overflow: hidden;
   font-size: var(--font-size-sm);
-  font-weight: 520;
-  line-height: 1.25;
+  font-weight: 540;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4277,10 +4337,10 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: var(--space-2);
+  gap: 7px;
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
 }
 
 .task-row-metadata > span {
@@ -4409,13 +4469,14 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 
 .collection-footer {
   display: flex;
-  height: 27px;
+  height: 28px;
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--collection-content-gutter);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
   color: var(--color-text-muted);
-  font-size: 0.66rem;
+  background: color-mix(in srgb, var(--color-canvas) 36%, var(--color-surface));
+  font-size: 0.67rem;
 }
 
 .detail-pane {

@@ -1110,8 +1110,26 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.setViewportSize({ width: 1280, height: 800 });
 
   const taskToolbar = page.getByLabel('Task view controls');
+  const taskSearch = page.getByLabel('Search tasks');
+  await expect(taskSearch).toHaveAttribute('aria-keyshortcuts', '/');
+  await page.keyboard.press('/');
+  await expect(taskSearch).toBeFocused();
+  await taskSearch.blur();
   await expect(taskToolbar.getByLabel('Layout')).toContainText('List');
-  await expect(taskToolbar.getByLabel('Filter tasks')).toContainText('Filter');
+  const filterControl = taskToolbar.getByLabel('Filter tasks');
+  const filterLabel = filterControl.locator('.view-control-label');
+  await expect(filterLabel).toBeVisible();
+  const filterAlignment = await filterControl.evaluate((control) => {
+    const icon = control.querySelector('svg');
+    const label = control.querySelector('.view-control-label');
+    if (!icon || !label) throw new Error('Filter control content is missing');
+    const iconBox = icon.getBoundingClientRect();
+    const labelBox = label.getBoundingClientRect();
+    return Math.abs(
+      iconBox.top + iconBox.height / 2 - (labelBox.top + labelBox.height / 2),
+    );
+  });
+  expect(filterAlignment).toBeLessThan(2);
   await expect(
     taskToolbar.getByRole('combobox', { name: 'Group by', exact: true }),
   ).toContainText('State');
