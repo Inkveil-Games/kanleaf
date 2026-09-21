@@ -214,6 +214,7 @@ export function DocumentWorkspace({
   }
 
   async function patchDocument(documentId: string, patch: DocumentPatch) {
+    if (!(await onPrepareDocumentMutation())) return false;
     await run(async () => {
       const updated = await updateDocument(
         context,
@@ -230,6 +231,7 @@ export function DocumentWorkspace({
       }
       await refresh();
     });
+    return true;
   }
 
   async function moveTreeDocument(
@@ -456,7 +458,9 @@ export function DocumentWorkspace({
         onCreate={addDocument}
         onStartRename={setRenamingId}
         onCancelRename={() => setRenamingId(null)}
-        onRename={(documentId, title) => patchDocument(documentId, { title })}
+        onRename={async (documentId, title) => {
+          await patchDocument(documentId, { title });
+        }}
         onMove={moveTreeDocument}
         onKeepExpanded={(documentId) => {
           setCollapsedIds((current) => {
@@ -509,11 +513,13 @@ export function DocumentWorkspace({
             document={selected}
             documents={availableDocuments}
             projects={projects}
+            canMoveToWorkspace={canCreateWorkspaceDocuments}
             confirmingArchive={archiveCandidateId === selected.id}
             onPatch={(patch) => patchDocument(selected.id, patch)}
             onRequestArchive={() => setArchiveCandidateId(selected.id)}
             onCancelArchive={() => setArchiveCandidateId(null)}
             onConfirmArchive={() => confirmArchive(selected.id)}
+            onRequestDelete={() => setDeleteCandidateId(selected.id)}
             onBack={() => {
               void onSelectDocument(null, { replace: true });
             }}

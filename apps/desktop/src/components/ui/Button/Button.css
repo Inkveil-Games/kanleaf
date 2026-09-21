@@ -77,7 +77,7 @@
   filter: brightness(0.96);
 }
 
-.ui-button:focus-visible {
+html[data-input-modality='keyboard'] .ui-button:focus-visible {
   border-color: var(--color-focus);
   outline: 2px solid color-mix(in srgb, var(--color-focus) 28%, transparent);
   outline-offset: 1px;

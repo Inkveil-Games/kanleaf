@@ -1,26 +1,15 @@
-import {
-  CalendarCheck,
-  CalendarDays,
-  CircleDot,
-  Flag,
-  Users,
-} from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
-import type {
-  Task,
-  TaskAssignee,
-  TaskPriority,
-  TaskState,
-} from '../workspace/types';
-import { MultiValuePicker } from './TaskPropertyControls';
+import type { Task, TaskAssignee, TaskState } from '../workspace/types';
+import { MultiValuePicker, TaskDateControl } from './TaskPropertyControls';
 import {
-  PINNED_PROPERTIES,
+  TASK_PRIORITY_OPTIONS,
   isPinnedProperty,
+  priorityLabel,
   selectableStates,
-  type PinnedPropertyKey,
 } from './taskPropertyModel';
+import { PINNED_PROPERTIES } from './taskPropertyPresentation';
+import { TaskPropertyIcon } from './TaskPropertyIcon';
 import type { TaskPropertyEditing } from './useTaskPropertyEditing';
 
 interface TaskPinnedPropertiesProps {
@@ -112,16 +101,10 @@ function PinnedProperty({
           value={task.priority}
           disabled={editing.disabled('priority')}
           invalid={invalid}
-          options={[
-            { value: 'none', label: 'No priority' },
-            { value: 'low', label: 'Low' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'high', label: 'High' },
-            { value: 'urgent', label: 'Urgent' },
-          ]}
+          options={[...TASK_PRIORITY_OPTIONS]}
           onValueChange={(value) =>
             void editing.patchProperty('priority', {
-              priority: value as TaskPriority,
+              priority: value as Task['priority'],
             })
           }
         />
@@ -153,8 +136,9 @@ function PinnedProperty({
       break;
     case 'start-date':
       control = canEdit ? (
-        <PinnedDateInput
+        <TaskDateControl
           label="Start date"
+          className="task-pinned-date"
           value={task.start_date}
           disabled={editing.disabled('start-date')}
           invalid={invalid}
@@ -170,8 +154,9 @@ function PinnedProperty({
       break;
     case 'due-date':
       control = canEdit ? (
-        <PinnedDateInput
+        <TaskDateControl
           label="Due date"
+          className="task-pinned-date"
           value={task.due_date}
           disabled={editing.disabled('due-date')}
           invalid={invalid}
@@ -193,61 +178,8 @@ function PinnedProperty({
       data-task-property={property.key}
       data-invalid={invalid || undefined}
     >
-      <PinnedPropertyIcon propertyKey={property.key} />
+      <TaskPropertyIcon propertyKey={property.key} />
       {control}
     </div>
-  );
-}
-
-function priorityLabel(priority: TaskPriority) {
-  if (priority === 'none') return 'No priority';
-  return `${priority[0].toUpperCase()}${priority.slice(1)}`;
-}
-
-function PinnedPropertyIcon({
-  propertyKey,
-}: {
-  propertyKey: PinnedPropertyKey;
-}) {
-  const iconProps = { 'aria-hidden': true as const, size: 14 };
-  switch (propertyKey) {
-    case 'state':
-      return <CircleDot {...iconProps} />;
-    case 'priority':
-      return <Flag {...iconProps} />;
-    case 'assignees':
-      return <Users {...iconProps} />;
-    case 'start-date':
-      return <CalendarDays {...iconProps} />;
-    case 'due-date':
-      return <CalendarCheck {...iconProps} />;
-  }
-}
-
-function PinnedDateInput({
-  label,
-  value,
-  disabled,
-  invalid,
-  onChange,
-}: {
-  label: string;
-  value: string | null;
-  disabled: boolean;
-  invalid: boolean;
-  onChange: (value: string | null) => Promise<boolean>;
-}) {
-  return (
-    <label className="task-pinned-date">
-      <span aria-hidden="true">{value || label}</span>
-      <Input
-        aria-label={label}
-        type="date"
-        disabled={disabled}
-        aria-invalid={invalid || undefined}
-        value={value ?? ''}
-        onChange={(event) => void onChange(event.target.value || null)}
-      />
-    </label>
   );
 }

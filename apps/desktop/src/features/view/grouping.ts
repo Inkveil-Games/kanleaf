@@ -8,6 +8,39 @@ export interface TaskGroup {
   taskIds: Set<string>;
 }
 
+export interface TaskGroupBranch {
+  group: TaskGroup;
+  tasks: Task[];
+  secondary: TaskGroupBranch[];
+}
+
+export function buildTaskGroupTree(
+  primary: TaskGroupField,
+  secondary: TaskGroupField | null,
+  tasks: Task[],
+  projects: Project[],
+  states: TaskState[],
+): TaskGroupBranch[] {
+  return nonEmptyGroups(primary, tasks, projects, states).map((group) => {
+    const groupedTasks = tasks.filter((task) => group.taskIds.has(task.id));
+    return {
+      group,
+      tasks: groupedTasks,
+      secondary: secondary
+        ? nonEmptyGroups(secondary, groupedTasks, projects, states).map(
+            (secondaryGroup) => ({
+              group: secondaryGroup,
+              tasks: groupedTasks.filter((task) =>
+                secondaryGroup.taskIds.has(task.id),
+              ),
+              secondary: [],
+            }),
+          )
+        : [],
+    };
+  });
+}
+
 export function buildTaskGroups(
   field: TaskGroupField,
   tasks: Task[],
@@ -15,17 +48,30 @@ export function buildTaskGroups(
   states: TaskState[],
 ): TaskGroup[] {
   if (field === 'state') {
-    return states
+    const visibleStates: Task['state'][] = states
       .filter(({ archived_at }) => !archived_at)
-      .map((state) =>
-        group(
-          state.id,
-          state.name,
-          tasks,
-          (task) => task.state.id === state.id,
-          state.color,
-        ),
-      );
+      .map(({ id, name, color, state_group }) => ({
+        id,
+        name,
+        color,
+        state_group,
+      }));
+    const visibleStateIds = new Set(visibleStates.map(({ id }) => id));
+    for (const task of tasks) {
+      if (!visibleStateIds.has(task.state.id)) {
+        visibleStateIds.add(task.state.id);
+        visibleStates.push(task.state);
+      }
+    }
+    return visibleStates.map((state) =>
+      group(
+        state.id,
+        state.name,
+        tasks,
+        (task) => task.state.id === state.id,
+        state.color,
+      ),
+    );
   }
   if (field === 'state_group') {
     return (
@@ -88,6 +134,17 @@ export function buildTaskGroups(
     (task) => taskGroupValues(task, field).length === 0,
   );
   return unassigned.taskIds.size ? [...groups, unassigned] : groups;
+}
+
+function nonEmptyGroups(
+  field: TaskGroupField,
+  tasks: Task[],
+  projects: Project[],
+  states: TaskState[],
+) {
+  return buildTaskGroups(field, tasks, projects, states).filter(
+    ({ taskIds }) => taskIds.size > 0,
+  );
 }
 
 function taskGroupValues(task: Task, field: TaskGroupField) {

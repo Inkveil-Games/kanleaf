@@ -359,7 +359,7 @@ test('restores a Workspace route through refresh and browser history', async ({
 
   await page.goto(inboxPath);
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Inbox' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -367,19 +367,19 @@ test('restores a Workspace route through refresh and browser history', async ({
 
   await page.reload();
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
 
   await page.getByRole('button', { name: 'My Work' }).click();
   await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
-  await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'My Work' })).toBeVisible();
 
   await page.goBack();
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
 
   await page.goForward();
   await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
-  await expect(page.getByRole('heading', { name: 'My Work' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'My Work' })).toBeVisible();
 
   await page.goto(`/${host.workspace.identifier}/inbox`);
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
@@ -388,10 +388,10 @@ test('restores a Workspace route through refresh and browser history', async ({
   const canonicalLegacyPath = `${inboxPath}?task=${task.task_number}#reload`;
   await page.goto(legacyPath);
   await expect(page).toHaveURL(`${serverUrl}${canonicalLegacyPath}`);
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
   await page.reload();
   await expect(page).toHaveURL(`${serverUrl}${canonicalLegacyPath}`);
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
 });
 
 test('manages Restricted access through the Host Console', async ({

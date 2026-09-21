@@ -136,7 +136,9 @@
   background: var(--color-canvas);
 }
 
-.app-dialog-confirmation-field input:focus-visible {
+html[data-input-modality='keyboard']
+  .app-dialog-confirmation-field
+  input:focus-visible {
   border-color: var(--color-focus);
   outline: 2px solid color-mix(in srgb, var(--color-focus) 28%, transparent);
   outline-offset: 1px;

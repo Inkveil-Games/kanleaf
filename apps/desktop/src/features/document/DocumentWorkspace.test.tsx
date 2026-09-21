@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
@@ -178,6 +179,7 @@ function renderWorkspace(
   options: {
     projectId?: string | null;
     accessSettled?: boolean;
+    canCreateWorkspaceDocuments?: boolean;
     selectedDocumentId?: string | null;
     cachedDocuments?: WorkspaceDocument[];
     onSelectDocument?: (
@@ -226,7 +228,9 @@ function renderWorkspace(
           projects={projects}
           projectId={options.projectId ?? null}
           accessSettled={options.accessSettled ?? true}
-          canCreateWorkspaceDocuments
+          canCreateWorkspaceDocuments={
+            options.canCreateWorkspaceDocuments ?? true
+          }
           selectedDocumentId={selectedDocumentId}
           onSelectDocument={selectDocument}
           onPrepareDocumentMutation={prepareDocumentMutation}
@@ -239,6 +243,13 @@ function renderWorkspace(
   return { client };
 }
 
+async function moveSelectedDocument(location: string, parent?: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Move Library note' }));
+  await chooseSelectOption('Move location', location);
+  if (parent) await chooseSelectOption('Move parent', parent);
+  fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+}
+
 describe('DocumentWorkspace', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -249,6 +260,17 @@ describe('DocumentWorkspace', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText('Loading Library…')).toBeInTheDocument();
+  });
+
+  it('keeps the compact New note action outside the semantic tree', async () => {
+    renderWorkspace(createServer([document('root', 'Architecture')]));
+
+    const tree = await screen.findByRole('tree', {
+      name: 'Workspace Library',
+    });
+    const newNote = screen.getByRole('button', { name: 'New Library note' });
+
+    expect(tree).not.toContainElement(newNote);
   });
 
   it('does not expose a cached selected note before access settles', () => {
@@ -266,10 +288,10 @@ describe('DocumentWorkspace', () => {
       screen.queryByRole('button', { name: 'New Library note' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Archive…' }),
+      screen.queryByRole('button', { name: 'Archive' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('combobox', { name: 'Library location' }),
+      screen.queryByRole('button', { name: 'Move Library note' }),
     ).not.toBeInTheDocument();
   });
 
@@ -297,6 +319,24 @@ describe('DocumentWorkspace', () => {
     await waitFor(() => expect(onInvalidSelection).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Editor root')).not.toBeInTheDocument();
     expect(screen.getByText('Select a Library note')).toBeInTheDocument();
+  });
+
+  it('keeps the Library shell light while preserving accessible pane names', async () => {
+    renderWorkspace(createServer([document('root', 'Architecture')]));
+
+    await screen.findByText('Editor root');
+    expect(
+      screen.getByRole('region', { name: 'Workspace Library' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: 'Architecture Library note' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Library note')).not.toBeInTheDocument();
+    expect(screen.queryByText('Location')).not.toBeInTheDocument();
+    expect(screen.queryByText('Parent')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'New Library note' }),
+    ).toBeInTheDocument();
   });
 
   it('rejects an explicit note outside the current project scope', async () => {
@@ -462,7 +502,7 @@ describe('DocumentWorkspace', () => {
     });
     await screen.findByText('Editor root');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     fireEvent.click(screen.getByRole('button', { name: 'Archive note' }));
 
     await waitFor(() =>
@@ -491,7 +531,7 @@ describe('DocumentWorkspace', () => {
     });
     await screen.findByText('Editor root');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     fireEvent.click(screen.getByRole('button', { name: 'Archive note' }));
 
     await waitFor(() =>
@@ -631,7 +671,7 @@ describe('DocumentWorkspace', () => {
     });
     await screen.findByText('Editor root');
 
-    await chooseSelectOption('Library location', 'Kanleaf');
+    await moveSelectedDocument('Kanleaf');
 
     await waitFor(() =>
       expect(onSelectDocument).toHaveBeenCalledWith(
@@ -639,6 +679,52 @@ describe('DocumentWorkspace', () => {
         { replace: true },
       ),
     );
+  });
+
+  it('does not move or close the editor when the Markdown save preflight is rejected', async () => {
+    const onSelectDocument = vi.fn();
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(false);
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock, {
+      selectedDocumentId: 'root',
+      onSelectDocument,
+      onPrepareDocumentMutation,
+    });
+    await screen.findByText('Editor root');
+
+    await moveSelectedDocument('Kanleaf');
+
+    await waitFor(() =>
+      expect(onPrepareDocumentMutation).toHaveBeenCalledOnce(),
+    );
+    expect(
+      fetchMock.mock.calls.some(([, options]) => options?.method === 'PATCH'),
+    ).toBe(false);
+    expect(onSelectDocument).not.toHaveBeenCalled();
+    expect(screen.getByText('Editor root')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument();
+  });
+
+  it('does not offer Workspace as a destination without Workspace content access', async () => {
+    renderWorkspace(
+      createServer([
+        document('project-note', 'Project note', {
+          project_id: 'project-1',
+        }),
+      ]),
+      {
+        projectId: 'project-1',
+        selectedDocumentId: 'project-note',
+        canCreateWorkspaceDocuments: false,
+      },
+    );
+    await screen.findByText('Editor project-note');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Library note' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Move location' }));
+
+    expect(screen.queryByRole('option', { name: 'Workspace' })).toBeNull();
+    expect(screen.getByRole('option', { name: 'Kanleaf' })).toBeInTheDocument();
   });
 
   it('replaces a Project Library URL after moving its selected note to the Workspace', async () => {
@@ -657,7 +743,7 @@ describe('DocumentWorkspace', () => {
     );
     await screen.findByText('Editor project-note');
 
-    await chooseSelectOption('Library location', 'Workspace');
+    await moveSelectedDocument('Workspace');
 
     await waitFor(() =>
       expect(onSelectDocument).toHaveBeenCalledWith(
@@ -750,6 +836,30 @@ describe('DocumentWorkspace', () => {
     expect(
       screen.getByRole('treeitem', { name: 'Architecture' }),
     ).toBeInTheDocument();
+  });
+
+  it('routes document-shell Delete through the existing confirmation flow', async () => {
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock, { selectedDocumentId: 'root' });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'More document actions' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+    );
+
+    expect(
+      screen.getByRole('alertdialog', { name: 'Delete “Architecture”?' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, request]) =>
+          String(url).endsWith('/delete') && request?.method === 'POST',
+      ),
+    ).toBe(false);
   });
 
   it('deletes a recursive subtree and clears a selected descendant route', async () => {
@@ -905,7 +1015,12 @@ describe('DocumentWorkspace', () => {
       name: 'Workspace Library',
     });
     expect(await screen.findByText('Editor root')).toBeInTheDocument();
+    expect(screen.queryByText('Wiki/root.md')).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'More document actions' }),
+    );
     expect(screen.getByText('Wiki/root.md')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     tree.focus();
     fireEvent.keyDown(tree, { key: 'ArrowDown' });
     expect(await screen.findByText('Editor child')).toBeInTheDocument();
@@ -936,13 +1051,20 @@ describe('DocumentWorkspace', () => {
     expect(screen.getByText('Editor child')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Release notes/ }));
-    await chooseSelectOption('Library parent', 'Architecture');
+    expect(await screen.findByText('Editor release')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Move Library note' }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox', { name: 'Move parent' }));
+    await user.click(
+      await screen.findByRole('option', { name: 'Architecture' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Move' }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/release',
         expect.objectContaining({
           method: 'PATCH',
-          body: JSON.stringify({ parent_id: 'root' }),
+          body: JSON.stringify({ project_id: null, parent_id: 'root' }),
         }),
       ),
     );
@@ -967,7 +1089,7 @@ describe('DocumentWorkspace', () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('treeitem', { name: /Architecture/ }));
-    await chooseSelectOption('Library location', 'Kanleaf');
+    await moveSelectedDocument('Kanleaf');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'https://kanleaf.example.com/api/workspaces/workspace-1/documents/root',
@@ -978,7 +1100,7 @@ describe('DocumentWorkspace', () => {
       ),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archive…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     expect(
       screen.getByRole('alertdialog', { name: 'Archive Library note?' }),
     ).toBeInTheDocument();

@@ -2575,6 +2575,30 @@ describe('WorkspaceShell routing integration', () => {
     );
   });
 
+  it('queries an opened Saved View with its stored grouping and display unchanged', async () => {
+    const storedQuery = createTaskQuery({ kind: 'all' });
+    storedQuery.grouping = { primary: 'label', secondary: 'assignee' };
+    storedQuery.display = ['labels', 'updated_at'];
+    mocks.getSavedView.mockResolvedValueOnce({
+      ...savedView,
+      query: storedQuery,
+      layout: 'table',
+    });
+
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/views/view-1'],
+    });
+
+    await waitFor(() =>
+      expect(mocks.queryTasks).toHaveBeenCalledWith(
+        { serverUrl: 'http://server.test', token: 'token' },
+        'workspace-1',
+        storedQuery,
+      ),
+    );
+    expect(mocks.getSavedView).toHaveBeenCalledOnce();
+  });
+
   it('returns a direct View route to Project Overview when Views are disabled', async () => {
     mocks.listProjects.mockResolvedValueOnce([disabledViewsProject]);
     mocks.getSavedView.mockRejectedValueOnce(

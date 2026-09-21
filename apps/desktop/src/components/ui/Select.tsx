@@ -1,8 +1,9 @@
 import { Select as BaseSelect } from '@base-ui/react/select';
 import { Check, ChevronDown } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useFormFieldControl } from './FormField/FormFieldContext';
 import { popupPortalContainer } from './popupPortal';
+import { Tooltip } from './Tooltip';
 
 export interface SelectOption {
   value: string;
@@ -20,6 +21,8 @@ interface SelectProps {
   disabled?: boolean;
   invalid?: boolean;
   className?: string;
+  startIcon?: ReactNode;
+  triggerTooltip?: string;
 }
 
 export function Select({
@@ -31,12 +34,39 @@ export function Select({
   disabled = false,
   invalid = false,
   className,
+  startIcon,
+  triggerTooltip,
 }: SelectProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
   const selected = options.find((option) => option.value === value);
   const field = useFormFieldControl({ id, invalid });
+  const trigger = (
+    <BaseSelect.Trigger
+      ref={(element) => {
+        setPortalContainer(popupPortalContainer(element));
+      }}
+      className="select-trigger"
+      id={field.id}
+      aria-label={ariaLabel}
+      aria-describedby={field.describedBy}
+      aria-invalid={field.ariaInvalid}
+      data-value={value}
+    >
+      {startIcon ? (
+        <span className="select-start-icon" aria-hidden="true">
+          {startIcon}
+        </span>
+      ) : null}
+      <BaseSelect.Value className="select-value">
+        {selected?.label ?? ''}
+      </BaseSelect.Value>
+      <BaseSelect.Icon className="select-chevron">
+        <ChevronDown aria-hidden="true" size={14} />
+      </BaseSelect.Icon>
+    </BaseSelect.Trigger>
+  );
 
   return (
     <div className={`kanleaf-select${className ? ` ${className}` : ''}`}>
@@ -49,24 +79,11 @@ export function Select({
           if (nextValue !== null) onValueChange(nextValue);
         }}
       >
-        <BaseSelect.Trigger
-          ref={(element) => {
-            setPortalContainer(popupPortalContainer(element));
-          }}
-          className="select-trigger"
-          id={field.id}
-          aria-label={ariaLabel}
-          aria-describedby={field.describedBy}
-          aria-invalid={field.ariaInvalid}
-          data-value={value}
-        >
-          <BaseSelect.Value className="select-value">
-            {selected?.label ?? ''}
-          </BaseSelect.Value>
-          <BaseSelect.Icon className="select-chevron">
-            <ChevronDown aria-hidden="true" size={14} />
-          </BaseSelect.Icon>
-        </BaseSelect.Trigger>
+        {triggerTooltip ? (
+          <Tooltip label={triggerTooltip} trigger={trigger} />
+        ) : (
+          trigger
+        )}
         <BaseSelect.Portal container={portalContainer}>
           <BaseSelect.Positioner
             className="select-positioner"

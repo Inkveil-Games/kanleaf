@@ -1,4 +1,4 @@
-import { Check, Plus, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useState, type FocusEvent, type ReactNode } from 'react';
 import {
   DropdownMenu,
@@ -157,6 +157,7 @@ export function MultiValuePicker({
   values,
   options,
   onChange,
+  className,
 }: {
   label: string;
   emptyLabel: string;
@@ -165,6 +166,7 @@ export function MultiValuePicker({
   values: string[];
   options: { id: string; label: string }[];
   onChange: (values: string[]) => Promise<void>;
+  className?: string;
 }) {
   const selectedLabels = options
     .filter(({ id }) => values.includes(id))
@@ -176,7 +178,7 @@ export function MultiValuePicker({
   return (
     <DropdownMenu
       label={label}
-      className="property-picker"
+      className={`property-picker${className ? ` ${className}` : ''}`}
       align="start"
       disabled={saving}
       trigger={<span>{summary}</span>}
@@ -199,12 +201,41 @@ export function MultiValuePicker({
                 )
               }
             >
-              <Check aria-hidden="true" size={14} opacity={selected ? 1 : 0} />
               {option.label}
             </DropdownMenuCheckboxItem>
           );
         })
       )}
     </DropdownMenu>
+  );
+}
+
+export function TaskDateControl({
+  label,
+  value,
+  disabled,
+  invalid = false,
+  className,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  disabled: boolean;
+  invalid?: boolean;
+  className?: string;
+  onChange: (value: string | null) => unknown;
+}) {
+  return (
+    <label className={`task-date-control${className ? ` ${className}` : ''}`}>
+      <span aria-hidden="true">{value || label}</span>
+      <Input
+        aria-label={label}
+        type="date"
+        disabled={disabled}
+        aria-invalid={invalid || undefined}
+        value={value ?? ''}
+        onChange={(event) => void onChange(event.target.value || null)}
+      />
+    </label>
   );
 }

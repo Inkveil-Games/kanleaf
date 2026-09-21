@@ -40,17 +40,20 @@ export interface EstimateFilter {
   include_none: boolean;
 }
 
-export type TaskGroupField =
-  | 'state'
-  | 'state_group'
-  | 'priority'
-  | 'task_type'
-  | 'assignee'
-  | 'label'
-  | 'project'
-  | 'cycle'
-  | 'module'
-  | 'due_date';
+export const taskGroupFields = [
+  'state',
+  'state_group',
+  'priority',
+  'task_type',
+  'assignee',
+  'label',
+  'project',
+  'cycle',
+  'module',
+  'due_date',
+] as const;
+
+export type TaskGroupField = (typeof taskGroupFields)[number];
 
 export type TaskSortField =
   | 'manual'
@@ -140,16 +143,9 @@ export function createTaskQuery(collection: Collection): TaskQuery {
         include_none: false,
       },
     },
-    grouping: { primary: null, secondary: null },
+    grouping: { primary: 'state', secondary: null },
     sort: [],
-    display: [
-      'state',
-      'priority',
-      'assignees',
-      'labels',
-      'due_date',
-      'updated_at',
-    ],
+    display: ['state', 'priority', 'assignees', 'due_date'],
     include_completed: true,
   };
 }

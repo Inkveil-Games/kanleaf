@@ -56,6 +56,29 @@ describe('DropdownMenu', () => {
     );
   });
 
+  it('uses one non-nested checkbox indicator with keyboard semantics', async () => {
+    const user = userEvent.setup();
+    const toggle = vi.fn();
+    render(
+      <DropdownMenu label="Visible fields">
+        <DropdownMenuCheckboxItem checked={false} onCheckedChange={toggle}>
+          Assignees
+        </DropdownMenuCheckboxItem>
+      </DropdownMenu>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Visible fields' });
+    trigger.focus();
+    await user.keyboard('[ArrowDown]');
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Assignees' });
+    expect(item.querySelector('button')).toBeNull();
+    expect(item.querySelector('.ui-menu-checkbox-indicator')).not.toBeNull();
+    expect(item).toHaveFocus();
+
+    await user.keyboard('[Space]');
+    expect(toggle).toHaveBeenCalledWith(true);
+  });
+
   it('restores trigger focus when dismissed with Escape', async () => {
     const user = userEvent.setup();
     render(

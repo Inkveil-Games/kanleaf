@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { Tooltip } from '../../components/ui/Tooltip';
 import {
   useEffect,
   useRef,
@@ -24,7 +25,7 @@ import type {
   TaskType,
 } from '../workspace/types';
 import { TaskLayouts } from '../view/TaskLayouts';
-import { buildTaskGroups } from '../view/grouping';
+import { buildTaskGroupTree } from '../view/grouping';
 import { TaskViewToolbar } from '../view/TaskViewToolbar';
 import type {
   SavedView,
@@ -127,15 +128,23 @@ export function TaskListPane({
     assignees: query.display.includes('assignees'),
     labels: query.display.includes('labels'),
     dueDate: query.display.includes('due_date'),
+    updated: query.display.includes('updated_at'),
   };
   const checkedVisibleIds = tasks
     .filter(({ id }) => checkedTaskIds.has(id))
     .map(({ id }) => id);
   const groupedTasks = query.grouping.primary
-    ? buildTaskGroups(query.grouping.primary, tasks, projects, states).filter(
-        ({ taskIds }) => taskIds.size > 0,
+    ? buildTaskGroupTree(
+        query.grouping.primary,
+        query.grouping.secondary,
+        tasks,
+        projects,
+        states,
       )
     : [];
+  const navigationTasks = groupedTasks.length
+    ? uniqueGroupedTasks(groupedTasks)
+    : tasks;
 
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -186,13 +195,15 @@ export function TaskListPane({
     const key = event.key.toLocaleLowerCase();
     if (!['arrowdown', 'arrowup', 'j', 'k'].includes(key)) return;
     event.preventDefault();
-    const currentIndex = tasks.findIndex(({ id }) => id === selectedTaskId);
+    const currentIndex = navigationTasks.findIndex(
+      ({ id }) => id === selectedTaskId,
+    );
     const offset = key === 'arrowdown' || key === 'j' ? 1 : -1;
     const nextIndex = Math.min(
-      tasks.length - 1,
+      navigationTasks.length - 1,
       Math.max(0, currentIndex < 0 ? 0 : currentIndex + offset),
     );
-    const nextTask = tasks[nextIndex];
+    const nextTask = navigationTasks[nextIndex];
     if (nextTask) onSelectTask(nextTask.id);
   }
 
@@ -238,31 +249,7 @@ export function TaskListPane({
   }
 
   return (
-    <section className="collection-pane" aria-labelledby="collection-title">
-      <header className="collection-header">
-        <div>
-          <p className="pane-eyebrow">
-            {activeView
-              ? `${activeView.visibility === 'shared' ? 'Shared' : 'Personal'} View`
-              : 'Collection'}
-          </p>
-          <h1 id="collection-title">{title}</h1>
-        </div>
-        <div className="collection-actions">
-          {canCreate && (
-            <IconButton
-              variant="primary"
-              size="sm"
-              type="button"
-              aria-label="New task"
-              onClick={() => setComposing(true)}
-            >
-              <Plus aria-hidden="true" size={17} />
-            </IconButton>
-          )}
-        </div>
-      </header>
-
+    <section className="collection-pane" aria-label={title}>
       <div className="collection-controls">
         <div className="task-search">
           <Search aria-hidden="true" size={15} />
@@ -294,6 +281,24 @@ export function TaskListPane({
             </IconButton>
           )}
           <kbd>/</kbd>
+          {canCreate && (
+            <Tooltip
+              label="New task"
+              trigger={
+                <Button
+                  className="task-new-button"
+                  variant="primary"
+                  size="sm"
+                  type="button"
+                  aria-label="New task"
+                  onClick={() => setComposing(true)}
+                >
+                  <Plus aria-hidden="true" size={15} />
+                  <span className="task-new-label">New task</span>
+                </Button>
+              }
+            />
+          )}
         </div>
         <TaskViewToolbar
           query={query}
@@ -429,44 +434,34 @@ export function TaskListPane({
             onKeyDown={moveSelection}
           >
             {groupedTasks.length > 0
-              ? groupedTasks.map((group) => {
-                  const primaryTasks = tasks.filter((task) =>
-                    group.taskIds.has(task.id),
-                  );
-                  const secondaryGroups = query.grouping.secondary
-                    ? buildTaskGroups(
-                        query.grouping.secondary,
-                        primaryTasks,
-                        projects,
-                        states,
-                      ).filter(({ taskIds }) => taskIds.size > 0)
-                    : [];
+              ? groupedTasks.map((branch) => {
                   return (
                     <section
                       className="task-list-group"
                       role="group"
-                      aria-label={group.label}
-                      key={group.id}
+                      aria-label={branch.group.label}
+                      key={branch.group.id}
                     >
                       <header>
-                        <strong>{group.label}</strong>
-                        <span>{primaryTasks.length}</span>
+                        <strong>{branch.group.label}</strong>
+                        <span>{branch.tasks.length}</span>
                       </header>
-                      {secondaryGroups.length > 0
-                        ? secondaryGroups.map((secondary) => (
+                      {branch.secondary.length > 0
+                        ? branch.secondary.map((secondary) => (
                             <div
                               className="task-list-subgroup"
-                              key={secondary.id}
+                              key={secondary.group.id}
                             >
-                              <h3>{secondary.label}</h3>
-                              {renderTaskRows(
-                                primaryTasks.filter((task) =>
-                                  secondary.taskIds.has(task.id),
-                                ),
-                              )}
+                              <h3
+                                aria-label={`${secondary.group.label}, ${taskCountLabel(secondary.tasks.length)}`}
+                              >
+                                <span>{secondary.group.label}</span>
+                                <span>{secondary.tasks.length}</span>
+                              </h3>
+                              {renderTaskRows(secondary.tasks)}
                             </div>
                           ))
-                        : renderTaskRows(primaryTasks)}
+                        : renderTaskRows(branch.tasks)}
                     </section>
                   );
                 })
@@ -480,6 +475,7 @@ export function TaskListPane({
             tasks={tasks}
             projects={projects}
             states={states}
+            members={members}
             selectedTaskId={selectedTaskId}
             checkedTaskIds={checkedTaskIds}
             canEditTask={canEditTask}
@@ -497,6 +493,24 @@ export function TaskListPane({
   );
 }
 
+function uniqueGroupedTasks(
+  branches: ReturnType<typeof buildTaskGroupTree>,
+): Task[] {
+  const seen = new Set<string>();
+  const ordered: Task[] = [];
+  for (const branch of branches) {
+    const rows = branch.secondary.length
+      ? branch.secondary.flatMap(({ tasks }) => tasks)
+      : branch.tasks;
+    for (const task of rows) {
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      ordered.push(task);
+    }
+  }
+  return ordered;
+}
+
 interface TaskRowProps {
   task: Task;
   states: TaskState[];
@@ -507,6 +521,7 @@ interface TaskRowProps {
     assignees: boolean;
     labels: boolean;
     dueDate: boolean;
+    updated: boolean;
   };
   canEdit: boolean;
   onSelect: () => void;
@@ -591,7 +606,9 @@ function TaskRow({
               {formatTaskDate(task.due_date)}
             </span>
           )}
-          <span>{formatUpdatedAt(task.updated_at)}</span>
+          {visibleFields.updated && (
+            <span>{formatUpdatedAt(task.updated_at)}</span>
+          )}
         </span>
       </button>
     </div>
@@ -714,4 +731,8 @@ function formatUpdatedAt(value: string) {
     month: 'short',
     day: 'numeric',
   }).format(date);
+}
+
+function taskCountLabel(count: number) {
+  return `${count} ${count === 1 ? 'task' : 'tasks'}`;
 }

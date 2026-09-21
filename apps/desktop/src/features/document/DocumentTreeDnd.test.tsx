@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { Fragment, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocumentTree } from './DocumentTree';
@@ -634,6 +641,9 @@ describe('DocumentWorkspace optimistic move', () => {
       ),
     );
 
+    fireEvent.click(
+      screen.getByRole('button', { name: 'More document actions' }),
+    );
     expect(
       await screen.findByText('Wiki/server-normalized-b.md'),
     ).toBeVisible();

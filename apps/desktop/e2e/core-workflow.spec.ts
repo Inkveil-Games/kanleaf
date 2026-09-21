@@ -631,9 +631,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     `/w/${workspaceIdentifier}/p/${projectIdentifier}/library?page=${createdPage.document_number}#legacy-page`,
   );
   await expect(
-    page
-      .locator('.document-detail-header')
-      .getByRole('heading', { name: 'Project handbook' }),
+    page.getByRole('region', { name: 'Project handbook Library note' }),
   ).toBeVisible();
   const pageMarkdown = `# Project handbook
 
@@ -817,7 +815,9 @@ let source_is_markdown = true;
     .getByRole('option', { name: /Architecture decisions/ })
     .click();
   await expect(
-    page.getByRole('heading', { name: 'Architecture decisions' }),
+    page.getByRole('region', {
+      name: 'Architecture decisions Library note',
+    }),
   ).toBeVisible();
   const nestedSource = page.locator(
     '.library-document-editor .cm-content[contenteditable="true"]',
@@ -853,7 +853,9 @@ let source_is_markdown = true;
   await page.reload();
   await expect(page).toHaveURL(nestedDocumentUrl);
   await expect(
-    page.getByRole('heading', { name: 'Architecture decisions' }),
+    page.getByRole('region', {
+      name: 'Architecture decisions Library note',
+    }),
   ).toBeVisible();
   await expect(nestedSource).toContainText('Decision log');
   await page.setViewportSize({ width: 960, height: 640 });
@@ -1107,6 +1109,34 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(taskRow).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
 
+  const taskToolbar = page.getByLabel('Task view controls');
+  await expect(taskToolbar.getByLabel('Layout')).toContainText('List');
+  await expect(taskToolbar.getByLabel('Filter tasks')).toContainText('Filter');
+  await expect(
+    taskToolbar.getByRole('combobox', { name: 'Group by', exact: true }),
+  ).toContainText('State');
+  await expect(taskToolbar.getByLabel('Sort by')).toContainText('Manual');
+  await expect(taskToolbar.getByLabel('Visible task fields')).toContainText(
+    'Properties',
+  );
+  await expect(taskToolbar.getByLabel('Save View')).toContainText('Save View');
+
+  await page.setViewportSize({ width: 580, height: 700 });
+  await expect(taskToolbar.getByLabel('Layout')).toBeVisible();
+  await expect(
+    taskToolbar.getByLabel('Layout').locator('.select-value'),
+  ).toBeHidden();
+  await expect(
+    taskToolbar.getByLabel('Filter tasks').locator('.view-control-label'),
+  ).toBeHidden();
+  await expect(
+    taskToolbar.getByLabel('Save View').locator('.view-control-label'),
+  ).toBeHidden();
+  await expect(
+    page.getByRole('button', { name: 'New task' }).locator('.task-new-label'),
+  ).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
   await page.getByRole('button', { name: 'Filter tasks' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Urgent' }).click();
   await page.keyboard.press('Escape');
@@ -1115,9 +1145,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByLabel('Name').fill('Urgent work');
   await page.getByRole('radio', { name: /Shared/ }).click();
   await page.getByRole('button', { name: 'Create View' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Urgent work' }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Urgent work' })).toBeVisible();
   const savedViewUrl = page.url();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/views/[^/?]+$`),
@@ -1126,9 +1154,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await page.goBack();
   await expect(page).toHaveURL(savedViewUrl);
-  await expect(
-    page.getByRole('heading', { name: 'Urgent work' }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Urgent work' })).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
 
@@ -1182,6 +1208,21 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByRole('table')).toContainText(
     'Complete the v0.1 workflow',
   );
+  await expect(page.getByRole('columnheader', { name: 'Task' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'State' })).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Priority' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Assignees' }),
+  ).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Due' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Labels' })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('columnheader', { name: 'Updated' })).toHaveCount(
+    0,
+  );
 
   await page
     .locator('.project-nav-row')
@@ -1208,7 +1249,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByRole('radio', { name: /Shared/ }).click();
   await page.getByRole('button', { name: 'Create View' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Project focus' }),
+    page.getByRole('region', { name: 'Project focus' }),
   ).toBeVisible();
   const projectViewUrl = page.url();
   await expect(page).toHaveURL(
@@ -1230,7 +1271,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.reload();
   await expect(page).toHaveURL(projectViewUrl);
   await expect(
-    page.getByRole('heading', { name: 'Project focus' }),
+    page.getByRole('region', { name: 'Project focus' }),
   ).toBeVisible();
   await expect(page.getByLabel('Layout')).toHaveAttribute(
     'data-value',
@@ -1250,7 +1291,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(savedViewRow).toContainText('Board layout');
   await savedViewRow.click();
   await expect(
-    page.getByRole('heading', { name: 'Project focus' }),
+    page.getByRole('region', { name: 'Project focus' }),
   ).toBeVisible();
 
   await page
@@ -1263,9 +1304,7 @@ Kanleaf keeps **structured work** beside durable notes.
     .click();
   await page.getByRole('treeitem', { name: /Project handbook/ }).click();
   await expect(
-    page
-      .locator('.document-detail-header')
-      .getByRole('heading', { name: 'Project handbook' }),
+    page.getByRole('region', { name: 'Project handbook Library note' }),
   ).toBeVisible();
   await expect(page.getByText('durable Markdown file')).toBeVisible();
   await expect(

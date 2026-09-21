@@ -19,6 +19,8 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Popover } from '../../components/ui/Popover';
 import { Select } from '../../components/ui/Select';
+import { Tooltip } from '../../components/ui/Tooltip';
+import { TASK_PRIORITY_OPTIONS } from '../task/taskPropertyModel';
 import type {
   Project,
   TaskLabel,
@@ -38,6 +40,7 @@ import type {
   TaskQuery,
   TaskSortField,
 } from './types';
+import { taskGroupFields } from './types';
 
 interface TaskViewToolbarProps {
   query: TaskQuery;
@@ -73,7 +76,9 @@ interface TaskViewToolbarProps {
 
 type ViewDialogMode = 'create' | 'rename' | 'duplicate' | null;
 
-const priorities: TaskPriority[] = ['none', 'low', 'medium', 'high', 'urgent'];
+const priorities: TaskPriority[] = TASK_PRIORITY_OPTIONS.map(
+  ({ value }) => value,
+);
 
 const displayProperties: TaskDisplayProperty[] = [
   'state',
@@ -90,18 +95,8 @@ const displayProperties: TaskDisplayProperty[] = [
   'updated_at',
 ];
 
-const groupFields: { value: TaskGroupField; label: string }[] = [
-  { value: 'state', label: 'State' },
-  { value: 'state_group', label: 'State group' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'task_type', label: 'Task type' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'label', label: 'Label' },
-  { value: 'project', label: 'Project' },
-  { value: 'cycle', label: 'Cycle' },
-  { value: 'module', label: 'Module' },
-  { value: 'due_date', label: 'Due date' },
-];
+const groupFields: { value: TaskGroupField; label: string }[] =
+  taskGroupFields.map((value) => ({ value, label: labelFor(value) }));
 
 const sortFields: { value: TaskSortField; label: string }[] = [
   { value: 'title', label: 'Title' },
@@ -161,27 +156,32 @@ export function TaskViewToolbar({
   return (
     <>
       <div className="view-toolbar" aria-label="Task view controls">
-        <label className="view-layout-select">
-          <Columns3 aria-hidden="true" size={14} />
-          <span className="sr-only">Layout</span>
-          <Select
-            ariaLabel="Layout"
-            value={layout}
-            options={[
-              { value: 'list', label: 'List' },
-              { value: 'board', label: 'Board' },
-              { value: 'calendar', label: 'Calendar' },
-              { value: 'table', label: 'Table' },
-              { value: 'timeline', label: 'Timeline' },
-            ]}
-            onValueChange={(value) => onLayoutChange(value as TaskLayout)}
-          />
-        </label>
+        <Select
+          className="view-layout-select"
+          ariaLabel="Layout"
+          value={layout}
+          startIcon={<Columns3 size={14} />}
+          triggerTooltip={`Layout: ${labelFor(layout)}`}
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'board', label: 'Board' },
+            { value: 'calendar', label: 'Calendar' },
+            { value: 'table', label: 'Table' },
+            { value: 'timeline', label: 'Timeline' },
+          ]}
+          onValueChange={(value) => onLayoutChange(value as TaskLayout)}
+        />
 
         <DropdownMenu
           label="Filter tasks"
-          className="view-control-menu"
-          trigger={<Filter aria-hidden="true" size={14} />}
+          className="view-control-menu view-secondary-control"
+          triggerTooltip="Filter tasks"
+          trigger={
+            <>
+              <Filter aria-hidden="true" size={14} />
+              <span className="view-control-label">Filter</span>
+            </>
+          }
         >
           <MenuHeading>State</MenuHeading>
           {states
@@ -423,8 +423,14 @@ export function TaskViewToolbar({
 
         <Popover
           label="Date and estimate filters"
-          className="view-range-menu"
-          trigger={<CalendarRange aria-hidden="true" size={14} />}
+          className="view-range-menu view-secondary-control"
+          triggerTooltip="Date and estimate filters"
+          trigger={
+            <>
+              <CalendarRange aria-hidden="true" size={14} />
+              <span className="view-control-label">Date</span>
+            </>
+          }
         >
           <div className="view-range-filters">
             <DateRangeControl
@@ -490,30 +496,32 @@ export function TaskViewToolbar({
           </div>
         </Popover>
 
-        <label className="view-compact-select">
-          <Group aria-hidden="true" size={14} />
-          <span className="sr-only">Group by</span>
-          <Select
-            ariaLabel="Group by"
-            value={query.grouping.primary ?? ''}
-            options={[{ value: '', label: 'No grouping' }, ...groupFields]}
-            onValueChange={(value) =>
-              onQueryChange({
-                ...query,
-                grouping: {
-                  primary: (value || null) as TaskGroupField | null,
-                  secondary: null,
-                },
-              })
-            }
-          />
-        </label>
+        <Select
+          className="view-compact-select view-group-select"
+          ariaLabel="Group by"
+          value={query.grouping.primary ?? ''}
+          startIcon={<Group size={14} />}
+          triggerTooltip={groupingLabel(query.grouping.primary)}
+          options={[{ value: '', label: 'No grouping' }, ...groupFields]}
+          onValueChange={(value) =>
+            onQueryChange({
+              ...query,
+              grouping: {
+                primary: (value || null) as TaskGroupField | null,
+                secondary: null,
+              },
+            })
+          }
+        />
         {query.grouping.primary && (
-          <label className="view-compact-select view-secondary-select">
+          <div className="view-secondary-select">
             <span>then</span>
             <Select
+              className="view-compact-select"
               ariaLabel="Then group by"
               value={query.grouping.secondary ?? ''}
+              startIcon={<Group size={14} />}
+              triggerTooltip={secondaryGroupingLabel(query.grouping.secondary)}
               options={[
                 { value: '', label: 'No second group' },
                 ...groupFields.filter(
@@ -530,64 +538,71 @@ export function TaskViewToolbar({
                 })
               }
             />
-          </label>
+          </div>
         )}
 
-        <label className="view-compact-select">
-          <ArrowDownAZ aria-hidden="true" size={14} />
-          <span className="sr-only">Sort by</span>
-          <Select
-            ariaLabel="Sort by"
-            value={query.sort[0]?.field ?? ''}
-            options={[
-              { value: '', label: 'Manual' },
-              { value: 'title', label: 'Title' },
-              { value: 'priority', label: 'Priority' },
-              { value: 'start_date', label: 'Start date' },
-              { value: 'due_date', label: 'Due date' },
-              { value: 'estimate', label: 'Estimate' },
-              { value: 'updated_at', label: 'Updated' },
-            ]}
-            onValueChange={(value) => {
-              const field = value as TaskSortField;
-              onQueryChange({
-                ...query,
-                sort: field ? [{ field, direction: 'ascending' }] : [],
-              });
-            }}
-          />
-        </label>
+        <Select
+          className="view-compact-select view-sort-select"
+          ariaLabel="Sort by"
+          value={query.sort[0]?.field ?? ''}
+          startIcon={<ArrowDownAZ size={14} />}
+          triggerTooltip={sortLabel(query.sort[0]?.field)}
+          options={[
+            { value: '', label: 'Manual' },
+            { value: 'title', label: 'Title' },
+            { value: 'priority', label: 'Priority' },
+            { value: 'start_date', label: 'Start date' },
+            { value: 'due_date', label: 'Due date' },
+            { value: 'estimate', label: 'Estimate' },
+            { value: 'updated_at', label: 'Updated' },
+          ]}
+          onValueChange={(value) => {
+            const field = value as TaskSortField;
+            onQueryChange({
+              ...query,
+              sort: field ? [{ field, direction: 'ascending' }] : [],
+            });
+          }}
+        />
         {query.sort[0] && (
           <>
-            <IconButton
-              className="view-sort-direction"
-              variant="ghost"
-              size="sm"
-              type="button"
-              aria-label={`Sort direction: ${query.sort[0].direction}`}
-              onClick={() =>
-                onQueryChange({
-                  ...query,
-                  sort: [
-                    {
-                      ...query.sort[0]!,
-                      direction:
-                        query.sort[0]!.direction === 'ascending'
-                          ? 'descending'
-                          : 'ascending',
-                    },
-                    ...query.sort.slice(1),
-                  ],
-                })
+            <Tooltip
+              label={`Sort direction: ${query.sort[0].direction}`}
+              trigger={
+                <IconButton
+                  className="view-sort-direction"
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  aria-label={`Sort direction: ${query.sort[0].direction}`}
+                  onClick={() =>
+                    onQueryChange({
+                      ...query,
+                      sort: [
+                        {
+                          ...query.sort[0]!,
+                          direction:
+                            query.sort[0]!.direction === 'ascending'
+                              ? 'descending'
+                              : 'ascending',
+                        },
+                        ...query.sort.slice(1),
+                      ],
+                    })
+                  }
+                >
+                  {query.sort[0].direction === 'ascending' ? '↑' : '↓'}
+                </IconButton>
               }
-            >
-              {query.sort[0].direction === 'ascending' ? '↑' : '↓'}
-            </IconButton>
-            <label className="view-compact-select view-secondary-select">
+            />
+            <div className="view-secondary-select">
               <span>then</span>
               <Select
+                className="view-compact-select"
                 ariaLabel="Then sort by"
                 value={query.sort[1]?.field ?? ''}
+                startIcon={<ArrowDownAZ size={14} />}
+                triggerTooltip={secondarySortLabel(query.sort[1]?.field)}
                 options={[
                   { value: '', label: 'No second sort' },
                   ...sortFields.filter(
@@ -604,14 +619,20 @@ export function TaskViewToolbar({
                   });
                 }}
               />
-            </label>
+            </div>
           </>
         )}
 
         <DropdownMenu
           label="Visible task fields"
-          className="view-control-menu"
-          trigger={<SlidersHorizontal aria-hidden="true" size={14} />}
+          className="view-control-menu view-secondary-control"
+          triggerTooltip="Visible task fields"
+          trigger={
+            <>
+              <SlidersHorizontal aria-hidden="true" size={14} />
+              <span className="view-control-label">Properties</span>
+            </>
+          }
         >
           {displayProperties.map((property) => (
             <CheckMenuItem
@@ -632,19 +653,27 @@ export function TaskViewToolbar({
         {activeView ? (
           <>
             {canManageActiveView && (
-              <Button
-                className="view-save-button"
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => runAction(onSaveViewConfiguration)}
-              >
-                <Save aria-hidden="true" size={14} /> Save changes
-              </Button>
+              <Tooltip
+                label="Save changes"
+                trigger={
+                  <Button
+                    className="view-save-button"
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    aria-label="Save changes"
+                    onClick={() => runAction(onSaveViewConfiguration)}
+                  >
+                    <Save aria-hidden="true" size={14} />
+                    <span className="view-control-label">Save changes</span>
+                  </Button>
+                }
+              />
             )}
             <DropdownMenu
               label="Saved view actions"
               className="view-actions-menu"
+              triggerTooltip="Saved view actions"
             >
               {canManageActiveView && (
                 <DropdownMenuItem onClick={() => setDialog('rename')}>
@@ -683,15 +712,22 @@ export function TaskViewToolbar({
             </DropdownMenu>
           </>
         ) : (
-          <Button
-            className="view-save-button"
-            variant="secondary"
-            size="sm"
-            type="button"
-            onClick={() => setDialog('create')}
-          >
-            <Save aria-hidden="true" size={14} /> Save View
-          </Button>
+          <Tooltip
+            label="Save View"
+            trigger={
+              <Button
+                className="view-save-button"
+                variant="secondary"
+                size="sm"
+                type="button"
+                aria-label="Save View"
+                onClick={() => setDialog('create')}
+              >
+                <Save aria-hidden="true" size={14} />
+                <span className="view-control-label">Save View</span>
+              </Button>
+            }
+          />
         )}
       </div>
 
@@ -745,9 +781,6 @@ function CheckMenuItem({
       checked={checked}
       onCheckedChange={() => onClick()}
     >
-      <span className="view-menu-check" aria-hidden="true">
-        {checked ? '✓' : ''}
-      </span>
       {label}
     </DropdownMenuCheckboxItem>
   );
@@ -814,4 +847,20 @@ function labelFor(value: string) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function groupingLabel(field: TaskGroupField | null) {
+  return field ? `Group by ${labelFor(field)}` : 'No grouping';
+}
+
+function secondaryGroupingLabel(field: TaskGroupField | null) {
+  return field ? `Then group by ${labelFor(field)}` : 'No second group';
+}
+
+function sortLabel(field: TaskSortField | undefined) {
+  return field ? `Sort by ${labelFor(field)}` : 'Manual sort';
+}
+
+function secondarySortLabel(field: TaskSortField | undefined) {
+  return field ? `Then sort by ${labelFor(field)}` : 'No second sort';
 }

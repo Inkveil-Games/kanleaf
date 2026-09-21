@@ -1,8 +1,26 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
+import {
+  Fragment,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+} from 'react';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
+import {
+  MultiValuePicker,
+  TaskDateControl,
+} from '../task/TaskPropertyControls';
+import {
+  TASK_PRIORITY_OPTIONS,
+  priorityLabel,
+  selectableStates,
+} from '../task/taskPropertyModel';
+import { TaskPropertyIcon } from '../task/TaskPropertyIcon';
+import { TASK_PROPERTY_PRESENTATION } from '../task/taskPropertyPresentation';
+import { useTaskPropertyEditing } from '../task/useTaskPropertyEditing';
 import type {
   Project,
   Task,
@@ -11,7 +29,12 @@ import type {
   TaskState,
 } from '../workspace/types';
 import type { TaskGroupField, TaskLayout, TaskQuery } from './types';
-import { buildTaskGroups, type TaskGroup } from './grouping';
+import {
+  buildTaskGroups,
+  buildTaskGroupTree,
+  type TaskGroup,
+  type TaskGroupBranch,
+} from './grouping';
 
 interface TaskLayoutsProps {
   layout: Exclude<TaskLayout, 'list'>;
@@ -19,6 +42,7 @@ interface TaskLayoutsProps {
   tasks: Task[];
   projects: Project[];
   states: TaskState[];
+  members: { user_id: string; display_name: string }[];
   selectedTaskId: string | null;
   checkedTaskIds: Set<string>;
   canEditTask: (task: Task) => boolean;
@@ -305,6 +329,7 @@ function TaskTable({
   tasks,
   projects,
   states,
+  members,
   selectedTaskId,
   checkedTaskIds,
   canEditTask,
@@ -313,125 +338,298 @@ function TaskTable({
   onPatchTask,
 }: TaskLayoutsProps) {
   const show = (property: string) => query.display.includes(property as never);
+  const groupedTasks = query.grouping.primary
+    ? buildTaskGroupTree(
+        query.grouping.primary,
+        query.grouping.secondary,
+        tasks,
+        projects,
+        states,
+      )
+    : [];
+  const columnCount = query.display.length + 2;
+
+  function renderRows(rows: Task[], keyPrefix = '') {
+    return rows.map((task) => (
+      <TaskTableRow
+        key={`${keyPrefix}${task.id}`}
+        task={task}
+        projects={projects}
+        states={states}
+        members={members}
+        show={show}
+        selected={task.id === selectedTaskId}
+        checked={checkedTaskIds.has(task.id)}
+        editable={canEditTask(task)}
+        onSelect={() => onSelectTask(task.id)}
+        onToggleChecked={() => onToggleChecked(task.id)}
+        onPatch={(patch) => onPatchTask(task.id, patch)}
+      />
+    ));
+  }
+
+  function renderGroup(branch: TaskGroupBranch) {
+    return (
+      <Fragment key={branch.group.id}>
+        <TaskTableGroupRow
+          branch={branch}
+          columnCount={columnCount}
+          secondary={false}
+        />
+        {branch.secondary.length > 0
+          ? branch.secondary.flatMap((secondary) => [
+              <TaskTableGroupRow
+                key={`heading-${secondary.group.id}`}
+                branch={secondary}
+                columnCount={columnCount}
+                secondary
+              />,
+              ...renderRows(secondary.tasks, `${secondary.group.id}:`),
+            ])
+          : renderRows(branch.tasks)}
+      </Fragment>
+    );
+  }
+
   return (
     <div className="task-table-wrap">
-      <table className="task-table">
+      <table className="task-table" aria-label="Tasks">
         <thead>
           <tr>
             <th aria-label="Select" />
             <th>Task</th>
-            {show('state') && <th>State</th>}
+            {show('state') && <TaskTablePropertyHeading propertyKey="state" />}
             {show('task_type') && <th>Type</th>}
-            {show('priority') && <th>Priority</th>}
+            {show('priority') && (
+              <TaskTablePropertyHeading propertyKey="priority" />
+            )}
             {show('project') && <th>Project</th>}
-            {show('assignees') && <th>Assignees</th>}
+            {show('assignees') && (
+              <TaskTablePropertyHeading propertyKey="assignees" />
+            )}
             {show('labels') && <th>Labels</th>}
             {show('cycle') && <th>Cycle</th>}
             {show('modules') && <th>Modules</th>}
             {show('start_date') && <th>Start</th>}
-            {show('due_date') && <th>Due</th>}
+            {show('due_date') && (
+              <TaskTablePropertyHeading propertyKey="due-date" />
+            )}
             {show('estimate') && <th>Estimate</th>}
             {show('updated_at') && <th>Updated</th>}
           </tr>
         </thead>
         <tbody>
-          {tasks.map((task) => {
-            const editable = canEditTask(task);
-            return (
-              <tr
-                data-selected={task.id === selectedTaskId || undefined}
-                key={task.id}
-              >
-                <td>
-                  <Checkbox
-                    aria-label={`Select ${task.title}`}
-                    checked={checkedTaskIds.has(task.id)}
-                    onCheckedChange={() => onToggleChecked(task.id)}
-                  />
-                </td>
-                <th scope="row">
-                  <button type="button" onClick={() => onSelectTask(task.id)}>
-                    <span>{task.title}</span>
-                    <small>{task.reference}</small>
-                  </button>
-                </th>
-                {show('state') && (
-                  <td>
-                    <Select
-                      ariaLabel={`${task.title} state`}
-                      value={task.state.id}
-                      disabled={!editable}
-                      options={states
-                        .filter(({ archived_at }) => !archived_at)
-                        .map((state) => ({
-                          value: state.id,
-                          label: state.name,
-                        }))}
-                      onValueChange={(value) =>
-                        void onPatchTask(task.id, {
-                          state_id: value,
-                        })
-                      }
-                    />
-                  </td>
-                )}
-                {show('task_type') && <td>{task.task_type.name}</td>}
-                {show('priority') && (
-                  <td>
-                    <Select
-                      ariaLabel={`${task.title} priority`}
-                      value={task.priority}
-                      disabled={!editable}
-                      options={(
-                        ['none', 'low', 'medium', 'high', 'urgent'] as const
-                      ).map((priority) => ({
-                        value: priority,
-                        label: capitalize(priority),
-                      }))}
-                      onValueChange={(value) =>
-                        void onPatchTask(task.id, {
-                          priority: value as TaskPriority,
-                        })
-                      }
-                    />
-                  </td>
-                )}
-                {show('project') && (
-                  <td>
-                    {projects.find(({ id }) => id === task.project_id)?.name ??
-                      'Inbox'}
-                  </td>
-                )}
-                {show('assignees') && (
-                  <td>
-                    {task.assignees
-                      .map(({ display_name }) => display_name)
-                      .join(', ') || '—'}
-                  </td>
-                )}
-                {show('labels') && (
-                  <td>
-                    {task.labels.map(({ name }) => name).join(', ') || '—'}
-                  </td>
-                )}
-                {show('cycle') && <td>{task.cycle?.name ?? '—'}</td>}
-                {show('modules') && (
-                  <td>
-                    {task.modules.map(({ name }) => name).join(', ') || '—'}
-                  </td>
-                )}
-                {show('start_date') && <td>{task.start_date ?? '—'}</td>}
-                {show('due_date') && <td>{task.due_date ?? '—'}</td>}
-                {show('estimate') && <td>{task.estimate ?? '—'}</td>}
-                {show('updated_at') && (
-                  <td>{formatShortDate(task.updated_at.slice(0, 10))}</td>
-                )}
-              </tr>
-            );
-          })}
+          {groupedTasks.length > 0
+            ? groupedTasks.map(renderGroup)
+            : renderRows(tasks)}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TaskTablePropertyHeading({
+  propertyKey,
+}: {
+  propertyKey: 'state' | 'priority' | 'assignees' | 'due-date';
+}) {
+  const label = TASK_PROPERTY_PRESENTATION[propertyKey].label;
+  return (
+    <th className={`task-table-heading task-table-heading-${propertyKey}`}>
+      <TaskPropertyIcon propertyKey={propertyKey} size={13} />
+      <span>{label}</span>
+    </th>
+  );
+}
+
+function TaskTableGroupRow({
+  branch,
+  columnCount,
+  secondary,
+}: {
+  branch: TaskGroupBranch;
+  columnCount: number;
+  secondary: boolean;
+}) {
+  return (
+    <tr
+      className={secondary ? 'task-table-subgroup-row' : 'task-table-group-row'}
+    >
+      <th
+        aria-label={`${branch.group.label}, ${taskCountLabel(branch.tasks.length)}`}
+        colSpan={columnCount}
+        scope="rowgroup"
+      >
+        {branch.group.color ? (
+          <span
+            className="task-table-group-color"
+            style={{ '--group-color': branch.group.color } as CSSProperties}
+          />
+        ) : null}
+        <strong>{branch.group.label}</strong>
+        <span>{branch.tasks.length}</span>
+      </th>
+    </tr>
+  );
+}
+
+function TaskTableRow({
+  task,
+  projects,
+  states,
+  members,
+  show,
+  selected,
+  checked,
+  editable,
+  onSelect,
+  onToggleChecked,
+  onPatch,
+}: {
+  task: Task;
+  projects: Project[];
+  states: TaskState[];
+  members: { user_id: string; display_name: string }[];
+  show: (property: string) => boolean;
+  selected: boolean;
+  checked: boolean;
+  editable: boolean;
+  onSelect: () => void;
+  onToggleChecked: () => void;
+  onPatch: (patch: TaskPatch) => Promise<void>;
+}) {
+  const editing = useTaskPropertyEditing(editable, onPatch);
+  const assigneeOptions = [
+    ...task.assignees
+      .filter(
+        (assignee) =>
+          !members.some(({ user_id }) => user_id === assignee.user_id),
+      )
+      .map((assignee) => ({
+        id: assignee.user_id,
+        label: assignee.display_name,
+      })),
+    ...members.map((member) => ({
+      id: member.user_id,
+      label: member.display_name,
+    })),
+  ];
+
+  return (
+    <tr data-selected={selected || undefined}>
+      <td className="task-table-select-cell">
+        <Checkbox
+          aria-label={`Select ${task.title}`}
+          checked={checked}
+          onCheckedChange={onToggleChecked}
+        />
+      </td>
+      <th scope="row" className="task-table-task-cell">
+        <button type="button" onClick={onSelect}>
+          <span>{task.title}</span>
+          <small>{task.reference}</small>
+        </button>
+        {editing.error ? (
+          <small className="task-table-edit-error" role="alert">
+            {editing.error.message}
+          </small>
+        ) : null}
+      </th>
+      {show('state') && (
+        <td className="task-table-state-cell">
+          {editable ? (
+            <Select
+              className="task-table-property-control"
+              ariaLabel={`${task.title} state`}
+              value={task.state.id}
+              disabled={editing.disabled('state')}
+              options={selectableStates(states, task).map((state) => ({
+                value: state.id,
+                label: state.name,
+              }))}
+              onValueChange={(value) =>
+                void editing.patchProperty('state', { state_id: value })
+              }
+            />
+          ) : (
+            task.state.name
+          )}
+        </td>
+      )}
+      {show('task_type') && <td>{task.task_type.name}</td>}
+      {show('priority') && (
+        <td className="task-table-priority-cell">
+          {editable ? (
+            <Select
+              className="task-table-property-control"
+              ariaLabel={`${task.title} priority`}
+              value={task.priority}
+              disabled={editing.disabled('priority')}
+              options={[...TASK_PRIORITY_OPTIONS]}
+              onValueChange={(value) =>
+                void editing.patchProperty('priority', {
+                  priority: value as TaskPriority,
+                })
+              }
+            />
+          ) : (
+            priorityLabel(task.priority)
+          )}
+        </td>
+      )}
+      {show('project') && (
+        <td>
+          {projects.find(({ id }) => id === task.project_id)?.name ?? 'Inbox'}
+        </td>
+      )}
+      {show('assignees') && (
+        <td className="task-table-assignees-cell">
+          <MultiValuePicker
+            className="task-table-property-control"
+            label={`Edit ${task.title} assignees`}
+            emptyLabel="—"
+            readOnly={!editable}
+            saving={editing.savingProperties.has('assignees')}
+            values={task.assignees.map(({ user_id }) => user_id)}
+            options={assigneeOptions}
+            onChange={async (assigneeIds) => {
+              await editing.patchProperty('assignees', {
+                assignee_ids: assigneeIds,
+              });
+            }}
+          />
+        </td>
+      )}
+      {show('labels') && (
+        <td>{task.labels.map(({ name }) => name).join(', ') || '—'}</td>
+      )}
+      {show('cycle') && <td>{task.cycle?.name ?? '—'}</td>}
+      {show('modules') && (
+        <td>{task.modules.map(({ name }) => name).join(', ') || '—'}</td>
+      )}
+      {show('start_date') && <td>{task.start_date ?? '—'}</td>}
+      {show('due_date') && (
+        <td className="task-table-due-cell">
+          {editable ? (
+            <TaskDateControl
+              className="task-table-date"
+              label={`${task.title} due date`}
+              value={task.due_date}
+              disabled={editing.disabled('due-date')}
+              onChange={(dueDate) =>
+                editing.patchProperty('due-date', { due_date: dueDate })
+              }
+            />
+          ) : (
+            (task.due_date ?? '—')
+          )}
+        </td>
+      )}
+      {show('estimate') && <td>{task.estimate ?? '—'}</td>}
+      {show('updated_at') && (
+        <td>{formatShortDate(task.updated_at.slice(0, 10))}</td>
+      )}
+    </tr>
   );
 }
 
@@ -712,9 +910,6 @@ function formatShortDate(value: string) {
   }).format(parseDate(value));
 }
 
-function capitalize(value: string) {
-  return value
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+function taskCountLabel(count: number) {
+  return `${count} ${count === 1 ? 'task' : 'tasks'}`;
 }

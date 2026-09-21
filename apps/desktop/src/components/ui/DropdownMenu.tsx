@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu';
-import { MoreHorizontal } from 'lucide-react';
+import { Check, MoreHorizontal } from 'lucide-react';
 import {
   useState,
   type AriaAttributes,
@@ -175,6 +175,11 @@ export function DropdownMenuCheckboxItem({
       onCheckedChange={(nextChecked) => onCheckedChange(nextChecked)}
       render={<button type="button" />}
     >
+      <span className="ui-menu-checkbox-indicator" aria-hidden="true">
+        <Menu.CheckboxItemIndicator keepMounted>
+          <Check size={13} strokeWidth={2.5} />
+        </Menu.CheckboxItemIndicator>
+      </span>
       {children}
     </Menu.CheckboxItem>
   );

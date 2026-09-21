@@ -13,16 +13,21 @@ export interface TaskPropertyDefinition {
   label: string;
 }
 
-export const PINNED_PROPERTIES = [
-  { key: 'state', label: 'State' },
-  { key: 'priority', label: 'Priority' },
-  { key: 'assignees', label: 'Assignees' },
-  { key: 'start-date', label: 'Start date' },
-  { key: 'due-date', label: 'Due date' },
-] as const satisfies ReadonlyArray<{
-  key: PinnedPropertyKey;
-  label: string;
-}>;
+export const PINNED_PROPERTY_KEYS = [
+  'state',
+  'priority',
+  'assignees',
+  'start-date',
+  'due-date',
+] as const satisfies ReadonlyArray<PinnedPropertyKey>;
+
+export const TASK_PRIORITY_OPTIONS = [
+  { value: 'none', label: 'No priority' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+] as const;
 
 export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [
   { key: 'type', label: 'Type' },
@@ -54,7 +59,14 @@ export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
 }
 
 export function isPinnedProperty(key: PropertyKey): key is PinnedPropertyKey {
-  return PINNED_PROPERTIES.some((property) => property.key === key);
+  return PINNED_PROPERTY_KEYS.some((property) => property === key);
+}
+
+export function priorityLabel(priority: Task['priority']) {
+  return (
+    TASK_PRIORITY_OPTIONS.find(({ value }) => value === priority)?.label ??
+    priority
+  );
 }
 
 export function selectableStates(states: TaskState[], task: Task) {
