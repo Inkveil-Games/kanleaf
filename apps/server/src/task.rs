@@ -35,6 +35,7 @@ use crate::{
     AppState,
     auth::AuthenticatedUser,
     collaboration::{notify_assignments, notify_task_change, record_activity, subscribe},
+    custom_property::apply_default_values,
     domain::events::EventType,
     domain::{TaskPriority, TaskTitle, VaultStorageName},
     domain_event::task_event,
@@ -422,6 +423,7 @@ pub(crate) async fn create(
     .bind(task_number * 1024)
     .execute(&mut *transaction)
     .await?;
+    apply_default_values(&mut transaction, workspace_id, task_id).await?;
     initialize_projection(&mut transaction, workspace_id, task_id).await?;
     replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
     replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;

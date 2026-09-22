@@ -920,3 +920,208 @@ async fn property_editor_saves_option_lifecycle_atomically(pool: PgPool) {
         "Supported platforms"
     );
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "select-defaults@example.com").await;
+    let property = create_property(&app, &token, workspace_id, "Impact", "single_select").await;
+    let property_id = property["id"].as_str().unwrap();
+    assert!(property["default_option_id"].is_null());
+
+    let option = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options"),
+            Some(json!({
+                "name": "High",
+                "icon": "flag",
+                "color": "#EF4444",
+                "description": "Needs prompt attention"
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(option.status(), StatusCode::CREATED);
+    let option = response_json(option).await;
+    assert_eq!(option["icon"], "flag");
+    assert_eq!(option["description"], "Needs prompt attention");
+    let option_id = option["id"].as_str().unwrap();
+
+    let defaulted = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}"),
+            Some(json!({"default_option_id": option_id})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(defaulted.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(defaulted).await["default_option_id"],
+        option_id
+    );
+
+    let task = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            Some(json!({"title": "Uses the Workspace property default"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(task.status(), StatusCode::CREATED);
+    let task = response_json(task).await;
+    assert!(
+        task["custom_properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| { value["property_id"] == property_id && value["value"] == option_id })
+    );
+    let stored_value: serde_json::Value = sqlx::query_scalar(
+        "SELECT value FROM task_custom_property_values WHERE workspace_id = $1 AND task_id = $2 AND property_id = $3",
+    )
+    .bind(workspace_id)
+    .bind(task["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .bind(property_id.parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_value, json!(option_id));
+
+    let updated_option = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options/{option_id}"),
+            Some(json!({
+                "icon": "zap",
+                "description": "Escalate immediately"
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated_option.status(), StatusCode::OK);
+    let updated_option = response_json(updated_option).await;
+    assert_eq!(updated_option["icon"], "zap");
+    assert_eq!(updated_option["description"], "Escalate immediately");
+
+    let archived = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options/{option_id}"),
+            Some(json!({"archived": true})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archived.status(), StatusCode::OK);
+    let definitions = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/properties"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert!(response_json(definitions).await[0]["default_option_id"].is_null());
+
+    let restored = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options/{option_id}"),
+            Some(json!({"archived": false})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(restored.status(), StatusCode::OK);
+    let defaulted_again = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}"),
+            Some(json!({"default_option_id": option_id})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(defaulted_again.status(), StatusCode::OK);
+    let deleted = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options/{option_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    let definitions = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/properties"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert!(response_json(definitions).await[0]["default_option_id"].is_null());
+
+    let seeded_option_id = Uuid::new_v4();
+    let seeded = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/properties"),
+            Some(json!({
+                "name": "Urgency",
+                "type": "single_select",
+                "default_option_id": seeded_option_id,
+                "options": [{
+                    "id": seeded_option_id,
+                    "name": "Normal",
+                    "icon": null,
+                    "color": "#64748B",
+                    "description": "The standard urgency"
+                }]
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(seeded.status(), StatusCode::CREATED);
+    let seeded = response_json(seeded).await;
+    assert_eq!(seeded["default_option_id"], seeded_option_id.to_string());
+    assert_eq!(seeded["options"][0]["id"], seeded_option_id.to_string());
+
+    let text = create_property(&app, &token, workspace_id, "Summary", "text").await;
+    let invalid_default = app
+        .oneshot(request(
+            "PATCH",
+            &format!(
+                "/api/workspaces/{workspace_id}/properties/{}",
+                text["id"].as_str().unwrap()
+            ),
+            Some(json!({"default_option_id": Uuid::new_v4()})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_default.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}

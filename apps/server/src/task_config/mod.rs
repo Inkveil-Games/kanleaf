@@ -1,6 +1,5 @@
 mod label;
 mod state;
-mod task_type;
 
 use axum::{
     Json, Router,
@@ -15,6 +14,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
+    domain::{ConfigurationDescription, SystemStateRole},
     error::AppError,
     workspace::{require_workspace_admin, require_workspace_member},
 };
@@ -24,8 +24,10 @@ pub struct TaskStateResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: String,
+    pub icon: Option<String>,
     pub color: String,
-    pub state_group: String,
+    pub description: String,
+    pub system_role: Option<String>,
     pub position: i32,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -37,23 +39,10 @@ pub struct TaskLabelResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: String,
-    pub color: String,
-    pub description: String,
-    pub archived_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Clone, Debug, Serialize, FromRow)]
-pub struct TaskTypeResponse {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
-    pub name: String,
-    pub icon: String,
+    pub icon: Option<String>,
     pub color: String,
     pub description: String,
     pub position: i32,
-    pub is_protected: bool,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -63,38 +52,47 @@ pub struct TaskTypeResponse {
 struct TaskConfigurationResponse {
     states: Vec<TaskStateResponse>,
     labels: Vec<TaskLabelResponse>,
-    task_types: Vec<TaskTypeResponse>,
     default_state_id: Uuid,
-    default_task_type_id: Uuid,
+    state_property_description: String,
+    label_property_description: String,
 }
 
 #[derive(Deserialize)]
-struct UpdateDefaultsRequest {
+struct UpdateTaskConfigurationRequest {
     #[serde(default)]
     state_id: Option<Uuid>,
     #[serde(default)]
-    task_type_id: Option<Uuid>,
+    state_property_description: Option<String>,
+    #[serde(default)]
+    label_property_description: Option<String>,
+}
+
+#[derive(FromRow)]
+struct WorkspaceTaskConfiguration {
+    default_state_id: Uuid,
+    state_property_description: String,
+    label_property_description: String,
 }
 
 pub(crate) struct NewWorkspaceTaskConfiguration {
-    state_ids: [Uuid; 5],
-    task_type_id: Uuid,
+    state_ids: [Uuid; 3],
+    legacy_task_type_id: Uuid,
 }
 
 impl NewWorkspaceTaskConfiguration {
     pub(crate) fn new() -> Self {
         Self {
             state_ids: std::array::from_fn(|_| Uuid::new_v4()),
-            task_type_id: Uuid::new_v4(),
+            legacy_task_type_id: Uuid::new_v4(),
         }
     }
 
     pub(crate) const fn default_state_id(&self) -> Uuid {
-        self.state_ids[1]
+        self.state_ids[0]
     }
 
     pub(crate) const fn default_task_type_id(&self) -> Uuid {
-        self.task_type_id
+        self.legacy_task_type_id
     }
 
     pub(crate) async fn install(
@@ -102,29 +100,34 @@ impl NewWorkspaceTaskConfiguration {
         transaction: &mut Transaction<'_, Postgres>,
         workspace_id: Uuid,
     ) -> Result<(), AppError> {
-        const STATES: [(&str, &str, &str); 5] = [
-            ("Backlog", "#6B7280", "backlog"),
-            ("Todo", "#64748B", "todo"),
-            ("In Progress", "#3B82F6", "in_progress"),
-            ("Done", "#22A06B", "done"),
-            ("Canceled", "#A1A1AA", "canceled"),
+        const STATES: [(&str, &str, &str, SystemStateRole); 3] = [
+            ("Todo", "circle", "#64748B", SystemStateRole::Todo),
+            (
+                "In Progress",
+                "loader-circle",
+                "#3B82F6",
+                SystemStateRole::InProgress,
+            ),
+            ("Done", "circle-check", "#22A06B", SystemStateRole::Done),
         ];
 
-        for (position, ((name, color, group), state_id)) in
+        for (position, ((name, icon, color, role), state_id)) in
             STATES.into_iter().zip(self.state_ids).enumerate()
         {
             sqlx::query(
                 r#"
                 INSERT INTO task_states
-                    (id, workspace_id, name, color, state_group, position)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                    (id, workspace_id, name, icon, color, state_group,
+                     system_role, position)
+                VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
                 "#,
             )
             .bind(state_id)
             .bind(workspace_id)
             .bind(name)
+            .bind(icon)
             .bind(color)
-            .bind(group)
+            .bind(role.as_str())
             .bind(position as i32)
             .execute(&mut **transaction)
             .await?;
@@ -138,7 +141,7 @@ impl NewWorkspaceTaskConfiguration {
                     'General work item', 0, true)
             "#,
         )
-        .bind(self.task_type_id)
+        .bind(self.legacy_task_type_id)
         .bind(workspace_id)
         .execute(&mut **transaction)
         .await?;
@@ -150,7 +153,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/api/workspaces/{workspace_id}/task-configuration",
-            get(list).patch(update_defaults),
+            get(list).patch(update_configuration),
         )
         .route("/api/workspaces/{workspace_id}/states", post(state::create))
         .route(
@@ -163,20 +166,12 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route("/api/workspaces/{workspace_id}/labels", post(label::create))
         .route(
+            "/api/workspaces/{workspace_id}/labels/reorder",
+            put(label::reorder),
+        )
+        .route(
             "/api/workspaces/{workspace_id}/labels/{label_id}",
             patch(label::update).delete(label::remove),
-        )
-        .route(
-            "/api/workspaces/{workspace_id}/task-types",
-            post(task_type::create),
-        )
-        .route(
-            "/api/workspaces/{workspace_id}/task-types/reorder",
-            put(task_type::reorder),
-        )
-        .route(
-            "/api/workspaces/{workspace_id}/task-types/{task_type_id}",
-            patch(task_type::update).delete(task_type::remove),
         )
 }
 
@@ -187,34 +182,48 @@ async fn list(
 ) -> Result<Json<TaskConfigurationResponse>, AppError> {
     let Path(workspace_id) = path.map_err(AppError::from)?;
     require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
-    let (states, labels, task_types, defaults) = tokio::try_join!(
+    let (states, labels, configuration) = tokio::try_join!(
         state::list(&state.pool, workspace_id),
         label::list(&state.pool, workspace_id),
-        task_type::list(&state.pool, workspace_id),
-        load_defaults(&state.pool, workspace_id),
+        load_configuration(&state.pool, workspace_id),
     )?;
     Ok(Json(TaskConfigurationResponse {
         states,
         labels,
-        task_types,
-        default_state_id: defaults.0,
-        default_task_type_id: defaults.1,
+        default_state_id: configuration.default_state_id,
+        state_property_description: configuration.state_property_description,
+        label_property_description: configuration.label_property_description,
     }))
 }
 
-async fn update_defaults(
+async fn update_configuration(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
     path: Result<Path<Uuid>, PathRejection>,
-    payload: Result<Json<UpdateDefaultsRequest>, JsonRejection>,
+    payload: Result<Json<UpdateTaskConfigurationRequest>, JsonRejection>,
 ) -> Result<Json<TaskConfigurationResponse>, AppError> {
     let Path(workspace_id) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
-    if request.state_id.is_none() && request.task_type_id.is_none() {
+    if request.state_id.is_none()
+        && request.state_property_description.is_none()
+        && request.label_property_description.is_none()
+    {
         return Err(AppError::Validation(
-            "Provide at least one Workspace task default".to_owned(),
+            "Provide at least one Task property setting".to_owned(),
         ));
     }
+    let state_description = request
+        .state_property_description
+        .as_deref()
+        .map(ConfigurationDescription::new)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let label_description = request
+        .label_property_description
+        .as_deref()
+        .map(ConfigurationDescription::new)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
     let found: Option<Uuid> =
@@ -228,20 +237,27 @@ async fn update_defaults(
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
     }
-    if let Some(task_type_id) = request.task_type_id {
-        validate_task_type_assignment(&mut transaction, workspace_id, None, task_type_id).await?;
-    }
     sqlx::query(
         r#"
         UPDATE workspaces
         SET default_inbox_state_id = COALESCE($1, default_inbox_state_id),
-            default_task_type_id = COALESCE($2, default_task_type_id),
+            state_property_description = COALESCE($2, state_property_description),
+            label_property_description = COALESCE($3, label_property_description),
             updated_at = now()
-        WHERE id = $3
+        WHERE id = $4
         "#,
     )
     .bind(request.state_id)
-    .bind(request.task_type_id)
+    .bind(
+        state_description
+            .as_ref()
+            .map(ConfigurationDescription::as_str),
+    )
+    .bind(
+        label_description
+            .as_ref()
+            .map(ConfigurationDescription::as_str),
+    )
     .bind(workspace_id)
     .execute(&mut *transaction)
     .await?;
@@ -249,9 +265,18 @@ async fn update_defaults(
     list(State(state), auth, Ok(Path(workspace_id))).await
 }
 
-async fn load_defaults(pool: &PgPool, workspace_id: Uuid) -> Result<(Uuid, Uuid), AppError> {
+async fn load_configuration(
+    pool: &PgPool,
+    workspace_id: Uuid,
+) -> Result<WorkspaceTaskConfiguration, AppError> {
     sqlx::query_as(
-        "SELECT default_inbox_state_id, default_task_type_id FROM workspaces WHERE id = $1",
+        r#"
+        SELECT default_inbox_state_id AS default_state_id,
+               state_property_description,
+               label_property_description
+        FROM workspaces
+        WHERE id = $1
+        "#,
     )
     .bind(workspace_id)
     .fetch_optional(pool)

@@ -6,7 +6,8 @@ pub(crate) use definition::{
     PropertyDefinitionResponse, is_reserved_property_name, load_definitions,
 };
 pub(crate) use value::{
-    PropertyValueMutation, apply_value_mutations, load_projected_values, validate_value_shape,
+    PropertyValueMutation, apply_default_values, apply_value_mutations, load_projected_values,
+    validate_value_shape,
 };
 
 use axum::{

@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ConfigurationDescription, HexColor, ResourceName},
+    domain::{ConfigurationDescription, HexColor, ResourceName, SelectOptionIcon},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many, read_undefined_properties, task_vault_row},
     workspace::{require_workspace_admin, require_workspace_member},
@@ -50,6 +50,7 @@ pub(crate) struct PropertyDefinitionResponse {
     pub description: String,
     pub position: i32,
     pub configuration: Value,
+    pub default_option_id: Option<Uuid>,
     pub options: Vec<PropertyOptionResponse>,
     pub usage_count: i64,
     pub archived_at: Option<DateTime<Utc>>,
@@ -63,7 +64,9 @@ pub(crate) struct PropertyOptionResponse {
     pub workspace_id: Uuid,
     pub property_id: Uuid,
     pub name: String,
+    pub icon: Option<String>,
     pub color: String,
+    pub description: String,
     pub position: i32,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -79,6 +82,7 @@ struct PropertyDefinitionRow {
     description: String,
     position: i32,
     configuration: Value,
+    default_option_id: Option<Uuid>,
     archived_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -87,8 +91,14 @@ struct PropertyDefinitionRow {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CreateOptionRequest {
+    #[serde(default)]
+    id: Option<Uuid>,
     name: String,
+    #[serde(default)]
+    icon: Option<String>,
     color: String,
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Deserialize)]
@@ -102,6 +112,8 @@ pub(super) struct CreatePropertyRequest {
     #[serde(default = "empty_configuration")]
     configuration: Value,
     #[serde(default)]
+    default_option_id: Option<Uuid>,
+    #[serde(default)]
     options: Vec<CreateOptionRequest>,
 }
 
@@ -114,6 +126,8 @@ pub(super) struct UpdatePropertyRequest {
     description: Option<String>,
     #[serde(default)]
     configuration: Option<Value>,
+    #[serde(default, deserialize_with = "deserialize_nullable_uuid")]
+    default_option_id: Option<Option<Uuid>>,
     #[serde(default)]
     archived: Option<bool>,
     #[serde(default)]
@@ -126,7 +140,11 @@ struct SaveOptionRequest {
     #[serde(default)]
     id: Option<Uuid>,
     name: String,
+    #[serde(default)]
+    icon: Option<String>,
     color: String,
+    #[serde(default)]
+    description: String,
     #[serde(default)]
     archived: bool,
 }
@@ -142,8 +160,12 @@ pub(super) struct ReorderRequest {
 pub(super) struct UpdateOptionRequest {
     #[serde(default)]
     name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
+    icon: Option<Option<String>>,
     #[serde(default)]
     color: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     archived: Option<bool>,
 }
@@ -187,6 +209,7 @@ pub(super) async fn create(
         ));
     }
     let options = validate_create_options(&request.options)?;
+    validate_requested_default(property_type, request.default_option_id, &options)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
@@ -205,7 +228,7 @@ pub(super) async fn create(
             (id, workspace_id, name, property_type, description, position, configuration)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, workspace_id, name, property_type, description, position,
-                  configuration, archived_at, created_at, updated_at
+                  configuration, default_option_id, archived_at, created_at, updated_at
         "#,
     )
     .bind(property_id)
@@ -217,7 +240,7 @@ pub(super) async fn create(
     .bind(&request.configuration)
     .fetch_one(&mut *transaction)
     .await;
-    let inserted = match inserted {
+    let mut inserted = match inserted {
         Ok(inserted) => inserted,
         Err(error) if is_unique_violation(&error) => {
             return Err(AppError::Conflict(
@@ -227,18 +250,32 @@ pub(super) async fn create(
         Err(error) => return Err(error.into()),
     };
     let mut inserted_options = Vec::with_capacity(options.len());
-    for (position, (name, color)) in options.into_iter().enumerate() {
+    for (position, option) in options.into_iter().enumerate() {
         inserted_options.push(
             insert_option(
                 &mut transaction,
                 workspace_id,
                 property_id,
-                name.as_str(),
-                color.as_str(),
+                option.id,
+                option.name.as_str(),
+                option.icon.as_ref().map(SelectOptionIcon::as_str),
+                option.color.as_str(),
+                option.description.as_str(),
                 position as i32,
             )
             .await?,
         );
+    }
+    if let Some(default_option_id) = request.default_option_id {
+        set_default_option(
+            &mut transaction,
+            workspace_id,
+            property_id,
+            property_type,
+            Some(default_option_id),
+        )
+        .await?;
+        inserted.default_option_id = Some(default_option_id);
     }
     transaction.commit().await?;
     Ok((
@@ -266,6 +303,7 @@ pub(super) async fn define(
         ));
     }
     let options = validate_create_options(&request.options)?;
+    validate_requested_default(property_type, request.default_option_id, &options)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
@@ -346,7 +384,7 @@ pub(super) async fn define(
             (id, workspace_id, name, property_type, description, position, configuration)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, workspace_id, name, property_type, description, position,
-                  configuration, archived_at, created_at, updated_at
+                  configuration, default_option_id, archived_at, created_at, updated_at
         "#,
     )
     .bind(property_id)
@@ -358,7 +396,7 @@ pub(super) async fn define(
     .bind(&request.configuration)
     .fetch_one(&mut *transaction)
     .await;
-    let inserted = match inserted {
+    let mut inserted = match inserted {
         Ok(inserted) => inserted,
         Err(error) if is_unique_violation(&error) => {
             return Err(AppError::Conflict(
@@ -368,18 +406,32 @@ pub(super) async fn define(
         Err(error) => return Err(error.into()),
     };
     let mut inserted_options = Vec::with_capacity(options.len());
-    for (position, (option_name, color)) in options.into_iter().enumerate() {
+    for (position, option) in options.into_iter().enumerate() {
         inserted_options.push(
             insert_option(
                 &mut transaction,
                 workspace_id,
                 property_id,
-                option_name.as_str(),
-                color.as_str(),
+                option.id,
+                option.name.as_str(),
+                option.icon.as_ref().map(SelectOptionIcon::as_str),
+                option.color.as_str(),
+                option.description.as_str(),
                 position as i32,
             )
             .await?,
         );
+    }
+    if let Some(default_option_id) = request.default_option_id {
+        set_default_option(
+            &mut transaction,
+            workspace_id,
+            property_id,
+            property_type,
+            Some(default_option_id),
+        )
+        .await?;
+        inserted.default_option_id = Some(default_option_id);
     }
 
     for item in &imported {
@@ -529,6 +581,7 @@ pub(super) async fn update(
     if request.name.is_none()
         && request.description.is_none()
         && request.configuration.is_none()
+        && request.default_option_id.is_none()
         && request.archived.is_none()
         && request.options.is_none()
     {
@@ -597,7 +650,7 @@ pub(super) async fn update(
             updated_at = now()
         WHERE workspace_id = $6 AND id = $7
         RETURNING id, workspace_id, name, property_type, description, position,
-                  configuration, archived_at, created_at, updated_at
+                  configuration, default_option_id, archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
@@ -609,15 +662,15 @@ pub(super) async fn update(
     .bind(property_id)
     .fetch_one(&mut *transaction)
     .await;
-    let updated = match updated {
-        Ok(updated) => updated,
+    match updated {
+        Ok(_) => {}
         Err(error) if is_unique_violation(&error) => {
             return Err(AppError::Conflict(
                 "A defined or archived property already uses this name".to_owned(),
             ));
         }
         Err(error) => return Err(error.into()),
-    };
+    }
     if let Some(options) = &request.options {
         replace_options(
             &mut transaction,
@@ -628,12 +681,23 @@ pub(super) async fn update(
         )
         .await?;
     }
+    if let Some(default_option_id) = request.default_option_id {
+        set_default_option(
+            &mut transaction,
+            workspace_id,
+            property_id,
+            property_type,
+            default_option_id,
+        )
+        .await?;
+    }
     if name.is_some() {
         enqueue_with_cleanup(&mut transaction, workspace_id, &task_ids, &previous_name).await?;
     } else if request.archived.is_some() || request.options.is_some() {
         enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     }
     let options = options_for_property(&mut transaction, workspace_id, property_id).await?;
+    let updated = property_row(&mut transaction, workspace_id, property_id).await?;
     transaction.commit().await?;
     project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(into_response(updated, options, task_ids.len() as i64)))
@@ -716,7 +780,10 @@ pub(super) async fn create_option(
     let Path((workspace_id, property_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     let name = option_name(&request.name)?;
+    let icon = requested_icon(request.icon.as_deref())?;
     let color = normalized_color(&request.color)?;
+    let description = ConfigurationDescription::new(&request.description)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
@@ -732,8 +799,11 @@ pub(super) async fn create_option(
         &mut transaction,
         workspace_id,
         property_id,
+        request.id,
         name.as_str(),
+        icon.as_ref().map(SelectOptionIcon::as_str),
         color.as_str(),
+        description.as_str(),
         position,
     )
     .await?;
@@ -749,13 +819,25 @@ pub(super) async fn update_option(
 ) -> Result<Json<PropertyOptionResponse>, AppError> {
     let Path((workspace_id, property_id, option_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
-    if request.name.is_none() && request.color.is_none() && request.archived.is_none() {
+    if request.name.is_none()
+        && request.icon.is_none()
+        && request.color.is_none()
+        && request.description.is_none()
+        && request.archived.is_none()
+    {
         return Err(AppError::Validation(
             "Provide at least one option field to update".to_owned(),
         ));
     }
     let name = request.name.as_deref().map(option_name).transpose()?;
+    let icon = validate_icon_update(&request.icon)?;
     let color = request.color.as_deref().map(normalized_color).transpose()?;
+    let description = request
+        .description
+        .as_deref()
+        .map(ConfigurationDescription::new)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
@@ -782,23 +864,35 @@ pub(super) async fn update_option(
     } else {
         None
     };
+    if request.archived == Some(true) {
+        clear_default_option(&mut transaction, workspace_id, property_id, option_id).await?;
+    }
     let updated = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
         UPDATE custom_property_options
-        SET name = COALESCE($1, name), color = COALESCE($2, color),
+        SET name = COALESCE($1, name),
+            icon = CASE WHEN $2 THEN $3 ELSE icon END,
+            color = COALESCE($4, color),
+            description = COALESCE($5, description),
             archived_at = CASE
-                WHEN $3::boolean IS NULL THEN archived_at
-                WHEN $3 THEN now()
+                WHEN $6::boolean IS NULL THEN archived_at
+                WHEN $6 THEN now()
                 ELSE NULL
             END,
-            position = COALESCE($4, position), updated_at = now()
-        WHERE workspace_id = $5 AND property_id = $6 AND id = $7
-        RETURNING id, workspace_id, property_id, name, color, position,
+            position = COALESCE($7, position), updated_at = now()
+        WHERE workspace_id = $8 AND property_id = $9 AND id = $10
+        RETURNING id, workspace_id, property_id, name, icon, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
+    .bind(request.icon.is_some())
+    .bind(
+        icon.as_ref()
+            .and_then(|icon| icon.as_ref().map(SelectOptionIcon::as_str)),
+    )
     .bind(color.as_ref().map(HexColor::as_str))
+    .bind(description.as_ref().map(ConfigurationDescription::as_str))
     .bind(request.archived)
     .bind(new_position)
     .bind(workspace_id)
@@ -816,7 +910,7 @@ pub(super) async fn update_option(
         Err(error) => return Err(error.into()),
     };
     let task_ids = option_task_ids(&mut transaction, workspace_id, property_id, option_id).await?;
-    if name.is_some() || request.archived.is_some() {
+    if name.is_some() || request.icon.is_some() || request.archived.is_some() {
         enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     }
     transaction.commit().await?;
@@ -934,7 +1028,10 @@ async fn replace_options(
         validated.push((
             option.id,
             name,
+            requested_icon(option.icon.as_deref())?,
             normalized_color(&option.color)?,
+            ConfigurationDescription::new(&option.description)
+                .map_err(|error| AppError::Validation(error.to_string()))?,
             option.archived,
         ));
     }
@@ -972,7 +1069,7 @@ async fn replace_options(
 
     let mut active_position = 0_i32;
     let mut archived_position = 0_i32;
-    for (id, name, color, archived) in validated {
+    for (id, name, icon, color, description, archived) in validated {
         let position = if archived {
             let position = archived_position;
             archived_position += 1;
@@ -984,17 +1081,23 @@ async fn replace_options(
         };
         match id {
             Some(id) => {
+                if archived {
+                    clear_default_option(transaction, workspace_id, property_id, id).await?;
+                }
                 sqlx::query(
                     r#"
                     UPDATE custom_property_options
-                    SET name = $1, color = $2, position = $3,
-                        archived_at = CASE WHEN $4 THEN COALESCE(archived_at, now()) ELSE NULL END,
+                    SET name = $1, icon = $2, color = $3, description = $4,
+                        position = $5,
+                        archived_at = CASE WHEN $6 THEN COALESCE(archived_at, now()) ELSE NULL END,
                         updated_at = now()
-                    WHERE workspace_id = $5 AND property_id = $6 AND id = $7
+                    WHERE workspace_id = $7 AND property_id = $8 AND id = $9
                     "#,
                 )
                 .bind(name.as_str())
+                .bind(icon.as_ref().map(SelectOptionIcon::as_str))
                 .bind(color.as_str())
+                .bind(description.as_str())
                 .bind(position)
                 .bind(archived)
                 .bind(workspace_id)
@@ -1008,8 +1111,11 @@ async fn replace_options(
                     transaction,
                     workspace_id,
                     property_id,
+                    None,
                     name.as_str(),
+                    icon.as_ref().map(SelectOptionIcon::as_str),
                     color.as_str(),
+                    description.as_str(),
                     position,
                 )
                 .await?;
@@ -1026,6 +1132,7 @@ async fn delete_option_data(
     option_id: Uuid,
     property_type: PropertyType,
 ) -> Result<(), AppError> {
+    clear_default_option(transaction, workspace_id, property_id, option_id).await?;
     match property_type {
         PropertyType::SingleSelect => {
             sqlx::query(
@@ -1087,7 +1194,7 @@ pub(crate) async fn load_definitions(
     let rows = sqlx::query_as::<_, PropertyDefinitionRow>(
         r#"
         SELECT id, workspace_id, name, property_type, description, position,
-               configuration, archived_at, created_at, updated_at
+               configuration, default_option_id, archived_at, created_at, updated_at
         FROM custom_property_definitions
         WHERE workspace_id = $1
         ORDER BY archived_at NULLS FIRST, position, id
@@ -1098,7 +1205,7 @@ pub(crate) async fn load_definitions(
     .await?;
     let options = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
-        SELECT id, workspace_id, property_id, name, color, position,
+        SELECT id, workspace_id, property_id, name, icon, color, description, position,
                archived_at, created_at, updated_at
         FROM custom_property_options
         WHERE workspace_id = $1
@@ -1151,6 +1258,7 @@ fn into_response(
         description: row.description,
         position: row.position,
         configuration: row.configuration,
+        default_option_id: row.default_option_id,
         options,
         usage_count,
         archived_at: row.archived_at,
@@ -1192,46 +1300,96 @@ fn validate_configuration(configuration: &Value) -> Result<(), AppError> {
     Ok(())
 }
 
+struct ValidatedCreateOption {
+    id: Option<Uuid>,
+    name: ResourceName,
+    icon: Option<SelectOptionIcon>,
+    color: HexColor,
+    description: ConfigurationDescription,
+}
+
 fn validate_create_options(
     options: &[CreateOptionRequest],
-) -> Result<Vec<(ResourceName, HexColor)>, AppError> {
+) -> Result<Vec<ValidatedCreateOption>, AppError> {
     let mut names = HashSet::new();
+    let mut ids = HashSet::new();
     options
         .iter()
         .map(|option| {
+            if option.id.is_some_and(|id| !ids.insert(id)) {
+                return Err(AppError::Validation(
+                    "Property options cannot contain duplicate IDs".to_owned(),
+                ));
+            }
             let name = option_name(&option.name)?;
             if !names.insert(name.as_str().to_lowercase()) {
                 return Err(AppError::Validation(
                     "Property options cannot contain duplicate names".to_owned(),
                 ));
             }
-            Ok((name, normalized_color(&option.color)?))
+            Ok(ValidatedCreateOption {
+                id: option.id,
+                name,
+                icon: requested_icon(option.icon.as_deref())?,
+                color: normalized_color(&option.color)?,
+                description: ConfigurationDescription::new(&option.description)
+                    .map_err(|error| AppError::Validation(error.to_string()))?,
+            })
         })
         .collect()
+}
+
+fn validate_requested_default(
+    property_type: PropertyType,
+    default_option_id: Option<Uuid>,
+    options: &[ValidatedCreateOption],
+) -> Result<(), AppError> {
+    let Some(default_option_id) = default_option_id else {
+        return Ok(());
+    };
+    if property_type != PropertyType::SingleSelect {
+        return Err(AppError::Validation(
+            "Only single-select properties can define a default option".to_owned(),
+        ));
+    }
+    if !options
+        .iter()
+        .any(|option| option.id == Some(default_option_id))
+    {
+        return Err(AppError::Validation(
+            "Default option must be an active option in this property".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 async fn insert_option(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     property_id: Uuid,
+    option_id: Option<Uuid>,
     name: &str,
+    icon: Option<&str>,
     color: &str,
+    description: &str,
     position: i32,
 ) -> Result<PropertyOptionResponse, AppError> {
     let inserted = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
         INSERT INTO custom_property_options
-            (id, workspace_id, property_id, name, color, position)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, workspace_id, property_id, name, color, position,
+            (id, workspace_id, property_id, name, icon, color, description, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, workspace_id, property_id, name, icon, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
-    .bind(Uuid::new_v4())
+    .bind(option_id.unwrap_or_else(Uuid::new_v4))
     .bind(workspace_id)
     .bind(property_id)
     .bind(name)
+    .bind(icon)
     .bind(color)
+    .bind(description)
     .bind(position)
     .fetch_one(&mut **transaction)
     .await;
@@ -1251,7 +1409,7 @@ async fn options_for_property(
 ) -> Result<Vec<PropertyOptionResponse>, AppError> {
     Ok(sqlx::query_as(
         r#"
-        SELECT id, workspace_id, property_id, name, color, position,
+        SELECT id, workspace_id, property_id, name, icon, color, description, position,
                archived_at, created_at, updated_at
         FROM custom_property_options
         WHERE workspace_id = $1 AND property_id = $2
@@ -1262,6 +1420,125 @@ async fn options_for_property(
     .bind(property_id)
     .fetch_all(&mut **transaction)
     .await?)
+}
+
+async fn property_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    property_id: Uuid,
+) -> Result<PropertyDefinitionRow, AppError> {
+    sqlx::query_as(
+        r#"
+        SELECT id, workspace_id, name, property_type, description, position,
+               configuration, default_option_id, archived_at, created_at, updated_at
+        FROM custom_property_definitions
+        WHERE workspace_id = $1 AND id = $2
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(property_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Property not found".to_owned()))
+}
+
+async fn set_default_option(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    property_id: Uuid,
+    property_type: PropertyType,
+    default_option_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    if default_option_id.is_some() && property_type != PropertyType::SingleSelect {
+        return Err(AppError::Validation(
+            "Only single-select properties can define a default option".to_owned(),
+        ));
+    }
+    if let Some(default_option_id) = default_option_id {
+        let exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM custom_property_options
+                WHERE workspace_id = $1 AND property_id = $2 AND id = $3
+                  AND archived_at IS NULL
+            )
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(property_id)
+        .bind(default_option_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+        if !exists {
+            return Err(AppError::Validation(
+                "Default option must be an active option in this property".to_owned(),
+            ));
+        }
+    }
+    sqlx::query(
+        r#"
+        UPDATE custom_property_definitions
+        SET default_option_id = $1, updated_at = now()
+        WHERE workspace_id = $2 AND id = $3
+        "#,
+    )
+    .bind(default_option_id)
+    .bind(workspace_id)
+    .bind(property_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn clear_default_option(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    property_id: Uuid,
+    option_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE custom_property_definitions
+        SET default_option_id = NULL, updated_at = now()
+        WHERE workspace_id = $1 AND id = $2 AND default_option_id = $3
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(property_id)
+    .bind(option_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+fn requested_icon(value: Option<&str>) -> Result<Option<SelectOptionIcon>, AppError> {
+    value
+        .map(SelectOptionIcon::new_supported)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))
+}
+
+fn validate_icon_update(
+    requested: &Option<Option<String>>,
+) -> Result<Option<Option<SelectOptionIcon>>, AppError> {
+    requested
+        .as_ref()
+        .map(|icon| requested_icon(icon.as_deref()))
+        .transpose()
+}
+
+fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_nullable_uuid<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<Uuid>::deserialize(deserializer).map(Some)
 }
 
 async fn require_select_property(

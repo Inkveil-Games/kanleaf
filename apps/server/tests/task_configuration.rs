@@ -106,24 +106,40 @@ async fn defaults_are_installed_and_configuration_is_tenant_and_role_scoped(pool
     let (member_token, member_id, member_workspace) = register(&app, "member@example.com").await;
 
     let owner_configuration = configuration(&app, &owner_token, owner_workspace).await;
-    assert_eq!(owner_configuration["states"].as_array().unwrap().len(), 5);
     assert_eq!(
         owner_configuration["states"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|state| state["state_group"].as_str().unwrap())
+            .map(|state| json!({
+                "name": state["name"],
+                "icon": state["icon"],
+                "system_role": state["system_role"],
+            }))
             .collect::<Vec<_>>(),
-        ["backlog", "todo", "in_progress", "done", "canceled"]
+        [
+            json!({"name": "Todo", "icon": "circle", "system_role": "todo"}),
+            json!({
+                "name": "In Progress",
+                "icon": "loader-circle",
+                "system_role": "in_progress"
+            }),
+            json!({"name": "Done", "icon": "circle-check", "system_role": "done"}),
+        ]
     );
     assert_eq!(
-        owner_configuration["task_types"].as_array().unwrap().len(),
-        1
+        owner_configuration["state_property_description"],
+        "The current step of work."
     );
-    assert_eq!(owner_configuration["task_types"][0]["is_protected"], true);
     assert_eq!(
-        owner_configuration["default_task_type_id"],
-        owner_configuration["task_types"][0]["id"]
+        owner_configuration["label_property_description"],
+        "Shared tags used to organize work."
+    );
+    assert!(owner_configuration.get("task_types").is_none());
+    assert!(owner_configuration.get("default_task_type_id").is_none());
+    assert_eq!(
+        owner_configuration["default_state_id"],
+        owner_configuration["states"][0]["id"]
     );
 
     sqlx::query(
@@ -141,12 +157,29 @@ async fn defaults_are_installed_and_configuration_is_tenant_and_role_scoped(pool
         .oneshot(request(
             "POST",
             &format!("/api/workspaces/{owner_workspace}/states"),
-            Some(json!({"name": "Review", "color": "#F59E0B", "state_group": "in_progress"})),
+            Some(json!({
+                "name": "Review",
+                "icon": "eye",
+                "color": "#F59E0B",
+                "description": "Awaiting review"
+            })),
             &member_token,
         ))
         .await
         .unwrap();
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+    let denied_settings = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/workspaces/{owner_workspace}/task-configuration"),
+            Some(json!({"state_property_description": "No access"})),
+            &member_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied_settings.status(), StatusCode::FORBIDDEN);
 
     let isolated = app
         .oneshot(request(
@@ -161,45 +194,62 @@ async fn defaults_are_installed_and_configuration_is_tenant_and_role_scoped(pool
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn states_labels_and_types_support_edit_reorder_archive_and_guards(pool: PgPool) {
+async fn core_states_lock_identity_but_allow_description_order_and_property_settings(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
-    let app = test_app(pool.clone(), &data_dir);
-    let (token, _, workspace_id) = register(&app, "owner@example.com").await;
-    let state_uri = format!("/api/workspaces/{workspace_id}/states");
-    let review = create_resource(
-        &app,
-        &token,
-        &state_uri,
-        json!({"name": "Review", "color": "#F59E0B", "state_group": "in_progress"}),
-    )
-    .await;
-    let review_id = review["id"].as_str().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "core-states@example.com").await;
+    let config = configuration(&app, &token, workspace_id).await;
+    let todo_id = config["states"][0]["id"].as_str().unwrap();
+    let todo_uri = format!("/api/workspaces/{workspace_id}/states/{todo_id}");
 
-    let duplicate = app
+    for body in [
+        json!({"name": "Ready"}),
+        json!({"icon": "circle-dot"}),
+        json!({"color": "#F59E0B"}),
+        json!({"archived": true}),
+    ] {
+        let rejected = app
+            .clone()
+            .oneshot(request("PATCH", &todo_uri, Some(body), &token))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let deleted = app
+        .clone()
+        .oneshot(request("DELETE", &todo_uri, None, &token))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let described = app
         .clone()
         .oneshot(request(
-            "POST",
-            &state_uri,
-            Some(json!({"name": "review", "color": "#F59E0B", "state_group": "in_progress"})),
+            "PATCH",
+            &todo_uri,
+            Some(json!({"description": "Ready to be picked up"})),
             &token,
         ))
         .await
         .unwrap();
-    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    assert_eq!(described.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(described).await["description"],
+        "Ready to be picked up"
+    );
 
-    let config = configuration(&app, &token, workspace_id).await;
-    let reversed_ids: Vec<_> = config["states"]
+    let reversed_ids = config["states"]
         .as_array()
         .unwrap()
         .iter()
         .rev()
         .map(|state| state["id"].clone())
-        .collect();
+        .collect::<Vec<_>>();
     let reordered = app
         .clone()
         .oneshot(request(
             "PUT",
-            &format!("{state_uri}/reorder"),
+            &format!("/api/workspaces/{workspace_id}/states/reorder"),
             Some(json!({"ids": reversed_ids})),
             &token,
         ))
@@ -208,244 +258,177 @@ async fn states_labels_and_types_support_edit_reorder_archive_and_guards(pool: P
     assert_eq!(reordered.status(), StatusCode::NO_CONTENT);
     assert_eq!(
         configuration(&app, &token, workspace_id).await["states"][0]["id"],
-        review_id
+        config["states"][2]["id"]
     );
 
-    let defaulted = app
+    let settings = app
         .clone()
         .oneshot(request(
             "PATCH",
             &format!("/api/workspaces/{workspace_id}/task-configuration"),
-            Some(json!({"state_id": review_id})),
+            Some(json!({
+                "state_id": todo_id,
+                "state_property_description": "Where the work is now.",
+                "label_property_description": "Shared vocabulary for organizing work."
+            })),
             &token,
         ))
         .await
         .unwrap();
-    assert_eq!(defaulted.status(), StatusCode::OK);
-    let archive_default = app
-        .clone()
+    assert_eq!(settings.status(), StatusCode::OK);
+    let settings = response_json(settings).await;
+    assert_eq!(settings["default_state_id"], todo_id);
+    assert_eq!(
+        settings["state_property_description"],
+        "Where the work is now."
+    );
+    assert_eq!(
+        settings["label_property_description"],
+        "Shared vocabulary for organizing work."
+    );
+
+    let empty = app
         .oneshot(request(
             "PATCH",
-            &format!("{state_uri}/{review_id}"),
-            Some(json!({"archived": true})),
+            &format!("/api/workspaces/{workspace_id}/task-configuration"),
+            Some(json!({})),
             &token,
         ))
         .await
         .unwrap();
-    assert_eq!(archive_default.status(), StatusCode::UNPROCESSABLE_ENTITY);
-
-    let label_uri = format!("/api/workspaces/{workspace_id}/labels");
-    let label = create_resource(
-        &app,
-        &token,
-        &label_uri,
-        json!({"name": "Backend", "color": "#22A06B", "description": "Server work"}),
-    )
-    .await;
-    let label_id = label["id"].as_str().unwrap();
-    let archived_label = app
-        .clone()
-        .oneshot(request(
-            "PATCH",
-            &format!("{label_uri}/{label_id}"),
-            Some(json!({"archived": true})),
-            &token,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(archived_label.status(), StatusCode::OK);
-    let deleted_label = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!("{label_uri}/{label_id}"),
-            None,
-            &token,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(deleted_label.status(), StatusCode::NO_CONTENT);
-
-    let protected_id = configuration(&app, &token, workspace_id).await["task_types"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    for (method, body) in [("PATCH", Some(json!({"archived": true}))), ("DELETE", None)] {
-        let response = app
-            .clone()
-            .oneshot(request(
-                method,
-                &format!("/api/workspaces/{workspace_id}/task-types/{protected_id}"),
-                body,
-                &token,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    }
+    assert_eq!(empty.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
+async fn custom_states_and_labels_share_edit_reorder_archive_and_replacement_behavior(
+    pool: PgPool,
+) {
     let data_dir = TempDir::new().unwrap();
-    let app = test_app(pool.clone(), &data_dir);
-    let (token, _, workspace_id) = register(&app, "owner@example.com").await;
-    let original = configuration(&app, &token, workspace_id).await;
-    let protected_type_id = original["default_task_type_id"].as_str().unwrap();
-    let done_state_id = original["states"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|state| state["state_group"] == "done")
-        .unwrap()["id"]
-        .as_str()
-        .unwrap();
-
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "custom-values@example.com").await;
+    let state_uri = format!("/api/workspaces/{workspace_id}/states");
     let ready = create_resource(
         &app,
         &token,
-        &format!("/api/workspaces/{workspace_id}/states"),
-        json!({"name": "Ready", "color": "#0EA5E9", "state_group": "todo"}),
+        &state_uri,
+        json!({
+            "name": "Ready",
+            "icon": "circle-dot",
+            "color": "#0EA5E9",
+            "description": "Ready for work"
+        }),
     )
     .await;
     let queued = create_resource(
         &app,
         &token,
-        &format!("/api/workspaces/{workspace_id}/states"),
-        json!({"name": "Queued", "color": "#0284C7", "state_group": "todo"}),
+        &state_uri,
+        json!({
+            "name": "Queued",
+            "icon": null,
+            "color": "#0284C7",
+            "description": "Waiting"
+        }),
     )
     .await;
-    let bug = create_resource(
-        &app,
-        &token,
-        &format!("/api/workspaces/{workspace_id}/task-types"),
-        json!({"name": "Bug", "icon": "bug", "color": "#DC2626", "description": "Defect"}),
-    )
-    .await;
+    assert_eq!(ready["icon"], "circle-dot");
+    assert_eq!(ready["description"], "Ready for work");
+    assert!(ready["system_role"].is_null());
+    assert!(queued["icon"].is_null());
+    let ready_id = ready["id"].as_str().unwrap();
+    let done_id = configuration(&app, &token, workspace_id).await["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|state| state["system_role"] == "done")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let duplicate = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &state_uri,
+            Some(json!({
+                "name": "ready",
+                "icon": null,
+                "color": "#F59E0B",
+                "description": "Duplicate"
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+
+    let label_uri = format!("/api/workspaces/{workspace_id}/labels");
     let backend = create_resource(
         &app,
         &token,
-        &format!("/api/workspaces/{workspace_id}/labels"),
-        json!({"name": "Backend", "color": "#22A06B"}),
+        &label_uri,
+        json!({
+            "name": "Backend",
+            "icon": "database",
+            "color": "#22A06B",
+            "description": "Server work"
+        }),
     )
     .await;
-    let ready_id = ready["id"].as_str().unwrap();
-    let queued_id = queued["id"].as_str().unwrap();
-    let bug_id = bug["id"].as_str().unwrap();
+    let design = create_resource(
+        &app,
+        &token,
+        &label_uri,
+        json!({
+            "name": "Design",
+            "icon": null,
+            "color": "#A855F7",
+            "description": "Visual work"
+        }),
+    )
+    .await;
+    assert_eq!(backend["icon"], "database");
+    assert_eq!(backend["position"], 0);
+    assert_eq!(design["position"], 1);
     let backend_id = backend["id"].as_str().unwrap();
+    let design_id = design["id"].as_str().unwrap();
 
     let task = create_resource(
         &app,
         &token,
         &format!("/api/workspaces/{workspace_id}/tasks"),
         json!({
-            "title": "Fix crash",
+            "title": "Move freely",
             "state_id": ready_id,
-            "task_type_id": bug_id,
-            "priority": "urgent",
             "label_ids": [backend_id]
         }),
     )
     .await;
     let task_id = task["id"].as_str().unwrap();
-    assert_eq!(task["state"]["name"], "Ready");
-    assert_eq!(task["task_type"]["name"], "Bug");
-    assert_eq!(task["priority"], "urgent");
-    let task_path = data_dir
-        .path()
-        .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
-
-    for (uri, body) in [
-        (
-            format!("/api/workspaces/{workspace_id}/states/{ready_id}"),
-            json!({"name": "Ready for QA"}),
-        ),
-        (
-            format!("/api/workspaces/{workspace_id}/task-types/{bug_id}"),
-            json!({"name": "Defect"}),
-        ),
-        (
-            format!("/api/workspaces/{workspace_id}/labels/{backend_id}"),
-            json!({"name": "Server"}),
-        ),
-    ] {
-        let response = app
-            .clone()
-            .oneshot(request("PATCH", &uri, Some(body), &token))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-    let renamed_source = fs::read_to_string(&task_path).unwrap();
-    assert!(renamed_source.contains("State:\n  - Ready for QA\n"));
-    assert!(renamed_source.contains("Type:\n  - Defect\n"));
-    assert!(renamed_source.contains("Labels:\n  - Server\n"));
-
     let missing_replacement = app
         .clone()
         .oneshot(request(
             "DELETE",
-            &format!("/api/workspaces/{workspace_id}/states/{ready_id}"),
+            &format!("{state_uri}/{ready_id}"),
             None,
             &token,
         ))
         .await
         .unwrap();
     assert_eq!(missing_replacement.status(), StatusCode::CONFLICT);
-    let wrong_group = app
+    let replaced = app
         .clone()
         .oneshot(request(
             "DELETE",
-            &format!(
-                "/api/workspaces/{workspace_id}/states/{ready_id}?replacement_id={done_state_id}"
-            ),
+            &format!("{state_uri}/{ready_id}?replacement_id={done_id}"),
             None,
             &token,
         ))
         .await
         .unwrap();
-    assert_eq!(wrong_group.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let replaced_state = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!("/api/workspaces/{workspace_id}/states/{ready_id}?replacement_id={queued_id}"),
-            None,
-            &token,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(replaced_state.status(), StatusCode::NO_CONTENT);
-
-    let missing_type_replacement = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!("/api/workspaces/{workspace_id}/task-types/{bug_id}"),
-            None,
-            &token,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(missing_type_replacement.status(), StatusCode::CONFLICT);
-    let replaced_type = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!(
-                "/api/workspaces/{workspace_id}/task-types/{bug_id}?replacement_id={protected_type_id}"
-            ),
-            None,
-            &token,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(replaced_type.status(), StatusCode::NO_CONTENT);
-
-    let updated_task = app
+    assert_eq!(replaced.status(), StatusCode::NO_CONTENT);
+    let moved_task = app
         .clone()
         .oneshot(request(
             "GET",
@@ -455,24 +438,74 @@ async fn task_state_and_type_replacement_is_explicit_and_atomic(pool: PgPool) {
         ))
         .await
         .unwrap();
-    let updated_task = response_json(updated_task).await;
-    assert_eq!(updated_task["state"]["id"], queued_id);
-    assert_eq!(updated_task["task_type"]["id"], protected_type_id);
-    let replaced_source = fs::read_to_string(task_path).unwrap();
-    assert!(replaced_source.contains("State:\n  - Queued\n"));
-    assert!(replaced_source.contains("Type:\n  - Task\n"));
+    assert_eq!(response_json(moved_task).await["state"]["id"], done_id);
 
-    let other_data_dir = TempDir::new().unwrap();
-    let other_app = test_app(pool, &other_data_dir);
-    let (other_token, _, other_workspace) = register(&other_app, "other@example.com").await;
-    let cross_workspace = other_app
+    let reordered = app
+        .clone()
         .oneshot(request(
-            "POST",
-            &format!("/api/workspaces/{other_workspace}/tasks"),
-            Some(json!({"title": "Escaped", "state_id": queued_id})),
-            &other_token,
+            "PUT",
+            &format!("{label_uri}/reorder"),
+            Some(json!({"ids": [design_id, backend_id]})),
+            &token,
         ))
         .await
         .unwrap();
-    assert_eq!(cross_workspace.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reordered.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        configuration(&app, &token, workspace_id).await["labels"][0]["id"],
+        design_id
+    );
+
+    let updated = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("{label_uri}/{backend_id}"),
+            Some(json!({
+                "name": "Server",
+                "icon": "terminal",
+                "description": "Backend systems"
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = response_json(updated).await;
+    assert_eq!(updated["icon"], "terminal");
+    assert_eq!(updated["description"], "Backend systems");
+
+    let archived = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("{label_uri}/{backend_id}"),
+            Some(json!({"archived": true})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archived.status(), StatusCode::OK);
+    let restored = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("{label_uri}/{backend_id}"),
+            Some(json!({"archived": false})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(restored.status(), StatusCode::OK);
+    assert_eq!(response_json(restored).await["position"], 1);
+
+    let task_path = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string())
+        .join("Todo")
+        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+    let source = fs::read_to_string(task_path).unwrap();
+    assert!(source.contains("State:\n  - Done\n"));
+    assert!(source.contains("Labels:\n  - Server\n"));
 }

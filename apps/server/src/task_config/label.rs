@@ -1,16 +1,18 @@
+use std::collections::HashSet;
+
 use axum::{
     Json,
     extract::{Path, State, rejection::JsonRejection, rejection::PathRejection},
     http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ConfigurationDescription, HexColor, ResourceName},
+    domain::{ConfigurationDescription, HexColor, ResourceName, SelectOptionIcon},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
     workspace::require_workspace_admin,
@@ -21,6 +23,8 @@ use super::TaskLabelResponse;
 #[derive(Deserialize)]
 pub(super) struct CreateLabelRequest {
     name: String,
+    #[serde(default)]
+    icon: Option<String>,
     color: String,
     #[serde(default)]
     description: String,
@@ -30,6 +34,8 @@ pub(super) struct CreateLabelRequest {
 pub(super) struct UpdateLabelRequest {
     #[serde(default)]
     name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    icon: Option<Option<String>>,
     #[serde(default)]
     color: Option<String>,
     #[serde(default)]
@@ -38,17 +44,22 @@ pub(super) struct UpdateLabelRequest {
     archived: Option<bool>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct ReorderLabelsRequest {
+    ids: Vec<Uuid>,
+}
+
 pub(super) async fn list(
     pool: &PgPool,
     workspace_id: Uuid,
 ) -> Result<Vec<TaskLabelResponse>, AppError> {
     Ok(sqlx::query_as(
         r#"
-        SELECT id, workspace_id, name, color, description,
+        SELECT id, workspace_id, name, icon, color, description, position,
                archived_at, created_at, updated_at
         FROM task_labels
         WHERE workspace_id = $1
-        ORDER BY archived_at NULLS FIRST, lower(name), id
+        ORDER BY archived_at NULLS FIRST, position, id
         "#,
     )
     .bind(workspace_id)
@@ -66,35 +77,55 @@ pub(super) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let icon = request
+        .icon
+        .as_deref()
+        .map(SelectOptionIcon::new_supported)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     let color =
         HexColor::new(&request.color).map_err(|error| AppError::Validation(error.to_string()))?;
     let description = ConfigurationDescription::new(&request.description)
         .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
+    let mut transaction = state.pool.begin().await?;
+    super::state::lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let position: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(max(position) + 1, 0) FROM task_labels WHERE workspace_id = $1 AND archived_at IS NULL",
+    )
+    .bind(workspace_id)
+    .fetch_one(&mut *transaction)
+    .await?;
     let created = sqlx::query_as::<_, TaskLabelResponse>(
         r#"
         INSERT INTO task_labels
-            (id, workspace_id, name, color, description)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, workspace_id, name, color, description,
+            (id, workspace_id, name, icon, color, description, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, workspace_id, name, icon, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(Uuid::new_v4())
     .bind(workspace_id)
     .bind(name.as_str())
+    .bind(icon.as_ref().map(SelectOptionIcon::as_str))
     .bind(color.as_str())
     .bind(description.as_str())
-    .fetch_one(&state.pool)
+    .bind(position)
+    .fetch_one(&mut *transaction)
     .await;
-    match created {
-        Ok(created) => Ok((StatusCode::CREATED, Json(created))),
-        Err(error) if is_unique_violation(&error) => Err(AppError::Conflict(
-            "An active label already uses this name".to_owned(),
-        )),
-        Err(error) => Err(error.into()),
-    }
+    let created = match created {
+        Ok(created) => created,
+        Err(error) if is_unique_violation(&error) => {
+            return Err(AppError::Conflict(
+                "An active label already uses this name".to_owned(),
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    transaction.commit().await?;
+    Ok((StatusCode::CREATED, Json(created)))
 }
 
 pub(super) async fn update(
@@ -106,6 +137,7 @@ pub(super) async fn update(
     let Path((workspace_id, label_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.name.is_none()
+        && request.icon.is_none()
         && request.color.is_none()
         && request.description.is_none()
         && request.archived.is_none()
@@ -120,6 +152,7 @@ pub(super) async fn update(
         .map(ResourceName::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let icon = validate_icon_update(&request.icon)?;
     let color = request
         .color
         .as_deref()
@@ -135,27 +168,56 @@ pub(super) async fn update(
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
+    super::state::lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let was_archived: bool = sqlx::query_scalar(
+        "SELECT archived_at IS NOT NULL FROM task_labels WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+    )
+    .bind(label_id)
+    .bind(workspace_id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Task label not found".to_owned()))?;
+    let new_position: Option<i32> = if request.archived == Some(false) && was_archived {
+        Some(
+            sqlx::query_scalar(
+                "SELECT COALESCE(max(position) + 1, 0) FROM task_labels WHERE workspace_id = $1 AND archived_at IS NULL",
+            )
+            .bind(workspace_id)
+            .fetch_one(&mut *transaction)
+            .await?,
+        )
+    } else {
+        None
+    };
     let updated = sqlx::query_as::<_, TaskLabelResponse>(
         r#"
         UPDATE task_labels
         SET name = COALESCE($1, name),
-            color = COALESCE($2, color),
-            description = COALESCE($3, description),
+            icon = CASE WHEN $2 THEN $3 ELSE icon END,
+            color = COALESCE($4, color),
+            description = COALESCE($5, description),
             archived_at = CASE
-                WHEN $4::boolean IS NULL THEN archived_at
-                WHEN $4 THEN now()
+                WHEN $6::boolean IS NULL THEN archived_at
+                WHEN $6 THEN now()
                 ELSE NULL
             END,
+            position = COALESCE($7, position),
             updated_at = now()
-        WHERE id = $5 AND workspace_id = $6
-        RETURNING id, workspace_id, name, color, description,
+        WHERE id = $8 AND workspace_id = $9
+        RETURNING id, workspace_id, name, icon, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
+    .bind(request.icon.is_some())
+    .bind(
+        icon.as_ref()
+            .and_then(|icon| icon.as_ref().map(SelectOptionIcon::as_str)),
+    )
     .bind(color.as_ref().map(HexColor::as_str))
     .bind(description.as_ref().map(ConfigurationDescription::as_str))
     .bind(request.archived)
+    .bind(new_position)
     .bind(label_id)
     .bind(workspace_id)
     .fetch_optional(&mut *transaction)
@@ -170,18 +232,8 @@ pub(super) async fn update(
         }
         Err(error) => return Err(error.into()),
     };
-    let task_ids = if name.is_some() {
-        sqlx::query_scalar(
-            r#"
-            SELECT task_id FROM task_label_assignments
-            WHERE workspace_id = $1 AND label_id = $2
-            ORDER BY task_id
-            "#,
-        )
-        .bind(workspace_id)
-        .bind(label_id)
-        .fetch_all(&mut *transaction)
-        .await?
+    let task_ids = if name.is_some() || request.icon.is_some() {
+        assigned_task_ids(&mut transaction, workspace_id, label_id).await?
     } else {
         Vec::new()
     };
@@ -189,6 +241,47 @@ pub(super) async fn update(
     transaction.commit().await?;
     project_many(&state, workspace_id, &task_ids).await;
     Ok(Json(updated))
+}
+
+pub(super) async fn reorder(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    payload: Result<Json<ReorderLabelsRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Path(workspace_id) = path.map_err(AppError::from)?;
+    let Json(request) = payload.map_err(AppError::from)?;
+    require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
+    let mut transaction = state.pool.begin().await?;
+    super::state::lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let current: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM task_labels WHERE workspace_id = $1 AND archived_at IS NULL FOR UPDATE",
+    )
+    .bind(workspace_id)
+    .fetch_all(&mut *transaction)
+    .await?;
+    validate_reorder_ids(&request.ids, &current)?;
+    let shift = i32::try_from(current.len() + 1)
+        .map_err(|_| AppError::Validation("Too many labels to reorder".to_owned()))?;
+    sqlx::query(
+        "UPDATE task_labels SET position = position + $1 WHERE workspace_id = $2 AND archived_at IS NULL",
+    )
+    .bind(shift)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await?;
+    for (position, label_id) in request.ids.into_iter().enumerate() {
+        sqlx::query(
+            "UPDATE task_labels SET position = $1, updated_at = now() WHERE id = $2 AND workspace_id = $3",
+        )
+        .bind(position as i32)
+        .bind(label_id)
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(super) async fn remove(
@@ -199,17 +292,8 @@ pub(super) async fn remove(
     let Path((workspace_id, label_id)) = path.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
-    let task_ids: Vec<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT task_id FROM task_label_assignments
-        WHERE workspace_id = $1 AND label_id = $2
-        ORDER BY task_id
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(label_id)
-    .fetch_all(&mut *transaction)
-    .await?;
+    super::state::lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let task_ids = assigned_task_ids(&mut transaction, workspace_id, label_id).await?;
     let result = sqlx::query("DELETE FROM task_labels WHERE id = $1 AND workspace_id = $2")
         .bind(label_id)
         .bind(workspace_id)
@@ -222,4 +306,54 @@ pub(super) async fn remove(
     transaction.commit().await?;
     project_many(&state, workspace_id, &task_ids).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn assigned_task_ids(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    workspace_id: Uuid,
+    label_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT task_id FROM task_label_assignments
+        WHERE workspace_id = $1 AND label_id = $2
+        ORDER BY task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(label_id)
+    .fetch_all(&mut **transaction)
+    .await?)
+}
+
+fn validate_icon_update(
+    requested: &Option<Option<String>>,
+) -> Result<Option<Option<SelectOptionIcon>>, AppError> {
+    requested
+        .as_ref()
+        .map(|icon| {
+            icon.as_deref()
+                .map(SelectOptionIcon::new_supported)
+                .transpose()
+                .map_err(|error| AppError::Validation(error.to_string()))
+        })
+        .transpose()
+}
+
+fn deserialize_nullable<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+fn validate_reorder_ids(ids: &[Uuid], current: &[Uuid]) -> Result<(), AppError> {
+    let requested: HashSet<_> = ids.iter().copied().collect();
+    let existing: HashSet<_> = current.iter().copied().collect();
+    if requested.len() != ids.len() || requested != existing {
+        return Err(AppError::Validation(
+            "Reorder every active label exactly once".to_owned(),
+        ));
+    }
+    Ok(())
 }

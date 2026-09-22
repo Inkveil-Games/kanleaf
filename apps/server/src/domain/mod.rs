@@ -360,6 +360,119 @@ impl TaskStateGroup {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemStateRole {
+    Todo,
+    InProgress,
+    Done,
+}
+
+impl SystemStateRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Todo => "todo",
+            Self::InProgress => "in_progress",
+            Self::Done => "done",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectOptionIcon(String);
+
+impl SelectOptionIcon {
+    const SUPPORTED: &'static [&'static str] = &[
+        "archive",
+        "award",
+        "bell",
+        "book-open",
+        "bookmark",
+        "boxes",
+        "briefcase-business",
+        "brush",
+        "bug",
+        "calendar",
+        "calendar-days",
+        "camera",
+        "chart-no-axes-combined",
+        "check-square",
+        "circle",
+        "circle-check",
+        "circle-dashed",
+        "circle-dot",
+        "circle-x",
+        "clipboard-check",
+        "clock",
+        "code-2",
+        "compass",
+        "cpu",
+        "database",
+        "eye",
+        "file-text",
+        "flag",
+        "folder",
+        "git-branch",
+        "globe-2",
+        "heart",
+        "layout-dashboard",
+        "lightbulb",
+        "link",
+        "list-checks",
+        "list-todo",
+        "loader-circle",
+        "mail",
+        "map-pin",
+        "megaphone",
+        "message-square",
+        "milestone",
+        "package",
+        "palette",
+        "paperclip",
+        "pen-tool",
+        "phone",
+        "pin",
+        "puzzle",
+        "rocket",
+        "send",
+        "shield-check",
+        "sparkles",
+        "star",
+        "tag",
+        "tags",
+        "target",
+        "terminal",
+        "thumbs-up",
+        "user",
+        "users",
+        "wrench",
+        "zap",
+    ];
+
+    pub fn new_supported(value: &str) -> Result<Self, ValidationError> {
+        let mut characters = value.chars();
+        let valid_start = characters
+            .next()
+            .is_some_and(|character| character.is_ascii_lowercase() || character.is_ascii_digit());
+        let valid_rest = characters.all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '-'
+                || character == '_'
+        });
+        if !valid_start || !valid_rest || value.len() > 32 || !Self::SUPPORTED.contains(&value) {
+            return Err(ValidationError::new(
+                "Choose an icon supported by the select value icon picker",
+            ));
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HexColor(String);
 
@@ -665,8 +778,8 @@ mod tests {
     use super::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
         ProjectDescription, ProjectIcon, ProjectIdentifier, ProjectRole, ProjectVisibility,
-        ResourceName, TaskPriority, TaskStateGroup, TaskTitle, TaskTypeIcon, ValidatedPassword,
-        VaultStorageName, WorkspaceIdentifier,
+        ResourceName, SelectOptionIcon, SystemStateRole, TaskPriority, TaskStateGroup, TaskTitle,
+        TaskTypeIcon, ValidatedPassword, VaultStorageName, WorkspaceIdentifier,
     };
     use uuid::Uuid;
 
@@ -788,6 +901,15 @@ mod tests {
         assert!(TaskTypeIcon::new("Check Square").is_err());
         assert!(TaskTypeIcon::new_supported("check-square").is_ok());
         assert!(TaskTypeIcon::new_supported("unknown-legacy-icon").is_err());
+        assert_eq!(SystemStateRole::InProgress.as_str(), "in_progress");
+        assert_eq!(
+            SelectOptionIcon::new_supported("loader-circle")
+                .unwrap()
+                .as_str(),
+            "loader-circle"
+        );
+        assert!(SelectOptionIcon::new_supported("unknown-legacy-icon").is_err());
+        assert!(SelectOptionIcon::new_supported("").is_err());
         assert!(ConfigurationDescription::new(&"x".repeat(501)).is_err());
     }
 

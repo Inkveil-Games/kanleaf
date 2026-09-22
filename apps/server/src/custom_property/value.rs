@@ -191,6 +191,39 @@ pub(crate) async fn apply_value_mutations(
     Ok(())
 }
 
+pub(crate) async fn apply_default_values(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    task_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        INSERT INTO task_custom_property_values
+            (workspace_id, task_id, property_id, value)
+        SELECT definitions.workspace_id,
+               $2,
+               definitions.id,
+               to_jsonb(definitions.default_option_id::text)
+        FROM custom_property_definitions AS definitions
+        JOIN custom_property_options AS options
+          ON options.workspace_id = definitions.workspace_id
+         AND options.property_id = definitions.id
+         AND options.id = definitions.default_option_id
+         AND options.archived_at IS NULL
+        WHERE definitions.workspace_id = $1
+          AND definitions.property_type = 'single_select'
+          AND definitions.default_option_id IS NOT NULL
+          AND definitions.archived_at IS NULL
+        ON CONFLICT (task_id, property_id) DO NOTHING
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(task_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 async fn set_value_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,

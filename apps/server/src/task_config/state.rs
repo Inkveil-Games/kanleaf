@@ -8,14 +8,14 @@ use axum::{
     },
     http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{HexColor, ResourceName, TaskStateGroup},
+    domain::{ConfigurationDescription, HexColor, ResourceName, SelectOptionIcon},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
     workspace::require_workspace_admin,
@@ -26,18 +26,23 @@ use super::TaskStateResponse;
 #[derive(Deserialize)]
 pub(super) struct CreateStateRequest {
     name: String,
+    #[serde(default)]
+    icon: Option<String>,
     color: String,
-    state_group: TaskStateGroup,
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Deserialize)]
 pub(super) struct UpdateStateRequest {
     #[serde(default)]
     name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    icon: Option<Option<String>>,
     #[serde(default)]
     color: Option<String>,
     #[serde(default)]
-    state_group: Option<TaskStateGroup>,
+    description: Option<String>,
     #[serde(default)]
     archived: Option<bool>,
 }
@@ -58,8 +63,8 @@ pub(super) async fn list(
 ) -> Result<Vec<TaskStateResponse>, AppError> {
     Ok(sqlx::query_as(
         r#"
-        SELECT id, workspace_id, name, color, state_group, position,
-               archived_at, created_at, updated_at
+        SELECT id, workspace_id, name, icon, color, description, system_role,
+               position, archived_at, created_at, updated_at
         FROM task_states
         WHERE workspace_id = $1
         ORDER BY archived_at NULLS FIRST, position, id
@@ -80,12 +85,20 @@ pub(super) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let icon = request
+        .icon
+        .as_deref()
+        .map(SelectOptionIcon::new_supported)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     let color =
         HexColor::new(&request.color).map_err(|error| AppError::Validation(error.to_string()))?;
+    let description = ConfigurationDescription::new(&request.description)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
-    lock_workspace(&mut transaction, workspace_id).await?;
+    lock_workspace_for_values(&mut transaction, workspace_id).await?;
     let position: i32 = sqlx::query_scalar(
         "SELECT COALESCE(max(position) + 1, 0) FROM task_states WHERE workspace_id = $1 AND archived_at IS NULL",
     )
@@ -95,17 +108,18 @@ pub(super) async fn create(
     let created = sqlx::query_as::<_, TaskStateResponse>(
         r#"
         INSERT INTO task_states
-            (id, workspace_id, name, color, state_group, position)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, workspace_id, name, color, state_group, position,
-                  archived_at, created_at, updated_at
+            (id, workspace_id, name, icon, color, description, state_group, position)
+        VALUES ($1, $2, $3, $4, $5, $6, 'todo', $7)
+        RETURNING id, workspace_id, name, icon, color, description, system_role,
+                  position, archived_at, created_at, updated_at
         "#,
     )
     .bind(Uuid::new_v4())
     .bind(workspace_id)
     .bind(name.as_str())
+    .bind(icon.as_ref().map(SelectOptionIcon::as_str))
     .bind(color.as_str())
-    .bind(request.state_group.as_str())
+    .bind(description.as_str())
     .bind(position)
     .fetch_one(&mut *transaction)
     .await;
@@ -131,8 +145,9 @@ pub(super) async fn update(
     let Path((workspace_id, state_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.name.is_none()
+        && request.icon.is_none()
         && request.color.is_none()
-        && request.state_group.is_none()
+        && request.description.is_none()
         && request.archived.is_none()
     {
         return Err(AppError::Validation(
@@ -145,24 +160,47 @@ pub(super) async fn update(
         .map(ResourceName::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let icon = validate_icon_update(&request.icon)?;
     let color = request
         .color
         .as_deref()
         .map(HexColor::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let description = request
+        .description
+        .as_deref()
+        .map(ConfigurationDescription::new)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
-    lock_workspace(&mut transaction, workspace_id).await?;
-    let is_archived: bool = sqlx::query_scalar(
-        "SELECT archived_at IS NOT NULL FROM task_states WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+    lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let current: (bool, Option<String>) = sqlx::query_as(
+        r#"
+        SELECT archived_at IS NOT NULL, system_role
+        FROM task_states
+        WHERE id = $1 AND workspace_id = $2
+        FOR UPDATE
+        "#,
     )
     .bind(state_id)
     .bind(workspace_id)
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Task state not found".to_owned()))?;
+    let (is_archived, system_role) = current;
+    if system_role.is_some()
+        && (request.name.is_some()
+            || request.icon.is_some()
+            || request.color.is_some()
+            || request.archived.is_some())
+    {
+        return Err(AppError::Validation(
+            "System state identity cannot be changed or archived".to_owned(),
+        ));
+    }
     if request.archived == Some(true) {
         let is_default: bool = sqlx::query_scalar(
             r#"
@@ -203,23 +241,29 @@ pub(super) async fn update(
         r#"
         UPDATE task_states
         SET name = COALESCE($1, name),
-            color = COALESCE($2, color),
-            state_group = COALESCE($3, state_group),
+            icon = CASE WHEN $2 THEN $3 ELSE icon END,
+            color = COALESCE($4, color),
+            description = COALESCE($5, description),
             archived_at = CASE
-                WHEN $4::boolean IS NULL THEN archived_at
-                WHEN $4 THEN now()
+                WHEN $6::boolean IS NULL THEN archived_at
+                WHEN $6 THEN now()
                 ELSE NULL
             END,
-            position = COALESCE($5, position),
+            position = COALESCE($7, position),
             updated_at = now()
-        WHERE id = $6 AND workspace_id = $7
-        RETURNING id, workspace_id, name, color, state_group, position,
-                  archived_at, created_at, updated_at
+        WHERE id = $8 AND workspace_id = $9
+        RETURNING id, workspace_id, name, icon, color, description, system_role,
+                  position, archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
+    .bind(request.icon.is_some())
+    .bind(
+        icon.as_ref()
+            .and_then(|icon| icon.as_ref().map(SelectOptionIcon::as_str)),
+    )
     .bind(color.as_ref().map(HexColor::as_str))
-    .bind(request.state_group.map(TaskStateGroup::as_str))
+    .bind(description.as_ref().map(ConfigurationDescription::as_str))
     .bind(request.archived)
     .bind(new_position)
     .bind(state_id)
@@ -263,7 +307,7 @@ pub(super) async fn reorder(
     let Json(request) = payload.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
-    lock_workspace(&mut transaction, workspace_id).await?;
+    lock_workspace_for_values(&mut transaction, workspace_id).await?;
     let current: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM task_states WHERE workspace_id = $1 AND archived_at IS NULL FOR UPDATE",
     )
@@ -305,15 +349,20 @@ pub(super) async fn remove(
     let Query(query) = query.map_err(AppError::from)?;
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
-    lock_workspace(&mut transaction, workspace_id).await?;
-    let state_group: String = sqlx::query_scalar(
-        "SELECT state_group FROM task_states WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+    lock_workspace_for_values(&mut transaction, workspace_id).await?;
+    let system_role: Option<String> = sqlx::query_scalar(
+        "SELECT system_role FROM task_states WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
     )
     .bind(state_id)
     .bind(workspace_id)
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("Task state not found".to_owned()))?;
+    if system_role.is_some() {
+        return Err(AppError::Validation(
+            "System states cannot be permanently deleted".to_owned(),
+        ));
+    }
 
     let referenced: bool = sqlx::query_scalar(
         r#"
@@ -330,7 +379,6 @@ pub(super) async fn remove(
     .bind(state_id)
     .fetch_one(&mut *transaction)
     .await?;
-
     if referenced && query.replacement_id.is_none() {
         return Err(AppError::Conflict(
             "This state is in use; provide an active replacement state".to_owned(),
@@ -349,19 +397,21 @@ pub(super) async fn remove(
                 "Replacement state must be different".to_owned(),
             ));
         }
-        let replacement_group: Option<String> = sqlx::query_scalar(
+        let replacement_exists: bool = sqlx::query_scalar(
             r#"
-            SELECT state_group FROM task_states
-            WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
+            SELECT EXISTS(
+                SELECT 1 FROM task_states
+                WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
+            )
             "#,
         )
         .bind(replacement_id)
         .bind(workspace_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_one(&mut *transaction)
         .await?;
-        if replacement_group.as_deref() != Some(state_group.as_str()) {
+        if !replacement_exists {
             return Err(AppError::Validation(
-                "Replacement state must be active and in the same group".to_owned(),
+                "Replacement state must be active in this Workspace".to_owned(),
             ));
         }
 
@@ -400,7 +450,28 @@ pub(super) async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn lock_workspace(
+fn validate_icon_update(
+    requested: &Option<Option<String>>,
+) -> Result<Option<Option<SelectOptionIcon>>, AppError> {
+    requested
+        .as_ref()
+        .map(|icon| {
+            icon.as_deref()
+                .map(SelectOptionIcon::new_supported)
+                .transpose()
+                .map_err(|error| AppError::Validation(error.to_string()))
+        })
+        .transpose()
+}
+
+fn deserialize_nullable<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+pub(super) async fn lock_workspace_for_values(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     workspace_id: Uuid,
 ) -> Result<(), AppError> {
