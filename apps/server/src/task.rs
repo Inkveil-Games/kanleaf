@@ -6,7 +6,8 @@ mod query_engine;
 
 pub(crate) use frontmatter::{
     CustomProperty, TaskProperties, UndefinedProperty, read_properties as read_task_properties,
-    remap_identity as remap_task_identity, undefined_properties as read_undefined_properties,
+    remap_identity_with_cleanup as remap_task_identity_with_cleanup,
+    undefined_properties as read_undefined_properties,
 };
 pub(crate) use projection::{
     ProjectionHealth, enqueue as enqueue_projection, health as projection_health,

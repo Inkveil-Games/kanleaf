@@ -491,63 +491,6 @@ impl ConfigurationDescription {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaskTypeIcon(String);
-
-impl TaskTypeIcon {
-    const SUPPORTED: &'static [&'static str] = &[
-        "circle-dot",
-        "check-square",
-        "bug",
-        "bookmark",
-        "lightbulb",
-        "sparkles",
-        "flag",
-        "milestone",
-        "target",
-        "list-todo",
-        "book-open",
-        "file-text",
-        "message-square",
-        "wrench",
-        "zap",
-        "puzzle",
-    ];
-
-    pub fn new(value: &str) -> Result<Self, ValidationError> {
-        let mut characters = value.chars();
-        let valid_start = characters
-            .next()
-            .is_some_and(|character| character.is_ascii_lowercase() || character.is_ascii_digit());
-        let valid_rest = characters.all(|character| {
-            character.is_ascii_lowercase()
-                || character.is_ascii_digit()
-                || character == '-'
-                || character == '_'
-        });
-        if !valid_start || !valid_rest || value.len() > 32 {
-            return Err(ValidationError::new(
-                "Task type icon must be a lowercase icon identifier",
-            ));
-        }
-        Ok(Self(value.to_owned()))
-    }
-
-    pub fn new_supported(value: &str) -> Result<Self, ValidationError> {
-        let icon = Self::new(value)?;
-        if !Self::SUPPORTED.contains(&icon.as_str()) {
-            return Err(ValidationError::new(
-                "Choose an icon supported by the Task type icon picker",
-            ));
-        }
-        Ok(icon)
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectIdentifier(String);
 
 impl ProjectIdentifier {
@@ -756,7 +699,7 @@ mod tests {
     use super::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
         ProjectDescription, ProjectIcon, ProjectIdentifier, ProjectRole, ProjectVisibility,
-        ResourceName, SelectOptionIcon, SystemStateRole, TaskPriority, TaskTitle, TaskTypeIcon,
+        ResourceName, SelectOptionIcon, SystemStateRole, TaskPriority, TaskTitle,
         ValidatedPassword, VaultStorageName, WorkspaceIdentifier,
     };
     use uuid::Uuid;
@@ -871,13 +814,6 @@ mod tests {
     fn validates_workspace_task_vocabulary() {
         assert_eq!(HexColor::new("#22A06B").unwrap().as_str(), "#22A06B");
         assert!(HexColor::new("green").is_err());
-        assert_eq!(
-            TaskTypeIcon::new("check-square").unwrap().as_str(),
-            "check-square"
-        );
-        assert!(TaskTypeIcon::new("Check Square").is_err());
-        assert!(TaskTypeIcon::new_supported("check-square").is_ok());
-        assert!(TaskTypeIcon::new_supported("unknown-legacy-icon").is_err());
         assert_eq!(SystemStateRole::InProgress.as_str(), "in_progress");
         assert_eq!(
             SelectOptionIcon::new_supported("loader-circle")

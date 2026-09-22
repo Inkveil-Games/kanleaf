@@ -22,7 +22,7 @@ use crate::{
     auth::AuthenticatedUser,
     domain::{TaskPriority, WorkspaceIdentifier},
     error::AppError,
-    task::{IdFilter, TaskProperties, TaskQuery, TaskQueryScope, remap_task_identity},
+    task::{IdFilter, TaskProperties, TaskQuery, TaskQueryScope, remap_task_identity_with_cleanup},
     workspace::{require_account_details, reserve_workspace_identifier},
 };
 
@@ -72,7 +72,6 @@ struct ApplyImportRequest {
 #[derive(Default)]
 struct IdMaps {
     states: HashMap<Uuid, Uuid>,
-    types: HashMap<Uuid, Uuid>,
     labels: HashMap<Uuid, Uuid>,
     properties: HashMap<Uuid, Uuid>,
     property_options: HashMap<Uuid, Uuid>,
@@ -418,13 +417,6 @@ fn map_ids(validated: &ValidatedImport, maps: &mut IdMaps) {
             .iter()
             .map(|state| (state.id, Uuid::new_v4())),
     );
-    maps.types.extend(
-        validated
-            .task_config
-            .types
-            .iter()
-            .map(|task_type| (task_type.id, Uuid::new_v4())),
-    );
     maps.labels.extend(
         validated
             .task_config
@@ -502,9 +494,10 @@ async fn insert_workspace(
     sqlx::query(
         r#"
         INSERT INTO workspaces (
-            id, name, identifier, accent, default_inbox_state_id, default_task_type_id,
+            id, name, identifier, accent, default_inbox_state_id,
+            state_property_description, label_property_description,
             next_task_number, next_document_number, vault_layout_version
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2)
         "#,
     )
     .bind(workspace_id)
@@ -512,10 +505,8 @@ async fn insert_workspace(
     .bind(identifier.as_str())
     .bind(&validated.workspace.accent)
     .bind(mapped(&maps.states, validated.workspace.default_state_id)?)
-    .bind(mapped(
-        &maps.types,
-        validated.workspace.default_task_type_id,
-    )?)
+    .bind(&validated.workspace.state_property_description)
+    .bind(&validated.workspace.label_property_description)
     .bind(max_task_number + 1)
     .bind(max_document_number + 1)
     .execute(&mut **transaction)
@@ -556,38 +547,23 @@ async fn insert_task_configuration(
         sqlx::query(
             r#"
             INSERT INTO task_states (
-                id, workspace_id, name, color, state_group, position, archived_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END)
+                id, workspace_id, name, icon, color, description,
+                system_role, position, archived_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                CASE WHEN $9 THEN now() END
+            )
             "#,
         )
         .bind(mapped(&maps.states, state.id)?)
         .bind(workspace_id)
         .bind(&state.name)
+        .bind(&state.icon)
         .bind(&state.color)
-        .bind(&state.group)
+        .bind(&state.description)
+        .bind(&state.system_role)
         .bind(state.position)
         .bind(state.archived)
-        .execute(&mut **transaction)
-        .await?;
-    }
-    for task_type in &validated.task_config.types {
-        sqlx::query(
-            r#"
-            INSERT INTO task_types (
-                id, workspace_id, name, icon, color, description, position,
-                is_protected, archived_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9 THEN now() END)
-            "#,
-        )
-        .bind(mapped(&maps.types, task_type.id)?)
-        .bind(workspace_id)
-        .bind(&task_type.name)
-        .bind(&task_type.icon)
-        .bind(&task_type.color)
-        .bind(&task_type.description)
-        .bind(task_type.position)
-        .bind(task_type.protected)
-        .bind(task_type.archived)
         .execute(&mut **transaction)
         .await?;
     }
@@ -595,15 +571,17 @@ async fn insert_task_configuration(
         sqlx::query(
             r#"
             INSERT INTO task_labels (
-                id, workspace_id, name, color, description, archived_at
-            ) VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() END)
+                id, workspace_id, name, icon, color, description, position, archived_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN now() END)
             "#,
         )
         .bind(mapped(&maps.labels, label.id)?)
         .bind(workspace_id)
         .bind(&label.name)
+        .bind(&label.icon)
         .bind(&label.color)
         .bind(&label.description)
+        .bind(label.position)
         .bind(label.archived)
         .execute(&mut **transaction)
         .await?;
@@ -614,9 +592,9 @@ async fn insert_task_configuration(
             r#"
             INSERT INTO custom_property_definitions (
                 id, workspace_id, name, property_type, description, position,
-                configuration, archived_at
+                configuration, default_option_id, archived_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN now() END
+                $1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9 THEN now() END
             )
             "#,
         )
@@ -627,6 +605,12 @@ async fn insert_task_configuration(
         .bind(&property.description)
         .bind(property.position)
         .bind(&property.configuration)
+        .bind(
+            property
+                .default_option_id
+                .map(|id| mapped(&maps.property_options, id))
+                .transpose()?,
+        )
         .bind(property.archived)
         .execute(&mut **transaction)
         .await?;
@@ -634,9 +618,11 @@ async fn insert_task_configuration(
             sqlx::query(
                 r#"
                 INSERT INTO custom_property_options (
-                    id, workspace_id, property_id, name, color, position, archived_at
+                    id, workspace_id, property_id, name, icon, color,
+                    description, position, archived_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END
+                    $1, $2, $3, $4, $5, $6, $7, $8,
+                    CASE WHEN $9 THEN now() END
                 )
                 "#,
             )
@@ -644,7 +630,9 @@ async fn insert_task_configuration(
             .bind(workspace_id)
             .bind(property_id)
             .bind(&option.name)
+            .bind(&option.icon)
             .bind(&option.color)
+            .bind(&option.description)
             .bind(option.position)
             .bind(option.archived)
             .execute(&mut **transaction)
@@ -666,12 +654,12 @@ async fn insert_projects(
             r#"
             INSERT INTO projects (
                 id, workspace_id, name, storage_name, identifier, description,
-                icon, visibility, default_state_id, default_task_type_id,
-                cycles_enabled, modules_enabled, pages_enabled, views_enabled,
+                icon, visibility, default_state_id, cycles_enabled,
+                modules_enabled, pages_enabled, views_enabled,
                 archived_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, CASE WHEN $15 THEN now() END
+                $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, CASE WHEN $14 THEN now() END
             )
             "#,
         )
@@ -684,7 +672,6 @@ async fn insert_projects(
         .bind(&project.icon)
         .bind(&project.visibility)
         .bind(mapped(&maps.states, project.default_state_id)?)
-        .bind(mapped(&maps.types, project.default_task_type_id)?)
         .bind(project.features.cycles)
         .bind(project.features.modules)
         .bind(project.features.wiki)
@@ -692,16 +679,6 @@ async fn insert_projects(
         .bind(project.archived)
         .execute(&mut **transaction)
         .await?;
-        for task_type_id in &project.enabled_task_type_ids {
-            sqlx::query(
-                "INSERT INTO project_task_types (workspace_id, project_id, task_type_id) VALUES ($1, $2, $3)",
-            )
-            .bind(workspace_id)
-            .bind(project_id)
-            .bind(mapped(&maps.types, *task_type_id)?)
-            .execute(&mut **transaction)
-            .await?;
-        }
         for cycle in &project.cycles {
             sqlx::query(
                 r#"
@@ -1052,7 +1029,7 @@ async fn insert_views(
             INSERT INTO saved_views (
                 id, workspace_id, project_id, owner_id, name, visibility,
                 query_version, query, layout
-            ) VALUES ($1, $2, $3, $4, $5, 'shared', 1, $6, $7)
+            ) VALUES ($1, $2, $3, $4, $5, 'shared', 2, $6, $7)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -1080,7 +1057,12 @@ async fn rewrite_task_files(
         let mut properties: TaskProperties = task.properties.clone();
         properties.kanleaf_id = mapped(&maps.tasks, task.identity.id)?;
         properties.assignees.clear();
-        let patched = remap_task_identity(&source, task.identity.id, &properties)?;
+        let patched = remap_task_identity_with_cleanup(
+            &source,
+            task.identity.id,
+            &properties,
+            &task.cleanup_property_names,
+        )?;
         state
             .vault
             .write_imported_task(staging_key, &task.path, &patched)

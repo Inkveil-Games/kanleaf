@@ -14,6 +14,7 @@ use axum::{
 use http::HeaderValue;
 use kanleaf_server::{AppState, portability::recover_import_operations, router};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -284,7 +285,12 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         &app,
         &source_token,
         &format!("/api/workspaces/{source_workspace_id}/labels"),
-        json!({"name": "Portable", "color": "#336699", "description": "Round trip"}),
+        json!({
+            "name": "Portable",
+            "icon": "database",
+            "color": "#336699",
+            "description": "Round trip"
+        }),
     )
     .await;
     let cycle = create(
@@ -301,6 +307,7 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         json!({"name": "Vault", "description": "Portable files"}),
     )
     .await;
+    let default_option_id = Uuid::new_v4();
     let property = create(
         &app,
         &source_token,
@@ -309,7 +316,14 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             "name": "Impact",
             "type": "single_select",
             "description": "Portable custom metadata",
-            "options": [{"name": "High", "color": "#EF4444"}]
+            "default_option_id": default_option_id,
+            "options": [{
+                "id": default_option_id,
+                "name": "High",
+                "icon": "flag",
+                "color": "#EF4444",
+                "description": "Needs prompt attention"
+            }]
         }),
     )
     .await;
@@ -322,7 +336,6 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             "project_id": project_id,
             "priority": "high",
             "state_id": configuration["default_state_id"],
-            "task_type_id": configuration["default_task_type_id"],
             "assignee_ids": [source_owner_id],
             "label_ids": [label["id"]],
             "cycle_id": cycle["id"],
@@ -437,7 +450,7 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             "project_id": project_id,
             "layout": "board",
             "query": {
-                "version": 1,
+                "version": 2,
                 "scope": {"kind": "project", "project_id": project_id},
                 "filters": {
                     "labels": {"values": [label["id"]]},
@@ -463,6 +476,7 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     assert_eq!(preview["summary"]["tasks"], 2);
     assert_eq!(preview["summary"]["documents"], 2);
     assert_eq!(preview["summary"]["shared_views"], 1);
+    assert!(preview["summary"].get("types").is_none());
     assert_eq!(preview["summary"]["excluded_member_references"], 2);
     assert_eq!(preview["summary"]["excluded_assignee_references"], 1);
 
@@ -529,6 +543,15 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     .await;
     assert_eq!(imported_properties.as_array().unwrap().len(), 1);
     assert_eq!(imported_properties[0]["name"], "Impact");
+    assert_eq!(
+        imported_properties[0]["default_option_id"],
+        imported_properties[0]["options"][0]["id"]
+    );
+    assert_eq!(imported_properties[0]["options"][0]["icon"], "flag");
+    assert_eq!(
+        imported_properties[0]["options"][0]["description"],
+        "Needs prompt attention"
+    );
     assert_ne!(imported_properties[0]["id"], property["id"]);
     assert_ne!(
         imported_properties[0]["options"][0]["id"],
@@ -616,6 +639,357 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     let second = apply_import(&app, &importer_token, &second_preview).await;
     assert_eq!(second["state"], "completed", "{second:#}");
     assert_ne!(second["workspace_id"], imported["workspace_id"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn legacy_task_types_normalize_to_one_custom_type_property(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (source_token, _, source_workspace_id) =
+        register(&app, "legacy-types-source@example.com").await;
+    let project = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/projects"),
+        json!({"name": "Legacy types"}),
+    )
+    .await;
+    let task_type_id = Uuid::parse_str("00000000-0000-4000-8000-000000000041").unwrap();
+    let bug_id = Uuid::parse_str("00000000-0000-4000-8000-000000000042").unwrap();
+    let feature_id = Uuid::parse_str("00000000-0000-4000-8000-000000000043").unwrap();
+    let type_property = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/properties"),
+        json!({
+            "name": "Type",
+            "type": "single_select",
+            "default_option_id": feature_id,
+            "options": [
+                {"id": bug_id, "name": "Bug", "icon": "bug", "color": "#EF4444", "description": "A defect"},
+                {"id": feature_id, "name": "Feature", "icon": "sparkles", "color": "#3B82F6", "description": "New capability"}
+            ]
+        }),
+    )
+    .await;
+    let bug_task = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/tasks"),
+        json!({"title": "Legacy bug", "project_id": project["id"]}),
+    )
+    .await;
+    let feature_task = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/tasks"),
+        json!({"title": "Legacy feature", "project_id": project["id"]}),
+    )
+    .await;
+    let set_bug = send_json(
+        &app,
+        "PUT",
+        &format!(
+            "/api/workspaces/{source_workspace_id}/tasks/{}/properties/{}",
+            bug_task["id"].as_str().unwrap(),
+            type_property["id"].as_str().unwrap()
+        ),
+        Some(json!({"value": bug_id})),
+        &source_token,
+    )
+    .await;
+    assert_eq!(set_bug.status(), StatusCode::OK);
+    let archive = export_workspace(&app, &source_token, source_workspace_id).await;
+    let project_path = format!(".kanleaf/projects/{}.json", project["id"].as_str().unwrap());
+    let legacy = rewrite_archive_with_checksums(&archive, |path, content| {
+        let mut value = match path {
+            ".kanleaf/workspace.json" | ".kanleaf/task-config.json" => {
+                Some(serde_json::from_slice::<Value>(&content).unwrap())
+            }
+            _ if path == project_path => Some(serde_json::from_slice::<Value>(&content).unwrap()),
+            _ => None,
+        };
+        if path == ".kanleaf/workspace.json" {
+            let value = value.as_mut().unwrap();
+            value["format_version"] = json!(1);
+            value["default_task_type_id"] = json!(feature_id);
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("state_property_description");
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("label_property_description");
+        } else if path == ".kanleaf/task-config.json" {
+            let value = value.as_mut().unwrap();
+            value["format_version"] = json!(2);
+            legacy_task_config(
+                value,
+                Some(type_property["id"].as_str().unwrap()),
+                json!([
+                    {
+                        "id": task_type_id,
+                        "name": "Task",
+                        "icon": "check-square",
+                        "color": "#64748B",
+                        "description": "General work item",
+                        "position": 0,
+                        "protected": true,
+                        "archived": false
+                    },
+                    {
+                        "id": bug_id,
+                        "name": "Bug",
+                        "icon": "bug",
+                        "color": "#EF4444",
+                        "description": "A defect",
+                        "position": 1,
+                        "protected": false,
+                        "archived": false
+                    },
+                    {
+                        "id": feature_id,
+                        "name": "Feature",
+                        "icon": "sparkles",
+                        "color": "#3B82F6",
+                        "description": "New capability",
+                        "position": 2,
+                        "protected": false,
+                        "archived": false
+                    }
+                ]),
+            );
+        } else if path == project_path {
+            let value = value.as_mut().unwrap();
+            value["format_version"] = json!(2);
+            value["default_task_type_id"] = json!(bug_id);
+            value["enabled_task_type_ids"] = json!([task_type_id, bug_id, feature_id]);
+        } else if path.ends_with(&format!(
+            "{}.md",
+            bug_task["storage_name"].as_str().unwrap()
+        )) {
+            return String::from_utf8(content)
+                .unwrap()
+                .replace("Type: Bug", "Type:\n  - Bug")
+                .into_bytes();
+        } else if path.ends_with(&format!(
+            "{}.md",
+            feature_task["storage_name"].as_str().unwrap()
+        )) {
+            return String::from_utf8(content)
+                .unwrap()
+                .replace("Type: Feature", "Type:\n  - Feature")
+                .into_bytes();
+        }
+        value.map_or(content, |value| serde_json::to_vec_pretty(&value).unwrap())
+    });
+
+    let (importer_token, _, _) = register(&app, "legacy-types-importer@example.com").await;
+    let preview = preview_import(&app, &importer_token, &legacy).await;
+    assert_eq!(preview["state"], "ready", "{preview:#}");
+    assert!(preview["summary"].get("types").is_none());
+    let imported = apply_import(&app, &importer_token, &preview).await;
+    assert_eq!(imported["state"], "completed", "{imported:#}");
+    let imported_workspace_id: Uuid = imported["workspace_id"].as_str().unwrap().parse().unwrap();
+    let properties = get_json(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/properties"),
+    )
+    .await;
+    let imported_type = properties
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|property| property["name"] == "Type")
+        .unwrap();
+    assert_eq!(
+        imported_type["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|option| option["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Task", "Bug", "Feature"]
+    );
+    let default_name = imported_type["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|option| option["id"] == imported_type["default_option_id"])
+        .unwrap()["name"]
+        .as_str()
+        .unwrap();
+    assert_eq!(default_name, "Feature");
+
+    let tasks = get_json(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/tasks"),
+    )
+    .await;
+    for (title, expected) in [("Legacy bug", "Bug"), ("Legacy feature", "Feature")] {
+        let task = tasks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["title"] == title)
+            .unwrap();
+        let value_id = task["custom_properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["property_id"] == imported_type["id"])
+            .unwrap()["value"]
+            .as_str()
+            .unwrap();
+        let value_name = imported_type["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == value_id)
+            .unwrap()["name"]
+            .as_str()
+            .unwrap();
+        assert_eq!(value_name, expected);
+        let undefined = get_json(
+            &app,
+            &importer_token,
+            &format!(
+                "/api/workspaces/{imported_workspace_id}/tasks/{}/properties/undefined",
+                task["id"].as_str().unwrap()
+            ),
+        )
+        .await;
+        assert!(
+            undefined
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|property| property["name"] != "Type")
+        );
+    }
+    let defaulted = create(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/tasks"),
+        json!({"title": "Uses imported default"}),
+    )
+    .await;
+    let default_value = defaulted["custom_properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["property_id"] == imported_type["id"])
+        .unwrap()["value"]
+        .clone();
+    assert_eq!(default_value, imported_type["default_option_id"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn legacy_protected_default_type_is_removed_instead_of_becoming_custom_data(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (source_token, _, source_workspace_id) =
+        register(&app, "legacy-default-source@example.com").await;
+    let task = create(
+        &app,
+        &source_token,
+        &format!("/api/workspaces/{source_workspace_id}/tasks"),
+        json!({"title": "Plain legacy task"}),
+    )
+    .await;
+    let task_type_id = Uuid::parse_str("00000000-0000-4000-8000-000000000041").unwrap();
+    let archive = export_workspace(&app, &source_token, source_workspace_id).await;
+    let legacy = rewrite_archive_with_checksums(&archive, |path, content| {
+        if path == ".kanleaf/workspace.json" {
+            let mut value: Value = serde_json::from_slice(&content).unwrap();
+            value["format_version"] = json!(1);
+            value["default_task_type_id"] = json!(task_type_id);
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("state_property_description");
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("label_property_description");
+            serde_json::to_vec_pretty(&value).unwrap()
+        } else if path == ".kanleaf/task-config.json" {
+            let mut value: Value = serde_json::from_slice(&content).unwrap();
+            value["format_version"] = json!(2);
+            legacy_task_config(
+                &mut value,
+                None,
+                json!([{
+                    "id": task_type_id,
+                    "name": "Task",
+                    "icon": "check-square",
+                    "color": "#64748B",
+                    "description": "General work item",
+                    "position": 0,
+                    "protected": true,
+                    "archived": false
+                }]),
+            );
+            serde_json::to_vec_pretty(&value).unwrap()
+        } else if path.ends_with(".md") {
+            String::from_utf8(content)
+                .unwrap()
+                .replacen("\n---\n\n", "\nType:\n  - Task\n---\n\n", 1)
+                .into_bytes()
+        } else {
+            content
+        }
+    });
+
+    let (importer_token, _, _) = register(&app, "legacy-default-importer@example.com").await;
+    let preview = preview_import(&app, &importer_token, &legacy).await;
+    assert_eq!(preview["state"], "ready", "{preview:#}");
+    let imported = apply_import(&app, &importer_token, &preview).await;
+    let imported_workspace_id = imported["workspace_id"].as_str().unwrap();
+    let properties = get_json(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/properties"),
+    )
+    .await;
+    assert!(
+        properties
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|property| property["name"] != "Type")
+    );
+    let tasks = get_json(
+        &app,
+        &importer_token,
+        &format!("/api/workspaces/{imported_workspace_id}/tasks"),
+    )
+    .await;
+    let imported_task = tasks
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["title"] == task["title"])
+        .unwrap();
+    let undefined = get_json(
+        &app,
+        &importer_token,
+        &format!(
+            "/api/workspaces/{imported_workspace_id}/tasks/{}/properties/undefined",
+            imported_task["id"].as_str().unwrap()
+        ),
+    )
+    .await;
+    assert!(
+        undefined
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|property| property["name"] != "Type")
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -906,6 +1280,83 @@ fn rewrite_archive(source: &[u8], mut rewrite: impl FnMut(&str, Vec<u8>) -> Vec<
         entries.push((name, rewrite(entry.name(), content)));
     }
     write_archive(entries)
+}
+
+fn rewrite_archive_with_checksums(
+    source: &[u8],
+    mut rewrite: impl FnMut(&str, Vec<u8>) -> Vec<u8>,
+) -> Vec<u8> {
+    let mut archive = ZipArchive::new(Cursor::new(source)).unwrap();
+    let mut entries = Vec::new();
+    let mut manifest = None;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).unwrap();
+        let name = entry.name().to_owned();
+        let mut content = Vec::new();
+        entry.read_to_end(&mut content).unwrap();
+        if name == ".kanleaf/manifest.json" {
+            manifest = Some(serde_json::from_slice::<Value>(&content).unwrap());
+        } else {
+            entries.push((name.clone(), rewrite(&name, content)));
+        }
+    }
+    let mut manifest = manifest.unwrap();
+    for file in manifest["files"].as_array_mut().unwrap() {
+        let path = file["path"].as_str().unwrap();
+        let content = &entries.iter().find(|(name, _)| name == path).unwrap().1;
+        file["size"] = json!(content.len());
+        file["sha256"] = json!(sha256_hex(content));
+    }
+    for file in manifest["source"]["config_files"].as_array_mut().unwrap() {
+        let path = file["path"].as_str().unwrap();
+        let content = &entries.iter().find(|(name, _)| name == path).unwrap().1;
+        file["size"] = json!(content.len());
+        file["sha256"] = json!(sha256_hex(content));
+    }
+    entries.push((
+        ".kanleaf/manifest.json".to_owned(),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    ));
+    write_archive(entries)
+}
+
+fn legacy_task_config(config: &mut Value, type_property_id: Option<&str>, types: Value) {
+    for state in config["states"].as_array_mut().unwrap() {
+        let state = state.as_object_mut().unwrap();
+        let group = state
+            .remove("system_role")
+            .filter(|role| !role.is_null())
+            .unwrap_or_else(|| json!("todo"));
+        state.insert("group".to_owned(), group);
+        state.remove("icon");
+        state.remove("description");
+    }
+    for label in config["labels"].as_array_mut().unwrap() {
+        let label = label.as_object_mut().unwrap();
+        label.remove("icon");
+        label.remove("position");
+    }
+    let properties = config["properties"].as_array_mut().unwrap();
+    if let Some(property_id) = type_property_id {
+        properties.retain(|property| property["id"] != property_id);
+    }
+    for property in properties {
+        let property = property.as_object_mut().unwrap();
+        property.remove("default_option_id");
+        for option in property["options"].as_array_mut().unwrap() {
+            let option = option.as_object_mut().unwrap();
+            option.remove("icon");
+            option.remove("description");
+        }
+    }
+    config["types"] = types;
+}
+
+fn sha256_hex(content: &[u8]) -> String {
+    Sha256::digest(content)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn archive_with_extra(source: &[u8], path: &str, content: &[u8]) -> Vec<u8> {

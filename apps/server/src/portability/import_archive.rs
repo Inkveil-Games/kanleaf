@@ -16,7 +16,8 @@ use crate::{
     custom_property::{PropertyType, is_reserved_property_name, validate_value_shape},
     domain::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, ProjectDescription,
-        ProjectIcon, ProjectIdentifier, ResourceName, TaskTitle, TaskTypeIcon, VaultStorageName,
+        ProjectIcon, ProjectIdentifier, ResourceName, SelectOptionIcon, TaskTitle,
+        VaultStorageName,
     },
     task::{
         CustomProperty, TaskProperties, TaskQuery, TaskQueryScope, read_task_properties,
@@ -26,8 +27,9 @@ use crate::{
 };
 
 use super::config::{
-    DocumentIdentity, LiveManifest, ProjectConfig, TaskConfig, TaskIdentity, ViewsConfig,
-    WorkspaceConfig,
+    CustomPropertyConfig, CustomPropertyOptionConfig, DocumentIdentity, LegacyProjectConfigV2,
+    LegacyTaskConfigV2, LegacyWorkspaceConfigV1, LiveManifest, ProjectConfig, TaskConfig,
+    TaskIdentity, TaskLabelConfig, TaskStateConfig, ViewsConfig, WorkspaceConfig,
 };
 
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
@@ -99,6 +101,7 @@ pub(super) struct ValidatedTask {
     pub identity: TaskIdentity,
     pub properties: TaskProperties,
     pub path: TaskPath,
+    pub cleanup_property_names: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -108,7 +111,6 @@ pub(super) struct ImportSummary {
     pub tasks: usize,
     pub documents: usize,
     pub states: usize,
-    pub types: usize,
     pub labels: usize,
     pub shared_views: usize,
     pub cycles: usize,
@@ -261,12 +263,37 @@ pub(super) fn validate_staging(
         }
     }
 
-    let workspace: WorkspaceConfig = load_json(staging_vault, ".kanleaf/workspace.json")?;
-    let task_config: TaskConfig = load_json(staging_vault, ".kanleaf/task-config.json")?;
-    let views: ViewsConfig = load_json(staging_vault, ".kanleaf/views.json")?;
-    if workspace.format_version != 1
-        || !matches!(task_config.format_version, 1 | 2)
-        || views.format_version != 1
+    let workspace_source: serde_json::Value = load_json(staging_vault, ".kanleaf/workspace.json")?;
+    let task_config_source: serde_json::Value =
+        load_json(staging_vault, ".kanleaf/task-config.json")?;
+    let mut views: ViewsConfig = load_json(staging_vault, ".kanleaf/views.json")?;
+    let workspace_version = json_format_version(&workspace_source)?;
+    let task_config_version = json_format_version(&task_config_source)?;
+    let (workspace, task_config, legacy_type_ids, legacy_configuration) =
+        match (workspace_version, task_config_version) {
+            (2, 3) => (
+                serde_json::from_value(workspace_source)
+                    .map_err(|_| ImportArchiveError::InvalidMetadata)?,
+                serde_json::from_value(task_config_source)
+                    .map_err(|_| ImportArchiveError::InvalidMetadata)?,
+                None,
+                false,
+            ),
+            (1, 2) => {
+                let legacy_workspace: LegacyWorkspaceConfigV1 =
+                    serde_json::from_value(workspace_source)
+                        .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+                let legacy_task_config: LegacyTaskConfigV2 =
+                    serde_json::from_value(task_config_source)
+                        .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+                normalize_legacy_views(&mut views, &legacy_task_config)?;
+                let (workspace, task_config, active_type_ids) =
+                    normalize_legacy_configuration(legacy_workspace, legacy_task_config)?;
+                (workspace, task_config, Some(active_type_ids), true)
+            }
+            _ => return Err(ImportArchiveError::UnsupportedSchema),
+        };
+    if views.format_version != 1
         || workspace.workspace_id != manifest.source.workspace_id
         || ResourceName::new(&workspace.name).is_err()
         || !matches!(
@@ -297,29 +324,34 @@ pub(super) fn validate_staging(
     let mut projects = Vec::with_capacity(project_identities.len());
     let mut project_identifiers = HashSet::new();
     for identity in &manifest.source.projects {
-        let mut project: ProjectConfig = load_json(
+        let project_source: serde_json::Value = load_json(
             staging_vault,
             &format!(".kanleaf/projects/{}.json", identity.id),
         )?;
-        if !matches!(project.format_version, 1 | 2)
+        let project = if legacy_configuration {
+            let legacy: LegacyProjectConfigV2 = serde_json::from_value(project_source)
+                .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+            validate_legacy_project_types(
+                &legacy,
+                legacy_type_ids
+                    .as_ref()
+                    .ok_or(ImportArchiveError::InvalidMetadata)?,
+            )?;
+            normalize_legacy_project(legacy)?
+        } else {
+            let current: ProjectConfig = serde_json::from_value(project_source)
+                .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+            if current.format_version != 3 {
+                return Err(ImportArchiveError::UnsupportedSchema);
+            }
+            current
+        };
+        if project.format_version != 3
             || project.id != identity.id
             || project.storage_name != identity.storage_name
             || project.archived != identity.archived
         {
             return Err(ImportArchiveError::InvalidMetadata);
-        }
-        if project.format_version == 1 {
-            if !valid_legacy_project_identifier(&project.identifier)
-                || !matches!(project.visibility.as_str(), "private" | "open")
-            {
-                return Err(ImportArchiveError::InvalidMetadata);
-            }
-            project.legacy_identifier = Some(project.identifier.clone());
-            project.identifier = allocate_imported_identifier(&project.name, &project_identifiers)?;
-            if project.visibility == "open" {
-                project.visibility = "public".to_owned();
-            }
-            project.format_version = 2;
         }
         validate_project(&project, &task_config)?;
         if !project_identifiers.insert(project.identifier.clone()) {
@@ -379,21 +411,33 @@ pub(super) fn validate_staging(
             read_task_properties(&source).map_err(|_| ImportArchiveError::InvalidMetadata)?;
         let raw_custom = read_undefined_properties(&source, &[])
             .map_err(|_| ImportArchiveError::InvalidMetadata)?;
-        properties.custom = task_config
-            .properties
-            .iter()
-            .filter_map(|definition| {
-                let matches = raw_custom
-                    .iter()
-                    .filter(|value| value.name.eq_ignore_ascii_case(&definition.name))
-                    .collect::<Vec<_>>();
-                match matches.as_slice() {
-                    [] => None,
-                    [value] => Some(validate_imported_custom_value(definition, &value.value)),
-                    _ => Some(Err(ImportArchiveError::InvalidMetadata)),
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        properties.custom =
+            task_config
+                .properties
+                .iter()
+                .filter_map(|definition| {
+                    let matches = raw_custom
+                        .iter()
+                        .filter(|value| value.name.eq_ignore_ascii_case(&definition.name))
+                        .collect::<Vec<_>>();
+                    match matches.as_slice() {
+                        [] => None,
+                        [value] => {
+                            let normalized = if legacy_configuration
+                                && definition.name.eq_ignore_ascii_case("Type")
+                            {
+                                normalize_legacy_type_value(&value.value)
+                            } else {
+                                Ok(value.value.clone())
+                            };
+                            Some(normalized.and_then(|value| {
+                                validate_imported_custom_value(definition, &value)
+                            }))
+                        }
+                        _ => Some(Err(ImportArchiveError::InvalidMetadata)),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
         if properties.kanleaf_id != identity.id
             || TaskTitle::new(&properties.title).is_err()
             || !reference_matches(&properties.reference, identity, project)
@@ -415,6 +459,9 @@ pub(super) fn validate_staging(
                 identity: identity.clone(),
                 properties,
                 path,
+                cleanup_property_names: legacy_configuration
+                    .then(|| vec!["Type".to_owned()])
+                    .unwrap_or_default(),
             },
         );
     }
@@ -466,11 +513,6 @@ pub(super) fn validate_staging(
         .iter()
         .map(|state| state.id)
         .collect::<HashSet<_>>();
-    let type_ids = task_config
-        .types
-        .iter()
-        .map(|task_type| task_type.id)
-        .collect::<HashSet<_>>();
     let label_ids = task_config
         .labels
         .iter()
@@ -501,7 +543,7 @@ pub(super) fn validate_staging(
             .map_err(|_| ImportArchiveError::InvalidMetadata)?
             .validate()
             .map_err(|_| ImportArchiveError::InvalidMetadata)?;
-        if view.query_version != 1
+        if view.query_version != 2
             || ResourceName::new(&view.name).is_err()
             || !matches!(
                 view.layout.as_str(),
@@ -518,7 +560,6 @@ pub(super) fn validate_staging(
             &query,
             view.project_id,
             &state_ids,
-            &type_ids,
             &label_ids,
             &project_ids,
             &cycle_projects,
@@ -531,7 +572,6 @@ pub(super) fn validate_staging(
         tasks: tasks.len(),
         documents: manifest.source.documents.len(),
         states: task_config.states.len(),
-        types: task_config.types.len(),
         labels: task_config.labels.len(),
         shared_views: views.views.len(),
         cycles: cycle_count,
@@ -664,23 +704,541 @@ fn manifest_inventory(
     Ok(inventory)
 }
 
-fn validate_task_config(
-    workspace: &WorkspaceConfig,
-    config: &TaskConfig,
+fn json_format_version(value: &serde_json::Value) -> Result<u16, ImportArchiveError> {
+    value
+        .get("format_version")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|version| u16::try_from(version).ok())
+        .ok_or(ImportArchiveError::InvalidMetadata)
+}
+
+fn normalize_legacy_views(
+    views: &mut ViewsConfig,
+    task_config: &LegacyTaskConfigV2,
 ) -> Result<(), ImportArchiveError> {
-    unique_ids(config.states.iter().map(|state| state.id))?;
-    unique_ids(config.types.iter().map(|task_type| task_type.id))?;
-    let active_state_ids = config
+    for view in &mut views.views {
+        if view.query_version == 2 {
+            continue;
+        }
+        if view.query_version != 1 {
+            return Err(ImportArchiveError::UnsupportedSchema);
+        }
+        let query = view
+            .query
+            .as_object_mut()
+            .ok_or(ImportArchiveError::InvalidMetadata)?;
+        if query.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+        let filters = query
+            .entry("filters")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or(ImportArchiveError::InvalidMetadata)?;
+        let mut state_ids = filters
+            .get("states")
+            .and_then(|states| states.get("values"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|value| {
+                value
+                    .as_str()
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or(ImportArchiveError::InvalidMetadata)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let groups = filters
+            .remove("state_groups")
+            .map(|groups| {
+                groups
+                    .as_array()
+                    .ok_or(ImportArchiveError::InvalidMetadata)?
+                    .iter()
+                    .map(|group| {
+                        group
+                            .as_str()
+                            .map(str::to_owned)
+                            .ok_or(ImportArchiveError::InvalidMetadata)
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        for state in &task_config.states {
+            if groups.iter().any(|group| group == &state.group) {
+                state_ids.push(state.id);
+            }
+        }
+        state_ids.sort_unstable();
+        state_ids.dedup();
+        filters.remove("task_types");
+        filters.insert(
+            "states".to_owned(),
+            serde_json::json!({"values": state_ids, "include_none": false}),
+        );
+
+        let grouping = query
+            .entry("grouping")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or(ImportArchiveError::InvalidMetadata)?;
+        let primary = normalize_legacy_grouping(grouping.get("primary"))?;
+        let secondary = normalize_legacy_grouping(grouping.get("secondary"))?;
+        let normalized_primary = primary.clone().or_else(|| secondary.clone());
+        let normalized_secondary = if primary.is_some() && secondary != primary {
+            secondary
+        } else {
+            None
+        };
+        grouping.insert(
+            "primary".to_owned(),
+            normalized_primary
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        grouping.insert(
+            "secondary".to_owned(),
+            normalized_secondary
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+
+        let mut display = Vec::new();
+        for value in query
+            .get("display")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let value = value.as_str().ok_or(ImportArchiveError::InvalidMetadata)?;
+            let Some(mapped) = normalize_legacy_query_field(value) else {
+                continue;
+            };
+            if !display.iter().any(|existing| existing == mapped) {
+                display.push(mapped.to_owned());
+            }
+        }
+        query.insert("display".to_owned(), serde_json::json!(display));
+        query.insert("version".to_owned(), serde_json::json!(2));
+        view.query_version = 2;
+    }
+    Ok(())
+}
+
+fn normalize_legacy_grouping(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<String>, ImportArchiveError> {
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => value
+            .as_str()
+            .ok_or(ImportArchiveError::InvalidMetadata)
+            .map(normalize_legacy_query_field)
+            .map(|value| value.map(str::to_owned)),
+    }
+}
+
+fn normalize_legacy_query_field(value: &str) -> Option<&str> {
+    match value {
+        "task_type" => None,
+        "state_group" => Some("state"),
+        value => Some(value),
+    }
+}
+
+fn normalize_legacy_configuration(
+    workspace: LegacyWorkspaceConfigV1,
+    mut legacy: LegacyTaskConfigV2,
+) -> Result<(WorkspaceConfig, TaskConfig, HashSet<Uuid>), ImportArchiveError> {
+    if workspace.format_version != 1 || legacy.format_version != 2 {
+        return Err(ImportArchiveError::UnsupportedSchema);
+    }
+    unique_ids(legacy.states.iter().map(|state| state.id))?;
+    unique_ids(legacy.types.iter().map(|task_type| task_type.id))?;
+    unique_ids(legacy.labels.iter().map(|label| label.id))?;
+    unique_active_names(
+        legacy
+            .states
+            .iter()
+            .filter(|state| !state.archived)
+            .map(|state| &state.name),
+    )?;
+    unique_active_names(
+        legacy
+            .types
+            .iter()
+            .filter(|task_type| !task_type.archived)
+            .map(|task_type| &task_type.name),
+    )?;
+    unique_active_names(
+        legacy
+            .labels
+            .iter()
+            .filter(|label| !label.archived)
+            .map(|label| &label.name),
+    )?;
+    let active_state_ids = legacy
         .states
         .iter()
         .filter(|state| !state.archived)
         .map(|state| state.id)
         .collect::<HashSet<_>>();
-    let active_type_ids = config
+    let active_type_ids = legacy
         .types
         .iter()
         .filter(|task_type| !task_type.archived)
         .map(|task_type| task_type.id)
+        .collect::<HashSet<_>>();
+    if !active_state_ids.contains(&workspace.default_state_id)
+        || !active_type_ids.contains(&workspace.default_task_type_id)
+        || active_state_ids.is_empty()
+        || active_type_ids.is_empty()
+    {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
+    let mut active_state_positions = HashSet::new();
+    for state in &legacy.states {
+        if ResourceName::new(&state.name).is_err()
+            || HexColor::new(&state.color).is_err()
+            || !matches!(
+                state.group.as_str(),
+                "backlog" | "todo" | "in_progress" | "done" | "canceled"
+            )
+            || state.position < 0
+            || (!state.archived && !active_state_positions.insert(state.position))
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+    }
+    let mut active_type_positions = HashSet::new();
+    let mut protected_types = 0;
+    for task_type in &legacy.types {
+        if ResourceName::new(&task_type.name).is_err()
+            || SelectOptionIcon::new_supported(&task_type.icon).is_err()
+            || HexColor::new(&task_type.color).is_err()
+            || ConfigurationDescription::new(&task_type.description).is_err()
+            || task_type.position < 0
+            || (task_type.protected && task_type.archived)
+            || (!task_type.archived && !active_type_positions.insert(task_type.position))
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+        protected_types += usize::from(task_type.protected);
+    }
+    if protected_types > 1 {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
+    for label in &legacy.labels {
+        if ResourceName::new(&label.name).is_err()
+            || HexColor::new(&label.color).is_err()
+            || ConfigurationDescription::new(&label.description).is_err()
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+    }
+    if legacy
+        .properties
+        .iter()
+        .any(|property| property.name.eq_ignore_ascii_case("Type"))
+    {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
+
+    let mut states = legacy
+        .states
+        .iter()
+        .map(|state| TaskStateConfig {
+            id: state.id,
+            name: state.name.clone(),
+            icon: Some(legacy_state_icon(&state.group).to_owned()),
+            color: state.color.clone(),
+            description: String::new(),
+            system_role: None,
+            position: state.position,
+            archived: state.archived,
+        })
+        .collect::<Vec<_>>();
+    let mut next_position = states
+        .iter()
+        .map(|state| state.position)
+        .max()
+        .unwrap_or(-1)
+        + 1;
+    for (role, canonical_name, icon, color) in [
+        ("todo", "Todo", "circle", "#64748B"),
+        ("in_progress", "In Progress", "loader-circle", "#3B82F6"),
+        ("done", "Done", "circle-check", "#22A06B"),
+    ] {
+        let candidate = legacy
+            .states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| !state.archived && state.group == role)
+            .min_by_key(|(_, state)| {
+                (
+                    !state.name.eq_ignore_ascii_case(canonical_name),
+                    state.position,
+                    state.id,
+                )
+            })
+            .map(|(index, _)| index);
+        let core_index = candidate.unwrap_or_else(|| {
+            states.push(TaskStateConfig {
+                id: legacy_core_state_id(workspace.workspace_id, role),
+                name: canonical_name.to_owned(),
+                icon: Some(icon.to_owned()),
+                color: color.to_owned(),
+                description: String::new(),
+                system_role: None,
+                position: next_position,
+                archived: false,
+            });
+            next_position += 1;
+            states.len() - 1
+        });
+        for (index, state) in states.iter_mut().enumerate() {
+            if index != core_index
+                && !state.archived
+                && state.name.eq_ignore_ascii_case(canonical_name)
+            {
+                state.name = legacy_suffixed_name(&state.name, "legacy", state.id);
+            }
+        }
+        let core = &mut states[core_index];
+        core.name = canonical_name.to_owned();
+        core.icon = Some(icon.to_owned());
+        core.color = color.to_owned();
+        core.system_role = Some(role.to_owned());
+        core.archived = false;
+    }
+
+    legacy
+        .labels
+        .sort_by_key(|label| (label.name.to_lowercase(), label.id));
+    let labels = legacy
+        .labels
+        .into_iter()
+        .enumerate()
+        .map(|(position, label)| TaskLabelConfig {
+            id: label.id,
+            name: label.name,
+            icon: None,
+            color: label.color,
+            description: label.description,
+            position: position as i32,
+            archived: label.archived,
+        })
+        .collect();
+    let mut properties = legacy
+        .properties
+        .into_iter()
+        .map(|property| CustomPropertyConfig {
+            id: property.id,
+            name: property.name,
+            property_type: property.property_type,
+            description: property.description,
+            position: property.position,
+            configuration: property.configuration,
+            default_option_id: None,
+            archived: property.archived,
+            options: property
+                .options
+                .into_iter()
+                .map(|option| CustomPropertyOptionConfig {
+                    id: option.id,
+                    property_id: option.property_id,
+                    name: option.name,
+                    icon: None,
+                    color: option.color,
+                    description: String::new(),
+                    position: option.position,
+                    archived: option.archived,
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    let meaningful_types = legacy
+        .types
+        .iter()
+        .any(|task_type| !(task_type.protected && task_type.name == "Task" && !task_type.archived));
+    if meaningful_types {
+        legacy
+            .types
+            .sort_by_key(|task_type| (task_type.position, task_type.id));
+        let options = legacy
+            .types
+            .iter()
+            .map(|task_type| {
+                let mut duplicates = legacy
+                    .types
+                    .iter()
+                    .filter(|candidate| candidate.name.eq_ignore_ascii_case(&task_type.name))
+                    .collect::<Vec<_>>();
+                duplicates.sort_by_key(|candidate| {
+                    (candidate.archived, candidate.position, candidate.id)
+                });
+                let ordinal = duplicates
+                    .iter()
+                    .position(|candidate| candidate.id == task_type.id)
+                    .unwrap_or_default();
+                CustomPropertyOptionConfig {
+                    id: task_type.id,
+                    property_id: workspace.default_task_type_id,
+                    name: if ordinal == 0 {
+                        task_type.name.clone()
+                    } else {
+                        legacy_suffixed_name(&task_type.name, "archived", task_type.id)
+                    },
+                    icon: Some(task_type.icon.clone()),
+                    color: task_type.color.clone(),
+                    description: task_type.description.clone(),
+                    position: task_type.position,
+                    archived: task_type.archived,
+                }
+            })
+            .collect();
+        let position = properties
+            .iter()
+            .filter(|property| !property.archived)
+            .map(|property| property.position)
+            .max()
+            .unwrap_or(-1)
+            + 1;
+        properties.push(CustomPropertyConfig {
+            id: workspace.default_task_type_id,
+            name: "Type".to_owned(),
+            property_type: "single_select".to_owned(),
+            description: "The kind of work this task represents.".to_owned(),
+            position,
+            configuration: serde_json::json!({}),
+            default_option_id: Some(workspace.default_task_type_id),
+            archived: false,
+            options,
+        });
+    }
+
+    Ok((
+        WorkspaceConfig {
+            format_version: 2,
+            workspace_id: workspace.workspace_id,
+            name: workspace.name,
+            accent: workspace.accent,
+            default_state_id: workspace.default_state_id,
+            state_property_description: "The current step of work.".to_owned(),
+            label_property_description: "Shared tags used to organize work.".to_owned(),
+            members: workspace.members,
+        },
+        TaskConfig {
+            format_version: 3,
+            states,
+            labels,
+            properties,
+        },
+        active_type_ids,
+    ))
+}
+
+fn legacy_state_icon(group: &str) -> &'static str {
+    match group {
+        "backlog" => "circle-dashed",
+        "todo" => "circle",
+        "in_progress" => "loader-circle",
+        "done" => "circle-check",
+        "canceled" => "circle-x",
+        _ => unreachable!("legacy State groups are validated before normalization"),
+    }
+}
+
+fn legacy_core_state_id(workspace_id: Uuid, role: &str) -> Uuid {
+    let mut digest = Sha256::new();
+    digest.update(workspace_id.as_bytes());
+    digest.update(b":core-state:");
+    digest.update(role.as_bytes());
+    let digest = digest.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+fn legacy_suffixed_name(name: &str, kind: &str, id: Uuid) -> String {
+    let suffix = format!(" ({kind} {})", &id.simple().to_string()[..8]);
+    let prefix = name
+        .chars()
+        .take(120 - suffix.chars().count())
+        .collect::<String>();
+    format!("{prefix}{suffix}")
+}
+
+fn validate_legacy_project_types(
+    project: &LegacyProjectConfigV2,
+    active_type_ids: &HashSet<Uuid>,
+) -> Result<(), ImportArchiveError> {
+    if project.format_version != 2
+        || !active_type_ids.contains(&project.default_task_type_id)
+        || !project
+            .enabled_task_type_ids
+            .contains(&project.default_task_type_id)
+        || project
+            .enabled_task_type_ids
+            .iter()
+            .any(|id| !active_type_ids.contains(id))
+    {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
+    unique_ids(project.enabled_task_type_ids.iter().copied())?;
+    Ok(())
+}
+
+fn normalize_legacy_project(
+    project: LegacyProjectConfigV2,
+) -> Result<ProjectConfig, ImportArchiveError> {
+    Ok(ProjectConfig {
+        format_version: 3,
+        id: project.id,
+        name: project.name,
+        storage_name: project.storage_name,
+        identifier: project.identifier,
+        description: project.description,
+        icon: project.icon,
+        visibility: project.visibility,
+        lead_email: project.lead_email,
+        default_assignee_email: project.default_assignee_email,
+        default_state_id: project.default_state_id,
+        features: project.features,
+        members: project.members,
+        cycles: project.cycles,
+        modules: project.modules,
+        archived: project.archived,
+        legacy_identifier: None,
+    })
+}
+
+fn normalize_legacy_type_value(
+    value: &serde_json::Value,
+) -> Result<serde_json::Value, ImportArchiveError> {
+    let values = value
+        .as_array()
+        .filter(|values| values.len() == 1)
+        .ok_or(ImportArchiveError::InvalidMetadata)?;
+    values[0]
+        .as_str()
+        .map(|value| serde_json::Value::String(value.to_owned()))
+        .ok_or(ImportArchiveError::InvalidMetadata)
+}
+
+fn validate_task_config(
+    workspace: &WorkspaceConfig,
+    config: &TaskConfig,
+) -> Result<(), ImportArchiveError> {
+    unique_ids(config.states.iter().map(|state| state.id))?;
+    let active_state_ids = config
+        .states
+        .iter()
+        .filter(|state| !state.archived)
+        .map(|state| state.id)
         .collect::<HashSet<_>>();
     unique_ids(config.labels.iter().map(|label| label.id))?;
     unique_active_names(
@@ -692,61 +1250,65 @@ fn validate_task_config(
     )?;
     unique_active_names(
         config
-            .types
-            .iter()
-            .filter(|task_type| !task_type.archived)
-            .map(|task_type| &task_type.name),
-    )?;
-    unique_active_names(
-        config
             .labels
             .iter()
             .filter(|label| !label.archived)
             .map(|label| &label.name),
     )?;
     if !active_state_ids.contains(&workspace.default_state_id)
-        || !active_type_ids.contains(&workspace.default_task_type_id)
         || active_state_ids.is_empty()
-        || active_type_ids.is_empty()
+        || ConfigurationDescription::new(&workspace.state_property_description).is_err()
+        || ConfigurationDescription::new(&workspace.label_property_description).is_err()
     {
         return Err(ImportArchiveError::InvalidMetadata);
     }
     let mut state_positions = HashSet::new();
+    let mut core_roles = HashSet::new();
     for state in &config.states {
         if ResourceName::new(&state.name).is_err()
+            || state
+                .icon
+                .as_deref()
+                .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
             || HexColor::new(&state.color).is_err()
-            || !matches!(
-                state.group.as_str(),
-                "backlog" | "todo" | "in_progress" | "done" | "canceled"
-            )
+            || ConfigurationDescription::new(&state.description).is_err()
             || state.position < 0
             || (!state.archived && !state_positions.insert(state.position))
+            || (state.archived && state.system_role.is_some())
         {
             return Err(ImportArchiveError::InvalidMetadata);
         }
-    }
-    let mut type_positions = HashSet::new();
-    let mut protected_types = 0;
-    for task_type in &config.types {
-        if ResourceName::new(&task_type.name).is_err()
-            || TaskTypeIcon::new(&task_type.icon).is_err()
-            || HexColor::new(&task_type.color).is_err()
-            || ConfigurationDescription::new(&task_type.description).is_err()
-            || task_type.position < 0
-            || (task_type.protected && task_type.archived)
-            || (!task_type.archived && !type_positions.insert(task_type.position))
-        {
-            return Err(ImportArchiveError::InvalidMetadata);
+        if let Some(role) = state.system_role.as_deref() {
+            let expected = match role {
+                "todo" => ("Todo", "circle", "#64748B"),
+                "in_progress" => ("In Progress", "loader-circle", "#3B82F6"),
+                "done" => ("Done", "circle-check", "#22A06B"),
+                _ => return Err(ImportArchiveError::InvalidMetadata),
+            };
+            if state.archived
+                || !core_roles.insert(role)
+                || state.name != expected.0
+                || state.icon.as_deref() != Some(expected.1)
+                || state.color != expected.2
+            {
+                return Err(ImportArchiveError::InvalidMetadata);
+            }
         }
-        protected_types += usize::from(task_type.protected);
     }
-    if protected_types > 1 {
+    if core_roles != HashSet::from(["todo", "in_progress", "done"]) {
         return Err(ImportArchiveError::InvalidMetadata);
     }
+    let mut label_positions = HashSet::new();
     for label in &config.labels {
         if ResourceName::new(&label.name).is_err()
+            || label
+                .icon
+                .as_deref()
+                .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
             || HexColor::new(&label.color).is_err()
             || ConfigurationDescription::new(&label.description).is_err()
+            || label.position < 0
+            || (!label.archived && !label_positions.insert(label.position))
         {
             return Err(ImportArchiveError::InvalidMetadata);
         }
@@ -774,6 +1336,13 @@ fn validate_task_config(
                 property.property_type.as_str(),
                 "single_select" | "multi_select"
             ) && !property.options.is_empty())
+            || property.default_option_id.is_some_and(|default_id| {
+                property.property_type != "single_select"
+                    || !property
+                        .options
+                        .iter()
+                        .any(|option| option.id == default_id && !option.archived)
+            })
         {
             return Err(ImportArchiveError::InvalidMetadata);
         }
@@ -784,7 +1353,12 @@ fn validate_task_config(
                 || !option_ids.insert(option.id)
                 || ResourceName::new(&option.name).is_err()
                 || !names.insert(option.name.trim().to_lowercase())
+                || option
+                    .icon
+                    .as_deref()
+                    .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
                 || HexColor::new(&option.color).is_err()
+                || ConfigurationDescription::new(&option.description).is_err()
                 || option.position < 0
                 || (!option.archived && !positions.insert(option.position))
             {
@@ -856,22 +1430,7 @@ fn validate_project(
         .filter(|state| !state.archived)
         .map(|state| state.id)
         .collect::<HashSet<_>>();
-    let types = task_config
-        .types
-        .iter()
-        .filter(|task_type| !task_type.archived)
-        .map(|task_type| task_type.id)
-        .collect::<HashSet<_>>();
-    if !states.contains(&project.default_state_id)
-        || !types.contains(&project.default_task_type_id)
-        || !project
-            .enabled_task_type_ids
-            .contains(&project.default_task_type_id)
-        || project
-            .enabled_task_type_ids
-            .iter()
-            .any(|id| !types.contains(id))
-    {
+    if !states.contains(&project.default_state_id) {
         return Err(ImportArchiveError::InvalidMetadata);
     }
     let identifier = ProjectIdentifier::new(&project.identifier)
@@ -885,7 +1444,6 @@ fn validate_project(
     {
         return Err(ImportArchiveError::InvalidMetadata);
     }
-    unique_ids(project.enabled_task_type_ids.iter().copied())?;
     unique_ids(project.cycles.iter().map(|cycle| cycle.id))?;
     unique_ids(project.modules.iter().map(|module| module.id))?;
     unique_active_names(
@@ -1036,33 +1594,6 @@ fn reference_matches(
             .is_some_and(|identifier| reference == format!("{identifier}-{}", task.number))
 }
 
-fn valid_legacy_project_identifier(value: &str) -> bool {
-    let mut characters = value.chars();
-    let valid_start = characters
-        .next()
-        .is_some_and(|character| character.is_ascii_alphanumeric());
-    valid_start
-        && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
-        && (2..=12).contains(&value.len())
-        && value == value.to_ascii_uppercase()
-}
-
-fn allocate_imported_identifier(
-    name: &str,
-    used: &HashSet<String>,
-) -> Result<String, ImportArchiveError> {
-    let base = ProjectIdentifier::suggested(name);
-    for ordinal in 1..=9999 {
-        let candidate = base
-            .with_ordinal(ordinal)
-            .map_err(|_| ImportArchiveError::InvalidMetadata)?;
-        if !used.contains(candidate.as_str()) {
-            return Ok(candidate.as_str().to_owned());
-        }
-    }
-    Err(ImportArchiveError::InvalidMetadata)
-}
-
 fn document_paths(
     documents: &[DocumentIdentity],
     projects: &HashMap<Uuid, &ProjectConfig>,
@@ -1190,7 +1721,6 @@ fn validate_view_query(
     query: &TaskQuery,
     view_project_id: Option<Uuid>,
     state_ids: &HashSet<Uuid>,
-    _type_ids: &HashSet<Uuid>,
     label_ids: &HashSet<Uuid>,
     project_ids: &HashSet<Uuid>,
     cycle_projects: &HashMap<Uuid, Uuid>,
@@ -1419,4 +1949,85 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 
 fn name_eq(left: &str, right: &str) -> bool {
     left.trim().eq_ignore_ascii_case(right.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_views_drop_type_and_expand_state_groups() {
+        let todo_id = Uuid::new_v4();
+        let done_id = Uuid::new_v4();
+        let mut views = ViewsConfig {
+            format_version: 1,
+            views: vec![super::super::config::ViewConfig {
+                id: Uuid::new_v4(),
+                project_id: None,
+                owner_email: "owner@example.com".to_owned(),
+                name: "Legacy".to_owned(),
+                query_version: 1,
+                query: serde_json::json!({
+                    "version": 1,
+                    "scope": {"kind": "workspace"},
+                    "filters": {
+                        "states": {"values": [todo_id], "include_none": true},
+                        "state_groups": ["done"],
+                        "task_types": {"values": [Uuid::new_v4()], "include_none": false}
+                    },
+                    "grouping": {"primary": "task_type", "secondary": "state_group"},
+                    "display": ["task_type", "state_group", "state", "priority"],
+                    "include_completed": false
+                }),
+                layout: "list".to_owned(),
+            }],
+        };
+        let task_config = LegacyTaskConfigV2 {
+            format_version: 2,
+            states: vec![
+                super::super::config::LegacyTaskStateConfigV2 {
+                    id: todo_id,
+                    name: "Todo".to_owned(),
+                    color: "#64748B".to_owned(),
+                    group: "todo".to_owned(),
+                    position: 0,
+                    archived: false,
+                },
+                super::super::config::LegacyTaskStateConfigV2 {
+                    id: done_id,
+                    name: "Done".to_owned(),
+                    color: "#22A06B".to_owned(),
+                    group: "done".to_owned(),
+                    position: 1,
+                    archived: false,
+                },
+            ],
+            types: Vec::new(),
+            labels: Vec::new(),
+            properties: Vec::new(),
+        };
+
+        normalize_legacy_views(&mut views, &task_config).unwrap();
+
+        let view = &views.views[0];
+        assert_eq!(view.query_version, 2);
+        assert_eq!(view.query["version"], 2);
+        assert!(view.query["filters"].get("state_groups").is_none());
+        assert!(view.query["filters"].get("task_types").is_none());
+        let state_ids = view.query["filters"]["states"]["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| Uuid::parse_str(value.as_str().unwrap()).unwrap())
+            .collect::<HashSet<_>>();
+        assert_eq!(state_ids, HashSet::from([todo_id, done_id]));
+        assert_eq!(
+            view.query["grouping"],
+            serde_json::json!({"primary": "state", "secondary": null})
+        );
+        assert_eq!(
+            view.query["display"],
+            serde_json::json!(["state", "priority"])
+        );
+    }
 }

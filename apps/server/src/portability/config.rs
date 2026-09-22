@@ -14,16 +14,30 @@ use crate::{
     vault::{PortableConfigSnapshot, VaultError},
 };
 
-const CONFIG_FORMAT_VERSION: u16 = 1;
+const WORKSPACE_CONFIG_FORMAT_VERSION: u16 = 2;
+const VIEWS_CONFIG_FORMAT_VERSION: u16 = 1;
 const LIVE_MANIFEST_FORMAT_VERSION: u16 = 2;
-const TASK_CONFIG_FORMAT_VERSION: u16 = 2;
-const PROJECT_CONFIG_FORMAT_VERSION: u16 = 2;
+const TASK_CONFIG_FORMAT_VERSION: u16 = 3;
+const PROJECT_CONFIG_FORMAT_VERSION: u16 = 3;
 const PROJECTION_BATCH_SIZE: i64 = 20;
 const RETRY_DELAY_SECONDS: f64 = 30.0;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct WorkspaceConfig {
+    pub format_version: u16,
+    pub workspace_id: Uuid,
+    pub name: String,
+    pub accent: String,
+    pub default_state_id: Uuid,
+    pub state_property_description: String,
+    pub label_property_description: String,
+    pub members: Vec<MemberReference>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyWorkspaceConfigV1 {
     pub format_version: u16,
     pub workspace_id: Uuid,
     pub name: String,
@@ -47,10 +61,79 @@ pub(super) struct MemberReference {
 pub(super) struct TaskConfig {
     pub format_version: u16,
     pub states: Vec<TaskStateConfig>,
-    pub types: Vec<TaskTypeConfig>,
     pub labels: Vec<TaskLabelConfig>,
     #[serde(default)]
     pub properties: Vec<CustomPropertyConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyTaskConfigV2 {
+    pub format_version: u16,
+    pub states: Vec<LegacyTaskStateConfigV2>,
+    pub types: Vec<LegacyTaskTypeConfigV2>,
+    pub labels: Vec<LegacyTaskLabelConfigV2>,
+    #[serde(default)]
+    pub properties: Vec<LegacyCustomPropertyConfigV2>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyTaskStateConfigV2 {
+    pub id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub group: String,
+    pub position: i32,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyTaskTypeConfigV2 {
+    pub id: Uuid,
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+    pub description: String,
+    pub position: i32,
+    pub protected: bool,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyTaskLabelConfigV2 {
+    pub id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub description: String,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyCustomPropertyConfigV2 {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub property_type: String,
+    pub description: String,
+    pub position: i32,
+    pub configuration: Value,
+    pub archived: bool,
+    pub options: Vec<LegacyCustomPropertyOptionConfigV2>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyCustomPropertyOptionConfigV2 {
+    pub id: Uuid,
+    pub property_id: Uuid,
+    pub name: String,
+    pub color: String,
+    pub position: i32,
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
@@ -63,6 +146,7 @@ pub(super) struct CustomPropertyConfig {
     pub description: String,
     pub position: i32,
     pub configuration: Value,
+    pub default_option_id: Option<Uuid>,
     pub archived: bool,
     #[sqlx(skip)]
     pub options: Vec<CustomPropertyOptionConfig>,
@@ -74,7 +158,9 @@ pub(super) struct CustomPropertyOptionConfig {
     pub id: Uuid,
     pub property_id: Uuid,
     pub name: String,
+    pub icon: Option<String>,
     pub color: String,
+    pub description: String,
     pub position: i32,
     pub archived: bool,
 }
@@ -84,22 +170,11 @@ pub(super) struct CustomPropertyOptionConfig {
 pub(super) struct TaskStateConfig {
     pub id: Uuid,
     pub name: String,
-    pub color: String,
-    pub group: String,
-    pub position: i32,
-    pub archived: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
-#[serde(deny_unknown_fields)]
-pub(super) struct TaskTypeConfig {
-    pub id: Uuid,
-    pub name: String,
-    pub icon: String,
+    pub icon: Option<String>,
     pub color: String,
     pub description: String,
+    pub system_role: Option<String>,
     pub position: i32,
-    pub protected: bool,
     pub archived: bool,
 }
 
@@ -108,8 +183,10 @@ pub(super) struct TaskTypeConfig {
 pub(super) struct TaskLabelConfig {
     pub id: Uuid,
     pub name: String,
+    pub icon: Option<String>,
     pub color: String,
     pub description: String,
+    pub position: i32,
     pub archived: bool,
 }
 
@@ -147,8 +224,6 @@ pub(super) struct ProjectConfig {
     pub lead_email: Option<String>,
     pub default_assignee_email: Option<String>,
     pub default_state_id: Uuid,
-    pub default_task_type_id: Uuid,
-    pub enabled_task_type_ids: Vec<Uuid>,
     pub features: ProjectFeatures,
     pub members: Vec<ProjectMemberReference>,
     pub cycles: Vec<CycleConfig>,
@@ -156,6 +231,30 @@ pub(super) struct ProjectConfig {
     pub archived: bool,
     #[serde(skip)]
     pub legacy_identifier: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyProjectConfigV2 {
+    pub format_version: u16,
+    pub id: Uuid,
+    pub name: String,
+    pub storage_name: String,
+    pub identifier: String,
+    pub description: String,
+    #[serde(default = "default_project_icon")]
+    pub icon: String,
+    pub visibility: String,
+    pub lead_email: Option<String>,
+    pub default_assignee_email: Option<String>,
+    pub default_state_id: Uuid,
+    pub default_task_type_id: Uuid,
+    pub enabled_task_type_ids: Vec<Uuid>,
+    pub features: ProjectFeatures,
+    pub members: Vec<ProjectMemberReference>,
+    pub cycles: Vec<CycleConfig>,
+    pub modules: Vec<ModuleConfig>,
+    pub archived: bool,
 }
 
 fn default_project_icon() -> String {
@@ -271,7 +370,8 @@ struct WorkspaceRow {
     name: String,
     accent: String,
     default_inbox_state_id: Uuid,
-    default_task_type_id: Uuid,
+    state_property_description: String,
+    label_property_description: String,
     vault_layout_version: i16,
     config_version: i64,
 }
@@ -288,7 +388,6 @@ struct ProjectRow {
     lead_email: Option<String>,
     default_assignee_email: Option<String>,
     default_state_id: Uuid,
-    default_task_type_id: Uuid,
     cycles_enabled: bool,
     modules_enabled: bool,
     pages_enabled: bool,
@@ -364,7 +463,8 @@ async fn build_snapshot(
 ) -> Result<Option<(WorkspaceRow, PortableConfigSnapshot)>, ConfigProjectionFailure> {
     let workspace = sqlx::query_as::<_, WorkspaceRow>(
         r#"
-        SELECT id, name, accent, default_inbox_state_id, default_task_type_id,
+        SELECT id, name, accent, default_inbox_state_id,
+               state_property_description, label_property_description,
                vault_layout_version, config_version
         FROM workspaces WHERE id = $1 FOR UPDATE
         "#,
@@ -389,18 +489,19 @@ async fn build_snapshot(
     .fetch_all(&mut **transaction)
     .await?;
     let workspace_config = WorkspaceConfig {
-        format_version: CONFIG_FORMAT_VERSION,
+        format_version: WORKSPACE_CONFIG_FORMAT_VERSION,
         workspace_id,
         name: workspace.name.clone(),
         accent: workspace.accent.clone(),
         default_state_id: workspace.default_inbox_state_id,
-        default_task_type_id: workspace.default_task_type_id,
+        state_property_description: workspace.state_property_description.clone(),
+        label_property_description: workspace.label_property_description.clone(),
         members,
     };
 
     let states = sqlx::query_as::<_, TaskStateConfig>(
         r#"
-        SELECT id, name, color, state_group AS group, position,
+        SELECT id, name, icon, color, description, system_role, position,
                archived_at IS NOT NULL AS archived
         FROM task_states WHERE workspace_id = $1 ORDER BY position, id
         "#,
@@ -408,20 +509,11 @@ async fn build_snapshot(
     .bind(workspace_id)
     .fetch_all(&mut **transaction)
     .await?;
-    let types = sqlx::query_as::<_, TaskTypeConfig>(
-        r#"
-        SELECT id, name, icon, color, description, position,
-               is_protected AS protected, archived_at IS NOT NULL AS archived
-        FROM task_types WHERE workspace_id = $1 ORDER BY position, id
-        "#,
-    )
-    .bind(workspace_id)
-    .fetch_all(&mut **transaction)
-    .await?;
     let labels = sqlx::query_as::<_, TaskLabelConfig>(
         r#"
-        SELECT id, name, color, description, archived_at IS NOT NULL AS archived
-        FROM task_labels WHERE workspace_id = $1 ORDER BY lower(name), id
+        SELECT id, name, icon, color, description, position,
+               archived_at IS NOT NULL AS archived
+        FROM task_labels WHERE workspace_id = $1 ORDER BY position, id
         "#,
     )
     .bind(workspace_id)
@@ -430,6 +522,7 @@ async fn build_snapshot(
     let mut properties = sqlx::query_as::<_, CustomPropertyConfig>(
         r#"
         SELECT id, name, property_type, description, position, configuration,
+               default_option_id,
                archived_at IS NOT NULL AS archived
         FROM custom_property_definitions
         WHERE workspace_id = $1
@@ -441,7 +534,7 @@ async fn build_snapshot(
     .await?;
     let options = sqlx::query_as::<_, CustomPropertyOptionConfig>(
         r#"
-        SELECT id, property_id, name, color, position,
+        SELECT id, property_id, name, icon, color, description, position,
                archived_at IS NOT NULL AS archived
         FROM custom_property_options
         WHERE workspace_id = $1
@@ -461,7 +554,6 @@ async fn build_snapshot(
     let task_config = TaskConfig {
         format_version: TASK_CONFIG_FORMAT_VERSION,
         states,
-        types,
         labels,
         properties,
     };
@@ -480,7 +572,7 @@ async fn build_snapshot(
     .fetch_all(&mut **transaction)
     .await?;
     let views_config = ViewsConfig {
-        format_version: CONFIG_FORMAT_VERSION,
+        format_version: VIEWS_CONFIG_FORMAT_VERSION,
         views,
     };
 
@@ -489,7 +581,7 @@ async fn build_snapshot(
         SELECT projects.id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.icon, projects.visibility,
                leads.email AS lead_email, assignees.email AS default_assignee_email,
-               projects.default_state_id, projects.default_task_type_id,
+               projects.default_state_id,
                projects.cycles_enabled, projects.modules_enabled,
                projects.pages_enabled, projects.views_enabled,
                projects.archived_at IS NOT NULL AS archived
@@ -585,16 +677,6 @@ async fn load_project_config(
     workspace_id: Uuid,
     project: ProjectRow,
 ) -> Result<ProjectConfig, sqlx::Error> {
-    let enabled_task_type_ids = sqlx::query_scalar(
-        r#"
-        SELECT task_type_id FROM project_task_types
-        WHERE workspace_id = $1 AND project_id = $2 ORDER BY task_type_id
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(project.id)
-    .fetch_all(&mut **transaction)
-    .await?;
     let members = sqlx::query_as::<_, ProjectMemberReference>(
         r#"
         SELECT users.id AS user_id, users.email, users.display_name, memberships.role
@@ -650,8 +732,6 @@ async fn load_project_config(
         lead_email: project.lead_email,
         default_assignee_email: project.default_assignee_email,
         default_state_id: project.default_state_id,
-        default_task_type_id: project.default_task_type_id,
-        enabled_task_type_ids,
         features: ProjectFeatures {
             cycles: project.cycles_enabled,
             modules: project.modules_enabled,

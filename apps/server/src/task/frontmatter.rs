@@ -99,12 +99,22 @@ pub(crate) fn patch_with_cleanup(
     )
 }
 
-pub(crate) fn remap_identity(
+#[cfg(test)]
+fn remap_identity(
     source: &str,
     source_id: Uuid,
     properties: &TaskProperties,
 ) -> Result<String, FrontmatterError> {
     patch_with_source_identity(source, source_id, properties, &[])
+}
+
+pub(crate) fn remap_identity_with_cleanup(
+    source: &str,
+    source_id: Uuid,
+    properties: &TaskProperties,
+    cleanup_property_names: &[String],
+) -> Result<String, FrontmatterError> {
+    patch_with_source_identity(source, source_id, properties, cleanup_property_names)
 }
 
 fn patch_with_source_identity(

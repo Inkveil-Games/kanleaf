@@ -170,6 +170,38 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
         json!({"title": "Portable task", "project_id": project_id}),
     )
     .await;
+    let label = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/labels"),
+        json!({
+            "name": "Portable",
+            "icon": "database",
+            "color": "#336699",
+            "description": "Round-trip label"
+        }),
+    )
+    .await;
+    let default_option_id = Uuid::new_v4();
+    let property = create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/properties"),
+        json!({
+            "name": "Impact",
+            "type": "single_select",
+            "description": "Portable custom metadata",
+            "default_option_id": default_option_id,
+            "options": [{
+                "id": default_option_id,
+                "name": "High",
+                "icon": "flag",
+                "color": "#EF4444",
+                "description": "Needs prompt attention"
+            }]
+        }),
+    )
+    .await;
     save_document(
         &app,
         &token,
@@ -257,6 +289,51 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     assert!(entries.contains_key(".kanleaf/task-config.json"));
     assert!(entries.contains_key(".kanleaf/views.json"));
     assert!(entries.contains_key(&format!(".kanleaf/projects/{project_id}.json")));
+    let workspace_config: Value =
+        serde_json::from_slice(&entries[".kanleaf/workspace.json"]).unwrap();
+    assert_eq!(workspace_config["format_version"], 2);
+    assert!(workspace_config.get("default_task_type_id").is_none());
+    assert!(workspace_config["state_property_description"].is_string());
+    assert!(workspace_config["label_property_description"].is_string());
+    let task_config: Value = serde_json::from_slice(&entries[".kanleaf/task-config.json"]).unwrap();
+    assert_eq!(task_config["format_version"], 3);
+    assert!(task_config.get("types").is_none());
+    let todo = task_config["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|state| state["system_role"] == "todo")
+        .unwrap();
+    assert_eq!(todo["icon"], "circle");
+    assert!(todo["description"].is_string());
+    let exported_label = task_config["labels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == label["id"])
+        .unwrap();
+    assert_eq!(exported_label["icon"], "database");
+    assert_eq!(exported_label["position"], 0);
+    let exported_property = task_config["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == property["id"])
+        .unwrap();
+    assert_eq!(
+        exported_property["default_option_id"],
+        default_option_id.to_string()
+    );
+    assert_eq!(exported_property["options"][0]["icon"], "flag");
+    assert_eq!(
+        exported_property["options"][0]["description"],
+        "Needs prompt attention"
+    );
+    let project_config: Value =
+        serde_json::from_slice(&entries[&format!(".kanleaf/projects/{project_id}.json")]).unwrap();
+    assert_eq!(project_config["format_version"], 3);
+    assert!(project_config.get("default_task_type_id").is_none());
+    assert!(project_config.get("enabled_task_type_ids").is_none());
     let task_path = format!(
         "Projects/{}/Todo/{}.md",
         project["storage_name"].as_str().unwrap(),
