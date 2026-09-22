@@ -39,12 +39,10 @@ User ──< Session
   └──< WorkspaceMembership >── Workspace ──< WorkspaceInvitation
                                       ├────< TaskState
                                       ├────< TaskLabel
-                                      ├────< TaskType
                                       ├────< CustomProperty ──< PropertyOption
                                       ├────< SavedView
                                       ├────< Document
                                       ├────< Project ────< ProjectMembership
-                                      │          ├───────< ProjectTaskType
                                       │          ├───────< ProjectCycle
                                       │          └───────< ProjectModule
                                       └────< Task ──< TaskAssignee
@@ -81,16 +79,26 @@ User ──< Session
   access uses explicit fixed-role Project memberships. Private projects are
   non-disclosing, while Public projects are discoverable and joinable only by
   Workspace Members.
-- States and task types are workspace vocabulary. Each workspace starts with
-  one state per semantic group and a protected `Task` type; projects select
-  defaults and enabled types from the same tenant.
+- States and Labels are ordered Workspace vocabularies with stable UUIDs,
+  icons, colors, and descriptions. Each Workspace has exactly one active core
+  State for each `system_role` (`todo`, `in_progress`, and `done`); those core
+  identities and their canonical name/icon/color are protected while custom
+  States have no system role. Projects select only their default State.
 - Custom property definitions and select options use stable UUIDs and remain
   Workspace-scoped. Task values reference those identities and are validated
   against the definition type and option ownership at the server boundary.
-  Active and archived definitions reserve names case-insensitively; permanent
-  deletion removes values and releases the name for reuse.
+  Single-select definitions may designate one active option as their default;
+  Task creation applies it in the owning transaction. Select options retain
+  nullable icons, colors, descriptions, and explicit order. Active and archived
+  definitions reserve names case-insensitively; permanent deletion removes
+  values and releases the name for reuse.
+- The schema migration promotes the former special Task Type vocabulary into
+  an ordinary single-select custom property named `Type`, preserves option and
+  Task-value identities, and carries the former Workspace default into
+  `default_option_id`. Current Tasks, Projects, queries, and APIs have no
+  special Task Type contract.
 - A task belongs to one workspace and optionally one project, with required
-  state and type references guarded by composite workspace foreign keys.
+  State identity guarded by a composite Workspace foreign key.
 - Each task receives a monotonic workspace number under a workspace row lock.
   Human references use that number as `#<number>` without reuse, while the UUID
   remains the permanent database and vault identity.
@@ -124,14 +132,14 @@ User ──< Session
 - Project and Task archives are timestamps. Archiving a Project is reversible:
   it retains Tasks, documents, Views, planning data, memberships, configuration,
   storage names, and Markdown in place while removing the Project from active
-  queries. A Project move either rejects incompatible type, assignment, and
-  hierarchy data or removes it only when the client explicitly requests
+  queries. A Project move either rejects incompatible assignment, hierarchy,
+  and planning data or removes it only when the client explicitly requests
   cleanup.
 - Composite foreign keys prevent projects and tasks from referencing another
   workspace's configuration. Configuration edits and assignments coordinate on
   the workspace row so archiving cannot race a new task assignment. Check
-  constraints enforce normalized email, lengths, roles, semantic state groups,
-  priorities, colors, and session hash size.
+  constraints enforce normalized email, lengths, roles, protected system State
+  identities, priorities, colors, and session hash size.
 
 PostgreSQL is canonical for structured server data. This decision does not
 define a future offline cache or sync model.
@@ -204,10 +212,11 @@ member cannot use an old notification to discover content.
 
 The task collection endpoint accepts only a versioned, typed JSON query. All
 filter values are bound SQL parameters; ordering, grouping, and filter columns
-come from closed Rust enums. Saved Views can be Personal or Shared. Workspace
-Owner/Admin manage shared workspace Views; Project Contributors can create and
-edit their own shared Project Views, while Project Admin manages all shared
-Views in the Project.
+come from closed Rust enums. Query version 2 groups and filters by concrete
+State identities and has no Task Type or State-group members. Saved Views can
+be Personal or Shared. Workspace Owner/Admin manage shared workspace Views;
+Project Contributors can create and edit their own shared Project Views, while
+Project Admin manages all shared Views in the Project.
 
 Workspace invitations contain normalized target emails, seven-day expiry, and
 only SHA-256 token digests. Owner/Admin can issue, renew, or revoke invitations;
@@ -256,6 +265,9 @@ and still uses a complete-file revision for the final atomic filesystem write.
 Workspace-defined custom properties project beside the system fields as direct
 top-level YAML keys using their display names; select values project as option
 names for readable Obsidian properties while PostgreSQL keeps option UUIDs.
+The migrated `Type` field follows this same path rather than a fixed Task
+column or nested JSON representation. A custom-property default is applied only
+when a Task is created; later edits remain explicit.
 Unknown top-level fields remain untouched and are exposed as raw undefined
 properties. Defining one is an explicit admin action that validates every
 matching raw value, checks source revisions, stores typed values, and only then
@@ -315,6 +327,9 @@ Task YAML identity, clears Task assignees, and remaps shared View filters.
 Source member/Project-role references remain descriptive archive data and never
 become authorization grants. Comments, activity, invitations, notifications,
 sessions, and account preferences are intentionally absent.
+Legacy archive DTOs are decoded separately and normalized before current-format
+validation, including promotion of the former Task Type vocabulary and values
+into the custom `Type` property. Current exports never emit the legacy fields.
 
 The importer writes remapped Task files in staging before activating the vault
 with a directory rename and committing SQL. A failed database commit moves the
@@ -424,7 +439,7 @@ Workspace ownership and Project selections relational. Signing secrets derive
 from an explicit protected instance key and random per-webhook material; only
 creation/regeneration disclose them. Destination addresses are validated and
 pinned, redirects/proxies are disabled, and requests have bounded deadlines.
-The public V1 envelope, catalog/preview, HMAC receiver example, security policy,
+The public V2 envelope, catalog/preview, HMAC receiver example, security policy,
 retry/disable behavior, and cross-store limitations are in [Webhooks](webhooks.md).
 Webhooks and delivery history do not enter portable Workspace exports/imports;
 copying a Workspace never duplicates endpoints or signing authority.
@@ -440,7 +455,8 @@ The desktop app is feature-oriented:
 - `features/workspace` owns tenant navigation and API coordination;
 - `features/command` composes authorized Task queries, cached Library metadata,
   Project titles, and navigation actions into the global command palette;
-- `features/task-config` owns workspace states, labels, types, and defaults;
+- `features/task-config` owns Workspace States, Labels, their descriptions, and
+  the default Inbox State;
 - `features/task` owns keyboard-selectable collection rows, bulk actions, My
   Work, and structured detail editing;
 - `features/view` owns the typed collection query, Personal/Shared View API,

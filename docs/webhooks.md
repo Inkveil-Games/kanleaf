@@ -34,23 +34,26 @@ request may finish with the previous secret; future attempts use the new one.
 
 ## Event contract
 
-Every request is JSON with `version: 1`, a globally unique event `id`, a stable
+Every new request is JSON with `version: 2`, a globally unique event `id`, a stable
 `type`, ISO-8601 `occurred_at`, Workspace `{id, identifier}`, and actor `{id}`
 when applicable. Project events also have Project `{id, identifier}`.
+Deliveries created before this contract change keep their stored version-1 body
+unchanged, including across retries; Kanleaf never rewrites durable historical
+delivery payloads.
 
-| Event | Data | Trigger |
-| --- | --- | --- |
-| `task.created` | `task`, empty `changed_fields` | A Project Task is created |
-| `task.updated` | `task`, `changed_fields` | Direct structured edit, bulk edit, archive, or custom-property value change |
-| `task.deleted` | Pre-deletion `task`, empty `changed_fields` | Confirmed permanent Task deletion |
-| `comment.created` | `comment` | A Project Task comment/reply is created |
-| `comment.updated` | `comment` | Comment body or mentions change |
-| `comment.deleted` | `comment`, without `body` | Comment is tombstoned |
-| `webhook.test` | `message: "Kanleaf webhook test"` | Manual test; no Project |
+| Event             | Data                                        | Trigger                                                                     |
+| ----------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| `task.created`    | `task`, empty `changed_fields`              | A Project Task is created                                                   |
+| `task.updated`    | `task`, `changed_fields`                    | Direct structured edit, bulk edit, archive, or custom-property value change |
+| `task.deleted`    | Pre-deletion `task`, empty `changed_fields` | Confirmed permanent Task deletion                                           |
+| `comment.created` | `comment`                                   | A Project Task comment/reply is created                                     |
+| `comment.updated` | `comment`                                   | Comment body or mentions change                                             |
+| `comment.deleted` | `comment`, without `body`                   | Comment is tombstoned                                                       |
+| `webhook.test`    | `message: "Kanleaf webhook test"`           | Manual test; no Project                                                     |
 
 Task snapshots contain `id`, `task_number`, the ordinary `#<number>`
-`reference`, `title`, `state_id`, `task_type_id`, `priority`, `archived_at`, and
-`updated_at`. Comment snapshots contain `id`, `task_id`, `parent_id`,
+`reference`, `title`, `state_id`, `priority`, `archived_at`, and `updated_at`.
+Comment snapshots contain `id`, `task_id`, `parent_id`,
 `updated_at`, and `body` except for deletion. Other private user/profile fields,
 Markdown task bodies, vault paths, and authentication material are excluded.
 
@@ -59,7 +62,7 @@ changed fields. Inbox Tasks/comments are excluded. Moving to another Project
 emits the snapshot in the target Project; moving to Inbox emits no Project
 event. Markdown-only saves, Task ordering/relations, configuration fan-out,
 aggregate Project/Workspace deletion, import, and projection workers do not
-emit these V1 events. Task archive is an update, not permanent deletion. There
+emit these V2 events. Task archive is an update, not permanent deletion. There
 is no special completion event.
 
 The serializer-owned [example bodies](../apps/server/tests/fixtures/webhook-payloads.json)
@@ -108,7 +111,7 @@ for 30 days; pending work is not removed by retention.
 The existing vault/database cross-store boundary remains: structured metadata
 and its event commit together, while Markdown projection can finish afterward.
 Existing Task move/trash crash windows are not made atomic by this outbox.
-Markdown-only changes remain outside the V1 event catalog.
+Markdown-only changes remain outside the V2 event catalog.
 
 **Send test webhook** queues a durable `webhook.test` delivery and returns HTTP
 202 with its ID and pending status. The page polls the scoped delivery result
@@ -149,8 +152,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export function verifyWebhook(headers, rawBody, secret) {
   const timestamp = headers['x-kanleaf-timestamp'];
   const signature = headers['x-kanleaf-signature'];
-  if (!/^\d+$/.test(timestamp ?? '') ||
-      !/^v1=[0-9a-f]{64}$/.test(signature ?? '')) return false;
+  if (
+    !/^\d+$/.test(timestamp ?? '') ||
+    !/^v1=[0-9a-f]{64}$/.test(signature ?? '')
+  )
+    return false;
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
   const expected = createHmac('sha256', secret)
     .update(timestamp + '.')
