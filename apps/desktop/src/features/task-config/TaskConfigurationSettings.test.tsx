@@ -177,7 +177,7 @@ describe('TaskConfigurationSettings', () => {
 });
 
 function renderSettings(
-  section: 'states' | 'labels' | 'task-types' = 'states',
+  section: 'states' | 'labels' = 'states',
   selectedWorkspace = workspace,
 ) {
   const queryClient = new QueryClient({
@@ -247,7 +247,6 @@ function state(
     color: '#64748B',
     description: `${name} description`,
     system_role,
-    state_group: system_role ?? 'todo',
     position,
     archived_at,
     created_at: '2026-08-27T01:00:00Z',
@@ -287,9 +286,7 @@ const configuration: TaskConfiguration = {
       updated_at: '2026-08-27T01:00:00Z',
     },
   ],
-  task_types: [],
   default_state_id: 'state-todo',
-  default_task_type_id: '',
   state_property_description: 'The current step of work.',
   label_property_description: 'Shared tags used to organize work.',
 };

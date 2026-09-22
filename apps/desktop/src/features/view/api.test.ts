@@ -13,15 +13,13 @@ describe('getSavedView', () => {
       owner_id: 'user-1',
       name: 'My focused work',
       visibility: 'personal',
-      query_version: 1,
+      query_version: 2,
       query: {
-        version: 1,
+        version: 2,
         scope: { kind: 'workspace' },
         search: 'release',
         filters: {
           states: { values: [], include_none: false },
-          state_groups: [],
-          task_types: { values: [], include_none: false },
           priorities: [],
           assignees: { values: [], include_none: false },
           labels: { values: [], include_none: false },

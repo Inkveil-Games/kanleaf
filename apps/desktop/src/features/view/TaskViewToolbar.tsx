@@ -27,7 +27,6 @@ import type {
   TaskPlanningLink,
   TaskPriority,
   TaskState,
-  TaskType,
 } from '../workspace/types';
 import { SavedViewDialog } from './SavedViewDialog';
 import type {
@@ -47,7 +46,6 @@ interface TaskViewToolbarProps {
   layout: TaskLayout;
   states: TaskState[];
   labels: TaskLabel[];
-  taskTypes: TaskType[];
   projects: Project[];
   cycles: TaskPlanningLink[];
   modules: TaskPlanningLink[];
@@ -83,7 +81,6 @@ const priorities: TaskPriority[] = TASK_PRIORITY_OPTIONS.map(
 const displayProperties: TaskDisplayProperty[] = [
   'state',
   'priority',
-  'task_type',
   'assignees',
   'labels',
   'project',
@@ -112,7 +109,6 @@ export function TaskViewToolbar({
   layout,
   states,
   labels,
-  taskTypes,
   projects,
   cycles,
   modules,
@@ -198,27 +194,6 @@ export function TaskViewToolbar({
                       values: toggleFilterValue(
                         query.filters.states.values,
                         state.id,
-                      ),
-                    },
-                  })
-                }
-              />
-            ))}
-          {taskTypes.length > 0 && <MenuHeading>Task type</MenuHeading>}
-          {taskTypes
-            .filter(({ archived_at }) => !archived_at)
-            .map((taskType) => (
-              <CheckMenuItem
-                key={taskType.id}
-                checked={query.filters.task_types.values.includes(taskType.id)}
-                label={taskType.name}
-                onClick={() =>
-                  patchFilters({
-                    task_types: {
-                      ...query.filters.task_types,
-                      values: toggleFilterValue(
-                        query.filters.task_types.values,
-                        taskType.id,
                       ),
                     },
                   })

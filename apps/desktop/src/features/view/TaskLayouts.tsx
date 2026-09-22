@@ -74,7 +74,7 @@ function TaskBoard({
   onSelectTask,
   onPatchTask,
 }: TaskLayoutsProps) {
-  const field = query.grouping.primary ?? 'state_group';
+  const field = query.grouping.primary ?? 'state';
   const groups = buildTaskGroups(field, tasks, projects, states);
 
   async function dropTask(event: DragEvent, group: TaskGroup) {
@@ -82,7 +82,7 @@ function TaskBoard({
     const taskId = event.dataTransfer.getData('text/kanleaf-task');
     const task = tasks.find(({ id }) => id === taskId);
     if (!task || !canEditTask(task)) return;
-    const patch = boardDropPatch(field, group.id, states);
+    const patch = boardDropPatch(field, group.id);
     if (patch) await onPatchTask(taskId, patch);
   }
 
@@ -103,7 +103,7 @@ function TaskBoard({
             className="board-column"
             key={group.id}
             onDragOver={(event) => {
-              if (boardDropPatch(field, group.id, states)) {
+              if (boardDropPatch(field, group.id)) {
                 event.preventDefault();
               }
             }}
@@ -399,7 +399,6 @@ function TaskTable({
             <th aria-label="Select" />
             <th>Task</th>
             {show('state') && <TaskTablePropertyHeading propertyKey="state" />}
-            {show('task_type') && <th>Type</th>}
             {show('priority') && (
               <TaskTablePropertyHeading propertyKey="priority" />
             )}
@@ -556,7 +555,6 @@ function TaskTableRow({
           )}
         </td>
       )}
-      {show('task_type') && <td>{task.task_type.name}</td>}
       {show('priority') && (
         <td className="task-table-priority-cell">
           {editable ? (
@@ -815,18 +813,8 @@ function TaskTimeline({
   );
 }
 
-function boardDropPatch(
-  field: TaskGroupField,
-  id: string,
-  states: TaskState[],
-): TaskPatch | null {
+function boardDropPatch(field: TaskGroupField, id: string): TaskPatch | null {
   if (field === 'state') return { state_id: id };
-  if (field === 'state_group') {
-    const state = states.find(
-      ({ archived_at, state_group }) => !archived_at && state_group === id,
-    );
-    return state ? { state_id: state.id } : null;
-  }
   if (field === 'priority') return { priority: id as TaskPriority };
   if (field === 'project') return { project_id: id === 'none' ? null : id };
   return null;

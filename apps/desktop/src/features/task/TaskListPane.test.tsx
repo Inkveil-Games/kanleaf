@@ -42,7 +42,6 @@ function renderList(
     projects: [],
     states,
     labels: [],
-    taskTypes: [],
     cycles: [],
     modules: [],
     members: [],
@@ -102,7 +101,7 @@ describe('TaskListPane', () => {
       owner_id: 'user-1',
       name: 'Delivery focus',
       visibility: 'shared',
-      query_version: 1,
+      query_version: 2,
       query,
       layout: 'list',
       created_at: '2026-09-01T00:00:00Z',
@@ -126,6 +125,19 @@ describe('TaskListPane', () => {
   it('creates fresh queries with State grouping and the clean Table defaults', () => {
     const query = createTaskQuery({ kind: 'inbox' });
 
+    expect(query.version).toBe(2);
+    expect(query.filters).toEqual({
+      states: { values: [], include_none: false },
+      priorities: [],
+      assignees: { values: [], include_none: false },
+      labels: { values: [], include_none: false },
+      projects: { values: [], include_none: false },
+      cycles: { values: [], include_none: false },
+      modules: { values: [], include_none: false },
+      start_date: { from: null, to: null, include_none: false },
+      due_date: { from: null, to: null, include_none: false },
+      estimate: { minimum: null, maximum: null, include_none: false },
+    });
     expect(query.grouping).toEqual({ primary: 'state', secondary: null });
     expect(query.display).toEqual([
       'state',
@@ -534,7 +546,7 @@ describe('TaskListPane', () => {
 
   it('renders primary grouping in the dense List layout', () => {
     const query = createTaskQuery({ kind: 'inbox' });
-    query.grouping.primary = 'state_group';
+    query.grouping.primary = 'state';
 
     renderList({ query });
 
@@ -546,7 +558,7 @@ describe('TaskListPane', () => {
 
   it('renders secondary grouping in the dense List layout', () => {
     const query = createTaskQuery({ kind: 'inbox' });
-    query.grouping = { primary: 'state_group', secondary: 'priority' };
+    query.grouping = { primary: 'state', secondary: 'priority' };
 
     renderList({ query });
 
@@ -562,7 +574,7 @@ describe('TaskListPane', () => {
 
   it('renders primary and secondary grouping in Table', () => {
     const query = createTaskQuery({ kind: 'inbox' });
-    query.grouping = { primary: 'state_group', secondary: 'priority' };
+    query.grouping = { primary: 'state', secondary: 'priority' };
 
     renderList({ layout: 'table', query });
 
@@ -605,7 +617,7 @@ describe('TaskListPane', () => {
 function state(
   id: string,
   name: string,
-  state_group: TaskState['state_group'],
+  systemRole: TaskState['system_role'],
   position: number,
   color: string,
 ): TaskState {
@@ -613,8 +625,10 @@ function state(
     id,
     workspace_id: 'workspace-1',
     name,
+    icon: systemRole === 'in_progress' ? 'loader-circle' : 'circle',
     color,
-    state_group,
+    description: '',
+    system_role: systemRole,
     position,
     archived_at: null,
     created_at: '2026-08-26T08:00:00Z',
@@ -627,7 +641,7 @@ function task(
   title: string,
   stateId: string,
   stateName: string,
-  stateGroup: Task['state']['state_group'],
+  systemRole: Task['state']['system_role'],
   priority: Task['priority'],
 ): Task {
   return {
@@ -640,14 +654,9 @@ function task(
     state: {
       id: stateId,
       name: stateName,
+      icon: systemRole === 'in_progress' ? 'loader-circle' : 'circle',
       color: stateId === 'state-todo' ? '#64748B' : '#3B82F6',
-      state_group: stateGroup,
-    },
-    task_type: {
-      id: 'type-task',
-      name: 'Task',
-      icon: 'check-square',
-      color: '#64748B',
+      system_role: systemRole,
     },
     priority,
     start_date: null,

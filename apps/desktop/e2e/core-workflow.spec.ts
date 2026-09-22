@@ -328,32 +328,23 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/states$`),
   );
-  await page.getByPlaceholder('State name').fill('Review');
-  await chooseSelectOption(page, 'State group', 'In progress');
-  await page.getByRole('button', { name: 'Add state' }).click();
   await expect(
-    page.getByRole('list', { name: 'Active task states' }),
-  ).toContainText('Review');
+    page.getByRole('group', { name: 'Property values' }),
+  ).toBeVisible();
+  await expect(page.getByDisplayValue('Todo')).toBeDisabled();
+  await page.getByRole('button', { name: 'Add state' }).click();
+  await page.getByRole('textbox', { name: 'Value name' }).last().fill('Review');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByDisplayValue('Review')).toBeVisible();
   const statesGeometry = await settingsPageGeometry(page);
   await page.getByRole('button', { name: 'Labels' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/labels$`),
   );
   await expect(
-    page.getByRole('list', { name: 'Active task labels' }),
+    page.getByRole('group', { name: 'Property values' }),
   ).toBeVisible();
-  await expectSameSettingsGeometry(page, statesGeometry);
-  await page.getByRole('button', { name: 'Task types' }).click();
-  await expect(page).toHaveURL(
-    new RegExp(`/${workspaceIdentifier}/settings/workspace/task-types$`),
-  );
-  await page.getByPlaceholder('Type name').fill('Bug');
-  await page.getByRole('button', { name: 'Choose Task type icon' }).click();
-  await page.getByRole('button', { name: 'Bug', exact: true }).click();
-  await page.getByRole('button', { name: 'Add type' }).click();
-  await expect(
-    page.getByRole('list', { name: 'Active task types' }),
-  ).toContainText('Bug');
+  await expect(page.getByRole('radio')).toHaveCount(0);
   await expectSameSettingsGeometry(page, statesGeometry);
   await page.getByRole('button', { name: 'Properties' }).click();
   await expect(page).toHaveURL(
@@ -392,6 +383,21 @@ test('manages structured work and durable Markdown across reloads', async ({
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
   await expect(workspaceSettings).toBeVisible();
+
+  await propertiesArticle.getByRole('button', { name: 'New property' }).click();
+  await page.getByLabel('Name').fill('Type');
+  await chooseSelectOption(page, 'Property type', 'Single select');
+  await page.getByLabel('Property description').fill('Kind of work.');
+  await page.getByRole('button', { name: 'Add option' }).click();
+  await page.getByRole('textbox', { name: 'Option name' }).fill('Bug');
+  await page.getByRole('radio', { name: 'Use Bug as default' }).click();
+  await page.getByRole('button', { name: 'Create property' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(
+    page.getByRole('list', { name: 'Custom properties' }),
+  ).toContainText('Type');
 
   await propertiesArticle.getByRole('button', { name: 'New property' }).click();
   await page.getByLabel('Name').fill('Story points');
@@ -1006,6 +1012,7 @@ let source_is_markdown = true;
   await expect(taskDetail.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
   );
+  await expect(taskDetail.getByLabel('Type')).toContainText('Bug');
 
   await addTaskProperty(page, 'Story points');
   const storyPoints = page.getByLabel('Story points');
@@ -1039,9 +1046,6 @@ let source_is_markdown = true;
 
   await expectTaskPatch(page, () =>
     chooseSelectOption(page, 'State', 'Review'),
-  );
-  await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'Task type', 'Bug'),
   );
   await expectTaskPatch(page, () =>
     chooseSelectOption(page, 'Priority', 'Urgent'),
@@ -1180,7 +1184,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(taskRow).toBeVisible();
   await taskRow.click();
   await expect(page.getByLabel('State')).toContainText('Review');
-  await expect(page.getByLabel('Task type')).toContainText('Bug');
+  await expect(page.getByLabel('Type')).toContainText('Bug');
   await expect(page.getByLabel('Priority')).toHaveAttribute(
     'data-value',
     'urgent',
@@ -1205,7 +1209,7 @@ Kanleaf keeps **structured work** beside durable notes.
       const source = await readTaskVaultSource(workspaceId, createdTask.id);
       return (
         source.includes('State:\n  - Review\n') &&
-        source.includes('Type:\n  - Bug\n') &&
+        source.includes('Type: Bug\n') &&
         source.includes('Priority:\n  - Urgent\n') &&
         source.includes(`Assignees:\n  - ${email}\n`) &&
         source.includes('Start date: 2026-09-01\n') &&

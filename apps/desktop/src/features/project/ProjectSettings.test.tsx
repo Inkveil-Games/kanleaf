@@ -29,12 +29,10 @@ const project: Project = {
   visibility: 'private',
   default_assignee_id: null,
   default_state_id: 'state-todo',
-  default_task_type_id: 'type-task',
   cycles_enabled: false,
   modules_enabled: false,
   pages_enabled: false,
   views_enabled: false,
-  enabled_task_type_ids: ['type-task'],
   effective_role: 'admin',
   can_join: false,
   archived_at: null,
@@ -45,9 +43,9 @@ const project: Project = {
 const configuration: TaskConfiguration = {
   states: [],
   labels: [],
-  task_types: [],
   default_state_id: 'state-todo',
-  default_task_type_id: 'type-task',
+  state_property_description: '',
+  label_property_description: '',
 };
 
 function renderSettings(

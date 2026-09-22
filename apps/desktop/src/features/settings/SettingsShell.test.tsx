@@ -122,7 +122,7 @@ describe('settings shells', () => {
       within(taskProperties)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['States', 'Labels', 'Task types', 'Properties']);
+    ).toEqual(['States', 'Labels', 'Properties']);
   });
 
   it('keeps property creation in the Properties page', async () => {

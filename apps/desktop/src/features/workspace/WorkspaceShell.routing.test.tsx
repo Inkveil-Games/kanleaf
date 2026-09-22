@@ -542,9 +542,9 @@ const user: User = {
 const taskConfiguration: TaskConfiguration = {
   states: [],
   labels: [],
-  task_types: [],
   default_state_id: 'state-1',
-  default_task_type_id: 'type-1',
+  state_property_description: '',
+  label_property_description: '',
 };
 
 const task: Task = {
@@ -554,8 +554,13 @@ const task: Task = {
   task_number: 1,
   reference: '#1',
   title: 'Routing task',
-  state: { id: 'state-1', name: 'Todo', color: '#888', state_group: 'todo' },
-  task_type: { id: 'type-1', name: 'Task', icon: 'check', color: '#888' },
+  state: {
+    id: 'state-1',
+    name: 'Todo',
+    icon: 'circle',
+    color: '#888',
+    system_role: 'todo',
+  },
   priority: 'none',
   start_date: null,
   due_date: null,
@@ -602,7 +607,7 @@ const savedView: SavedView = {
   owner_id: 'user-1',
   name: 'Focus',
   visibility: 'personal',
-  query_version: 1,
+  query_version: 2,
   query: createTaskQuery({ kind: 'all' }),
   layout: 'list',
   created_at: '2026-09-01T00:00:00Z',
@@ -620,12 +625,10 @@ const disabledViewsProject: Project = {
   visibility: 'private',
   default_assignee_id: null,
   default_state_id: 'state-1',
-  default_task_type_id: 'type-1',
   cycles_enabled: true,
   modules_enabled: true,
   pages_enabled: true,
   views_enabled: false,
-  enabled_task_type_ids: ['type-1'],
   effective_role: 'admin',
   can_join: false,
   archived_at: null,
@@ -1400,6 +1403,18 @@ describe('WorkspaceShell routing integration', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
         '/developer/w/workspace-1',
+      ),
+    );
+  });
+
+  it('normalizes the removed Task types route to General settings', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/settings/workspace/task-types'],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current location')).toHaveTextContent(
+        '/w/workspace-1/settings/workspace/general',
       ),
     );
   });

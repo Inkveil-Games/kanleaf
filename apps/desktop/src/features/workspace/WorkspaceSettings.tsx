@@ -104,11 +104,7 @@ export function WorkspaceSettings({
       />
     );
   }
-  if (
-    section === 'states' ||
-    section === 'labels' ||
-    section === 'task-types'
-  ) {
+  if (section === 'states' || section === 'labels') {
     return (
       <TaskConfigurationSettings
         context={context}

@@ -13,7 +13,6 @@ import type {
   Task,
   TaskLabel,
   TaskPatch,
-  TaskType,
   CustomPropertyDefinition,
   TaskCustomPropertyValue,
   UndefinedTaskProperty,
@@ -27,7 +26,6 @@ import {
   EXTENDED_PROPERTIES,
   hasPropertyValue,
   isPinnedProperty,
-  selectableTypes,
   type ExtendedPropertyKey,
 } from './taskPropertyModel';
 import type { TaskPropertyEditing } from './useTaskPropertyEditing';
@@ -35,7 +33,6 @@ import type { TaskPropertyEditing } from './useTaskPropertyEditing';
 interface TaskPropertiesProps {
   task: Task;
   projects: Project[];
-  taskTypes: TaskType[];
   labels: TaskLabel[];
   cycles: ProjectCycle[];
   modules: ProjectModule[];
@@ -61,7 +58,6 @@ interface TaskPropertiesProps {
 export function TaskProperties({
   task,
   projects,
-  taskTypes,
   labels,
   cycles,
   modules,
@@ -227,29 +223,6 @@ export function TaskProperties({
     <section className="task-property-area" aria-label="Task properties">
       <h2>Properties</h2>
       <dl ref={listRef} className="task-properties">
-        {isVisible('type') && (
-          <PropertyRow label="Type" propertyKey="type">
-            {canEdit ? (
-              <Select
-                ariaLabel="Task type"
-                value={task.task_type.id}
-                disabled={editing.disabled('type')}
-                options={selectableTypes(taskTypes, task).map((taskType) => ({
-                  value: taskType.id,
-                  label: taskType.name,
-                }))}
-                onValueChange={(value) =>
-                  void patchExtendedProperty('type', { task_type_id: value })
-                }
-              />
-            ) : (
-              <span className="property-readonly-value">
-                {task.task_type.name}
-              </span>
-            )}
-          </PropertyRow>
-        )}
-
         {isVisible('project') && (
           <PropertyRow
             label="Project"
@@ -583,7 +556,7 @@ export function TaskProperties({
         type="confirm"
         variant="warning"
         title="Move this Task?"
-        description="Incompatible assignees, type, hierarchy, Cycle, or Modules will be removed."
+        description="Incompatible assignees, hierarchy, Cycle, or Modules will be removed."
         confirmLabel="Move Task"
         loadingLabel="Moving…"
         onConfirm={() => {

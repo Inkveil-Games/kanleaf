@@ -1,4 +1,4 @@
-import type { Task, TaskState, TaskType } from '../workspace/types';
+import type { Task, TaskState } from '../workspace/types';
 
 export type PinnedPropertyKey =
   'state' | 'priority' | 'assignees' | 'start-date' | 'due-date';
@@ -6,7 +6,7 @@ export type PinnedPropertyKey =
 export type PropertyKey = PinnedPropertyKey | ExtendedPropertyKey;
 
 export type ExtendedPropertyKey =
-  'type' | 'project' | 'labels' | 'estimate' | 'parent' | 'cycle' | 'modules';
+  'project' | 'labels' | 'estimate' | 'parent' | 'cycle' | 'modules';
 
 export interface TaskPropertyDefinition {
   key: ExtendedPropertyKey;
@@ -30,7 +30,6 @@ export const TASK_PRIORITY_OPTIONS = [
 ] as const;
 
 export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [
-  { key: 'type', label: 'Type' },
   { key: 'project', label: 'Project' },
   { key: 'labels', label: 'Labels' },
   { key: 'estimate', label: 'Estimate' },
@@ -41,8 +40,6 @@ export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [
 
 export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
   switch (key) {
-    case 'type':
-      return true;
     case 'project':
       return task.project_id !== null;
     case 'labels':
@@ -77,24 +74,6 @@ export function selectableStates(states: TaskState[], task: Task) {
       ...task.state,
       workspace_id: task.workspace_id,
       position: -1,
-      archived_at: task.updated_at,
-      created_at: task.created_at,
-      updated_at: task.updated_at,
-    },
-    ...active,
-  ];
-}
-
-export function selectableTypes(taskTypes: TaskType[], task: Task) {
-  const active = taskTypes.filter(({ archived_at }) => !archived_at);
-  if (active.some(({ id }) => id === task.task_type.id)) return active;
-  return [
-    {
-      ...task.task_type,
-      workspace_id: task.workspace_id,
-      description: '',
-      position: -1,
-      is_protected: false,
       archived_at: task.updated_at,
       created_at: task.created_at,
       updated_at: task.updated_at,

@@ -4,8 +4,8 @@ import { buildTaskGroups, buildTaskGroupTree } from './grouping';
 import { taskGroupFields } from './types';
 
 const states: TaskState[] = [
-  state('state-a', 'Ready', 0),
-  state('state-b', 'Queued', 1),
+  state('state-a', 'Ready', 1),
+  state('state-b', 'Queued', 0),
 ];
 
 const projects: Project[] = [
@@ -20,12 +20,10 @@ const projects: Project[] = [
     visibility: 'private',
     default_assignee_id: null,
     default_state_id: 'state-a',
-    default_task_type_id: 'type-task',
     cycles_enabled: true,
     modules_enabled: true,
     pages_enabled: true,
     views_enabled: true,
-    enabled_task_type_ids: ['type-task'],
     effective_role: 'contributor',
     can_join: false,
     archived_at: null,
@@ -61,14 +59,10 @@ const tasks: Task[] = [
 ];
 
 describe('task grouping', () => {
-  it('keeps State and State group as distinct semantics', () => {
+  it('orders State groups by configured position', () => {
     const stateGroups = nonEmpty('state');
-    const semanticGroups = nonEmpty('state_group');
 
-    expect(stateGroups.map(({ label }) => label)).toEqual(['Ready', 'Queued']);
-    expect(semanticGroups).toHaveLength(1);
-    expect(semanticGroups[0]?.label).toBe('Todo');
-    expect([...semanticGroups[0]!.taskIds]).toEqual(['task-1', 'task-2']);
+    expect(stateGroups.map(({ label }) => label)).toEqual(['Queued', 'Ready']);
   });
 
   it('keeps tasks visible when their current State has been archived', () => {
@@ -77,6 +71,12 @@ describe('task grouping', () => {
       archived_at: '2026-09-20T00:00:00Z',
     };
     const archivedTask = task('task-3', archivedState);
+
+    expect(
+      buildTaskGroups('state', tasks, projects, [...states, archivedState]),
+    ).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Deferred' })]),
+    );
 
     const groups = buildTaskGroups(
       'state',
@@ -123,24 +123,27 @@ describe('task grouping', () => {
 
   it('builds nested secondary groups with accurate counts', () => {
     const tree = buildTaskGroupTree(
-      'state_group',
+      'state',
       'priority',
       tasks,
       projects,
       states,
     );
 
-    expect(tree).toHaveLength(1);
-    expect(tree[0]?.tasks).toHaveLength(2);
+    expect(tree).toHaveLength(2);
+    expect(tree[0]?.tasks).toHaveLength(1);
     expect(
       tree[0]?.secondary.map(({ group, tasks: groupedTasks }) => [
         group.label,
         groupedTasks.length,
       ]),
-    ).toEqual([
-      ['None', 1],
-      ['High', 1],
-    ]);
+    ).toEqual([['None', 1]]);
+    expect(
+      tree[1]?.secondary.map(({ group, tasks: groupedTasks }) => [
+        group.label,
+        groupedTasks.length,
+      ]),
+    ).toEqual([['High', 1]]);
   });
 });
 
@@ -156,7 +159,9 @@ function state(id: string, name: string, position: number): TaskState {
     workspace_id: 'workspace-1',
     name,
     color: '#64748B',
-    state_group: 'todo',
+    icon: null,
+    description: '',
+    system_role: null,
     position,
     archived_at: null,
     created_at: '2026-09-01T00:00:00Z',
@@ -179,14 +184,9 @@ function task(
     state: {
       id: taskState.id,
       name: taskState.name,
+      icon: taskState.icon,
       color: taskState.color,
-      state_group: taskState.state_group,
-    },
-    task_type: {
-      id: 'type-task',
-      name: 'Task',
-      icon: 'check-square',
-      color: '#64748B',
+      system_role: taskState.system_role,
     },
     priority: 'medium',
     start_date: null,

@@ -70,12 +70,10 @@ export interface Project {
   visibility: ProjectVisibility;
   default_assignee_id: string | null;
   default_state_id: string;
-  default_task_type_id: string;
   cycles_enabled: boolean;
   modules_enabled: boolean;
   pages_enabled: boolean;
   views_enabled: boolean;
-  enabled_task_type_ids: string[];
   effective_role: ProjectRole | null;
   can_join: boolean;
   archived_at: string | null;
@@ -112,8 +110,6 @@ export interface ProjectPatch {
   visibility?: ProjectVisibility;
   default_assignee_id?: string | null;
   default_state_id?: string;
-  default_task_type_id?: string;
-  enabled_task_type_ids?: string[];
   cycles_enabled?: boolean;
   modules_enabled?: boolean;
   pages_enabled?: boolean;
@@ -177,19 +173,16 @@ export interface ProjectModulePatch {
   due_date?: string | null;
 }
 
-export type TaskStateGroup =
-  'backlog' | 'todo' | 'in_progress' | 'done' | 'canceled';
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
 
 export interface TaskState {
   id: string;
   workspace_id: string;
   name: string;
-  icon?: string | null;
+  icon: string | null;
   color: string;
-  description?: string;
-  system_role?: 'todo' | 'in_progress' | 'done' | null;
-  state_group: TaskStateGroup;
+  description: string;
+  system_role: 'todo' | 'in_progress' | 'done' | null;
   position: number;
   archived_at: string | null;
   created_at: string;
@@ -200,24 +193,10 @@ export interface TaskLabel {
   id: string;
   workspace_id: string;
   name: string;
-  icon?: string | null;
-  color: string;
-  description: string;
-  position?: number;
-  archived_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TaskType {
-  id: string;
-  workspace_id: string;
-  name: string;
-  icon: string;
+  icon: string | null;
   color: string;
   description: string;
   position: number;
-  is_protected: boolean;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -226,11 +205,9 @@ export interface TaskType {
 export interface TaskConfiguration {
   states: TaskState[];
   labels: TaskLabel[];
-  task_types: TaskType[];
   default_state_id: string;
-  default_task_type_id: string;
-  state_property_description?: string;
-  label_property_description?: string;
+  state_property_description: string;
+  label_property_description: string;
 }
 
 export type CustomPropertyType =
@@ -294,8 +271,7 @@ export interface Task {
   task_number: number;
   reference: string;
   title: string;
-  state: Pick<TaskState, 'id' | 'name' | 'color' | 'state_group'>;
-  task_type: Pick<TaskType, 'id' | 'name' | 'icon' | 'color'>;
+  state: Pick<TaskState, 'id' | 'name' | 'icon' | 'color' | 'system_role'>;
   priority: TaskPriority;
   start_date: string | null;
   due_date: string | null;
@@ -348,7 +324,6 @@ export type Collection =
 export interface TaskPatch {
   title?: string;
   state_id?: string;
-  task_type_id?: string;
   priority?: TaskPriority;
   project_id?: string | null;
   start_date?: string | null;

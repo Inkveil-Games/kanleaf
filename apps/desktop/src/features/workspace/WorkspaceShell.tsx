@@ -1057,7 +1057,7 @@ export function WorkspaceShell({
     if (nextLayout === 'board' && !taskQuery.grouping.primary) {
       nextQuery = {
         ...taskQuery,
-        grouping: { primary: 'state_group', secondary: null },
+        grouping: { primary: 'state', secondary: null },
       };
     }
     setTaskDraft({
@@ -1993,7 +1993,6 @@ export function WorkspaceShell({
             projects={projects.data ?? []}
             states={taskConfiguration.data?.states ?? []}
             labels={taskConfiguration.data?.labels ?? []}
-            taskTypes={taskConfiguration.data?.task_types ?? []}
             cycles={selectedProjectCycles.data ?? []}
             modules={selectedProjectModules.data ?? []}
             members={viewMembers}
@@ -2060,7 +2059,6 @@ export function WorkspaceShell({
               task={selectedTask}
               projects={projects.data ?? []}
               states={taskConfiguration.data?.states ?? []}
-              taskTypes={taskConfiguration.data?.task_types ?? []}
               labels={taskConfiguration.data?.labels ?? []}
               cycles={selectedProjectCycles.data ?? []}
               modules={selectedProjectModules.data ?? []}
@@ -2205,9 +2203,9 @@ export function WorkspaceShell({
                 taskConfiguration.data ?? {
                   states: [],
                   labels: [],
-                  task_types: [],
                   default_state_id: activeProject.default_state_id,
-                  default_task_type_id: activeProject.default_task_type_id,
+                  state_property_description: '',
+                  label_property_description: '',
                 }
               }
               section={location.section}

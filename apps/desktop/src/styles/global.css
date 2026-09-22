@@ -4313,7 +4313,7 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   border-color: var(--task-state-color, var(--color-text-muted));
 }
 
-.task-row[data-state-group='in_progress'] .task-status-button > span {
+.task-row[data-state-role='in_progress'] .task-status-button > span {
   background: linear-gradient(
     90deg,
     var(--task-state-color) 50%,
@@ -4321,20 +4321,9 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   );
 }
 
-.task-row[data-state-group='done'] .task-status-button > span {
+.task-row[data-state-role='done'] .task-status-button > span {
   background: var(--task-state-color);
   box-shadow: inset 0 0 0 3px var(--color-surface);
-}
-
-.task-row[data-state-group='canceled'] .task-status-button > span {
-  opacity: 0.55;
-  background: linear-gradient(
-    45deg,
-    transparent 42%,
-    var(--task-state-color) 43%,
-    var(--task-state-color) 57%,
-    transparent 58%
-  );
 }
 
 .task-row-main {
@@ -4357,8 +4346,7 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   white-space: nowrap;
 }
 
-.task-row[data-state-group='done'] .task-row-title,
-.task-row[data-state-group='canceled'] .task-row-title {
+.task-row[data-state-role='done'] .task-row-title {
   color: var(--color-text-muted);
   text-decoration: line-through;
 }
@@ -7193,21 +7181,6 @@ html[data-input-modality='keyboard']
   margin: 0 0 var(--space-4);
 }
 
-.configuration-archive {
-  display: grid;
-  gap: 0;
-  margin-top: var(--space-8);
-}
-
-.configuration-archive h2 {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: 0.72rem;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
 .configuration-skeleton {
   display: grid;
   gap: var(--space-2);
@@ -7375,20 +7348,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   box-shadow: var(--shadow-popover);
 }
 
-.state-settings-grid {
-  --settings-list-columns: 28px 36px minmax(118px, 1fr) minmax(112px, 0.72fr)
-    minmax(105px, auto) 32px;
-}
-
-.label-settings-grid {
-  --settings-list-columns: 36px minmax(130px, 0.85fr) minmax(180px, 1.45fr) 32px;
-}
-
-.task-type-settings-grid {
-  --settings-list-columns: 28px 36px 36px minmax(110px, 0.75fr)
-    minmax(150px, 1.25fr) minmax(118px, auto) 32px;
-}
-
 .property-settings-grid {
   --settings-list-columns: 28px minmax(160px, 1.2fr) minmax(110px, 0.55fr)
     minmax(120px, 0.65fr) 32px;
@@ -7445,10 +7404,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   font-weight: 450;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.configuration-archive-grid {
-  --settings-list-columns: 36px minmax(120px, 0.8fr) minmax(160px, 1.4fr) auto;
 }
 
 .settings-list-create-row,
@@ -7516,26 +7471,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   border-color: var(--color-accent);
   color: var(--color-accent-strong);
   background: var(--color-selection);
-}
-
-.configuration-color-swatch {
-  display: block;
-  width: 17px;
-  height: 17px;
-  border: 1px solid color-mix(in srgb, var(--swatch-color) 70%, black);
-  border-radius: 50%;
-  background: var(--swatch-color);
-  box-shadow: inset 0 0 0 2px var(--color-surface);
-}
-
-.task-type-icon-swatch {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--task-type-color);
-  background: color-mix(in srgb, var(--task-type-color) 10%, transparent);
 }
 
 .property-editor-form {
@@ -8988,35 +8923,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   display: grid;
 }
 
-.project-type-options {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-3) 0 0;
-  border: 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.project-type-options legend {
-  padding: 0 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 580;
-}
-
-.project-type-options label {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.project-type-options small {
-  color: var(--color-text-muted);
-  font-size: 0.66rem;
-}
-
 .project-delete-form {
   margin-top: var(--space-6);
 }
@@ -9120,12 +9026,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
     overflow-x: auto;
   }
 
-  .task-type-settings-grid > .settings-list-header,
-  .task-type-settings-grid > .settings-list-body > .settings-list-row,
-  .state-settings-grid > .settings-list-header,
-  .state-settings-grid > .settings-list-body > .settings-list-row,
-  .label-settings-grid > .settings-list-header,
-  .label-settings-grid > .settings-list-body > .settings-list-row,
   .property-settings-grid > .settings-list-header,
   .property-settings-grid > .settings-list-body > .settings-list-row {
     min-width: 640px;

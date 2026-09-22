@@ -244,11 +244,6 @@ describe('routePaths', () => {
       expected: '/w/workspace-id/settings/account/security',
     },
     {
-      label: 'Workspace Settings',
-      actual: () => routePaths.workspaceSettings('workspace-id', 'task-types'),
-      expected: '/w/workspace-id/settings/workspace/task-types',
-    },
-    {
       label: 'Workspace Settings detail',
       actual: () =>
         routePaths.workspaceSettingsDetail(
@@ -350,7 +345,7 @@ describe('Settings section contracts', () => {
     ['members', true],
     ['states', true],
     ['labels', true],
-    ['task-types', true],
+    ['task-types', false],
     ['properties', true],
     ['invitations', false],
     ['storage', true],

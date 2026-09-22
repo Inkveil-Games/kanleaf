@@ -1,8 +1,4 @@
-import type {
-  Collection,
-  TaskPriority,
-  TaskStateGroup,
-} from '../workspace/types';
+import type { Collection, TaskPriority } from '../workspace/types';
 
 export const taskLayouts = [
   'list',
@@ -42,9 +38,7 @@ export interface EstimateFilter {
 
 export const taskGroupFields = [
   'state',
-  'state_group',
   'priority',
-  'task_type',
   'assignee',
   'label',
   'project',
@@ -68,7 +62,6 @@ export type TaskSortField =
 export type TaskDisplayProperty =
   | 'state'
   | 'priority'
-  | 'task_type'
   | 'assignees'
   | 'labels'
   | 'project'
@@ -80,13 +73,11 @@ export type TaskDisplayProperty =
   | 'updated_at';
 
 export interface TaskQuery {
-  version: 1;
+  version: 2;
   scope: TaskQueryScope;
   search: string | null;
   filters: {
     states: IdFilter;
-    state_groups: TaskStateGroup[];
-    task_types: IdFilter;
     priorities: TaskPriority[];
     assignees: IdFilter;
     labels: IdFilter;
@@ -122,13 +113,11 @@ export interface SavedView {
 
 export function createTaskQuery(collection: Collection): TaskQuery {
   return {
-    version: 1,
+    version: 2,
     scope: scopeFromCollection(collection),
     search: null,
     filters: {
       states: emptyIdFilter(),
-      state_groups: [],
-      task_types: emptyIdFilter(),
       priorities: [],
       assignees: emptyIdFilter(),
       labels: emptyIdFilter(),

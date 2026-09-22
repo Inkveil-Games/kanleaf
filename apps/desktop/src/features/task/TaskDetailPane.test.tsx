@@ -14,7 +14,6 @@ import type {
   ProjectModule,
   Task,
   TaskState,
-  TaskType,
 } from '../workspace/types';
 import { TaskDetailPane } from './TaskDetailPane';
 
@@ -42,13 +41,8 @@ const task: Task = {
     id: 'state-todo',
     name: 'Todo',
     color: '#64748B',
-    state_group: 'todo',
-  },
-  task_type: {
-    id: 'type-task',
-    name: 'Task',
-    icon: 'check-square',
-    color: '#64748B',
+    icon: 'circle',
+    system_role: 'todo',
   },
   priority: 'none',
   start_date: null,
@@ -72,11 +66,6 @@ const states: TaskState[] = [
   taskState('state-progress', 'In Review', 'in_progress', 1),
 ];
 
-const taskTypes: TaskType[] = [
-  taskType('type-task', 'Task', true, 0),
-  taskType('type-bug', 'Bug', false, 1),
-];
-
 const projects: Project[] = [
   {
     id: 'project-1',
@@ -89,12 +78,10 @@ const projects: Project[] = [
     visibility: 'private',
     default_assignee_id: null,
     default_state_id: 'state-todo',
-    default_task_type_id: 'type-task',
     cycles_enabled: false,
     modules_enabled: false,
     pages_enabled: false,
     views_enabled: false,
-    enabled_task_type_ids: ['type-task', 'type-bug'],
     effective_role: 'admin',
     can_join: false,
     archived_at: null,
@@ -153,7 +140,6 @@ describe('TaskDetailPane', () => {
       workspaceId: 'workspace-1',
       projects,
       states,
-      taskTypes,
       labels: [],
       cycles: [],
       modules: [],
@@ -196,7 +182,6 @@ describe('TaskDetailPane', () => {
         task={null}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -237,7 +222,6 @@ describe('TaskDetailPane', () => {
         task={null}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -277,7 +261,6 @@ describe('TaskDetailPane', () => {
         task={task}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -335,7 +318,6 @@ describe('TaskDetailPane', () => {
         ]}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -383,7 +365,6 @@ describe('TaskDetailPane', () => {
         undefinedProperties={[{ name: 'External context', value: 'Raw' }]}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -412,6 +393,35 @@ describe('TaskDetailPane', () => {
   it('edits defined custom properties and keeps archived values visible', async () => {
     const onCustomPropertyChange = vi.fn().mockResolvedValue(undefined);
     const properties = [
+      {
+        id: 'type-property',
+        workspace_id: 'workspace-1',
+        name: 'Type',
+        type: 'single_select' as const,
+        description: 'Migrated Task type',
+        position: 0,
+        configuration: {},
+        default_option_id: 'feature-option',
+        options: [
+          {
+            id: 'feature-option',
+            workspace_id: 'workspace-1',
+            property_id: 'type-property',
+            name: 'Feature',
+            icon: 'sparkles',
+            color: '#3B82F6',
+            description: 'Product work',
+            position: 0,
+            archived_at: null,
+            created_at: '2026-09-03T01:00:00Z',
+            updated_at: '2026-09-03T01:00:00Z',
+          },
+        ],
+        usage_count: 1,
+        archived_at: null,
+        created_at: '2026-09-03T01:00:00Z',
+        updated_at: '2026-09-03T01:00:00Z',
+      },
       {
         id: 'impact-property',
         workspace_id: 'workspace-1',
@@ -480,13 +490,13 @@ describe('TaskDetailPane', () => {
         task={{
           ...task,
           custom_properties: [
+            { property_id: 'type-property', value: 'feature-option' },
             { property_id: 'legacy-property', value: 'Keep this' },
           ],
         }}
         customProperties={properties}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -511,6 +521,9 @@ describe('TaskDetailPane', () => {
       name: 'Task properties',
     });
     expect(within(propertySection).getByText('Keep this')).toBeInTheDocument();
+    expect(within(propertySection).getByLabelText('Type')).toHaveTextContent(
+      'Feature',
+    );
     expect(within(propertySection).getByText('Archived')).toBeInTheDocument();
     expect(
       within(propertySection).queryByText('Workspace properties'),
@@ -573,7 +586,6 @@ describe('TaskDetailPane', () => {
         customProperties={[note]}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -614,7 +626,6 @@ describe('TaskDetailPane', () => {
         task={task}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -643,7 +654,6 @@ describe('TaskDetailPane', () => {
     const editor = screen.getByText('Markdown editor');
     await screen.findByRole('combobox', { name: 'State' });
     await chooseSelectOption('State', 'In Review');
-    await chooseSelectOption('Task type', 'Bug');
     await chooseSelectOption('Priority', 'High');
     fireEvent.change(screen.getByLabelText('Start date'), {
       target: { value: '2026-09-01' },
@@ -678,7 +688,6 @@ describe('TaskDetailPane', () => {
 
     await waitFor(() => {
       expect(patch).toHaveBeenCalledWith({ state_id: 'state-progress' });
-      expect(patch).toHaveBeenCalledWith({ task_type_id: 'type-bug' });
       expect(patch).toHaveBeenCalledWith({ priority: 'high' });
       expect(patch).toHaveBeenCalledWith({ start_date: '2026-09-01' });
       expect(patch).toHaveBeenCalledWith({ due_date: '2026-09-04' });
@@ -716,7 +725,6 @@ describe('TaskDetailPane', () => {
         task={{ ...task, project_id: 'project-1' }}
         projects={[{ ...projects[0], effective_role: 'viewer' }]}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -741,13 +749,12 @@ describe('TaskDetailPane', () => {
     expect(screen.queryByLabelText('Priority')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Task type')).not.toBeInTheDocument();
     expect(
       screen.getByRole('region', { name: 'Pinned task properties' }),
     ).toHaveTextContent('TodoNo priorityUnassignedStart dateDue date');
     expect(
       screen.getByRole('region', { name: 'Task properties' }),
-    ).toHaveTextContent('TypeTaskProjectKanleaf');
+    ).toHaveTextContent('ProjectKanleaf');
     expect(
       screen.queryByRole('button', { name: 'Task actions' }),
     ).not.toBeInTheDocument();
@@ -765,7 +772,6 @@ describe('TaskDetailPane', () => {
         task={task}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -799,10 +805,6 @@ describe('TaskDetailPane', () => {
         (property) => property.dataset.taskProperty,
       ),
     ).toEqual(['state', 'priority', 'assignees', 'start-date', 'due-date']);
-    expect(
-      within(pinned).queryByLabelText('Task type'),
-    ).not.toBeInTheDocument();
-    expect(within(properties).getByLabelText('Task type')).toBeVisible();
     expect(
       within(properties).queryByLabelText('Project'),
     ).not.toBeInTheDocument();
@@ -872,7 +874,6 @@ describe('TaskDetailPane', () => {
           { ...projects[0], cycles_enabled: true, modules_enabled: true },
         ]}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={cycles}
         modules={modules}
@@ -924,7 +925,6 @@ describe('TaskDetailPane', () => {
         task={task}
         projects={projects}
         states={states}
-        taskTypes={taskTypes}
         labels={[]}
         cycles={[]}
         modules={[]}
@@ -962,37 +962,18 @@ describe('TaskDetailPane', () => {
 function taskState(
   id: string,
   name: string,
-  state_group: TaskState['state_group'],
+  systemRole: TaskState['system_role'],
   position: number,
 ): TaskState {
   return {
     id,
     workspace_id: 'workspace-1',
     name,
-    color: state_group === 'todo' ? '#64748B' : '#3B82F6',
-    state_group,
-    position,
-    archived_at: null,
-    created_at: '2026-08-26T10:00:00Z',
-    updated_at: '2026-08-26T10:00:00Z',
-  };
-}
-
-function taskType(
-  id: string,
-  name: string,
-  is_protected: boolean,
-  position: number,
-): TaskType {
-  return {
-    id,
-    workspace_id: 'workspace-1',
-    name,
-    icon: name === 'Task' ? 'check-square' : 'bug',
-    color: name === 'Task' ? '#64748B' : '#DC2626',
+    icon: systemRole === 'in_progress' ? 'loader-circle' : 'circle',
+    color: systemRole === 'todo' ? '#64748B' : '#3B82F6',
     description: '',
+    system_role: systemRole,
     position,
-    is_protected,
     archived_at: null,
     created_at: '2026-08-26T10:00:00Z',
     updated_at: '2026-08-26T10:00:00Z',

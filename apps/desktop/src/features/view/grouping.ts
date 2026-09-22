@@ -50,11 +50,13 @@ export function buildTaskGroups(
   if (field === 'state') {
     const visibleStates: Task['state'][] = states
       .filter(({ archived_at }) => !archived_at)
-      .map(({ id, name, color, state_group }) => ({
+      .sort((left, right) => left.position - right.position)
+      .map(({ id, name, icon, color, system_role }) => ({
         id,
         name,
+        icon,
         color,
-        state_group,
+        system_role,
       }));
     const visibleStateIds = new Set(visibleStates.map(({ id }) => id));
     for (const task of tasks) {
@@ -70,25 +72,6 @@ export function buildTaskGroups(
         tasks,
         (task) => task.state.id === state.id,
         state.color,
-      ),
-    );
-  }
-  if (field === 'state_group') {
-    return (
-      [
-        ['backlog', 'Backlog'],
-        ['todo', 'Todo'],
-        ['in_progress', 'In Progress'],
-        ['done', 'Done'],
-        ['canceled', 'Canceled'],
-      ] as const
-    ).map(([stateGroup, label]) =>
-      group(
-        stateGroup,
-        label,
-        tasks,
-        (task) => task.state.state_group === stateGroup,
-        states.find(({ state_group }) => state_group === stateGroup)?.color,
       ),
     );
   }
@@ -162,9 +145,6 @@ function taskGroupValues(task: Task, field: TaskGroupField) {
   }
   if (field === 'module') {
     return task.modules.map((item) => ({ id: item.id, label: item.name }));
-  }
-  if (field === 'task_type') {
-    return [{ id: task.task_type.id, label: task.task_type.name }];
   }
   if (field === 'due_date') {
     return task.due_date

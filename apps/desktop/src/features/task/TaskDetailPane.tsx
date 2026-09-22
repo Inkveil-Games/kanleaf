@@ -20,7 +20,6 @@ import type {
   TaskPatch,
   TaskRelationType,
   TaskState,
-  TaskType,
   CustomPropertyDefinition,
   TaskCustomPropertyValue,
   UndefinedTaskProperty,
@@ -52,7 +51,6 @@ interface TaskDetailPaneProps {
   task: Task | null;
   projects: Project[];
   states: TaskState[];
-  taskTypes: TaskType[];
   labels: TaskLabel[];
   cycles: ProjectCycle[];
   modules: ProjectModule[];
@@ -232,7 +230,6 @@ function SelectedTaskDetail({
   task,
   projects,
   states,
-  taskTypes,
   labels,
   cycles,
   modules,
@@ -373,7 +370,6 @@ function SelectedTaskDetail({
         <TaskProperties
           task={task}
           projects={projects}
-          taskTypes={taskTypes}
           labels={labels}
           cycles={cycles}
           modules={modules}

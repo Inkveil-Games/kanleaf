@@ -9,7 +9,6 @@ import {
   Mail,
   Palette,
   SlidersHorizontal,
-  Shapes,
   Settings2,
   ShieldAlert,
   Tags,
@@ -201,12 +200,6 @@ export function WorkspaceSettingsShell({
               icon={<Tags aria-hidden="true" size={15} />}
               label="Labels"
               onClick={() => onSectionChange('labels')}
-            />
-            <SettingsLink
-              active={section === 'task-types'}
-              icon={<Shapes aria-hidden="true" size={15} />}
-              label="Task types"
-              onClick={() => onSectionChange('task-types')}
             />
             <SettingsLink
               active={section === 'properties'}

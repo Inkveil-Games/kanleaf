@@ -22,7 +22,6 @@ import type {
   TaskPatch,
   TaskPlanningLink,
   TaskState,
-  TaskType,
 } from '../workspace/types';
 import { TaskLayouts } from '../view/TaskLayouts';
 import { buildTaskGroupTree } from '../view/grouping';
@@ -39,7 +38,6 @@ interface TaskListPaneProps {
   projects: Project[];
   states: TaskState[];
   labels: TaskLabel[];
-  taskTypes: TaskType[];
   cycles: TaskPlanningLink[];
   modules: TaskPlanningLink[];
   members: { user_id: string; display_name: string }[];
@@ -85,7 +83,6 @@ export function TaskListPane({
   projects,
   states,
   labels,
-  taskTypes,
   cycles,
   modules,
   members,
@@ -308,7 +305,6 @@ export function TaskListPane({
           layout={layout}
           states={states}
           labels={labels}
-          taskTypes={taskTypes}
           projects={projects}
           cycles={cycles}
           modules={modules}
@@ -549,7 +545,7 @@ function TaskRow({
       className="task-row"
       role="option"
       aria-selected={selected}
-      data-state-group={task.state.state_group}
+      data-state-role={task.state.system_role ?? undefined}
     >
       <div className="task-select-control">
         <Checkbox
@@ -702,15 +698,17 @@ function formatTaskDate(value: string) {
 
 function nextState(task: Task, states: TaskState[]) {
   const active = states.filter(({ archived_at }) => !archived_at);
-  const targetGroup =
-    task.state.state_group === 'todo'
+  const targetRole =
+    task.state.system_role === 'todo'
       ? 'in_progress'
-      : task.state.state_group === 'in_progress'
+      : task.state.system_role === 'in_progress'
         ? 'done'
-        : 'todo';
-  const semanticNext = active.find(
-    ({ state_group }) => state_group === targetGroup,
-  );
+        : task.state.system_role === 'done'
+          ? 'todo'
+          : null;
+  const semanticNext = targetRole
+    ? active.find(({ system_role }) => system_role === targetRole)
+    : undefined;
   if (semanticNext) return semanticNext;
   const currentIndex = active.findIndex(({ id }) => id === task.state.id);
   return (

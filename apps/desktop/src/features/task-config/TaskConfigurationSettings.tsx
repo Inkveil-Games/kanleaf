@@ -6,9 +6,8 @@ import type { TaskConfiguration, Workspace } from '../workspace/types';
 import { getTaskConfiguration } from './api';
 import { LabelSettings } from './LabelSettings';
 import { StateSettings } from './StateSettings';
-import { TaskTypeSettings } from './TaskTypeSettings';
 
-export type TaskConfigurationSection = 'states' | 'labels' | 'task-types';
+export type TaskConfigurationSection = 'states' | 'labels';
 
 interface TaskConfigurationSettingsProps {
   context: ApiContext;
@@ -69,12 +68,7 @@ export function TaskConfigurationSettings({
       <StateSettings key={stateEditorKey(configuration.data)} {...common} />
     );
   }
-  if (section === 'labels') {
-    return (
-      <LabelSettings key={labelEditorKey(configuration.data)} {...common} />
-    );
-  }
-  return <TaskTypeSettings {...common} />;
+  return <LabelSettings key={labelEditorKey(configuration.data)} {...common} />;
 }
 
 function stateEditorKey(configuration: TaskConfiguration) {
@@ -103,6 +97,5 @@ function labelEditorKey(configuration: TaskConfiguration) {
 }
 
 function sectionTitle(section: TaskConfigurationSection) {
-  if (section === 'task-types') return 'Task types';
   return section[0].toUpperCase() + section.slice(1);
 }
