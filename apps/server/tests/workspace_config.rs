@@ -152,7 +152,7 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     )
     .await;
     let query = json!({
-        "version": 1,
+        "version": 2,
         "scope": {"kind": "project", "project_id": project_id},
         "filters": {},
         "grouping": {},
@@ -181,7 +181,7 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
         &fs::read_to_string(config_path(&data_dir, workspace_id, "workspace.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(workspace["format_version"], 1);
+    assert_eq!(workspace["format_version"], 2);
     assert_eq!(workspace["workspace_id"], workspace_id.to_string());
     assert_eq!(workspace["members"].as_array().unwrap().len(), 2);
     assert!(workspace.get("sessions").is_none());
@@ -192,8 +192,9 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
         &fs::read_to_string(config_path(&data_dir, workspace_id, "task-config.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(task_config["states"].as_array().unwrap().len(), 5);
-    assert_eq!(task_config["types"].as_array().unwrap().len(), 1);
+    assert_eq!(task_config["format_version"], 3);
+    assert_eq!(task_config["states"].as_array().unwrap().len(), 3);
+    assert!(task_config.get("types").is_none());
     assert_eq!(task_config["labels"][0]["name"], "Docs");
 
     let views: Value = serde_json::from_str(

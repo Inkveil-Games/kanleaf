@@ -135,7 +135,7 @@ test('creates a Workspace webhook, saves its secret, and delivers a signed test'
       .digest('hex');
     expect(captured.headers['x-kanleaf-signature']).toBe(`v1=${expected}`);
     expect(JSON.parse(captured.body.toString())).toMatchObject({
-      version: 1,
+      version: 2,
       type: 'webhook.test',
       workspace: { id: workspace.id, identifier: workspace.identifier },
       data: { message: 'Kanleaf webhook test' },

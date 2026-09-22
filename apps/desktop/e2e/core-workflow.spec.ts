@@ -331,11 +331,18 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     page.getByRole('group', { name: 'Property values' }),
   ).toBeVisible();
-  await expect(page.getByDisplayValue('Todo')).toBeDisabled();
+  await expect(
+    page.locator('input[aria-label="Value name"][value="Todo"]'),
+  ).toBeDisabled();
   await page.getByRole('button', { name: 'Add state' }).click();
   await page.getByRole('textbox', { name: 'Value name' }).last().fill('Review');
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await expect(page.getByDisplayValue('Review')).toBeVisible();
+  await expect(
+    page.locator('input[aria-label="Value name"][value="Review"]'),
+  ).toBeVisible();
+  await page
+    .locator('.settings-content')
+    .evaluate((element) => element.scrollTo({ top: 0 }));
   const statesGeometry = await settingsPageGeometry(page);
   await page.getByRole('button', { name: 'Labels' }).click();
   await expect(page).toHaveURL(
@@ -392,6 +399,13 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('textbox', { name: 'Option name' }).fill('Bug');
   await page.getByRole('radio', { name: 'Use Bug as default' }).click();
   await page.getByRole('button', { name: 'Create property' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
+  await expect(
+    page.getByRole('list', { name: 'Custom properties' }),
+  ).toContainText('Type');
+  await page.goBack();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
@@ -1012,7 +1026,9 @@ let source_is_markdown = true;
   await expect(taskDetail.getByLabel('Task title')).toHaveValue(
     'Complete the v0.1 workflow',
   );
-  await expect(taskDetail.getByLabel('Type')).toContainText('Bug');
+  await expect(
+    taskDetail.getByRole('combobox', { name: 'Type', exact: true }),
+  ).toContainText('Bug');
 
   await addTaskProperty(page, 'Story points');
   const storyPoints = page.getByLabel('Story points');
@@ -1184,7 +1200,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(taskRow).toBeVisible();
   await taskRow.click();
   await expect(page.getByLabel('State')).toContainText('Review');
-  await expect(page.getByLabel('Type')).toContainText('Bug');
+  await expect(
+    page.getByRole('combobox', { name: 'Type', exact: true }),
+  ).toContainText('Bug');
   await expect(page.getByLabel('Priority')).toHaveAttribute(
     'data-value',
     'urgent',
@@ -1784,6 +1802,24 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   };
   const firstTask = await createTask('Overlay board A');
   const secondTask = await createTask('Overlay board B');
+  for (const [name, color] of [
+    ['Review', '#0EA5E9'],
+    ['Blocked', '#EF4444'],
+  ] as const) {
+    const response = await request.post(
+      `${serverUrl}/api/workspaces/${account.workspaceId}/states`,
+      {
+        headers,
+        data: {
+          name,
+          icon: 'circle-dot',
+          color,
+          description: `${name} board state`,
+        },
+      },
+    );
+    expect(response.status()).toBe(201);
+  }
 
   await page.goto('/');
   await page.getByLabel('Email').fill(email);
@@ -1837,7 +1873,9 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
     }
   });
 
-  await page.locator('.board-task', { hasText: firstTask.title }).click();
+  await page
+    .locator('.board-task', { hasText: firstTask.title })
+    .dispatchEvent('click');
   const drawer = page.getByRole('region', { name: 'Task detail' });
   await expect(drawer.getByLabel('Task title')).toHaveValue(firstTask.title);
   await drawer.evaluate((element) => {
