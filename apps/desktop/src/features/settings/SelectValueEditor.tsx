@@ -41,6 +41,7 @@ interface SelectValueEditorProps {
   showDefault?: boolean;
   defaultValueId?: string | null;
   onDefaultChange?: (id: string | null) => void;
+  onDeleteRequest?: (value: SelectValueDraft) => void;
   itemLabel?: string;
   addLabel?: string;
   emptyMessage?: string;
@@ -53,6 +54,7 @@ export function SelectValueEditor({
   showDefault = false,
   defaultValueId = null,
   onDefaultChange,
+  onDeleteRequest,
   itemLabel = 'value',
   addLabel = 'Add value',
   emptyMessage = 'No values yet. Add the choices people can select.',
@@ -80,6 +82,11 @@ export function SelectValueEditor({
   function archive(value: SelectValueDraft) {
     update(value.key, { archived: true });
     if (defaultValueId === valueIdentity(value)) onDefaultChange?.(null);
+  }
+
+  function requestDelete(value: SelectValueDraft) {
+    if (onDeleteRequest) onDeleteRequest(value);
+    else setDeletingValue(value);
   }
 
   return (
@@ -186,7 +193,7 @@ export function SelectValueEditor({
                         value={value}
                         disabled={disabled}
                         onArchive={() => archive(value)}
-                        onDelete={() => setDeletingValue(value)}
+                        onDelete={() => requestDelete(value)}
                       />
                     ) : (
                       <IconButton
@@ -235,7 +242,7 @@ export function SelectValueEditor({
                 <SettingsAction
                   destructive
                   icon={<Trash2 aria-hidden="true" size={14} />}
-                  onClick={() => setDeletingValue(value)}
+                  onClick={() => requestDelete(value)}
                 >
                   Delete permanently
                 </SettingsAction>

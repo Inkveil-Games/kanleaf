@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import type { ApiContext } from '../workspace/api';
-import type { Workspace } from '../workspace/types';
+import type { TaskConfiguration, Workspace } from '../workspace/types';
 import { getTaskConfiguration } from './api';
 import { LabelSettings } from './LabelSettings';
 import { StateSettings } from './StateSettings';
@@ -64,9 +64,42 @@ export function TaskConfigurationSettings({
     configuration: configuration.data,
     onChanged: onConfigurationUpdated,
   };
-  if (section === 'states') return <StateSettings {...common} />;
-  if (section === 'labels') return <LabelSettings {...common} />;
+  if (section === 'states') {
+    return (
+      <StateSettings key={stateEditorKey(configuration.data)} {...common} />
+    );
+  }
+  if (section === 'labels') {
+    return (
+      <LabelSettings key={labelEditorKey(configuration.data)} {...common} />
+    );
+  }
   return <TaskTypeSettings {...common} />;
+}
+
+function stateEditorKey(configuration: TaskConfiguration) {
+  return JSON.stringify([
+    configuration.default_state_id,
+    configuration.state_property_description,
+    configuration.states.map((state) => [
+      state.id,
+      state.updated_at,
+      state.position,
+      state.archived_at,
+    ]),
+  ]);
+}
+
+function labelEditorKey(configuration: TaskConfiguration) {
+  return JSON.stringify([
+    configuration.label_property_description,
+    configuration.labels.map((label) => [
+      label.id,
+      label.updated_at,
+      label.position,
+      label.archived_at,
+    ]),
+  ]);
 }
 
 function sectionTitle(section: TaskConfigurationSection) {

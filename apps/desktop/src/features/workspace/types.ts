@@ -185,7 +185,10 @@ export interface TaskState {
   id: string;
   workspace_id: string;
   name: string;
+  icon?: string | null;
   color: string;
+  description?: string;
+  system_role?: 'todo' | 'in_progress' | 'done' | null;
   state_group: TaskStateGroup;
   position: number;
   archived_at: string | null;
@@ -197,8 +200,10 @@ export interface TaskLabel {
   id: string;
   workspace_id: string;
   name: string;
+  icon?: string | null;
   color: string;
   description: string;
+  position?: number;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -224,6 +229,8 @@ export interface TaskConfiguration {
   task_types: TaskType[];
   default_state_id: string;
   default_task_type_id: string;
+  state_property_description?: string;
+  label_property_description?: string;
 }
 
 export type CustomPropertyType =

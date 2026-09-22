@@ -54,6 +54,7 @@ export function SelectPropertyEditor({
       <section className="select-property-description">
         <h2>Property description</h2>
         <Textarea
+          aria-label="Property description"
           maxLength={500}
           disabled={disabled}
           value={description}

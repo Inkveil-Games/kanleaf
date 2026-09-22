@@ -4,7 +4,6 @@ import type {
   TaskConfiguration,
   TaskLabel,
   TaskState,
-  TaskStateGroup,
   TaskType,
 } from '../workspace/types';
 
@@ -16,10 +15,14 @@ export function getTaskConfiguration(context: ApiContext, workspaceId: string) {
   );
 }
 
-export function updateTaskDefaults(
+export function updateTaskConfiguration(
   context: ApiContext,
   workspaceId: string,
-  patch: { state_id?: string; task_type_id?: string },
+  patch: {
+    state_id?: string;
+    state_property_description?: string;
+    label_property_description?: string;
+  },
 ) {
   return apiRequest<TaskConfiguration>(
     context.serverUrl,
@@ -35,7 +38,12 @@ export function updateTaskDefaults(
 export function createTaskState(
   context: ApiContext,
   workspaceId: string,
-  input: { name: string; color: string; state_group: TaskStateGroup },
+  input: {
+    name: string;
+    icon: string | null;
+    color: string;
+    description: string;
+  },
 ) {
   return apiRequest<TaskState>(
     context.serverUrl,
@@ -49,7 +57,9 @@ export function updateTaskState(
   workspaceId: string,
   stateId: string,
   patch: Partial<
-    Pick<TaskState, 'name' | 'color' | 'state_group'> & { archived: boolean }
+    Pick<TaskState, 'name' | 'icon' | 'color' | 'description'> & {
+      archived: boolean;
+    }
   >,
 ) {
   return apiRequest<TaskState>(
@@ -94,7 +104,7 @@ export function deleteTaskState(
 export function createTaskLabel(
   context: ApiContext,
   workspaceId: string,
-  input: Pick<TaskLabel, 'name' | 'color' | 'description'>,
+  input: Pick<TaskLabel, 'name' | 'icon' | 'color' | 'description'>,
 ) {
   return apiRequest<TaskLabel>(
     context.serverUrl,
@@ -108,7 +118,9 @@ export function updateTaskLabel(
   workspaceId: string,
   labelId: string,
   patch: Partial<
-    Pick<TaskLabel, 'name' | 'color' | 'description'> & { archived: boolean }
+    Pick<TaskLabel, 'name' | 'icon' | 'color' | 'description'> & {
+      archived: boolean;
+    }
   >,
 ) {
   return apiRequest<TaskLabel>(
@@ -127,6 +139,39 @@ export function deleteTaskLabel(
     context.serverUrl,
     `/api/workspaces/${workspaceId}/labels/${labelId}`,
     { method: 'DELETE', token: context.token },
+  );
+}
+
+export function reorderTaskLabels(
+  context: ApiContext,
+  workspaceId: string,
+  ids: string[],
+) {
+  return apiRequest<void>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/labels/reorder`,
+    {
+      method: 'PUT',
+      token: context.token,
+      body: JSON.stringify({ ids }),
+    },
+  );
+}
+
+// Removed with the Task Type settings surface in the next cutover step.
+export function updateTaskDefaults(
+  context: ApiContext,
+  workspaceId: string,
+  patch: { task_type_id: string },
+) {
+  return apiRequest<TaskConfiguration>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/task-configuration`,
+    {
+      method: 'PATCH',
+      token: context.token,
+      body: JSON.stringify(patch),
+    },
   );
 }
 

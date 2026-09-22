@@ -7598,10 +7598,12 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 }
 
 .select-value-editor {
+  --select-value-columns: 28px 36px 36px minmax(120px, 0.75fr)
+    minmax(160px, 1fr) 28px;
+
   display: grid;
   min-width: 640px;
   gap: var(--space-2);
-  min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
@@ -7617,18 +7619,15 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 .select-value-editor-header,
 .select-value-editor-row {
   display: grid;
-  grid-template-columns:
-    28px 36px 36px minmax(120px, 0.75fr) minmax(160px, 1fr)
-    28px;
+  grid-template-columns: var(--select-value-columns);
   align-items: center;
   gap: var(--space-2);
 }
 
 .select-value-editor-header.has-default,
 .select-value-editor-row.has-default {
-  grid-template-columns:
-    28px 36px 36px minmax(120px, 0.75fr) minmax(160px, 1fr)
-    56px 28px;
+  --select-value-columns: 28px 36px 36px minmax(120px, 0.75fr)
+    minmax(160px, 1fr) 56px 28px;
 }
 
 .select-value-editor-header {
@@ -9182,6 +9181,60 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   .property-editor-fields,
   .select-property-identity {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .select-value-editor {
+    min-width: 0;
+  }
+
+  .select-value-editor-header {
+    display: none;
+  }
+
+  .select-value-editor-row,
+  .select-value-editor-row.has-default {
+    --select-value-columns: 28px 36px 36px minmax(0, 1fr) 44px 28px;
+
+    grid-template-areas:
+      'drag icon color name default actions'
+      '. . . description description .';
+  }
+
+  .select-value-editor-row:not(.has-default) {
+    --select-value-columns: 28px 36px 36px minmax(0, 1fr) 28px;
+
+    grid-template-areas:
+      'drag icon color name actions'
+      '. . . description description';
+  }
+
+  .select-value-editor-row > :nth-child(1) {
+    grid-area: drag;
+  }
+
+  .select-value-editor-row > :nth-child(2) {
+    grid-area: icon;
+  }
+
+  .select-value-editor-row > :nth-child(3) {
+    grid-area: color;
+  }
+
+  .select-value-editor-row > :nth-child(4) {
+    grid-area: name;
+  }
+
+  .select-value-editor-row > :nth-child(5) {
+    grid-area: description;
+  }
+
+  .select-value-editor-row.has-default > :nth-child(6) {
+    grid-area: default;
+  }
+
+  .select-value-editor-row.has-default > :nth-child(7),
+  .select-value-editor-row:not(.has-default) > :nth-child(6) {
+    grid-area: actions;
   }
 
   .workspace-invite-fields,

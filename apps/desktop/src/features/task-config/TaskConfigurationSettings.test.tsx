@@ -27,118 +27,167 @@ afterEach(() => {
 });
 
 describe('TaskConfigurationSettings', () => {
-  it('shows server validation and reorders the complete active state set', async () => {
-    const user = userEvent.setup();
-    mockApi({ rejectCreate: true });
+  it('renders States in the unified property order and protects core identity', async () => {
+    mockApi();
     renderSettings();
 
-    const stateName = await screen.findByPlaceholderText('State name');
-    fireEvent.change(stateName, {
+    const name = await screen.findByLabelText('Name');
+    const type = screen.getByLabelText('Type');
+    const description = screen.getByRole('heading', {
+      name: 'Property description',
+    });
+    const values = screen.getByText('Property values');
+    expect(name).toHaveValue('State');
+    expect(name).toBeDisabled();
+    expect(type).toHaveValue('Single select');
+    expect(type).toBeDisabled();
+    expect(name.compareDocumentPosition(type)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(type.compareDocumentPosition(description)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(description.compareDocumentPosition(values)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    expect(screen.getByRole('button', { name: 'Reorder Todo' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Change icon for Todo' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Change color for Todo' }),
+    ).toBeDisabled();
+    const stateNames = screen.getAllByRole('textbox', { name: 'Value name' });
+    const stateDescriptions = screen.getAllByRole('textbox', {
+      name: 'Value description',
+    });
+    expect(stateNames[0]).toBeDisabled();
+    expect(stateDescriptions[0]).toBeEnabled();
+    expect(stateNames[1]).toBeEnabled();
+    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    expect(
+      screen.queryByRole('button', { name: 'Actions for Todo' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Actions for Ready' }),
+    ).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Use Ready as default' }),
+    );
+    await waitFor(() =>
+      expect(
+        requests.some(
+          ({ method, url, body }) =>
+            method === 'PATCH' &&
+            url.endsWith('/task-configuration') &&
+            body === JSON.stringify({ state_id: 'state-ready' }),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('renders Labels as the same multi-select editor without a default column', async () => {
+    mockApi();
+    renderSettings('labels');
+
+    expect(await screen.findByLabelText('Name')).toHaveValue('Labels');
+    expect(screen.getByLabelText('Type')).toHaveValue('Multi select');
+    expect(
+      screen.getByRole('heading', { name: 'Property description' }),
+    ).toBeVisible();
+    expect(screen.getByText('Property values')).toBeVisible();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Reorder Documentation' }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Change icon for Documentation' }),
+    ).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Value name' })).toHaveValue(
+      'Documentation',
+    );
+    expect(
+      screen.getByRole('textbox', { name: 'Value description' }),
+    ).toHaveValue('Docs and guides');
+  });
+
+  it('keeps read-only, archived, and adjacent validation states visible', async () => {
+    mockApi({ rejectCreate: true });
+    const { unmount } = renderSettings('states', {
+      ...workspace,
+      role: 'member',
+    });
+
+    expect(await screen.findByText('Deferred')).toBeVisible();
+    expect(screen.getByText('Archived values')).toBeVisible();
+    expect(
+      screen
+        .getAllByRole('textbox', { name: 'Value name' })
+        .every((input) => input.hasAttribute('disabled')),
+    ).toBe(true);
+    expect(
+      screen.queryByRole('button', { name: 'Save changes' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Only Workspace Owners and Admins can change task states.',
+      ),
+    ).toBeVisible();
+
+    unmount();
+    renderSettings('states');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add state' }));
+    const names = screen.getAllByRole('textbox', { name: 'Value name' });
+    fireEvent.change(names.at(-1) as HTMLInputElement, {
       target: { value: 'Todo' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Add state' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'An active state already uses this name',
     );
-
-    await user.click(screen.getByRole('button', { name: 'Actions for Done' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Move up' }));
-    await waitFor(() => {
-      const reorder = requests.find(
-        ({ method, url }) =>
-          method === 'PUT' && url.endsWith('/states/reorder'),
-      );
-      expect(JSON.parse(reorder?.body ?? '{}').ids).toEqual([
-        'state-todo',
-        'state-ready',
-        'state-done',
-        'state-progress',
-      ]);
-    });
   });
 
-  it('requires an intentional replacement choice before deleting a used state', async () => {
+  it('uses any other active State as the explicit delete replacement', async () => {
     const user = userEvent.setup();
-    mockApi({ rejectCreate: false });
+    mockApi();
     renderSettings();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Actions for Todo' }),
+      await screen.findByRole('button', { name: 'Actions for Ready' }),
     );
-    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
-    const dialog = screen.getByRole('alertdialog', { name: 'Delete Todo?' });
-    await chooseSelectOption('Replacement for Todo', 'Ready');
-    fireEvent.click(
-      within(dialog).getByRole('button', {
-        name: 'Delete',
-      }),
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'Delete permanently' }),
     );
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Ready?' });
+    await chooseSelectOption('Replacement for Ready', 'Todo');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() =>
       expect(
         requests.some(
           ({ method, url }) =>
             method === 'DELETE' &&
-            url.endsWith('/states/state-todo?replacement_id=state-ready'),
+            url.endsWith('/states/state-ready?replacement_id=state-todo'),
         ),
       ).toBe(true),
     );
-  });
-
-  it('uses readable display rows and opens a label editor on demand', async () => {
-    const user = userEvent.setup();
-    mockApi({ rejectCreate: false });
-    renderSettings('labels');
-
-    expect(await screen.findByText('Documentation')).toBeVisible();
-    expect(
-      screen.queryByRole('textbox', { name: 'Documentation name' }),
-    ).not.toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole('button', { name: 'Actions for Documentation' }),
-    );
-    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-
-    expect(
-      screen.getByRole('textbox', { name: 'Documentation name' }),
-    ).toHaveValue('Documentation');
-    expect(
-      screen.getByRole('button', {
-        name: 'Change color for Documentation',
-      }),
-    ).toBeVisible();
-  });
-
-  it('uses a visual Task type icon picker and hides internal icon keys', async () => {
-    const user = userEvent.setup();
-    mockApi({ rejectCreate: false });
-    renderSettings('task-types');
-
-    expect(
-      await screen.findByRole('button', { name: 'Choose Task type icon' }),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole('textbox', { name: /icon key/i }),
-    ).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Actions for Task' }));
-    expect(
-      screen.queryByRole('menuitem', { name: 'Delete' }),
-    ).not.toBeInTheDocument();
   });
 });
 
 function renderSettings(
   section: 'states' | 'labels' | 'task-types' = 'states',
+  selectedWorkspace = workspace,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <TaskConfigurationSettings
         context={{ serverUrl: 'https://kanleaf.example.com', token: 'token' }}
-        workspace={workspace}
+        workspace={selectedWorkspace}
         section={section}
         onConfigurationUpdated={vi.fn().mockResolvedValue(undefined)}
       />
@@ -146,7 +195,7 @@ function renderSettings(
   );
 }
 
-function mockApi({ rejectCreate }: { rejectCreate: boolean }) {
+function mockApi({ rejectCreate = false }: { rejectCreate?: boolean } = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -165,6 +214,12 @@ function mockApi({ rejectCreate }: { rejectCreate: boolean }) {
           409,
         );
       }
+      if (method === 'PATCH' && url.endsWith('/task-configuration')) {
+        return jsonResponse(configuration);
+      }
+      if (method === 'POST' && url.endsWith('/states')) {
+        return jsonResponse(state('state-new', 'Todo', null, 4));
+      }
       return new Response(null, { status: 204 });
     }),
   );
@@ -180,17 +235,21 @@ function jsonResponse(payload: unknown, status = 200) {
 function state(
   id: string,
   name: string,
-  state_group: TaskState['state_group'],
+  system_role: TaskState['system_role'],
   position: number,
+  archived_at: string | null = null,
 ): TaskState {
   return {
     id,
     workspace_id: workspace.id,
     name,
+    icon: system_role === 'in_progress' ? 'loader-circle' : 'circle',
     color: '#64748B',
-    state_group,
+    description: `${name} description`,
+    system_role,
+    state_group: system_role ?? 'todo',
     position,
-    archived_at: null,
+    archived_at,
     created_at: '2026-08-27T01:00:00Z',
     updated_at: '2026-08-27T01:00:00Z',
   };
@@ -209,37 +268,28 @@ const workspace: Workspace = {
 const configuration: TaskConfiguration = {
   states: [
     state('state-todo', 'Todo', 'todo', 0),
-    state('state-ready', 'Ready', 'todo', 1),
+    state('state-ready', 'Ready', null, 1),
     state('state-progress', 'In Progress', 'in_progress', 2),
     state('state-done', 'Done', 'done', 3),
+    state('state-deferred', 'Deferred', null, 4, '2026-08-28T01:00:00Z'),
   ],
   labels: [
     {
       id: 'label-docs',
       workspace_id: workspace.id,
       name: 'Documentation',
+      icon: 'book-open',
       color: '#3B82F6',
       description: 'Docs and guides',
-      archived_at: null,
-      created_at: '2026-08-27T01:00:00Z',
-      updated_at: '2026-08-27T01:00:00Z',
-    },
-  ],
-  task_types: [
-    {
-      id: 'type-task',
-      workspace_id: workspace.id,
-      name: 'Task',
-      icon: 'check-square',
-      color: '#64748B',
-      description: 'General work item',
       position: 0,
-      is_protected: true,
       archived_at: null,
       created_at: '2026-08-27T01:00:00Z',
       updated_at: '2026-08-27T01:00:00Z',
     },
   ],
+  task_types: [],
   default_state_id: 'state-todo',
-  default_task_type_id: 'type-task',
+  default_task_type_id: '',
+  state_property_description: 'The current step of work.',
+  label_property_description: 'Shared tags used to organize work.',
 };
