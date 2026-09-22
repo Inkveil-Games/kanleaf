@@ -965,21 +965,12 @@ fn validate_task_properties(
     {
         return Err(ImportArchiveError::InvalidMetadata);
     }
-    let state = config
+    config
         .states
         .iter()
         .find(|state| !state.archived && name_eq(&state.name, &properties.state))
         .ok_or(ImportArchiveError::InvalidMetadata)?;
-    let task_type = config
-        .types
-        .iter()
-        .find(|kind| !kind.archived && name_eq(&kind.name, &properties.task_type))
-        .ok_or(ImportArchiveError::InvalidMetadata)?;
-    let _ = state;
     if let Some(project) = project {
-        if !project.enabled_task_type_ids.contains(&task_type.id) {
-            return Err(ImportArchiveError::InvalidMetadata);
-        }
         match properties.cycle.as_deref() {
             Some(name)
                 if !project

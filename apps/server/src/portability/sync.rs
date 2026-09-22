@@ -74,7 +74,6 @@ enum SyncItemStatus {
 struct ResolvedTaskUpdate {
     title: String,
     state_id: Uuid,
-    task_type_id: Uuid,
     priority: TaskPriority,
     project_id: Option<Uuid>,
     start_date: Option<NaiveDate>,
@@ -525,33 +524,6 @@ async fn resolve_update(
         "State",
     )
     .await?;
-    let task_type_id = resolve_required_name(
-        pool,
-        "SELECT id FROM task_types WHERE workspace_id = $1 AND lower(name) = lower($2) AND archived_at IS NULL",
-        workspace_id,
-        &properties.task_type,
-        "Type",
-    )
-    .await?;
-    if let Some(project_id) = project_id {
-        let enabled: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM project_task_types
-                WHERE workspace_id = $1 AND project_id = $2 AND task_type_id = $3
-            )
-            "#,
-        )
-        .bind(workspace_id)
-        .bind(project_id)
-        .bind(task_type_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| "Type availability could not be checked".to_owned())?;
-        if !enabled {
-            return Err("Type is not enabled in the selected Project".to_owned());
-        }
-    }
     let priority = parse_priority(properties.priority.as_deref())?;
     let assignee_ids = resolve_assignees(pool, workspace_id, &properties.assignees).await?;
     let valid_assignee_count: i64 = sqlx::query_scalar(
@@ -645,7 +617,6 @@ async fn resolve_update(
     Ok(ResolvedTaskUpdate {
         title,
         state_id,
-        task_type_id,
         priority,
         project_id,
         start_date: properties.start_date,
@@ -765,9 +736,6 @@ fn changed_fields(canonical: &TaskProperties, external: &TaskProperties) -> Vec<
     }
     if !name_eq(&canonical.state, &external.state) {
         fields.push("state");
-    }
-    if !name_eq(&canonical.task_type, &external.task_type) {
-        fields.push("type");
     }
     if !optional_name_eq(canonical.priority.as_deref(), external.priority.as_deref()) {
         fields.push("priority");

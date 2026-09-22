@@ -769,14 +769,6 @@ async fn insert_tasks(
             .filter(|state| !state.archived)
             .map(|state| (&state.name, mapped(&maps.states, state.id))),
     )?;
-    let type_names = active_name_map(
-        validated
-            .task_config
-            .types
-            .iter()
-            .filter(|task_type| !task_type.archived)
-            .map(|task_type| (&task_type.name, mapped(&maps.types, task_type.id))),
-    )?;
     let label_names = active_name_map(
         validated
             .task_config
@@ -799,17 +791,16 @@ async fn insert_tasks(
             .map(|id| mapped(&maps.projects, id))
             .transpose()?;
         let state_id = by_name(&state_names, &task.properties.state)?;
-        let task_type_id = by_name(&type_names, &task.properties.task_type)?;
         sqlx::query(
             r#"
             INSERT INTO tasks (
                 id, workspace_id, project_id, title, priority, state_id,
-                task_type_id, task_number, start_date, due_date, estimate,
-                position, storage_name, archived_at,
+                task_number, start_date, due_date, estimate, position,
+                storage_name, archived_at,
                 metadata_version, projected_metadata_version
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                $12, $13, CASE WHEN $14 THEN now() END, 1, 1
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, CASE WHEN $13 THEN now() END, 1, 1
             )
             "#,
         )
@@ -819,7 +810,6 @@ async fn insert_tasks(
         .bind(&task.properties.title)
         .bind(priority_value(task.properties.priority.as_deref())?)
         .bind(state_id)
-        .bind(task_type_id)
         .bind(task.identity.number)
         .bind(task.properties.start_date)
         .bind(task.properties.due_date)

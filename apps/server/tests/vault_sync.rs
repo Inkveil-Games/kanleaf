@@ -8,7 +8,9 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http::HeaderValue;
-use kanleaf_server::{AppState, portability::recover_workspace_operations, router};
+use kanleaf_server::{
+    AppState, portability::recover_workspace_operations, router, task::recover_projection_jobs,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -214,7 +216,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     let task_response = response_json(task_response).await;
     assert_eq!(task_response["title"], "Synced externally");
     assert_eq!(task_response["project_id"], second["id"]);
-    assert_eq!(task_response["state"]["state_group"], "in_progress");
+    assert_eq!(task_response["state"]["system_role"], "in_progress");
     assert_eq!(task_response["priority"], "high");
     assert_eq!(
         task_response["custom_properties"][0]["value"],
@@ -231,6 +233,195 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     assert!(projected.contains("Project:\n  - Second\n"));
     assert!(projected.contains("External tool: Obsidian\n"));
     assert!(projected.ends_with("# External body\n"));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn type_syncs_as_custom_data_and_legacy_cleanup_survives_projection_retry(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+
+    let (typed_token, _, typed_workspace_id) = register(&app, "typed-sync-owner@example.com").await;
+    let type_property = create(
+        &app,
+        &typed_token,
+        &format!("/api/workspaces/{typed_workspace_id}/properties"),
+        json!({
+            "name": "Type",
+            "type": "single_select",
+            "options": [
+                {"name": "Bug", "color": "#EF4444"},
+                {"name": "Feature", "color": "#3B82F6"}
+            ]
+        }),
+    )
+    .await;
+    let typed_task = create(
+        &app,
+        &typed_token,
+        &format!("/api/workspaces/{typed_workspace_id}/tasks"),
+        json!({"title": "Typed task"}),
+    )
+    .await;
+    let typed_task_id = typed_task["id"].as_str().unwrap();
+    let set_type = send(
+        &app,
+        "PUT",
+        &format!(
+            "/api/workspaces/{typed_workspace_id}/tasks/{typed_task_id}/properties/{}",
+            type_property["id"].as_str().unwrap()
+        ),
+        Some(json!({"value": type_property["options"][0]["id"]})),
+        &typed_token,
+    )
+    .await;
+    assert_eq!(set_type.status(), StatusCode::OK);
+    let typed_path = task_path(
+        &data_dir,
+        typed_workspace_id,
+        None,
+        typed_task["storage_name"].as_str().unwrap(),
+    );
+    let typed_source = fs::read_to_string(&typed_path).unwrap();
+    assert_eq!(typed_source.matches("Type:").count(), 1);
+    fs::write(
+        &typed_path,
+        typed_source.replace("Type: Bug", "Type: Feature"),
+    )
+    .unwrap();
+
+    let preview = send(
+        &app,
+        "POST",
+        &format!("/api/workspaces/{typed_workspace_id}/vault-syncs/preview"),
+        None,
+        &typed_token,
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::CREATED);
+    let preview = response_json(preview).await;
+    assert_eq!(preview["items"][0]["status"], "valid");
+    assert_eq!(preview["items"][0]["changes"], json!(["properties"]));
+    let applied = send(
+        &app,
+        "POST",
+        &format!(
+            "/api/workspaces/{typed_workspace_id}/vault-syncs/{}/apply",
+            preview["id"].as_str().unwrap()
+        ),
+        Some(json!({
+            "revision": preview["revision"],
+            "task_ids": [typed_task_id]
+        })),
+        &typed_token,
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+    let typed_task = send(
+        &app,
+        "GET",
+        &format!("/api/workspaces/{typed_workspace_id}/tasks/{typed_task_id}"),
+        None,
+        &typed_token,
+    )
+    .await;
+    let typed_task = response_json(typed_task).await;
+    assert_eq!(
+        typed_task["custom_properties"][0]["value"],
+        type_property["options"][1]["id"]
+    );
+
+    let (plain_token, _, plain_workspace_id) = register(&app, "plain-sync-owner@example.com").await;
+    let plain_task = create(
+        &app,
+        &plain_token,
+        &format!("/api/workspaces/{plain_workspace_id}/tasks"),
+        json!({"title": "Plain task"}),
+    )
+    .await;
+    let plain_task_id: Uuid = plain_task["id"].as_str().unwrap().parse().unwrap();
+    let plain_path = task_path(
+        &data_dir,
+        plain_workspace_id,
+        None,
+        plain_task["storage_name"].as_str().unwrap(),
+    );
+    let legacy_source = fs::read_to_string(&plain_path).unwrap().replacen(
+        "---\n\n",
+        "Type:\n  - Task\n# external comment\nExternal nested:\n  owner: \"01\"\nExternal list: [one, two]\nExternal scalar: keep\n---\n\n",
+        1,
+    );
+    fs::write(&plain_path, &legacy_source).unwrap();
+    let metadata_version: i64 = sqlx::query_scalar(
+        "UPDATE tasks SET metadata_version = metadata_version + 1 WHERE workspace_id = $1 AND id = $2 RETURNING metadata_version",
+    )
+    .bind(plain_workspace_id)
+    .bind(plain_task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO task_projection_jobs (
+            workspace_id, task_id, metadata_version, cleanup_property_names
+        ) VALUES ($1, $2, $3, ARRAY['Type']::text[])
+        ON CONFLICT (workspace_id, task_id) DO UPDATE
+        SET metadata_version = EXCLUDED.metadata_version,
+            cleanup_property_names = EXCLUDED.cleanup_property_names,
+            next_attempt_at = now()
+        "#,
+    )
+    .bind(plain_workspace_id)
+    .bind(plain_task_id)
+    .bind(metadata_version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let unavailable_path = plain_path.with_extension("md.unavailable");
+    fs::rename(&plain_path, &unavailable_path).unwrap();
+    recover_projection_jobs(&state).await.unwrap();
+    let pending: (Vec<String>, i32) = sqlx::query_as(
+        "SELECT cleanup_property_names, attempts FROM task_projection_jobs WHERE workspace_id = $1 AND task_id = $2",
+    )
+    .bind(plain_workspace_id)
+    .bind(plain_task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pending.0, ["Type"]);
+    assert_eq!(pending.1, 1);
+
+    fs::rename(&unavailable_path, &plain_path).unwrap();
+    sqlx::query(
+        "UPDATE task_projection_jobs SET next_attempt_at = now() WHERE workspace_id = $1 AND task_id = $2",
+    )
+    .bind(plain_workspace_id)
+    .bind(plain_task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    recover_projection_jobs(&state).await.unwrap();
+    let repaired = fs::read_to_string(&plain_path).unwrap();
+    assert!(!repaired.contains("Type:"));
+    assert!(repaired.contains(
+        "# external comment\nExternal nested:\n  owner: \"01\"\nExternal list: [one, two]\nExternal scalar: keep\n"
+    ));
+    let remaining_jobs: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM task_projection_jobs WHERE workspace_id = $1 AND task_id = $2",
+    )
+    .bind(plain_workspace_id)
+    .bind(plain_task_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_jobs, 0);
 }
 
 #[sqlx::test(migrations = "./migrations")]

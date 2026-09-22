@@ -164,6 +164,9 @@ async fn definitions_support_all_types_lifecycle_and_name_reuse(pool: PgPool) {
         .unwrap();
     assert_eq!(reserved.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
+    let type_property = create_property(&app, &token, workspace_id, "Type", "single_select").await;
+    assert_eq!(type_property["name"], "Type");
+
     let definitions = app
         .clone()
         .oneshot(request(
@@ -177,7 +180,7 @@ async fn definitions_support_all_types_lifecycle_and_name_reuse(pool: PgPool) {
     assert_eq!(definitions.status(), StatusCode::OK);
     assert_eq!(
         response_json(definitions).await.as_array().unwrap().len(),
-        7
+        8
     );
 
     let task = app

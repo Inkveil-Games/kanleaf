@@ -28,7 +28,6 @@ const RESERVED_PROPERTY_NAMES: &[&str] = &[
     "Title",
     "Project",
     "State",
-    "Type",
     "Priority",
     "Assignees",
     "Labels",

@@ -189,7 +189,6 @@ pub(crate) struct TaskVaultRow {
     project_identifier: Option<String>,
     project_storage_name: Option<String>,
     state: String,
-    task_type: String,
     priority: String,
     assignees: Vec<String>,
     labels: Vec<String>,
@@ -217,7 +216,6 @@ impl TaskVaultRow {
             title: self.title.clone(),
             project: self.project_name.clone(),
             state: self.state.clone(),
-            task_type: self.task_type.clone(),
             priority: (self.priority != "none").then(|| title_case(&self.priority)),
             assignees: self.assignees.clone(),
             labels: self.labels.clone(),
@@ -1763,7 +1761,7 @@ pub(crate) async fn task_vault_row(
                tasks.storage_name, projects.name AS project_name,
                projects.identifier AS project_identifier,
                projects.storage_name AS project_storage_name,
-               states.name AS state, 'Task'::text AS task_type, tasks.priority,
+               states.name AS state, tasks.priority,
                ARRAY(
                    SELECT users.email
                    FROM task_assignees

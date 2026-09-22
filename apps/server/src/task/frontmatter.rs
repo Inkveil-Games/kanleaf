@@ -10,7 +10,6 @@ const OWNED_KEYS: &[&str] = &[
     "Title",
     "Project",
     "State",
-    "Type",
     "Priority",
     "Assignees",
     "Labels",
@@ -42,7 +41,6 @@ pub(crate) struct TaskProperties {
     pub(crate) title: String,
     pub(crate) project: Option<String>,
     pub(crate) state: String,
-    pub(crate) task_type: String,
     pub(crate) priority: Option<String>,
     pub(crate) assignees: Vec<String>,
     pub(crate) labels: Vec<String>,
@@ -156,7 +154,6 @@ pub(crate) fn read_properties(source: &str) -> Result<TaskProperties, Frontmatte
         title: required_scalar(mapping, "Title")?.to_owned(),
         project: optional_single(mapping, "Project")?,
         state: required_single(mapping, "State")?,
-        task_type: required_single(mapping, "Type")?,
         priority: optional_single(mapping, "Priority")?,
         assignees: scalar_list(mapping, "Assignees")?,
         labels: scalar_list(mapping, "Labels")?,
@@ -374,8 +371,8 @@ fn validate_owned_shapes(
             "Kanleaf ID" | "Reference" | "Title" | "Start date" | "Due date" | "Estimate" => {
                 value.as_scalar().is_some()
             }
-            "Project" | "State" | "Type" | "Priority" | "Assignees" | "Labels" | "Cycle"
-            | "Modules" | "Parent" => value
+            "Project" | "State" | "Priority" | "Assignees" | "Labels" | "Cycle" | "Modules"
+            | "Parent" => value
                 .as_sequence()
                 .is_some_and(|items| items.iter().all(|item| item.as_scalar().is_some())),
             _ => true,
@@ -454,7 +451,6 @@ fn render_properties(properties: &TaskProperties, newline: &str) -> String {
         newline,
     );
     list(&mut output, "State", [&properties.state], newline);
-    list(&mut output, "Type", [&properties.task_type], newline);
     optional_list(
         &mut output,
         "Priority",
@@ -654,7 +650,6 @@ mod tests {
             title: "Implement workspace export".to_owned(),
             project: Some("Kanleaf".to_owned()),
             state: "In Progress".to_owned(),
-            task_type: "Task".to_owned(),
             priority: Some("High".to_owned()),
             assignees: vec!["user@example.com".to_owned()],
             labels: vec!["Backend".to_owned()],
@@ -724,6 +719,41 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_removes_the_legacy_fixed_type_without_a_custom_definition() {
+        let source = format!(
+            "---\nKanleaf ID: {}\nReference: KAN-42\nTitle: Old\nProject: []\nState: [Todo]\nType: [Task]\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\nExternal note: keep\n---\n\nBody\n",
+            properties().kanleaf_id
+        );
+
+        let patched = patch_with_cleanup(&source, &properties(), &["Type".to_owned()]).unwrap();
+
+        assert!(!patched.contains("Type:"));
+        assert!(patched.contains("External note: keep\n"));
+    }
+
+    #[test]
+    fn cleanup_replaces_legacy_type_with_one_custom_type_and_preserves_unknown_yaml() {
+        let source = format!(
+            "---\nKanleaf ID: {}\nReference: KAN-42\nTitle: Old\nProject: []\nState: [Todo]\nType: [Task]\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\n# external comment\nExternal nested:\n  owner: \"01\"\nExternal list: [one, two]\nExternal scalar: keep\n---\n\nBody\n",
+            properties().kanleaf_id
+        );
+        let mut values = properties();
+        values.custom = vec![CustomProperty {
+            name: "Type".to_owned(),
+            property_type: "single_select".to_owned(),
+            value: serde_json::json!("Bug"),
+        }];
+
+        let patched = patch_with_cleanup(&source, &values, &["Type".to_owned()]).unwrap();
+
+        assert_eq!(patched.matches("Type:").count(), 1);
+        assert!(patched.contains("Type: Bug\n"));
+        assert!(patched.contains(
+            "# external comment\nExternal nested:\n  owner: \"01\"\nExternal list: [one, two]\nExternal scalar: keep\n"
+        ));
+    }
+
+    #[test]
     fn exposes_only_unowned_top_level_fields_as_raw_values() {
         let source = format!(
             "---\nKanleaf ID: {}\nReference: KAN-42\nTitle: Task\nProject: []\nState: [Todo]\nType: [Task]\nPriority: []\nAssignees: []\nLabels: []\nCycle: []\nModules: []\nStart date:\nDue date:\nEstimate:\nParent: []\nImpact: High\nStory points: 3\nApproved: false\nContext:\n  customer: Acme\nPlatforms: [Web, Desktop]\n---\n\nBody\n",
@@ -735,6 +765,10 @@ mod tests {
         assert_eq!(
             undefined,
             vec![
+                UndefinedProperty {
+                    name: "Type".to_owned(),
+                    value: serde_json::json!(["Task"]),
+                },
                 UndefinedProperty {
                     name: "Story points".to_owned(),
                     value: serde_json::json!(3),
@@ -763,7 +797,7 @@ mod tests {
         );
         assert_eq!(
             source,
-            "---\nKanleaf ID: 8a86ccf1-7494-44ea-8fd1-b7c8d9e4f120\nReference: KAN-42\nTitle: Implement workspace export\nProject:\n  - Kanleaf\nState:\n  - In Progress\nType:\n  - Task\nPriority:\n  - High\nAssignees:\n  - user@example.com\nLabels:\n  - Backend\nCycle:\n  - Sprint 4\nModules:\n  - Vault\nStart date: 2026-08-30\nDue date: 2026-09-05\nEstimate: 3\nParent:\n  - KAN-12\n---\n\n# Export behavior\n\n---\n\n  Preserve spacing.  \n"
+            "---\nKanleaf ID: 8a86ccf1-7494-44ea-8fd1-b7c8d9e4f120\nReference: KAN-42\nTitle: Implement workspace export\nProject:\n  - Kanleaf\nState:\n  - In Progress\nPriority:\n  - High\nAssignees:\n  - user@example.com\nLabels:\n  - Backend\nCycle:\n  - Sprint 4\nModules:\n  - Vault\nStart date: 2026-08-30\nDue date: 2026-09-05\nEstimate: 3\nParent:\n  - KAN-12\n---\n\n# Export behavior\n\n---\n\n  Preserve spacing.  \n"
         );
         assert_eq!(
             body(&source).unwrap(),
