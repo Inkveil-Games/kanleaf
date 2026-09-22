@@ -240,7 +240,9 @@ export interface CustomPropertyOption {
   workspace_id: string;
   property_id: string;
   name: string;
+  icon: string | null;
   color: string;
+  description: string;
   position: number;
   archived_at: string | null;
   created_at: string;
@@ -255,6 +257,7 @@ export interface CustomPropertyDefinition {
   description: string;
   position: number;
   configuration: Record<string, never>;
+  default_option_id: string | null;
   options: CustomPropertyOption[];
   usage_count: number;
   archived_at: string | null;

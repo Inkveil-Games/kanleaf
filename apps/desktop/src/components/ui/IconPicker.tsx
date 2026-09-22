@@ -16,29 +16,31 @@ export interface IconPickerOption {
   icon: LucideIcon;
 }
 
-interface IconPickerProps {
+interface IconPickerProps<Value extends string | null> {
   ariaLabel: string;
   dialogLabel: string;
   fallbackIcon: LucideIcon;
   options: IconPickerOption[];
-  value: string;
-  onChange: (value: string) => void;
+  value: Value;
+  allowNone?: boolean;
+  onChange: (value: Value) => void;
   className?: string;
   disabled?: boolean;
   iconSize?: number;
 }
 
-export function IconPicker({
+export function IconPicker<Value extends string | null = string>({
   ariaLabel,
   dialogLabel,
   fallbackIcon,
   options,
   value,
+  allowNone = false,
   onChange,
   className,
   disabled = false,
   iconSize = 18,
-}: IconPickerProps) {
+}: IconPickerProps<Value>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
@@ -63,7 +65,7 @@ export function IconPicker({
   function moveIconFocus(event: KeyboardEvent<HTMLButtonElement>) {
     const buttons = Array.from(
       contentRef.current?.querySelectorAll<HTMLButtonElement>(
-        '.icon-picker-grid button',
+        '[data-icon-option]',
       ) ?? [],
     );
     const index = buttons.indexOf(event.currentTarget);
@@ -135,12 +137,31 @@ export function IconPicker({
               if (event.key !== 'ArrowDown') return;
               event.preventDefault();
               contentRef.current
-                ?.querySelector<HTMLButtonElement>('.icon-picker-grid button')
+                ?.querySelector<HTMLButtonElement>('[data-icon-option]')
                 ?.focus();
             }}
           />
         </label>
         <div className="icon-picker-results">
+          {allowNone &&
+          (!normalizedQuery ||
+            'no icon empty none'.includes(normalizedQuery)) ? (
+            <button
+              className="icon-picker-none"
+              type="button"
+              data-icon-option
+              aria-label="No icon"
+              aria-pressed={value === null}
+              onKeyDown={moveIconFocus}
+              onClick={() => {
+                onChange(null as Value);
+                setOpen(false);
+              }}
+            >
+              <span aria-hidden="true">—</span>
+              No icon
+            </button>
+          ) : null}
           {groups.map((group) => (
             <section key={group} aria-labelledby={`icons-${slugId(group)}`}>
               <h3 id={`icons-${slugId(group)}`}>{group}</h3>
@@ -151,12 +172,13 @@ export function IconPicker({
                     <button
                       key={option.key}
                       type="button"
+                      data-icon-option
                       aria-label={option.label}
                       aria-pressed={option.key === value}
                       title={option.label}
                       onKeyDown={moveIconFocus}
                       onClick={() => {
-                        onChange(option.key);
+                        onChange(option.key as Value);
                         setOpen(false);
                       }}
                     >

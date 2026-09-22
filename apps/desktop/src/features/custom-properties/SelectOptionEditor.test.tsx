@@ -1,24 +1,28 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  SelectOptionEditor,
-  type SelectOptionDraft,
-} from './SelectOptionEditor';
+  SelectValueEditor,
+  type SelectValueDraft,
+} from '../settings/SelectValueEditor';
 
-const option: SelectOptionDraft = {
+const option: SelectValueDraft = {
   key: 'option-high',
   id: 'option-high',
   name: 'High',
+  icon: null,
   color: '#EF4444',
+  description: '',
 };
 
-describe('SelectOptionEditor', () => {
+describe('custom property SelectValueEditor', () => {
   it('edits and adds options through the shared option surface', () => {
     const onChange = vi.fn();
     const { rerender } = render(
-      <SelectOptionEditor
+      <SelectValueEditor
         disabled={false}
-        options={[option]}
+        itemLabel="option"
+        addLabel="Add option"
+        values={[option]}
         onChange={onChange}
       />,
     );
@@ -32,20 +36,32 @@ describe('SelectOptionEditor', () => {
 
     onChange.mockClear();
     rerender(
-      <SelectOptionEditor disabled={false} options={[]} onChange={onChange} />,
+      <SelectValueEditor
+        disabled={false}
+        itemLabel="option"
+        addLabel="Add option"
+        values={[]}
+        onChange={onChange}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Add option' }));
     expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({ name: '', color: '#64748B' }),
+      expect.objectContaining({
+        name: '',
+        icon: null,
+        color: '#64748B',
+        description: '',
+      }),
     ]);
   });
 
   it('archives, restores, and confirms deletion of a persisted option', () => {
     const onChange = vi.fn();
     const { rerender } = render(
-      <SelectOptionEditor
+      <SelectValueEditor
         disabled={false}
-        options={[option]}
+        itemLabel="option"
+        values={[option]}
         onChange={onChange}
       />,
     );
@@ -58,9 +74,10 @@ describe('SelectOptionEditor', () => {
 
     onChange.mockClear();
     rerender(
-      <SelectOptionEditor
+      <SelectValueEditor
         disabled={false}
-        options={[{ ...option, archived: true }]}
+        itemLabel="option"
+        values={[{ ...option, archived: true }]}
         onChange={onChange}
       />,
     );

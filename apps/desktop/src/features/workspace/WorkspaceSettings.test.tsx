@@ -125,13 +125,16 @@ describe('WorkspaceSettings', () => {
       description: '',
       position: 0,
       configuration: {},
+      default_option_id: null,
       options: [
         {
           id: 'web-option',
           workspace_id: workspace.id,
           property_id: 'property-1',
           name: 'Web',
+          icon: null,
           color: '#3B82F6',
+          description: '',
           position: 0,
           archived_at: null,
           created_at: '2026-09-03T01:00:00Z',
@@ -142,7 +145,9 @@ describe('WorkspaceSettings', () => {
           workspace_id: workspace.id,
           property_id: 'property-1',
           name: 'Desktop',
+          icon: null,
           color: '#8B5CF6',
+          description: '',
           position: 1,
           archived_at: null,
           created_at: '2026-09-03T01:00:00Z',
@@ -196,11 +201,14 @@ describe('WorkspaceSettings', () => {
           body: JSON.stringify({
             name: 'Platforms',
             description: '',
+            default_option_id: null,
             options: [
               {
                 id: 'desktop-option',
                 name: 'Desktop',
+                icon: null,
                 color: '#8B5CF6',
+                description: '',
                 archived: false,
               },
             ],

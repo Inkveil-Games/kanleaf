@@ -57,6 +57,10 @@ describe('IconPicker', () => {
     expect(screen.getByRole('button', { name: 'Task' })).toHaveFocus();
     fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
     expect(screen.getByRole('button', { name: 'Bug' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'End' });
+    expect(screen.getByRole('button', { name: 'Star' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Home' });
+    expect(screen.getByRole('button', { name: 'Task' })).toHaveFocus();
     await user.keyboard('[Escape]');
 
     await waitFor(() => {
@@ -82,6 +86,38 @@ describe('IconPicker', () => {
 
     const trigger = screen.getByRole('button', { name: 'Choose icon' });
     expect(trigger).toBeDisabled();
-    expect(trigger.querySelector('.lucide-blocks')).not.toBeNull();
+    const fallback = trigger.querySelector('.lucide-blocks');
+    expect(fallback).not.toBeNull();
+    expect(fallback).toHaveAttribute('stroke', 'currentColor');
+  });
+
+  it('offers an explicit keyboard-reachable No icon choice', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <IconPicker
+        allowNone
+        ariaLabel="Choose icon"
+        dialogLabel="Available icons"
+        fallbackIcon={Blocks}
+        options={options}
+        value={null}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Choose icon' }));
+    expect(
+      screen.getByRole('heading', { name: 'Work', level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'General', level: 3 }),
+    ).toBeInTheDocument();
+
+    const search = screen.getByRole('searchbox', { name: 'Search icons' });
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: 'No icon' })).toHaveFocus();
+    await user.keyboard('[Space]');
+    expect(onChange).toHaveBeenCalledWith(null);
   });
 });

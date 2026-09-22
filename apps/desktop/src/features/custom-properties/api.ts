@@ -9,8 +9,11 @@ import type {
 } from '../workspace/types';
 
 export interface PropertyOptionCreateInput {
+  id?: string;
   name: string;
+  icon: string | null;
   color: string;
+  description: string;
 }
 
 export interface PropertyOptionSaveInput extends PropertyOptionCreateInput {
@@ -22,6 +25,7 @@ export interface PropertyCreateInput {
   name: string;
   type: CustomPropertyType;
   description: string;
+  default_option_id?: string | null;
   options?: PropertyOptionCreateInput[];
 }
 
@@ -72,6 +76,7 @@ export function updateProperty(
   patch: {
     name?: string;
     description?: string;
+    default_option_id?: string | null;
     archived?: boolean;
     options?: PropertyOptionSaveInput[];
   },
