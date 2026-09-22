@@ -459,9 +459,11 @@ pub(super) fn validate_staging(
                 identity: identity.clone(),
                 properties,
                 path,
-                cleanup_property_names: legacy_configuration
-                    .then(|| vec!["Type".to_owned()])
-                    .unwrap_or_default(),
+                cleanup_property_names: if legacy_configuration {
+                    vec!["Type".to_owned()]
+                } else {
+                    Vec::new()
+                },
             },
         );
     }

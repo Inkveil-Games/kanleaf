@@ -255,12 +255,14 @@ pub(super) async fn create(
                 &mut transaction,
                 workspace_id,
                 property_id,
-                option.id,
-                option.name.as_str(),
-                option.icon.as_ref().map(SelectOptionIcon::as_str),
-                option.color.as_str(),
-                option.description.as_str(),
-                position as i32,
+                NewPropertyOption {
+                    id: option.id,
+                    name: option.name.as_str(),
+                    icon: option.icon.as_ref().map(SelectOptionIcon::as_str),
+                    color: option.color.as_str(),
+                    description: option.description.as_str(),
+                    position: position as i32,
+                },
             )
             .await?,
         );
@@ -411,12 +413,14 @@ pub(super) async fn define(
                 &mut transaction,
                 workspace_id,
                 property_id,
-                option.id,
-                option.name.as_str(),
-                option.icon.as_ref().map(SelectOptionIcon::as_str),
-                option.color.as_str(),
-                option.description.as_str(),
-                position as i32,
+                NewPropertyOption {
+                    id: option.id,
+                    name: option.name.as_str(),
+                    icon: option.icon.as_ref().map(SelectOptionIcon::as_str),
+                    color: option.color.as_str(),
+                    description: option.description.as_str(),
+                    position: position as i32,
+                },
             )
             .await?,
         );
@@ -798,12 +802,14 @@ pub(super) async fn create_option(
         &mut transaction,
         workspace_id,
         property_id,
-        request.id,
-        name.as_str(),
-        icon.as_ref().map(SelectOptionIcon::as_str),
-        color.as_str(),
-        description.as_str(),
-        position,
+        NewPropertyOption {
+            id: request.id,
+            name: name.as_str(),
+            icon: icon.as_ref().map(SelectOptionIcon::as_str),
+            color: color.as_str(),
+            description: description.as_str(),
+            position,
+        },
     )
     .await?;
     transaction.commit().await?;
@@ -1110,12 +1116,14 @@ async fn replace_options(
                     transaction,
                     workspace_id,
                     property_id,
-                    None,
-                    name.as_str(),
-                    icon.as_ref().map(SelectOptionIcon::as_str),
-                    color.as_str(),
-                    description.as_str(),
-                    position,
+                    NewPropertyOption {
+                        id: None,
+                        name: name.as_str(),
+                        icon: icon.as_ref().map(SelectOptionIcon::as_str),
+                        color: color.as_str(),
+                        description: description.as_str(),
+                        position,
+                    },
                 )
                 .await?;
             }
@@ -1362,16 +1370,20 @@ fn validate_requested_default(
     Ok(())
 }
 
+struct NewPropertyOption<'a> {
+    id: Option<Uuid>,
+    name: &'a str,
+    icon: Option<&'a str>,
+    color: &'a str,
+    description: &'a str,
+    position: i32,
+}
+
 async fn insert_option(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     property_id: Uuid,
-    option_id: Option<Uuid>,
-    name: &str,
-    icon: Option<&str>,
-    color: &str,
-    description: &str,
-    position: i32,
+    option: NewPropertyOption<'_>,
 ) -> Result<PropertyOptionResponse, AppError> {
     let inserted = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
@@ -1382,14 +1394,14 @@ async fn insert_option(
                   archived_at, created_at, updated_at
         "#,
     )
-    .bind(option_id.unwrap_or_else(Uuid::new_v4))
+    .bind(option.id.unwrap_or_else(Uuid::new_v4))
     .bind(workspace_id)
     .bind(property_id)
-    .bind(name)
-    .bind(icon)
-    .bind(color)
-    .bind(description)
-    .bind(position)
+    .bind(option.name)
+    .bind(option.icon)
+    .bind(option.color)
+    .bind(option.description)
+    .bind(option.position)
     .fetch_one(&mut **transaction)
     .await;
     match inserted {
