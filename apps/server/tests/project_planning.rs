@@ -228,10 +228,22 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         .as_array()
         .unwrap()
         .iter()
-        .find(|state| state["state_group"] == "done")
+        .find(|state| state["system_role"] == "done")
         .unwrap()["id"]
         .as_str()
         .unwrap();
+    let canceled_state = create_json(
+        &app,
+        &owner_token,
+        &format!("/api/workspaces/{workspace_id}/states"),
+        json!({
+            "name": "Canceled",
+            "icon": "circle-x",
+            "color": "#A1A1AA",
+            "description": "Stopped without completion"
+        }),
+    )
+    .await;
     let tasks_uri = format!("/api/workspaces/{workspace_id}/tasks");
     let incomplete = create_json(
         &app,
@@ -259,6 +271,20 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
             "module_ids": [backend_id],
             "state_id": done_state,
             "estimate": 3
+        }),
+    )
+    .await;
+    let canceled = create_json(
+        &app,
+        &contributor_token,
+        &tasks_uri,
+        json!({
+            "title": "Stopped custom state",
+            "project_id": project_id,
+            "cycle_id": current_id,
+            "module_ids": [backend_id],
+            "state_id": canceled_state["id"],
+            "estimate": 2
         }),
     )
     .await;
@@ -319,8 +345,15 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         &format!("{tasks_uri}/{}", done["id"].as_str().unwrap()),
     )
     .await;
+    let canceled = get_json(
+        &app,
+        &contributor_token,
+        &format!("{tasks_uri}/{}", canceled["id"].as_str().unwrap()),
+    )
+    .await;
     assert_eq!(incomplete["cycle"]["id"], future_id);
     assert_eq!(done["cycle"]["id"], current_id);
+    assert_eq!(canceled["cycle"]["id"], future_id);
 
     let cycles = get_json(&app, &contributor_token, &cycles_uri).await;
     let completed = cycles
@@ -340,14 +373,14 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         &format!("{tasks_uri}?cycle_id={future_id}"),
     )
     .await;
-    assert_eq!(by_cycle.as_array().unwrap().len(), 1);
+    assert_eq!(by_cycle.as_array().unwrap().len(), 2);
     let by_module = get_json(
         &app,
         &contributor_token,
         &format!("{tasks_uri}?module_id={backend_id}"),
     )
     .await;
-    assert_eq!(by_module.as_array().unwrap().len(), 2);
+    assert_eq!(by_module.as_array().unwrap().len(), 3);
 
     let contributor_archive = send(
         &app,

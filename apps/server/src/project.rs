@@ -27,7 +27,7 @@ use crate::{
     },
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
-    task_config::{validate_state_assignment, validate_task_type_assignment},
+    task_config::validate_state_assignment,
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -49,12 +49,10 @@ pub struct ProjectResponse {
     pub visibility: String,
     pub default_assignee_id: Option<Uuid>,
     pub default_state_id: Uuid,
-    pub default_task_type_id: Uuid,
     pub cycles_enabled: bool,
     pub modules_enabled: bool,
     pub pages_enabled: bool,
     pub views_enabled: bool,
-    pub enabled_task_type_ids: Vec<Uuid>,
     pub effective_role: Option<String>,
     pub can_join: bool,
     pub archived_at: Option<DateTime<Utc>>,
@@ -96,10 +94,6 @@ struct UpdateProjectRequest {
     default_assignee_id: Option<Option<Uuid>>,
     #[serde(default)]
     default_state_id: Option<Uuid>,
-    #[serde(default)]
-    default_task_type_id: Option<Uuid>,
-    #[serde(default)]
-    enabled_task_type_ids: Option<Vec<Uuid>>,
     #[serde(default)]
     cycles_enabled: Option<bool>,
     #[serde(default)]
@@ -158,17 +152,9 @@ async fn list_archived(
         SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.icon, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
-               projects.default_state_id, projects.default_task_type_id,
+               projects.default_state_id,
                projects.cycles_enabled, projects.modules_enabled,
                projects.pages_enabled, projects.views_enabled,
-               ARRAY(
-                   SELECT project_task_types.task_type_id
-                   FROM project_task_types
-                   JOIN task_types ON task_types.id = project_task_types.task_type_id
-                   WHERE project_task_types.workspace_id = projects.workspace_id
-                     AND project_task_types.project_id = projects.id
-                   ORDER BY task_types.position, task_types.id
-               ) AS enabled_task_type_ids,
                CASE
                    WHEN workspace_memberships.role IN ('owner', 'admin') THEN 'admin'
                    ELSE project_memberships.role
@@ -214,17 +200,9 @@ async fn list(
         SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.icon, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
-               projects.default_state_id, projects.default_task_type_id,
+               projects.default_state_id,
                projects.cycles_enabled, projects.modules_enabled,
                projects.pages_enabled, projects.views_enabled,
-               ARRAY(
-                   SELECT project_task_types.task_type_id
-                   FROM project_task_types
-                   JOIN task_types ON task_types.id = project_task_types.task_type_id
-                   WHERE project_task_types.workspace_id = projects.workspace_id
-                     AND project_task_types.project_id = projects.id
-                   ORDER BY task_types.position, task_types.id
-               ) AS enabled_task_type_ids,
                CASE
                    WHEN workspace_memberships.role IN ('owner', 'admin') THEN 'admin'
                    ELSE project_memberships.role
@@ -336,10 +314,10 @@ async fn create(
         r#"
         INSERT INTO projects (
             id, workspace_id, name, storage_name, identifier, description, icon,
-            visibility, lead_user_id, default_state_id, default_task_type_id
+            visibility, lead_user_id, default_state_id
         )
         SELECT $1, id, $3, $4, $5, $6, $7, $8, $9,
-               default_inbox_state_id, default_task_type_id
+               default_inbox_state_id
         FROM workspaces
         WHERE id = $2
         "#,
@@ -364,18 +342,6 @@ async fn create(
         }
         Err(error) => return Err(error.into()),
     }
-    sqlx::query(
-        r#"
-        INSERT INTO project_task_types (workspace_id, project_id, task_type_id)
-        SELECT workspace_id, $1, id
-        FROM task_types
-        WHERE workspace_id = $2 AND archived_at IS NULL
-        "#,
-    )
-    .bind(project_id)
-    .bind(workspace_id)
-    .execute(&mut *transaction)
-    .await?;
     if role == WorkspaceRole::Member {
         sqlx::query(
             r#"
@@ -442,9 +408,9 @@ async fn update(
 
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
-    let (current_state_id, current_type_id): (Uuid, Uuid) = sqlx::query_as(
+    let current_state_id: Uuid = sqlx::query_scalar(
         r#"
-        SELECT default_state_id, default_task_type_id
+        SELECT default_state_id
         FROM projects
         WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL
         FOR UPDATE
@@ -457,16 +423,8 @@ async fn update(
     .ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
 
     let default_state_id = request.default_state_id.unwrap_or(current_state_id);
-    let default_task_type_id = request.default_task_type_id.unwrap_or(current_type_id);
     if request.default_state_id.is_some() {
         validate_state_assignment(&mut transaction, workspace_id, default_state_id).await?;
-    }
-    if request.default_task_type_id.is_some() || request.enabled_task_type_ids.is_some() {
-        validate_task_type_assignment(&mut transaction, workspace_id, None, default_task_type_id)
-            .await?;
-    }
-    if let Some(ids) = &request.enabled_task_type_ids {
-        validate_enabled_types(&mut transaction, workspace_id, ids, default_task_type_id).await?;
     }
     if let Some(Some(user_id)) = request.lead_user_id {
         validate_project_admin_candidate(&mut transaction, workspace_id, project_id, user_id)
@@ -490,13 +448,12 @@ async fn update(
             visibility = COALESCE($5, visibility),
             default_assignee_id = CASE WHEN $6 THEN $7 ELSE default_assignee_id END,
             default_state_id = COALESCE($8, default_state_id),
-            default_task_type_id = COALESCE($9, default_task_type_id),
-            cycles_enabled = COALESCE($10, cycles_enabled),
-            modules_enabled = COALESCE($11, modules_enabled),
-            pages_enabled = COALESCE($12, pages_enabled),
-            views_enabled = COALESCE($13, views_enabled),
+            cycles_enabled = COALESCE($9, cycles_enabled),
+            modules_enabled = COALESCE($10, modules_enabled),
+            pages_enabled = COALESCE($11, pages_enabled),
+            views_enabled = COALESCE($12, views_enabled),
             updated_at = now()
-        WHERE workspace_id = $14 AND id = $15 AND archived_at IS NULL
+        WHERE workspace_id = $13 AND id = $14 AND archived_at IS NULL
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
@@ -507,7 +464,6 @@ async fn update(
     .bind(assignee_changed)
     .bind(default_assignee_id)
     .bind(request.default_state_id)
-    .bind(request.default_task_type_id)
     .bind(request.cycles_enabled)
     .bind(request.modules_enabled)
     .bind(request.pages_enabled)
@@ -524,27 +480,6 @@ async fn update(
             ));
         }
         Err(error) => return Err(error.into()),
-    }
-    if let Some(ids) = request.enabled_task_type_ids {
-        sqlx::query("DELETE FROM project_task_types WHERE workspace_id = $1 AND project_id = $2")
-            .bind(workspace_id)
-            .bind(project_id)
-            .execute(&mut *transaction)
-            .await?;
-        for task_type_id in ids {
-            sqlx::query(
-                r#"
-                INSERT INTO project_task_types
-                    (workspace_id, project_id, task_type_id)
-                VALUES ($1, $2, $3)
-                "#,
-            )
-            .bind(workspace_id)
-            .bind(project_id)
-            .bind(task_type_id)
-            .execute(&mut *transaction)
-            .await?;
-        }
     }
     let task_ids = if projects_task_metadata {
         sqlx::query_scalar(
@@ -781,8 +716,6 @@ impl UpdateProjectRequest {
             && self.visibility.is_none()
             && self.default_assignee_id.is_none()
             && self.default_state_id.is_none()
-            && self.default_task_type_id.is_none()
-            && self.enabled_task_type_ids.is_none()
             && self.cycles_enabled.is_none()
             && self.modules_enabled.is_none()
             && self.pages_enabled.is_none()
@@ -801,17 +734,9 @@ async fn select_project(
         SELECT projects.id, projects.workspace_id, projects.name, projects.storage_name,
                projects.identifier, projects.description, projects.icon, projects.lead_user_id,
                projects.visibility, projects.default_assignee_id,
-               projects.default_state_id, projects.default_task_type_id,
+               projects.default_state_id,
                projects.cycles_enabled, projects.modules_enabled,
                projects.pages_enabled, projects.views_enabled,
-               ARRAY(
-                   SELECT project_task_types.task_type_id
-                   FROM project_task_types
-                   JOIN task_types ON task_types.id = project_task_types.task_type_id
-                   WHERE project_task_types.workspace_id = projects.workspace_id
-                     AND project_task_types.project_id = projects.id
-                   ORDER BY task_types.position, task_types.id
-               ) AS enabled_task_type_ids,
                CASE
                    WHEN workspace_memberships.role IN ('owner', 'admin') THEN 'admin'
                    ELSE project_memberships.role
@@ -861,36 +786,6 @@ async fn generate_identifier(
     Err(AppError::Conflict(
         "Could not allocate a unique Project identifier".to_owned(),
     ))
-}
-
-async fn validate_enabled_types(
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    ids: &[Uuid],
-    default_task_type_id: Uuid,
-) -> Result<(), AppError> {
-    let unique: HashSet<_> = ids.iter().copied().collect();
-    if ids.is_empty() || unique.len() != ids.len() || !unique.contains(&default_task_type_id) {
-        return Err(AppError::Validation(
-            "Enabled types must be unique and include the Project default".to_owned(),
-        ));
-    }
-    let available: i64 = sqlx::query_scalar(
-        r#"
-        SELECT count(*) FROM task_types
-        WHERE workspace_id = $1 AND archived_at IS NULL AND id = ANY($2)
-        "#,
-    )
-    .bind(workspace_id)
-    .bind(ids)
-    .fetch_one(&mut **transaction)
-    .await?;
-    if usize::try_from(available).ok() != Some(ids.len()) {
-        return Err(AppError::Validation(
-            "Every enabled task type must be active in this Workspace".to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 async fn validate_project_admin_candidate(

@@ -1199,7 +1199,7 @@ fn validate_view_query(
     query: &TaskQuery,
     view_project_id: Option<Uuid>,
     state_ids: &HashSet<Uuid>,
-    type_ids: &HashSet<Uuid>,
+    _type_ids: &HashSet<Uuid>,
     label_ids: &HashSet<Uuid>,
     project_ids: &HashSet<Uuid>,
     cycle_projects: &HashMap<Uuid, Uuid>,
@@ -1225,12 +1225,6 @@ fn validate_view_query(
             .values
             .iter()
             .all(|id| state_ids.contains(id))
-        || !query
-            .filters
-            .task_types
-            .values
-            .iter()
-            .all(|id| type_ids.contains(id))
         || !query
             .filters
             .labels

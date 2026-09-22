@@ -76,23 +76,17 @@ struct WorkspaceTaskConfiguration {
 
 pub(crate) struct NewWorkspaceTaskConfiguration {
     state_ids: [Uuid; 3],
-    legacy_task_type_id: Uuid,
 }
 
 impl NewWorkspaceTaskConfiguration {
     pub(crate) fn new() -> Self {
         Self {
             state_ids: std::array::from_fn(|_| Uuid::new_v4()),
-            legacy_task_type_id: Uuid::new_v4(),
         }
     }
 
     pub(crate) const fn default_state_id(&self) -> Uuid {
         self.state_ids[0]
-    }
-
-    pub(crate) const fn default_task_type_id(&self) -> Uuid {
-        self.legacy_task_type_id
     }
 
     pub(crate) async fn install(
@@ -117,9 +111,8 @@ impl NewWorkspaceTaskConfiguration {
             sqlx::query(
                 r#"
                 INSERT INTO task_states
-                    (id, workspace_id, name, icon, color, state_group,
-                     system_role, position)
-                VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
+                    (id, workspace_id, name, icon, color, system_role, position)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
             )
             .bind(state_id)
@@ -133,18 +126,6 @@ impl NewWorkspaceTaskConfiguration {
             .await?;
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO task_types
-                (id, workspace_id, name, icon, color, description, position, is_protected)
-            VALUES ($1, $2, 'Task', 'check-square', '#64748B',
-                    'General work item', 0, true)
-            "#,
-        )
-        .bind(self.legacy_task_type_id)
-        .bind(workspace_id)
-        .execute(&mut **transaction)
-        .await?;
         Ok(())
     }
 }
@@ -284,22 +265,17 @@ async fn load_configuration(
     .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))
 }
 
-pub(crate) async fn resolve_task_defaults(
+pub(crate) async fn resolve_task_default(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     project_id: Option<Uuid>,
-) -> Result<(Uuid, Uuid), AppError> {
-    sqlx::query_as(
+) -> Result<Uuid, AppError> {
+    sqlx::query_scalar(
         r#"
-        SELECT
-            CASE WHEN $2::uuid IS NULL
-                THEN workspaces.default_inbox_state_id
-                ELSE projects.default_state_id
-            END,
-            CASE WHEN $2::uuid IS NULL
-                THEN workspaces.default_task_type_id
-                ELSE projects.default_task_type_id
-            END
+        SELECT CASE WHEN $2::uuid IS NULL
+            THEN workspaces.default_inbox_state_id
+            ELSE projects.default_state_id
+        END
         FROM workspaces
         LEFT JOIN projects
           ON projects.workspace_id = workspaces.id
@@ -336,44 +312,6 @@ pub(crate) async fn validate_state_assignment(
     if !exists {
         return Err(AppError::Validation(
             "Task state is unavailable in this Workspace".to_owned(),
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) async fn validate_task_type_assignment(
-    transaction: &mut Transaction<'_, Postgres>,
-    workspace_id: Uuid,
-    project_id: Option<Uuid>,
-    task_type_id: Uuid,
-) -> Result<(), AppError> {
-    let exists: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS(
-            SELECT 1
-            FROM task_types
-            WHERE task_types.id = $1
-              AND task_types.workspace_id = $2
-              AND task_types.archived_at IS NULL
-              AND (
-                  $3::uuid IS NULL OR EXISTS (
-                      SELECT 1 FROM project_task_types
-                      WHERE project_task_types.workspace_id = $2
-                        AND project_task_types.project_id = $3
-                        AND project_task_types.task_type_id = $1
-                  )
-              )
-        )
-        "#,
-    )
-    .bind(task_type_id)
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_one(&mut **transaction)
-    .await?;
-    if !exists {
-        return Err(AppError::Validation(
-            "Task type is unavailable for this Task location".to_owned(),
         ));
     }
     Ok(())

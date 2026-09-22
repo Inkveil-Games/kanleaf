@@ -108,8 +108,8 @@ pub(super) async fn create(
     let created = sqlx::query_as::<_, TaskStateResponse>(
         r#"
         INSERT INTO task_states
-            (id, workspace_id, name, icon, color, description, state_group, position)
-        VALUES ($1, $2, $3, $4, $5, $6, 'todo', $7)
+            (id, workspace_id, name, icon, color, description, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, workspace_id, name, icon, color, description, system_role,
                   position, archived_at, created_at, updated_at
         "#,

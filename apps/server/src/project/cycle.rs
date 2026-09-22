@@ -152,7 +152,7 @@ async fn list(
                 JOIN tasks ON tasks.id = assignments.task_id
                 JOIN task_states AS states ON states.id = tasks.state_id
                 WHERE assignments.cycle_id = cycles.id
-                  AND states.state_group IN ('done', 'canceled')) AS completed_tasks,
+                  AND states.system_role = 'done') AS completed_tasks,
                (SELECT COALESCE(sum(tasks.estimate), 0) FROM task_cycle_assignments AS assignments
                 JOIN tasks ON tasks.id = assignments.task_id
                 WHERE assignments.cycle_id = cycles.id) AS total_estimate,
@@ -160,7 +160,7 @@ async fn list(
                 JOIN tasks ON tasks.id = assignments.task_id
                 JOIN task_states AS states ON states.id = tasks.state_id
                 WHERE assignments.cycle_id = cycles.id
-                  AND states.state_group IN ('done', 'canceled')) AS completed_estimate,
+                  AND states.system_role = 'done') AS completed_estimate,
                cycles.completed_at, cycles.archived_at,
                cycles.created_at, cycles.updated_at
         FROM project_cycles AS cycles
@@ -412,7 +412,7 @@ async fn complete(
         WHERE assignments.workspace_id = $1
           AND assignments.project_id = $2
           AND assignments.cycle_id = $3
-          AND states.state_group NOT IN ('done', 'canceled')
+          AND states.system_role IS DISTINCT FROM 'done'
         ORDER BY assignments.task_id
         "#,
     )
@@ -452,7 +452,7 @@ async fn complete(
               AND assignments.project_id = $3
               AND assignments.cycle_id = $4
               AND tasks.id = assignments.task_id
-              AND states.state_group NOT IN ('done', 'canceled')
+              AND states.system_role IS DISTINCT FROM 'done'
             "#,
         )
         .bind(target_id)
@@ -471,7 +471,7 @@ async fn complete(
               AND assignments.cycle_id = $3
               AND tasks.id = assignments.task_id
               AND states.id = tasks.state_id
-              AND states.state_group NOT IN ('done', 'canceled')
+              AND states.system_role IS DISTINCT FROM 'done'
             "#,
         )
         .bind(workspace_id)
@@ -564,7 +564,7 @@ async fn find_cycle(
                 JOIN tasks ON tasks.id = assignments.task_id
                 JOIN task_states AS states ON states.id = tasks.state_id
                 WHERE assignments.cycle_id = cycles.id
-                  AND states.state_group IN ('done', 'canceled')) AS completed_tasks,
+                  AND states.system_role = 'done') AS completed_tasks,
                (SELECT COALESCE(sum(tasks.estimate), 0) FROM task_cycle_assignments AS assignments
                 JOIN tasks ON tasks.id = assignments.task_id
                 WHERE assignments.cycle_id = cycles.id) AS total_estimate,
@@ -572,7 +572,7 @@ async fn find_cycle(
                 JOIN tasks ON tasks.id = assignments.task_id
                 JOIN task_states AS states ON states.id = tasks.state_id
                 WHERE assignments.cycle_id = cycles.id
-                  AND states.state_group IN ('done', 'canceled')) AS completed_estimate,
+                  AND states.system_role = 'done') AS completed_estimate,
                cycles.completed_at, cycles.archived_at,
                cycles.created_at, cycles.updated_at
         FROM project_cycles AS cycles

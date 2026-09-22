@@ -249,10 +249,9 @@ async fn create(
     let workspace = sqlx::query_as::<_, WorkspaceResponse>(
         r#"
         INSERT INTO workspaces (
-            id, name, identifier, accent, default_inbox_state_id, default_task_type_id,
-            vault_layout_version
+            id, name, identifier, accent, default_inbox_state_id, vault_layout_version
         )
-        VALUES ($1, $2, $3, $4, $5, $6, 2)
+        VALUES ($1, $2, $3, $4, $5, 2)
         RETURNING id, name, identifier, accent, 'owner'::text AS role, created_at, updated_at
         "#,
     )
@@ -261,7 +260,6 @@ async fn create(
     .bind(identifier.as_str())
     .bind(accent.as_str())
     .bind(task_configuration.default_state_id())
-    .bind(task_configuration.default_task_type_id())
     .fetch_one(&mut *transaction)
     .await?;
     task_configuration

@@ -42,10 +42,7 @@ use crate::{
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
     realtime::RealtimeEvent,
-    task_config::{
-        lock_workspace_for_assignment, resolve_task_defaults, validate_state_assignment,
-        validate_task_type_assignment,
-    },
+    task_config::{lock_workspace_for_assignment, resolve_task_default, validate_state_assignment},
     vault::{TaskPath, VaultError, content_revision},
     workspace::{require_workspace_member, workspace_role},
 };
@@ -69,8 +66,6 @@ pub(crate) struct CreateTaskRequest {
     project_id: Option<Uuid>,
     #[serde(default)]
     state_id: Option<Uuid>,
-    #[serde(default)]
-    task_type_id: Option<Uuid>,
     #[serde(default)]
     priority: TaskPriority,
     #[serde(default)]
@@ -97,8 +92,6 @@ pub(crate) struct UpdateTaskRequest {
     pub(crate) title: Option<String>,
     #[serde(default)]
     pub(crate) state_id: Option<Uuid>,
-    #[serde(default)]
-    pub(crate) task_type_id: Option<Uuid>,
     #[serde(default)]
     pub(crate) priority: Option<TaskPriority>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
@@ -132,7 +125,6 @@ pub(crate) struct TaskFilters {
     my_work: bool,
     query: Option<String>,
     state_id: Option<Uuid>,
-    task_type_id: Option<Uuid>,
     priority: Option<TaskPriority>,
     assignee_id: Option<Uuid>,
     label_id: Option<Uuid>,
@@ -180,7 +172,6 @@ struct CurrentTask {
     title: String,
     project_id: Option<Uuid>,
     state_id: Uuid,
-    task_type_id: Uuid,
     priority: String,
     start_date: Option<NaiveDate>,
     due_date: Option<NaiveDate>,
@@ -344,18 +335,10 @@ pub(crate) async fn create(
     .await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
-    let defaults =
-        resolve_task_defaults(&mut transaction, workspace_id, request.project_id).await?;
-    let state_id = request.state_id.unwrap_or(defaults.0);
-    let task_type_id = request.task_type_id.unwrap_or(defaults.1);
+    let default_state_id =
+        resolve_task_default(&mut transaction, workspace_id, request.project_id).await?;
+    let state_id = request.state_id.unwrap_or(default_state_id);
     validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
-    validate_task_type_assignment(
-        &mut transaction,
-        workspace_id,
-        request.project_id,
-        task_type_id,
-    )
-    .await?;
     let assignee_ids = match request.assignee_ids {
         Some(ids) => unique_ids(&ids, "Task assignees cannot contain duplicates")?,
         None => default_assignees(&mut transaction, workspace_id, request.project_id).await?,
@@ -403,8 +386,8 @@ pub(crate) async fn create(
         r#"
         INSERT INTO tasks
             (id, workspace_id, project_id, task_number, title, storage_name,
-             state_id, task_type_id, priority, start_date, due_date, estimate, parent_id, position)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             state_id, priority, start_date, due_date, estimate, parent_id, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(task_id)
@@ -414,7 +397,6 @@ pub(crate) async fn create(
     .bind(title.as_str())
     .bind(storage_name.as_str())
     .bind(state_id)
-    .bind(task_type_id)
     .bind(request.priority.as_str())
     .bind(request.start_date)
     .bind(request.due_date)
@@ -566,7 +548,6 @@ pub(crate) async fn update_task_with_properties(
 ) -> Result<TaskResponse, AppError> {
     if request.title.is_none()
         && request.state_id.is_none()
-        && request.task_type_id.is_none()
         && request.priority.is_none()
         && request.project_id.is_none()
         && request.start_date.is_none()
@@ -592,7 +573,7 @@ pub(crate) async fn update_task_with_properties(
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let current: CurrentTask = sqlx::query_as(
         r#"
-        SELECT title, project_id, state_id, task_type_id, priority,
+        SELECT title, project_id, state_id, priority,
                start_date, due_date, estimate, parent_id
         FROM tasks
         WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
@@ -628,27 +609,6 @@ pub(crate) async fn update_task_with_properties(
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
     }
-    let mut target_task_type = request.task_type_id.unwrap_or(current.task_type_id);
-    if request.task_type_id.is_some() || project_changed {
-        let task_type_result = validate_task_type_assignment(
-            &mut transaction,
-            workspace_id,
-            target_project,
-            target_task_type,
-        )
-        .await;
-        match task_type_result {
-            Ok(()) => {}
-            Err(AppError::Validation(_)) if project_changed && request.cleanup_invalid => {
-                target_task_type =
-                    resolve_task_defaults(&mut transaction, workspace_id, target_project)
-                        .await?
-                        .1;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
     let target_start_date = request.start_date.unwrap_or(current.start_date);
     let target_due_date = request.due_date.unwrap_or(current.due_date);
     let target_estimate = request.estimate.unwrap_or(current.estimate);
@@ -804,20 +764,18 @@ pub(crate) async fn update_task_with_properties(
         UPDATE tasks
         SET title = COALESCE($1, title),
             state_id = COALESCE($2, state_id),
-            task_type_id = $3,
-            priority = COALESCE($4, priority),
-            project_id = CASE WHEN $5 THEN $6 ELSE project_id END,
-            start_date = CASE WHEN $7 THEN $8 ELSE start_date END,
-            due_date = CASE WHEN $9 THEN $10 ELSE due_date END,
-            estimate = CASE WHEN $11 THEN $12 ELSE estimate END,
-            parent_id = CASE WHEN $13 THEN $14 ELSE parent_id END,
+            priority = COALESCE($3, priority),
+            project_id = CASE WHEN $4 THEN $5 ELSE project_id END,
+            start_date = CASE WHEN $6 THEN $7 ELSE start_date END,
+            due_date = CASE WHEN $8 THEN $9 ELSE due_date END,
+            estimate = CASE WHEN $10 THEN $11 ELSE estimate END,
+            parent_id = CASE WHEN $12 THEN $13 ELSE parent_id END,
             updated_at = now()
-        WHERE id = $15 AND workspace_id = $16 AND archived_at IS NULL
+        WHERE id = $14 AND workspace_id = $15 AND archived_at IS NULL
         "#,
     )
     .bind(title.as_ref().map(TaskTitle::as_str))
     .bind(request.state_id)
-    .bind(target_task_type)
     .bind(request.priority.map(TaskPriority::as_str))
     .bind(project_changed)
     .bind(target_project)
@@ -876,9 +834,6 @@ pub(crate) async fn update_task_with_properties(
         .is_some_and(|state_id| state_id != current.state_id);
     if state_changed {
         changed_fields.push("state");
-    }
-    if target_task_type != current.task_type_id {
-        changed_fields.push("task_type");
     }
     if request
         .priority
@@ -1264,9 +1219,9 @@ pub(crate) async fn bulk_update(
     let mut vault_sources = Vec::with_capacity(task_ids.len());
     let mut dependent_task_ids = Vec::new();
     for task_id in &task_ids {
-        let (current_project, task_type_id): (Option<Uuid>, Uuid) = sqlx::query_as(
+        let current_project: Option<Uuid> = sqlx::query_scalar(
             r#"
-            SELECT project_id, task_type_id FROM tasks
+            SELECT project_id FROM tasks
             WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL
             FOR UPDATE
             "#,
@@ -1300,25 +1255,7 @@ pub(crate) async fn bulk_update(
             )
             .await?;
         }
-        let mut target_type = task_type_id;
         if project_changed {
-            let type_result = validate_task_type_assignment(
-                &mut transaction,
-                workspace_id,
-                target_project,
-                target_type,
-            )
-            .await;
-            match type_result {
-                Ok(()) => {}
-                Err(AppError::Validation(_)) if request.cleanup_invalid => {
-                    target_type =
-                        resolve_task_defaults(&mut transaction, workspace_id, target_project)
-                            .await?
-                            .1;
-                }
-                Err(error) => return Err(error),
-            }
             dependent_task_ids.extend(
                 cleanup_or_reject_move(
                     &mut transaction,
@@ -1337,16 +1274,14 @@ pub(crate) async fn bulk_update(
             SET state_id = COALESCE($1, state_id),
                 priority = COALESCE($2, priority),
                 project_id = CASE WHEN $3 THEN $4 ELSE project_id END,
-                task_type_id = $5,
                 updated_at = now()
-            WHERE workspace_id = $6 AND id = $7
+            WHERE workspace_id = $5 AND id = $6
             "#,
         )
         .bind(request.state_id)
         .bind(request.priority.map(TaskPriority::as_str))
         .bind(project_changed)
         .bind(target_project)
-        .bind(target_type)
         .bind(workspace_id)
         .bind(task_id)
         .execute(&mut *transaction)
@@ -1828,7 +1763,7 @@ pub(crate) async fn task_vault_row(
                tasks.storage_name, projects.name AS project_name,
                projects.identifier AS project_identifier,
                projects.storage_name AS project_storage_name,
-               states.name AS state, task_types.name AS task_type, tasks.priority,
+               states.name AS state, 'Task'::text AS task_type, tasks.priority,
                ARRAY(
                    SELECT users.email
                    FROM task_assignees
@@ -1874,9 +1809,6 @@ pub(crate) async fn task_vault_row(
         FROM tasks
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
-        JOIN task_types
-          ON task_types.workspace_id = tasks.workspace_id
-         AND task_types.id = tasks.task_type_id
         LEFT JOIN projects
           ON projects.workspace_id = tasks.workspace_id AND projects.id = tasks.project_id
         LEFT JOIN tasks AS parent
@@ -1983,18 +1915,13 @@ async fn find_tasks(
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
-               states.color AS state_color, states.state_group,
-               task_types.id AS task_type_id, task_types.name AS task_type_name,
-               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               states.icon AS state_icon, states.color AS state_color, states.system_role,
                tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
                tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
         LEFT JOIN projects ON projects.id = tasks.project_id
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
-        JOIN task_types
-          ON task_types.workspace_id = tasks.workspace_id
-         AND task_types.id = tasks.task_type_id
         WHERE tasks.workspace_id = $1
           AND tasks.id = ANY($2)
           AND tasks.archived_at IS NULL
@@ -2015,18 +1942,13 @@ fn select_task_query()
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
-               states.color AS state_color, states.state_group,
-               task_types.id AS task_type_id, task_types.name AS task_type_name,
-               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               states.icon AS state_icon, states.color AS state_color, states.system_role,
                tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
                tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
         LEFT JOIN projects ON projects.id = tasks.project_id
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
-        JOIN task_types
-          ON task_types.workspace_id = tasks.workspace_id
-         AND task_types.id = tasks.task_type_id
         WHERE tasks.id = $1 AND tasks.workspace_id = $2 AND tasks.archived_at IS NULL
         "#,
     )

@@ -99,7 +99,6 @@ impl ResolvedTaskUpdate {
         UpdateTaskRequest {
             title: Some(self.title),
             state_id: Some(self.state_id),
-            task_type_id: Some(self.task_type_id),
             priority: Some(self.priority),
             project_id: Some(self.project_id),
             start_date: Some(self.start_date),

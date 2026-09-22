@@ -1,6 +1,6 @@
 {
   "comment.created": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "comment.created",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -26,7 +26,7 @@
     }
   },
   "comment.deleted": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "comment.deleted",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -51,7 +51,7 @@
     }
   },
   "comment.updated": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "comment.updated",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -77,7 +77,7 @@
     }
   },
   "task.created": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "task.created",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -99,7 +99,6 @@
         "reference": "#42",
         "title": "Example task (preview only)",
         "state_id": "00000000-0000-0000-0000-000000000003",
-        "task_type_id": "00000000-0000-0000-0000-000000000004",
         "priority": "medium",
         "archived_at": null,
         "updated_at": "2026-01-01T12:00:00Z"
@@ -108,7 +107,7 @@
     }
   },
   "task.deleted": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "task.deleted",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -130,7 +129,6 @@
         "reference": "#42",
         "title": "Example task (preview only)",
         "state_id": "00000000-0000-0000-0000-000000000003",
-        "task_type_id": "00000000-0000-0000-0000-000000000004",
         "priority": "medium",
         "archived_at": null,
         "updated_at": "2026-01-01T12:00:00Z"
@@ -139,7 +137,7 @@
     }
   },
   "task.updated": {
-    "version": 1,
+    "version": 2,
     "id": "00000000-0000-0000-0000-000000000001",
     "type": "task.updated",
     "occurred_at": "2026-01-01T12:00:00Z",
@@ -161,7 +159,6 @@
         "reference": "#42",
         "title": "Example task (preview only)",
         "state_id": "00000000-0000-0000-0000-000000000003",
-        "task_type_id": "00000000-0000-0000-0000-000000000004",
         "priority": "medium",
         "archived_at": null,
         "updated_at": "2026-01-01T12:00:00Z"

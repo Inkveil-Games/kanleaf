@@ -59,7 +59,6 @@ pub struct TaskSnapshot {
     pub reference: String,
     pub title: String,
     pub state_id: Uuid,
-    pub task_type_id: Uuid,
     pub priority: String,
     pub archived_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
@@ -114,7 +113,7 @@ impl Event {
         data: EventData,
     ) -> Self {
         Self {
-            version: 1,
+            version: 2,
             id: Uuid::new_v4(),
             kind,
             occurred_at: Utc::now(),
@@ -138,7 +137,6 @@ impl Event {
                         reference: "#42".to_owned(),
                         title: "Example task (preview only)".to_owned(),
                         state_id: Uuid::from_u128(3),
-                        task_type_id: Uuid::from_u128(4),
                         priority: "medium".to_owned(),
                         archived_at: None,
                         updated_at: occurred_at,

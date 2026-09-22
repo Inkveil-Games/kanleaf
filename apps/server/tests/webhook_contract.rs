@@ -3,7 +3,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 #[test]
-fn published_preview_fixtures_use_the_actual_v1_serializer() {
+fn published_preview_fixtures_use_the_actual_v2_serializer() {
     let fixtures: Value =
         serde_json::from_str(include_str!("fixtures/webhook-payloads.json")).unwrap();
     for kind in EventType::CATALOG {

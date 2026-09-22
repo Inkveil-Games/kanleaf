@@ -55,7 +55,6 @@ struct TaskEventRow {
     task_number: i64,
     title: String,
     state_id: Uuid,
-    task_type_id: Uuid,
     priority: String,
     archived_at: Option<DateTime<Utc>>,
     updated_at: DateTime<Utc>,
@@ -73,7 +72,7 @@ pub(crate) async fn task_event(
         return Ok(());
     };
     let row: TaskEventRow = sqlx::query_as(
-        "SELECT id,task_number,title,state_id,task_type_id,priority,archived_at,updated_at FROM tasks WHERE workspace_id=$1 AND id=$2"
+        "SELECT id,task_number,title,state_id,priority,archived_at,updated_at FROM tasks WHERE workspace_id=$1 AND id=$2"
     ).bind(workspace.id).bind(task).fetch_one(&mut **transaction).await?;
     let snapshot = TaskSnapshot {
         id: row.id,
@@ -81,7 +80,6 @@ pub(crate) async fn task_event(
         task_number: row.task_number,
         title: row.title,
         state_id: row.state_id,
-        task_type_id: row.task_type_id,
         priority: row.priority,
         archived_at: row.archived_at,
         updated_at: row.updated_at,

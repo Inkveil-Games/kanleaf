@@ -304,6 +304,10 @@ async fn moves_bulk_updates_order_and_permanent_deletion_preserve_invariants(poo
     let second_project = create_project(&app, &owner_token, workspace_id, "Second").await;
     let first_id = first_project["id"].as_str().unwrap();
     let second_id = second_project["id"].as_str().unwrap();
+    assert!(first_project.get("default_task_type_id").is_none());
+    assert!(first_project.get("enabled_task_type_ids").is_none());
+    assert!(second_project.get("default_task_type_id").is_none());
+    assert!(second_project.get("enabled_task_type_ids").is_none());
     create(
         &app,
         &owner_token,
@@ -311,39 +315,6 @@ async fn moves_bulk_updates_order_and_permanent_deletion_preserve_invariants(poo
         json!({"user_id": member_id, "role": "contributor"}),
     )
     .await;
-
-    let task_type = create(
-        &app,
-        &owner_token,
-        &format!("/api/workspaces/{workspace_id}/task-types"),
-        json!({
-            "name": "Bug",
-            "icon": "bug",
-            "color": "#EF4444",
-            "description": "Defect"
-        }),
-    )
-    .await;
-    let default_type_id = first_project["default_task_type_id"].as_str().unwrap();
-    let configured = patch(
-        &app,
-        &owner_token,
-        &format!("/api/workspaces/{workspace_id}/projects/{first_id}"),
-        json!({
-            "enabled_task_type_ids": [default_type_id, task_type["id"]],
-            "default_task_type_id": task_type["id"]
-        }),
-    )
-    .await;
-    assert_eq!(configured.status(), StatusCode::OK);
-    let restricted = patch(
-        &app,
-        &owner_token,
-        &format!("/api/workspaces/{workspace_id}/projects/{second_id}"),
-        json!({"enabled_task_type_ids": [default_type_id]}),
-    )
-    .await;
-    assert_eq!(restricted.status(), StatusCode::OK);
 
     let parent = create_task(
         &app,
@@ -384,10 +355,7 @@ async fn moves_bulk_updates_order_and_permanent_deletion_preserve_invariants(poo
     assert_eq!(cleaned.status(), StatusCode::OK);
     let cleaned = json_body(cleaned).await;
     assert_eq!(cleaned["project_id"], second_id);
-    assert_eq!(
-        cleaned["task_type"]["id"],
-        second_project["default_task_type_id"]
-    );
+    assert!(cleaned.get("task_type").is_none());
     assert!(cleaned["assignees"].as_array().unwrap().is_empty());
     assert_eq!(cleaned["parent"], Value::Null);
 

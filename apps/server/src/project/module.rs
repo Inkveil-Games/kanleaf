@@ -374,7 +374,7 @@ const MODULE_SELECT: &str = r#"
             JOIN tasks ON tasks.id = assignments.task_id
             JOIN task_states AS states ON states.id = tasks.state_id
             WHERE assignments.module_id = modules.id
-              AND states.state_group IN ('done', 'canceled')) AS completed_tasks,
+              AND states.system_role = 'done') AS completed_tasks,
            (SELECT COALESCE(sum(tasks.estimate), 0) FROM task_module_assignments AS assignments
             JOIN tasks ON tasks.id = assignments.task_id
             WHERE assignments.module_id = modules.id) AS total_estimate,
@@ -382,7 +382,7 @@ const MODULE_SELECT: &str = r#"
             JOIN tasks ON tasks.id = assignments.task_id
             JOIN task_states AS states ON states.id = tasks.state_id
             WHERE assignments.module_id = modules.id
-              AND states.state_group IN ('done', 'canceled')) AS completed_estimate,
+              AND states.system_role = 'done') AS completed_estimate,
            modules.archived_at, modules.created_at, modules.updated_at
     FROM project_modules AS modules
 "#;

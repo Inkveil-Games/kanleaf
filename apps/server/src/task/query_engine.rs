@@ -6,9 +6,7 @@ use sqlx::{PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 use crate::{
-    domain::{TaskPriority, TaskStateGroup},
-    error::AppError,
-    project::require_project_access,
+    domain::TaskPriority, error::AppError, project::require_project_access,
     workspace::WorkspaceRole,
 };
 
@@ -18,7 +16,7 @@ use super::{
     search_pattern,
 };
 
-pub(crate) const QUERY_VERSION: u16 = 1;
+pub(crate) const QUERY_VERSION: u16 = 2;
 const MAX_FILTER_VALUES: usize = 100;
 const MAX_SORT_FIELDS: usize = 2;
 
@@ -57,10 +55,6 @@ pub(crate) enum TaskQueryScope {
 pub(crate) struct TaskQueryFilters {
     #[serde(default)]
     pub(crate) states: IdFilter,
-    #[serde(default)]
-    pub(crate) state_groups: Vec<TaskStateGroup>,
-    #[serde(default)]
-    pub(crate) task_types: IdFilter,
     #[serde(default)]
     pub(crate) priorities: Vec<TaskPriority>,
     #[serde(default)]
@@ -125,9 +119,7 @@ pub(crate) struct TaskGrouping {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TaskGroupField {
     State,
-    StateGroup,
     Priority,
-    TaskType,
     Assignee,
     Label,
     Project,
@@ -168,7 +160,6 @@ pub(crate) struct TaskSort {
 pub(crate) enum TaskDisplayProperty {
     State,
     Priority,
-    TaskType,
     Assignees,
     Labels,
     Project,
@@ -201,7 +192,6 @@ impl TaskQuery {
             search: filters.query,
             filters: TaskQueryFilters {
                 states: id_filter(filters.state_id),
-                task_types: id_filter(filters.task_type_id),
                 priorities: filters.priority.into_iter().collect(),
                 assignees: id_filter(filters.assignee_id),
                 labels: id_filter(filters.label_id),
@@ -235,7 +225,6 @@ impl TaskQuery {
         }
         for (name, values) in [
             ("states", &self.filters.states.values),
-            ("task types", &self.filters.task_types.values),
             ("assignees", &self.filters.assignees.values),
             ("labels", &self.filters.labels.values),
             ("projects", &self.filters.projects.values),
@@ -244,12 +233,11 @@ impl TaskQuery {
         ] {
             validate_values(name, values)?;
         }
-        if self.filters.states.include_none || self.filters.task_types.include_none {
+        if self.filters.states.include_none {
             return Err(AppError::Validation(
-                "State and Task Type filters cannot include unassigned values".to_owned(),
+                "State filters cannot include unassigned values".to_owned(),
             ));
         }
-        validate_values("state groups", &self.filters.state_groups)?;
         validate_values("priorities", &self.filters.priorities)?;
         validate_range(
             "start date",
@@ -343,18 +331,13 @@ pub(super) async fn run(
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
-               states.color AS state_color, states.state_group,
-               task_types.id AS task_type_id, task_types.name AS task_type_name,
-               task_types.icon AS task_type_icon, task_types.color AS task_type_color,
+               states.icon AS state_icon, states.color AS state_color, states.system_role,
                tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
                tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
         LEFT JOIN projects ON projects.id = tasks.project_id
         JOIN task_states AS states
           ON states.workspace_id = tasks.workspace_id AND states.id = tasks.state_id
-        JOIN task_types
-          ON task_types.workspace_id = tasks.workspace_id
-         AND task_types.id = tasks.task_type_id
         WHERE tasks.workspace_id = "#,
     );
     sql.push_bind(workspace_id)
@@ -367,17 +350,6 @@ pub(super) async fn run(
             .push(" ESCAPE '\\'");
     }
     push_simple_id_filter(&mut sql, "tasks.state_id", &query.filters.states);
-    push_simple_id_filter(&mut sql, "tasks.task_type_id", &query.filters.task_types);
-    push_text_values(
-        &mut sql,
-        "states.state_group",
-        query
-            .filters
-            .state_groups
-            .iter()
-            .map(|value| value.as_str().to_owned())
-            .collect(),
-    );
     push_text_values(
         &mut sql,
         "tasks.priority",
@@ -417,7 +389,7 @@ pub(super) async fn run(
     push_date_filter(&mut sql, "tasks.due_date", &query.filters.due_date);
     push_estimate_filter(&mut sql, &query.filters.estimate);
     if !query.include_completed {
-        sql.push(" AND states.state_group NOT IN ('done', 'canceled')");
+        sql.push(" AND states.system_role IS DISTINCT FROM 'done'");
     }
     push_visibility(&mut sql, user_id, role);
     push_sort(&mut sql, &query.sort);
@@ -708,14 +680,14 @@ mod tests {
     #[test]
     fn rejects_unknown_versions_and_duplicate_configuration() {
         let unsupported: TaskQuery = serde_json::from_value(json!({
-            "version": 2,
+            "version": 1,
             "scope": {"kind": "workspace"}
         }))
         .unwrap();
         assert!(unsupported.validate().is_err());
 
         let duplicate: TaskQuery = serde_json::from_value(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "workspace"},
             "grouping": {"primary": "state", "secondary": "state"}
         }))
@@ -726,17 +698,34 @@ mod tests {
     #[test]
     fn rejects_unknown_query_fields() {
         let result = serde_json::from_value::<TaskQuery>(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "workspace"},
             "sort": [{"field": "drop_table", "direction": "ascending"}]
         }));
         assert!(result.is_err());
 
         let result = serde_json::from_value::<TaskQuery>(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "workspace"},
             "sql": "DROP TABLE tasks"
         }));
         assert!(result.is_err());
+
+        for legacy in [
+            json!({"filters": {"state_groups": ["done"]}}),
+            json!({"filters": {"task_types": {"values": []}}}),
+            json!({"grouping": {"primary": "task_type"}}),
+            json!({"display": ["task_type"]}),
+        ] {
+            let mut query = json!({
+                "version": 2,
+                "scope": {"kind": "workspace"}
+            });
+            query
+                .as_object_mut()
+                .unwrap()
+                .extend(legacy.as_object().unwrap().clone());
+            assert!(serde_json::from_value::<TaskQuery>(query).is_err());
+        }
     }
 }

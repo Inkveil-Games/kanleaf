@@ -12,16 +12,9 @@ use crate::error::AppError;
 pub(crate) struct TaskStateSummary {
     pub id: Uuid,
     pub name: String,
+    pub icon: Option<String>,
     pub color: String,
-    pub state_group: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct TaskTypeSummary {
-    pub id: Uuid,
-    pub name: String,
-    pub icon: String,
-    pub color: String,
+    pub system_role: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -73,7 +66,6 @@ pub struct TaskResponse {
     pub title: String,
     pub storage_name: String,
     pub state: TaskStateSummary,
-    pub task_type: TaskTypeSummary,
     pub priority: String,
     pub start_date: Option<NaiveDate>,
     pub due_date: Option<NaiveDate>,
@@ -103,12 +95,9 @@ pub(super) struct TaskRow {
     storage_name: String,
     state_id: Uuid,
     state_name: String,
+    state_icon: Option<String>,
     state_color: String,
-    state_group: String,
-    task_type_id: Uuid,
-    task_type_name: String,
-    task_type_icon: String,
-    task_type_color: String,
+    system_role: Option<String>,
     priority: String,
     start_date: Option<NaiveDate>,
     due_date: Option<NaiveDate>,
@@ -132,14 +121,9 @@ impl From<TaskRow> for TaskResponse {
             state: TaskStateSummary {
                 id: row.state_id,
                 name: row.state_name,
+                icon: row.state_icon,
                 color: row.state_color,
-                state_group: row.state_group,
-            },
-            task_type: TaskTypeSummary {
-                id: row.task_type_id,
-                name: row.task_type_name,
-                icon: row.task_type_icon,
-                color: row.task_type_color,
+                system_role: row.system_role,
             },
             priority: row.priority,
             start_date: row.start_date,

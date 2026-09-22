@@ -1113,7 +1113,6 @@ fn remap_query(mut query: TaskQuery, maps: &IdMaps) -> anyhow::Result<TaskQuery>
         scope => scope,
     };
     remap_filter(&mut query.filters.states, &maps.states)?;
-    remap_filter(&mut query.filters.task_types, &maps.types)?;
     remap_filter(&mut query.filters.labels, &maps.labels)?;
     remap_filter(&mut query.filters.projects, &maps.projects)?;
     remap_filter(&mut query.filters.cycles, &maps.cycles)?;

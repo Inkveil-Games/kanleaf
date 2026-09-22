@@ -121,7 +121,7 @@ async fn add_project_member(
 
 fn project_query(project_id: &str) -> Value {
     json!({
-        "version": 1,
+        "version": 2,
         "scope": {"kind": "project", "project_id": project_id},
         "filters": {},
         "grouping": {"primary": "state"},
@@ -178,7 +178,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         .as_array()
         .unwrap()
         .iter()
-        .find(|state| state["state_group"] == "done")
+        .find(|state| state["system_role"] == "done")
         .unwrap()["id"]
         .as_str()
         .unwrap();
@@ -209,7 +209,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         "POST",
         &format!("{tasks_uri}/query"),
         Some(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "project", "project_id": project_id},
             "filters": {"priorities": ["urgent"]},
             "include_completed": false
@@ -226,7 +226,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         "POST",
         &format!("{tasks_uri}/query"),
         Some(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "project", "project_id": project_id},
             "include_completed": false
         })),
@@ -241,7 +241,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         "POST",
         &format!("{tasks_uri}/query"),
         Some(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "project", "project_id": project_id},
             "filters": {
                 "due_date": {"include_none": true},
@@ -263,7 +263,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         "POST",
         &format!("{tasks_uri}/query"),
         Some(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "project", "project_id": project_id},
             "filters": {"labels": {"include_none": true}},
             "include_completed": false
@@ -279,7 +279,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         "POST",
         &format!("{tasks_uri}/query"),
         Some(json!({
-            "version": 1,
+            "version": 2,
             "scope": {"kind": "workspace"},
             "search": "%\" OR true --",
             "include_completed": true
@@ -358,6 +358,9 @@ async fn saved_views_enforce_personal_shared_and_project_admin_rules(pool: PgPoo
     )
     .await;
     let shared_id = shared["id"].as_str().unwrap();
+    assert_eq!(shared["query_version"], 2);
+    assert!(!shared["query"].to_string().contains("task_type"));
+    assert!(!shared["query"].to_string().contains("state_group"));
     let personal = create_json(
         &app,
         &viewer_token,

@@ -155,14 +155,14 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .as_array()
         .unwrap()
         .iter()
-        .find(|state| state["state_group"] == "in_progress")
+        .find(|state| state["system_role"] == "in_progress")
         .unwrap()["id"]
         .clone();
     let done_id = configuration["states"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|state| state["state_group"] == "done")
+        .find(|state| state["system_role"] == "done")
         .unwrap()["id"]
         .clone();
     let task = create_task(
@@ -183,8 +183,9 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         task["storage_name"],
         VaultStorageName::from_initial_name("Finish Markdown workflow", task_id).as_str()
     );
-    assert_eq!(task["state"]["state_group"], "in_progress");
-    assert_eq!(task["task_type"]["name"], "Task");
+    assert_eq!(task["state"]["system_role"], "in_progress");
+    assert_eq!(task["state"]["icon"], "loader-circle");
+    assert!(task.get("task_type").is_none());
     assert_eq!(task["priority"], "high");
 
     let project_storage_name: String =
@@ -252,7 +253,7 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         .unwrap();
     let updated = response_json(updated).await;
     assert_eq!(updated["project_id"], Value::Null);
-    assert_eq!(updated["state"]["state_group"], "done");
+    assert_eq!(updated["state"]["system_role"], "done");
     let document_path = data_dir
         .path()
         .join("vaults")

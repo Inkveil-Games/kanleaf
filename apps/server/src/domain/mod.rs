@@ -340,28 +340,6 @@ impl TaskPriority {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskStateGroup {
-    Backlog,
-    Todo,
-    InProgress,
-    Done,
-    Canceled,
-}
-
-impl TaskStateGroup {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Backlog => "backlog",
-            Self::Todo => "todo",
-            Self::InProgress => "in_progress",
-            Self::Done => "done",
-            Self::Canceled => "canceled",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum SystemStateRole {
     Todo,
     InProgress,
@@ -778,8 +756,8 @@ mod tests {
     use super::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, NormalizedEmail,
         ProjectDescription, ProjectIcon, ProjectIdentifier, ProjectRole, ProjectVisibility,
-        ResourceName, SelectOptionIcon, SystemStateRole, TaskPriority, TaskStateGroup, TaskTitle,
-        TaskTypeIcon, ValidatedPassword, VaultStorageName, WorkspaceIdentifier,
+        ResourceName, SelectOptionIcon, SystemStateRole, TaskPriority, TaskTitle, TaskTypeIcon,
+        ValidatedPassword, VaultStorageName, WorkspaceIdentifier,
     };
     use uuid::Uuid;
 
@@ -893,7 +871,6 @@ mod tests {
     fn validates_workspace_task_vocabulary() {
         assert_eq!(HexColor::new("#22A06B").unwrap().as_str(), "#22A06B");
         assert!(HexColor::new("green").is_err());
-        assert_eq!(TaskStateGroup::InProgress.as_str(), "in_progress");
         assert_eq!(
             TaskTypeIcon::new("check-square").unwrap().as_str(),
             "check-square"

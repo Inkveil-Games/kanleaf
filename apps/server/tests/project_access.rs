@@ -743,7 +743,6 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
         .unwrap();
     let configuration = response_json(configuration).await;
     let default_state = configuration["default_state_id"].as_str().unwrap();
-    let default_type = configuration["default_task_type_id"].as_str().unwrap();
 
     let changed = app
         .clone()
@@ -757,8 +756,6 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
                 "lead_user_id": owner_id,
                 "default_assignee_id": owner_id,
                 "default_state_id": default_state,
-                "default_task_type_id": default_type,
-                "enabled_task_type_ids": [default_type],
                 "cycles_enabled": false,
                 "modules_enabled": false,
                 "pages_enabled": true,
@@ -774,6 +771,8 @@ async fn project_settings_validate_lead_defaults_features_and_confirmed_delete(p
     assert_eq!(changed["lead_user_id"], owner_id.to_string());
     assert_eq!(changed["cycles_enabled"], false);
     assert_eq!(changed["pages_enabled"], true);
+    assert!(changed.get("default_task_type_id").is_none());
+    assert!(changed.get("enabled_task_type_ids").is_none());
 
     let other_state: Uuid =
         sqlx::query_scalar("SELECT default_inbox_state_id FROM workspaces WHERE id = $1")

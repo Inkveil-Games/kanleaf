@@ -141,7 +141,6 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
         (second_workspace, "Second workspace"),
     ] {
         let state_id = Uuid::new_v4();
-        let task_type_id = Uuid::new_v4();
         let mut transaction = pool.begin().await.unwrap();
         let identifier = format!("workspace-{}", id.simple());
         sqlx::query(
@@ -153,46 +152,36 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO workspaces (id, name, identifier, default_inbox_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO workspaces (id, name, identifier, default_inbox_state_id) VALUES ($1, $2, $3, $4)",
         )
             .bind(id)
             .bind(name)
             .bind(identifier)
             .bind(state_id)
-            .bind(task_type_id)
             .execute(&mut *transaction)
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO task_states (id, workspace_id, name, color, state_group, position) VALUES ($1, $2, 'Todo', '#64748B', 'todo', 0)",
+            "INSERT INTO task_states (id, workspace_id, name, icon, color, system_role, position) VALUES ($1, $2, 'Todo', 'circle', '#64748B', 'todo', 0)",
         )
         .bind(state_id)
         .bind(id)
         .execute(&mut *transaction)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO task_types (id, workspace_id, name, icon, color, position, is_protected) VALUES ($1, $2, 'Task', 'check-square', '#64748B', 0, true)",
-        )
-        .bind(task_type_id)
-        .bind(id)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
         transaction.commit().await.unwrap();
-        defaults.push((state_id, task_type_id));
+        defaults.push(state_id);
     }
 
     let project_storage = VaultStorageName::from_initial_name("Kanleaf", project);
     sqlx::query(
-        "INSERT INTO projects (id, workspace_id, name, storage_name, identifier, default_state_id, default_task_type_id) VALUES ($1, $2, $3, $4, 'kanleaf', $5, $6)",
+        "INSERT INTO projects (id, workspace_id, name, storage_name, identifier, default_state_id) VALUES ($1, $2, $3, $4, 'kanleaf', $5)",
     )
         .bind(project)
         .bind(first_workspace)
         .bind("Kanleaf")
         .bind(project_storage.as_str())
-        .bind(defaults[0].0)
-        .bind(defaults[0].1)
+        .bind(defaults[0])
         .execute(&pool)
         .await
         .unwrap();
@@ -243,15 +232,14 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     let cross_workspace_storage =
         VaultStorageName::from_initial_name("Escaped task", cross_workspace_task_id);
     let cross_workspace_task = sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, project_id, title, storage_name, state_id, task_type_id, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1024)",
+        "INSERT INTO tasks (id, workspace_id, project_id, title, storage_name, state_id, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, 1, 1024)",
     )
     .bind(cross_workspace_task_id)
     .bind(second_workspace)
     .bind(project)
     .bind("Escaped task")
     .bind(cross_workspace_storage.as_str())
-    .bind(defaults[1].0)
-    .bind(defaults[1].1)
+    .bind(defaults[1])
     .execute(&pool)
     .await;
     assert!(cross_workspace_task.is_err());
@@ -260,14 +248,13 @@ async fn migration_enforces_workspace_project_and_task_constraints(pool: PgPool)
     let invalid_priority_storage =
         VaultStorageName::from_initial_name("Invalid task", invalid_priority_id);
     let invalid_priority = sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, title, storage_name, state_id, task_type_id, priority, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1024)",
+        "INSERT INTO tasks (id, workspace_id, title, storage_name, state_id, priority, task_number, position) VALUES ($1, $2, $3, $4, $5, $6, 1, 1024)",
     )
     .bind(invalid_priority_id)
     .bind(first_workspace)
     .bind("Invalid task")
     .bind(invalid_priority_storage.as_str())
-    .bind(defaults[0].0)
-    .bind(defaults[0].1)
+    .bind(defaults[0])
     .bind("critical")
     .execute(&pool)
     .await;
@@ -1112,6 +1099,227 @@ async fn unified_select_expand_migration_preserves_identity_and_promotes_meaning
     .await
     .unwrap();
     assert_eq!(legacy_columns, 3);
+}
+
+#[sqlx::test(migrations = false)]
+async fn unified_select_contract_migration_rewrites_views_and_drops_legacy_schema(pool: PgPool) {
+    for migration in [
+        include_str!("../migrations/0001_initial_schema.sql"),
+        include_str!("../migrations/0002_account_settings.sql"),
+        include_str!("../migrations/0003_workspace_access.sql"),
+        include_str!("../migrations/0004_task_configuration.sql"),
+        include_str!("../migrations/0005_project_access.sql"),
+        include_str!("../migrations/0006_task_workflow.sql"),
+        include_str!("../migrations/0007_project_planning.sql"),
+        include_str!("../migrations/0008_saved_views.sql"),
+        include_str!("../migrations/0009_collaboration_notifications.sql"),
+        include_str!("../migrations/0010_documents.sql"),
+        include_str!("../migrations/0011_library_storage.sql"),
+        include_str!("../migrations/0012_portable_vault_identity.sql"),
+        include_str!("../migrations/0013_vault_projection.sql"),
+        include_str!("../migrations/0014_workspace_operations.sql"),
+        include_str!("../migrations/0015_workspace_config_projection.sql"),
+        include_str!("../migrations/0016_workspace_archive_restore_map.sql"),
+        include_str!("../migrations/0017_instance_access.sql"),
+        include_str!("../migrations/0018_account_setup_workspace_identifiers.sql"),
+        include_str!("../migrations/0019_project_public_identity.sql"),
+        include_str!("../migrations/0020_release_deleted_workspace_identifiers.sql"),
+        include_str!("../migrations/0021_workspace_custom_properties.sql"),
+        include_str!("../migrations/0022_document_numbers.sql"),
+        include_str!("../migrations/0023_password_reset_tokens.sql"),
+        include_str!("../migrations/0024_developer_console_namespace.sql"),
+        include_str!("../migrations/0025_workspace_webhooks.sql"),
+        include_str!("../migrations/0026_unified_select_properties_expand.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
+
+    let owner_id = Uuid::parse_str("10000000-0000-4000-8000-000000000001").unwrap();
+    let workspace_id = Uuid::parse_str("20000000-0000-4000-8000-000000000001").unwrap();
+    let todo_id = Uuid::parse_str("30000000-0000-4000-8000-000000000001").unwrap();
+    let in_progress_id = Uuid::parse_str("30000000-0000-4000-8000-000000000002").unwrap();
+    let done_id = Uuid::parse_str("30000000-0000-4000-8000-000000000003").unwrap();
+    let task_type_id = Uuid::parse_str("40000000-0000-4000-8000-000000000001").unwrap();
+    let view_id = Uuid::parse_str("50000000-0000-4000-8000-000000000001").unwrap();
+
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query("SET CONSTRAINTS ALL DEFERRED")
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, 'owner@example.com', 'Owner', 'hash')",
+    )
+    .bind(owner_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ('migration-test', $1)",
+    )
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO workspaces (
+            id, name, identifier, default_inbox_state_id, default_task_type_id
+        ) VALUES ($1, 'Migration test', 'migration-test', $2, $3)
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(todo_id)
+    .bind(task_type_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(workspace_id)
+    .bind(owner_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    for (id, name, icon, color, role, position) in [
+        (todo_id, "Todo", "circle", "#64748B", "todo", 0_i32),
+        (
+            in_progress_id,
+            "In Progress",
+            "loader-circle",
+            "#3B82F6",
+            "in_progress",
+            1,
+        ),
+        (done_id, "Done", "circle-check", "#22A06B", "done", 2),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO task_states (
+                id, workspace_id, name, icon, color, state_group, system_role, position
+            ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
+            "#,
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(name)
+        .bind(icon)
+        .bind(color)
+        .bind(role)
+        .bind(position)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        r#"
+        INSERT INTO task_types (
+            id, workspace_id, name, icon, color, position, is_protected
+        ) VALUES ($1, $2, 'Task', 'check-square', '#64748B', 0, true)
+        "#,
+    )
+    .bind(task_type_id)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO saved_views (
+            id, workspace_id, owner_id, name, visibility, query_version, query, layout
+        ) VALUES (
+            $1, $2, $3, 'Legacy select view', 'personal', 1,
+            jsonb_build_object(
+                'version', 1,
+                'scope', jsonb_build_object('kind', 'workspace'),
+                'filters', jsonb_build_object(
+                    'states', jsonb_build_object(
+                        'values', jsonb_build_array($4::text),
+                        'include_none', false
+                    ),
+                    'state_groups', jsonb_build_array('todo', 'done'),
+                    'task_types', jsonb_build_object(
+                        'values', jsonb_build_array($5::text),
+                        'include_none', false
+                    )
+                ),
+                'grouping', jsonb_build_object(
+                    'primary', 'task_type',
+                    'secondary', 'state_group'
+                ),
+                'display', jsonb_build_array('task_type', 'state', 'priority'),
+                'include_completed', false
+            ),
+            'list'
+        )
+        "#,
+    )
+    .bind(view_id)
+    .bind(workspace_id)
+    .bind(owner_id)
+    .bind(todo_id)
+    .bind(task_type_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/0027_remove_task_types_and_state_groups.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let migrated: (i16, serde_json::Value) =
+        sqlx::query_as("SELECT query_version, query FROM saved_views WHERE id = $1")
+            .bind(view_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(migrated.0, 2);
+    assert_eq!(
+        migrated.1,
+        serde_json::json!({
+            "version": 2,
+            "scope": {"kind": "workspace"},
+            "filters": {
+                "states": {
+                    "values": [todo_id, done_id],
+                    "include_none": false
+                }
+            },
+            "grouping": {"primary": "state", "secondary": null},
+            "display": ["state", "priority"],
+            "include_completed": false
+        })
+    );
+
+    let legacy_columns: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND (table_name, column_name) IN (
+              ('task_states', 'state_group'),
+              ('tasks', 'task_type_id'),
+              ('projects', 'default_task_type_id'),
+              ('workspaces', 'default_task_type_id')
+          )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(legacy_columns, 0);
+    let legacy_tables: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT to_regclass('task_types')::text, to_regclass('project_task_types')::text",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(legacy_tables, (None, None));
 }
 
 #[sqlx::test(migrations = false)]
