@@ -19,6 +19,7 @@ apps/desktop/src-tauri/gen/
 !.env.example
 /data/
 /.superpowers/
+/.worktrees/
 *.log
 
 # Browser tests
