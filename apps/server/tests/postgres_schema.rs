@@ -1,8 +1,37 @@
 #![cfg(feature = "postgres-tests")]
 
-use kanleaf_server::domain::VaultStorageName;
-use sqlx::PgPool;
+use std::borrow::Cow;
+
+use kanleaf_server::{domain::VaultStorageName, migration::run_database_migrations};
+use sqlx::{PgPool, migrate::Migrator};
 use uuid::Uuid;
+
+#[sqlx::test(migrations = "./migrations")]
+async fn migration_runner_restores_an_interrupted_saved_view_trigger(pool: PgPool) {
+    sqlx::query("ALTER TABLE saved_views DISABLE TRIGGER saved_views_config_projection_dirty")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    run_database_migrations(&pool).await.unwrap();
+
+    let trigger_enabled: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_trigger
+            JOIN pg_class ON pg_class.oid = pg_trigger.tgrelid
+            WHERE pg_class.relname = 'saved_views'
+              AND pg_trigger.tgname = 'saved_views_config_projection_dirty'
+              AND pg_trigger.tgenabled = 'O'
+        )
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(trigger_enabled);
+}
 
 #[sqlx::test(migrations = "./migrations")]
 async fn instance_access_defaults_open_and_constrains_allowed_emails(pool: PgPool) {
@@ -1103,36 +1132,18 @@ async fn unified_select_expand_migration_preserves_identity_and_promotes_meaning
 
 #[sqlx::test(migrations = false)]
 async fn unified_select_contract_migration_rewrites_views_and_drops_legacy_schema(pool: PgPool) {
-    for migration in [
-        include_str!("../migrations/0001_initial_schema.sql"),
-        include_str!("../migrations/0002_account_settings.sql"),
-        include_str!("../migrations/0003_workspace_access.sql"),
-        include_str!("../migrations/0004_task_configuration.sql"),
-        include_str!("../migrations/0005_project_access.sql"),
-        include_str!("../migrations/0006_task_workflow.sql"),
-        include_str!("../migrations/0007_project_planning.sql"),
-        include_str!("../migrations/0008_saved_views.sql"),
-        include_str!("../migrations/0009_collaboration_notifications.sql"),
-        include_str!("../migrations/0010_documents.sql"),
-        include_str!("../migrations/0011_library_storage.sql"),
-        include_str!("../migrations/0012_portable_vault_identity.sql"),
-        include_str!("../migrations/0013_vault_projection.sql"),
-        include_str!("../migrations/0014_workspace_operations.sql"),
-        include_str!("../migrations/0015_workspace_config_projection.sql"),
-        include_str!("../migrations/0016_workspace_archive_restore_map.sql"),
-        include_str!("../migrations/0017_instance_access.sql"),
-        include_str!("../migrations/0018_account_setup_workspace_identifiers.sql"),
-        include_str!("../migrations/0019_project_public_identity.sql"),
-        include_str!("../migrations/0020_release_deleted_workspace_identifiers.sql"),
-        include_str!("../migrations/0021_workspace_custom_properties.sql"),
-        include_str!("../migrations/0022_document_numbers.sql"),
-        include_str!("../migrations/0023_password_reset_tokens.sql"),
-        include_str!("../migrations/0024_developer_console_namespace.sql"),
-        include_str!("../migrations/0025_workspace_webhooks.sql"),
-        include_str!("../migrations/0026_unified_select_properties_expand.sql"),
-    ] {
-        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
-    }
+    let all_migrations = sqlx::migrate!();
+    let migrations_through_expand = Migrator {
+        migrations: Cow::Owned(
+            all_migrations
+                .iter()
+                .filter(|migration| migration.version <= 26)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    };
+    migrations_through_expand.run(&pool).await.unwrap();
 
     let owner_id = Uuid::parse_str("10000000-0000-4000-8000-000000000001").unwrap();
     let workspace_id = Uuid::parse_str("20000000-0000-4000-8000-000000000001").unwrap();
@@ -1141,6 +1152,7 @@ async fn unified_select_contract_migration_rewrites_views_and_drops_legacy_schem
     let done_id = Uuid::parse_str("30000000-0000-4000-8000-000000000003").unwrap();
     let task_type_id = Uuid::parse_str("40000000-0000-4000-8000-000000000001").unwrap();
     let view_id = Uuid::parse_str("50000000-0000-4000-8000-000000000001").unwrap();
+    let project_id = Uuid::parse_str("60000000-0000-4000-8000-000000000001").unwrap();
 
     let mut transaction = pool.begin().await.unwrap();
     sqlx::query("SET CONSTRAINTS ALL DEFERRED")
@@ -1226,6 +1238,33 @@ async fn unified_select_contract_migration_rewrites_views_and_drops_legacy_schem
     .unwrap();
     sqlx::query(
         r#"
+        INSERT INTO projects (
+            id, workspace_id, name, storage_name, identifier,
+            default_state_id, default_task_type_id
+        ) VALUES (
+            $1, $2, 'Migration project', 'migration-project--600000',
+            'migration-project', $3, $4
+        )
+        "#,
+    )
+    .bind(project_id)
+    .bind(workspace_id)
+    .bind(todo_id)
+    .bind(task_type_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO project_task_types (workspace_id, project_id, task_type_id) VALUES ($1, $2, $3)",
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(task_type_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
         INSERT INTO saved_views (
             id, workspace_id, owner_id, name, visibility, query_version, query, layout
         ) VALUES (
@@ -1265,12 +1304,36 @@ async fn unified_select_contract_migration_rewrites_views_and_drops_legacy_schem
     .unwrap();
     transaction.commit().await.unwrap();
 
-    sqlx::raw_sql(include_str!(
-        "../migrations/0027_remove_task_types_and_state_groups.sql"
-    ))
-    .execute(&pool)
+    let config_version_before_migration: i64 =
+        sqlx::query_scalar("SELECT config_version FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    run_database_migrations(&pool).await.unwrap();
+
+    let (config_version_after_migration, saved_view_trigger_enabled): (i64, bool) = sqlx::query_as(
+        r#"
+            SELECT workspaces.config_version,
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_trigger
+                       JOIN pg_class ON pg_class.oid = pg_trigger.tgrelid
+                       WHERE pg_class.relname = 'saved_views'
+                         AND pg_trigger.tgname = 'saved_views_config_projection_dirty'
+                         AND pg_trigger.tgenabled = 'O'
+                   )
+            FROM workspaces
+            WHERE workspaces.id = $1
+            "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
     .await
     .unwrap();
+    assert!(config_version_after_migration > config_version_before_migration);
+    assert!(saved_view_trigger_enabled);
 
     let migrated: (i16, serde_json::Value) =
         sqlx::query_as("SELECT query_version, query FROM saved_views WHERE id = $1")

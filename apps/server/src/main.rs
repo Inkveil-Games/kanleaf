@@ -6,6 +6,7 @@ use kanleaf_server::{
     config::Config,
     document::{migrate_legacy_library, recover_library_operations},
     mail::Mailer,
+    migration::run_database_migrations,
     portability::{
         recover_config_projection_jobs, recover_export_operations, recover_import_operations,
         recover_workspace_operations, spawn_config_projection_worker, spawn_export_cleanup_worker,
@@ -38,10 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .connect(&config.database_url)
         .await
         .context("failed to connect to PostgreSQL")?;
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .context("failed to run database migrations")?;
+    run_database_migrations(&pool).await?;
     recover_workspace_operations(&pool)
         .await
         .context("failed to clean expired Workspace operations")?;
