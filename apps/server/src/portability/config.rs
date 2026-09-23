@@ -158,7 +158,9 @@ pub(super) struct CustomPropertyOptionConfig {
     pub id: Uuid,
     pub property_id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
+    #[serde(default, rename = "icon", skip_serializing)]
+    #[sqlx(skip)]
+    pub _legacy_icon: Option<String>,
     pub color: String,
     pub description: String,
     pub position: i32,
@@ -170,7 +172,9 @@ pub(super) struct CustomPropertyOptionConfig {
 pub(super) struct TaskStateConfig {
     pub id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
+    #[serde(default, rename = "icon", skip_serializing)]
+    #[sqlx(skip)]
+    pub _legacy_icon: Option<String>,
     pub color: String,
     pub description: String,
     pub system_role: Option<String>,
@@ -183,7 +187,9 @@ pub(super) struct TaskStateConfig {
 pub(super) struct TaskLabelConfig {
     pub id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
+    #[serde(default, rename = "icon", skip_serializing)]
+    #[sqlx(skip)]
+    pub _legacy_icon: Option<String>,
     pub color: String,
     pub description: String,
     pub position: i32,
@@ -501,7 +507,7 @@ async fn build_snapshot(
 
     let states = sqlx::query_as::<_, TaskStateConfig>(
         r#"
-        SELECT id, name, icon, color, description, system_role, position,
+        SELECT id, name, color, description, system_role, position,
                archived_at IS NOT NULL AS archived
         FROM task_states WHERE workspace_id = $1 ORDER BY position, id
         "#,
@@ -511,7 +517,7 @@ async fn build_snapshot(
     .await?;
     let labels = sqlx::query_as::<_, TaskLabelConfig>(
         r#"
-        SELECT id, name, icon, color, description, position,
+        SELECT id, name, color, description, position,
                archived_at IS NOT NULL AS archived
         FROM task_labels WHERE workspace_id = $1 ORDER BY position, id
         "#,
@@ -534,7 +540,7 @@ async fn build_snapshot(
     .await?;
     let options = sqlx::query_as::<_, CustomPropertyOptionConfig>(
         r#"
-        SELECT id, property_id, name, icon, color, description, position,
+        SELECT id, property_id, name, color, description, position,
                archived_at IS NOT NULL AS archived
         FROM custom_property_options
         WHERE workspace_id = $1

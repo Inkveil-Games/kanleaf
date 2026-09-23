@@ -16,8 +16,7 @@ use crate::{
     custom_property::{PropertyType, is_reserved_property_name, validate_value_shape},
     domain::{
         ConfigurationDescription, DocumentTitle, HexColor, LibraryStorageName, ProjectDescription,
-        ProjectIcon, ProjectIdentifier, ResourceName, SelectOptionIcon, TaskTitle,
-        VaultStorageName,
+        ProjectIcon, ProjectIdentifier, ResourceName, TaskTitle, VaultStorageName,
     },
     task::{
         CustomProperty, TaskProperties, TaskQuery, TaskQueryScope, read_task_properties,
@@ -917,7 +916,6 @@ fn normalize_legacy_configuration(
     let mut protected_types = 0;
     for task_type in &legacy.types {
         if ResourceName::new(&task_type.name).is_err()
-            || SelectOptionIcon::new_supported(&task_type.icon).is_err()
             || HexColor::new(&task_type.color).is_err()
             || ConfigurationDescription::new(&task_type.description).is_err()
             || task_type.position < 0
@@ -953,7 +951,7 @@ fn normalize_legacy_configuration(
         .map(|state| TaskStateConfig {
             id: state.id,
             name: state.name.clone(),
-            icon: Some(legacy_state_icon(&state.group).to_owned()),
+            _legacy_icon: Some(legacy_state_icon(&state.group).to_owned()),
             color: state.color.clone(),
             description: String::new(),
             system_role: None,
@@ -989,7 +987,7 @@ fn normalize_legacy_configuration(
             states.push(TaskStateConfig {
                 id: legacy_core_state_id(workspace.workspace_id, role),
                 name: canonical_name.to_owned(),
-                icon: Some(icon.to_owned()),
+                _legacy_icon: Some(icon.to_owned()),
                 color: color.to_owned(),
                 description: String::new(),
                 system_role: None,
@@ -1009,7 +1007,7 @@ fn normalize_legacy_configuration(
         }
         let core = &mut states[core_index];
         core.name = canonical_name.to_owned();
-        core.icon = Some(icon.to_owned());
+        core._legacy_icon = Some(icon.to_owned());
         core.color = color.to_owned();
         core.system_role = Some(role.to_owned());
         core.archived = false;
@@ -1025,7 +1023,7 @@ fn normalize_legacy_configuration(
         .map(|(position, label)| TaskLabelConfig {
             id: label.id,
             name: label.name,
-            icon: None,
+            _legacy_icon: None,
             color: label.color,
             description: label.description,
             position: position as i32,
@@ -1051,7 +1049,7 @@ fn normalize_legacy_configuration(
                     id: option.id,
                     property_id: option.property_id,
                     name: option.name,
-                    icon: None,
+                    _legacy_icon: None,
                     color: option.color,
                     description: String::new(),
                     position: option.position,
@@ -1092,7 +1090,7 @@ fn normalize_legacy_configuration(
                     } else {
                         legacy_suffixed_name(&task_type.name, "archived", task_type.id)
                     },
-                    icon: Some(task_type.icon.clone()),
+                    _legacy_icon: Some(task_type.icon.clone()),
                     color: task_type.color.clone(),
                     description: task_type.description.clone(),
                     position: task_type.position,
@@ -1268,10 +1266,6 @@ fn validate_task_config(
     let mut core_roles = HashSet::new();
     for state in &config.states {
         if ResourceName::new(&state.name).is_err()
-            || state
-                .icon
-                .as_deref()
-                .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
             || HexColor::new(&state.color).is_err()
             || ConfigurationDescription::new(&state.description).is_err()
             || state.position < 0
@@ -1281,32 +1275,31 @@ fn validate_task_config(
             return Err(ImportArchiveError::InvalidMetadata);
         }
         if let Some(role) = state.system_role.as_deref() {
-            let expected = match role {
-                "todo" => ("Todo", "circle", "#64748B"),
-                "in_progress" => ("In Progress", "loader-circle", "#3B82F6"),
-                "done" => ("Done", "circle-check", "#22A06B"),
+            let (canonical_role, expected_name) = match role {
+                "backlog" => ("backlog", "Backlog"),
+                "todo" => ("todo", "Todo"),
+                "in_progress" => ("in_progress", "In Progress"),
+                "done" => ("done", "Done"),
+                "cancelled" | "canceled" => ("cancelled", "Cancelled"),
                 _ => return Err(ImportArchiveError::InvalidMetadata),
             };
             if state.archived
-                || !core_roles.insert(role)
-                || state.name != expected.0
-                || state.icon.as_deref() != Some(expected.1)
-                || state.color != expected.2
+                || !core_roles.insert(canonical_role)
+                || !state.name.eq_ignore_ascii_case(expected_name)
             {
                 return Err(ImportArchiveError::InvalidMetadata);
             }
         }
     }
-    if core_roles != HashSet::from(["todo", "in_progress", "done"]) {
+    if !["todo", "in_progress", "done"]
+        .into_iter()
+        .all(|role| core_roles.contains(role))
+    {
         return Err(ImportArchiveError::InvalidMetadata);
     }
     let mut label_positions = HashSet::new();
     for label in &config.labels {
         if ResourceName::new(&label.name).is_err()
-            || label
-                .icon
-                .as_deref()
-                .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
             || HexColor::new(&label.color).is_err()
             || ConfigurationDescription::new(&label.description).is_err()
             || label.position < 0
@@ -1355,10 +1348,6 @@ fn validate_task_config(
                 || !option_ids.insert(option.id)
                 || ResourceName::new(&option.name).is_err()
                 || !names.insert(option.name.trim().to_lowercase())
-                || option
-                    .icon
-                    .as_deref()
-                    .is_some_and(|icon| SelectOptionIcon::new_supported(icon).is_err())
                 || HexColor::new(&option.color).is_err()
                 || ConfigurationDescription::new(&option.description).is_err()
                 || option.position < 0

@@ -193,7 +193,14 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     )
     .unwrap();
     assert_eq!(task_config["format_version"], 3);
-    assert_eq!(task_config["states"].as_array().unwrap().len(), 3);
+    assert_eq!(task_config["states"].as_array().unwrap().len(), 5);
+    assert!(
+        task_config["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|state| state.get("icon").is_none())
+    );
     assert!(task_config.get("types").is_none());
     assert_eq!(task_config["labels"][0]["name"], "Docs");
 

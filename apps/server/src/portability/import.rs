@@ -69,9 +69,53 @@ struct ApplyImportRequest {
     revision: Uuid,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy)]
+struct FixedStateIds {
+    backlog: Uuid,
+    todo: Uuid,
+    in_progress: Uuid,
+    done: Uuid,
+    cancelled: Uuid,
+}
+
+impl FixedStateIds {
+    fn new() -> Self {
+        Self {
+            backlog: Uuid::new_v4(),
+            todo: Uuid::new_v4(),
+            in_progress: Uuid::new_v4(),
+            done: Uuid::new_v4(),
+            cancelled: Uuid::new_v4(),
+        }
+    }
+
+    fn for_role(self, role: &str) -> Option<Uuid> {
+        match role {
+            "backlog" => Some(self.backlog),
+            "todo" => Some(self.todo),
+            "in_progress" => Some(self.in_progress),
+            "done" => Some(self.done),
+            "cancelled" | "canceled" => Some(self.cancelled),
+            _ => None,
+        }
+    }
+
+    fn name(self, id: Uuid) -> anyhow::Result<&'static str> {
+        match id {
+            id if id == self.backlog => Ok("Backlog"),
+            id if id == self.todo => Ok("Todo"),
+            id if id == self.in_progress => Ok("In Progress"),
+            id if id == self.done => Ok("Done"),
+            id if id == self.cancelled => Ok("Cancelled"),
+            _ => Err(anyhow::anyhow!("Fixed State identity is missing")),
+        }
+    }
+}
+
 struct IdMaps {
     states: HashMap<Uuid, Uuid>,
+    default_states: HashMap<Uuid, Uuid>,
+    fixed_states: FixedStateIds,
     labels: HashMap<Uuid, Uuid>,
     properties: HashMap<Uuid, Uuid>,
     property_options: HashMap<Uuid, Uuid>,
@@ -80,6 +124,38 @@ struct IdMaps {
     modules: HashMap<Uuid, Uuid>,
     tasks: HashMap<Uuid, Uuid>,
     documents: HashMap<Uuid, Uuid>,
+}
+
+impl IdMaps {
+    fn new(validated: &ValidatedImport) -> Self {
+        let fixed_states = FixedStateIds::new();
+        let mut states = HashMap::new();
+        let mut default_states = HashMap::new();
+        for state in &validated.task_config.states {
+            let fixed = state
+                .system_role
+                .as_deref()
+                .and_then(|role| fixed_states.for_role(role))
+                .or_else(|| {
+                    fixed_states.for_role(&state.name.trim().to_ascii_lowercase().replace(' ', "_"))
+                });
+            states.insert(state.id, fixed.unwrap_or(fixed_states.backlog));
+            default_states.insert(state.id, fixed.unwrap_or(fixed_states.todo));
+        }
+        Self {
+            states,
+            default_states,
+            fixed_states,
+            labels: HashMap::new(),
+            properties: HashMap::new(),
+            property_options: HashMap::new(),
+            projects: HashMap::new(),
+            cycles: HashMap::new(),
+            modules: HashMap::new(),
+            tasks: HashMap::new(),
+            documents: HashMap::new(),
+        }
+    }
 }
 
 pub(super) fn routes() -> Router<AppState> {
@@ -385,7 +461,7 @@ async fn apply_validated(
     sqlx::query("SET CONSTRAINTS ALL DEFERRED")
         .execute(&mut *transaction)
         .await?;
-    let mut maps = IdMaps::default();
+    let mut maps = IdMaps::new(&validated);
     map_ids(&validated, &mut maps);
     insert_workspace(&mut transaction, actor_id, workspace_id, &validated, &maps).await?;
     insert_task_configuration(&mut transaction, workspace_id, &validated, &maps).await?;
@@ -410,13 +486,6 @@ async fn apply_validated(
 }
 
 fn map_ids(validated: &ValidatedImport, maps: &mut IdMaps) {
-    maps.states.extend(
-        validated
-            .task_config
-            .states
-            .iter()
-            .map(|state| (state.id, Uuid::new_v4())),
-    );
     maps.labels.extend(
         validated
             .task_config
@@ -504,7 +573,10 @@ async fn insert_workspace(
     .bind(&validated.workspace.name)
     .bind(identifier.as_str())
     .bind(&validated.workspace.accent)
-    .bind(mapped(&maps.states, validated.workspace.default_state_id)?)
+    .bind(mapped(
+        &maps.default_states,
+        validated.workspace.default_state_id,
+    )?)
     .bind(&validated.workspace.state_property_description)
     .bind(&validated.workspace.label_property_description)
     .bind(max_task_number + 1)
@@ -543,27 +615,60 @@ async fn insert_task_configuration(
     validated: &ValidatedImport,
     maps: &IdMaps,
 ) -> anyhow::Result<()> {
-    for state in &validated.task_config.states {
+    for (position, (state_id, name, color, description, role)) in [
+        (
+            maps.fixed_states.backlog,
+            "Backlog",
+            "#727480",
+            "Ideas and unprioritized work.",
+            "backlog",
+        ),
+        (
+            maps.fixed_states.todo,
+            "Todo",
+            "#7A4DD1",
+            "Ready to be worked on.",
+            "todo",
+        ),
+        (
+            maps.fixed_states.in_progress,
+            "In Progress",
+            "#296DD6",
+            "Currently being worked on.",
+            "in_progress",
+        ),
+        (
+            maps.fixed_states.done,
+            "Done",
+            "#2F945C",
+            "Completed and ready to close.",
+            "done",
+        ),
+        (
+            maps.fixed_states.cancelled,
+            "Cancelled",
+            "#D63D3C",
+            "Won't be completed.",
+            "cancelled",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         sqlx::query(
             r#"
             INSERT INTO task_states (
-                id, workspace_id, name, icon, color, description,
-                system_role, position, archived_at
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8,
-                CASE WHEN $9 THEN now() END
-            )
+                id, workspace_id, name, color, description, system_role, position
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
-        .bind(mapped(&maps.states, state.id)?)
+        .bind(state_id)
         .bind(workspace_id)
-        .bind(&state.name)
-        .bind(&state.icon)
-        .bind(&state.color)
-        .bind(&state.description)
-        .bind(&state.system_role)
-        .bind(state.position)
-        .bind(state.archived)
+        .bind(name)
+        .bind(color)
+        .bind(description)
+        .bind(role)
+        .bind(position as i32)
         .execute(&mut **transaction)
         .await?;
     }
@@ -571,14 +676,13 @@ async fn insert_task_configuration(
         sqlx::query(
             r#"
             INSERT INTO task_labels (
-                id, workspace_id, name, icon, color, description, position, archived_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN now() END)
+                id, workspace_id, name, color, description, position, archived_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END)
             "#,
         )
         .bind(mapped(&maps.labels, label.id)?)
         .bind(workspace_id)
         .bind(&label.name)
-        .bind(&label.icon)
         .bind(&label.color)
         .bind(&label.description)
         .bind(label.position)
@@ -618,11 +722,11 @@ async fn insert_task_configuration(
             sqlx::query(
                 r#"
                 INSERT INTO custom_property_options (
-                    id, workspace_id, property_id, name, icon, color,
+                    id, workspace_id, property_id, name, color,
                     description, position, archived_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8,
-                    CASE WHEN $9 THEN now() END
+                    $1, $2, $3, $4, $5, $6, $7,
+                    CASE WHEN $8 THEN now() END
                 )
                 "#,
             )
@@ -630,7 +734,6 @@ async fn insert_task_configuration(
             .bind(workspace_id)
             .bind(property_id)
             .bind(&option.name)
-            .bind(&option.icon)
             .bind(&option.color)
             .bind(&option.description)
             .bind(option.position)
@@ -671,7 +774,7 @@ async fn insert_projects(
         .bind(&project.description)
         .bind(&project.icon)
         .bind(&project.visibility)
-        .bind(mapped(&maps.states, project.default_state_id)?)
+        .bind(mapped(&maps.default_states, project.default_state_id)?)
         .bind(project.features.cycles)
         .bind(project.features.modules)
         .bind(project.features.wiki)
@@ -1056,6 +1159,24 @@ async fn rewrite_task_files(
         let source = tokio::fs::read_to_string(staging.join(task.path.display())).await?;
         let mut properties: TaskProperties = task.properties.clone();
         properties.kanleaf_id = mapped(&maps.tasks, task.identity.id)?;
+        let old_state = validated
+            .task_config
+            .states
+            .iter()
+            .find(|state| !state.archived && name_eq(&state.name, &properties.state))
+            .ok_or_else(|| anyhow::anyhow!("Portable State name is missing"))?;
+        properties.state = maps
+            .fixed_states
+            .name(mapped(&maps.states, old_state.id)?)?
+            .to_owned();
+        properties.priority = match priority_value(properties.priority.as_deref())? {
+            "none" => None,
+            "low" => Some("Low".to_owned()),
+            "medium" => Some("Medium".to_owned()),
+            "high" => Some("High".to_owned()),
+            "critical" => Some("Critical".to_owned()),
+            _ => unreachable!(),
+        };
         properties.assignees.clear();
         let patched = remap_task_identity_with_cleanup(
             &source,

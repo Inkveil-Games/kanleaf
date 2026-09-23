@@ -176,7 +176,6 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
         &format!("/api/workspaces/{workspace_id}/labels"),
         json!({
             "name": "Portable",
-            "icon": "database",
             "color": "#336699",
             "description": "Round-trip label"
         }),
@@ -195,7 +194,6 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
             "options": [{
                 "id": default_option_id,
                 "name": "High",
-                "icon": "flag",
                 "color": "#EF4444",
                 "description": "Needs prompt attention"
             }]
@@ -298,13 +296,29 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     let task_config: Value = serde_json::from_slice(&entries[".kanleaf/task-config.json"]).unwrap();
     assert_eq!(task_config["format_version"], 3);
     assert!(task_config.get("types").is_none());
+    assert_eq!(task_config["states"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        task_config["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|state| state["system_role"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["backlog", "todo", "in_progress", "done", "cancelled"]
+    );
+    assert!(
+        task_config["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|state| state.get("icon").is_none())
+    );
     let todo = task_config["states"]
         .as_array()
         .unwrap()
         .iter()
         .find(|state| state["system_role"] == "todo")
         .unwrap();
-    assert_eq!(todo["icon"], "circle");
     assert!(todo["description"].is_string());
     let exported_label = task_config["labels"]
         .as_array()
@@ -312,7 +326,7 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
         .iter()
         .find(|value| value["id"] == label["id"])
         .unwrap();
-    assert_eq!(exported_label["icon"], "database");
+    assert!(exported_label.get("icon").is_none());
     assert_eq!(exported_label["position"], 0);
     let exported_property = task_config["properties"]
         .as_array()
@@ -324,7 +338,7 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
         exported_property["default_option_id"],
         default_option_id.to_string()
     );
-    assert_eq!(exported_property["options"][0]["icon"], "flag");
+    assert!(exported_property["options"][0].get("icon").is_none());
     assert_eq!(
         exported_property["options"][0]["description"],
         "Needs prompt attention"

@@ -287,7 +287,6 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         &format!("/api/workspaces/{source_workspace_id}/labels"),
         json!({
             "name": "Portable",
-            "icon": "database",
             "color": "#336699",
             "description": "Round trip"
         }),
@@ -320,7 +319,6 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             "options": [{
                 "id": default_option_id,
                 "name": "High",
-                "icon": "flag",
                 "color": "#EF4444",
                 "description": "Needs prompt attention"
             }]
@@ -453,6 +451,7 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
                 "version": 2,
                 "scope": {"kind": "project", "project_id": project_id},
                 "filters": {
+                    "states": {"values": [configuration["default_state_id"]]},
                     "labels": {"values": [label["id"]]},
                     "cycles": {"values": [cycle["id"]]},
                     "modules": {"values": [module["id"]]},
@@ -468,6 +467,92 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     .await;
 
     let archive = export_workspace(&app, &source_token, source_workspace_id).await;
+    let legacy_backlog_id = Uuid::new_v4();
+    let review_id = Uuid::new_v4();
+    let root_task_id = root_task["id"].as_str().unwrap().to_owned();
+    let project_config_path = format!(".kanleaf/projects/{project_id}.json");
+    let archive = rewrite_archive_with_checksums(&archive, |path, content| match path {
+        ".kanleaf/workspace.json" => {
+            let mut workspace: Value = serde_json::from_slice(&content).unwrap();
+            workspace["default_state_id"] = json!(review_id);
+            serde_json::to_vec_pretty(&workspace).unwrap()
+        }
+        ".kanleaf/task-config.json" => {
+            let mut config: Value = serde_json::from_slice(&content).unwrap();
+            let states = config["states"].as_array().unwrap();
+            let mut normalized = ["todo", "in_progress", "done"]
+                .into_iter()
+                .enumerate()
+                .map(|(position, role)| {
+                    let mut state = states
+                        .iter()
+                        .find(|state| state["system_role"] == role)
+                        .unwrap()
+                        .clone();
+                    state["position"] = json!(position);
+                    state["icon"] = json!(match role {
+                        "todo" => "circle",
+                        "in_progress" => "loader-circle",
+                        "done" => "circle-check",
+                        _ => unreachable!(),
+                    });
+                    state
+                })
+                .collect::<Vec<_>>();
+            normalized.push(json!({
+                "id": legacy_backlog_id,
+                "name": "Backlog",
+                "icon": "archive",
+                "color": "#6B7280",
+                "description": "Legacy backlog",
+                "system_role": null,
+                "position": 3,
+                "archived": false
+            }));
+            normalized.push(json!({
+                "id": review_id,
+                "name": "Review",
+                "icon": "eye",
+                "color": "#A855F7",
+                "description": "Custom review state",
+                "system_role": null,
+                "position": 4,
+                "archived": false
+            }));
+            config["states"] = json!(normalized);
+            for label in config["labels"].as_array_mut().unwrap() {
+                label["icon"] = json!("database");
+            }
+            for property in config["properties"].as_array_mut().unwrap() {
+                for option in property["options"].as_array_mut().unwrap() {
+                    option["icon"] = json!("flag");
+                }
+            }
+            serde_json::to_vec_pretty(&config).unwrap()
+        }
+        ".kanleaf/views.json" => {
+            let mut views: Value = serde_json::from_slice(&content).unwrap();
+            views["views"][0]["query"]["filters"]["states"]["values"] = json!([review_id]);
+            serde_json::to_vec_pretty(&views).unwrap()
+        }
+        _ if path == project_config_path => {
+            let mut project: Value = serde_json::from_slice(&content).unwrap();
+            project["default_state_id"] = json!(review_id);
+            serde_json::to_vec_pretty(&project).unwrap()
+        }
+        _ if path.ends_with(".md") => {
+            let source = String::from_utf8(content).unwrap();
+            if source.contains(&format!("Kanleaf ID: {root_task_id}")) {
+                source
+                    .replace("State:\n  - Todo", "State:\n  - Review")
+                    .replace("Priority:\n  - High", "Priority:\n  - Urgent")
+                    .into_bytes()
+            } else {
+                source.into_bytes()
+            }
+        }
+        _ => content,
+    });
     let (importer_token, importer_id, importer_personal_workspace) =
         register(&app, "importer@example.com").await;
     let preview = preview_import(&app, &importer_token, &archive).await;
@@ -503,6 +588,32 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             .unwrap();
     assert_eq!(member, (importer_id, "owner".to_owned()));
 
+    let imported_states: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, system_role FROM task_states WHERE workspace_id = $1 ORDER BY position",
+    )
+    .bind(imported_workspace_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        imported_states,
+        [
+            ("Backlog".to_owned(), "backlog".to_owned()),
+            ("Todo".to_owned(), "todo".to_owned()),
+            ("In Progress".to_owned(), "in_progress".to_owned()),
+            ("Done".to_owned(), "done".to_owned()),
+            ("Cancelled".to_owned(), "cancelled".to_owned()),
+        ]
+    );
+    let workspace_default_role: String = sqlx::query_scalar(
+        "SELECT states.system_role FROM workspaces JOIN task_states AS states ON states.id = workspaces.default_inbox_state_id WHERE workspaces.id = $1",
+    )
+    .bind(imported_workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(workspace_default_role, "todo");
+
     let imported_project: (Uuid, String) =
         sqlx::query_as("SELECT id, storage_name FROM projects WHERE workspace_id = $1")
             .bind(imported_workspace_id)
@@ -511,6 +622,14 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             .unwrap();
     assert_ne!(imported_project.0.to_string(), project_id);
     assert_eq!(imported_project.1, project["storage_name"]);
+    let project_default_role: String = sqlx::query_scalar(
+        "SELECT states.system_role FROM projects JOIN task_states AS states ON states.id = projects.default_state_id WHERE projects.id = $1",
+    )
+    .bind(imported_project.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(project_default_role, "todo");
     let imported_tasks: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT id, title, storage_name FROM tasks WHERE workspace_id = $1 ORDER BY task_number",
     )
@@ -534,6 +653,17 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     assert!(imported_source.contains("[[Architecture]]"));
     assert!(imported_source.contains(&format!("Kanleaf ID: {}", imported_tasks[0].0)));
     assert!(!imported_source.contains(root_task["id"].as_str().unwrap()));
+    let imported_root_state_and_priority: (String, String) = sqlx::query_as(
+        "SELECT states.system_role, tasks.priority FROM tasks JOIN task_states AS states ON states.id = tasks.state_id WHERE tasks.workspace_id = $1 AND tasks.title = 'Export root'",
+    )
+    .bind(imported_workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        imported_root_state_and_priority,
+        ("backlog".to_owned(), "critical".to_owned())
+    );
 
     let imported_properties = get_json(
         &app,
@@ -547,7 +677,7 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         imported_properties[0]["default_option_id"],
         imported_properties[0]["options"][0]["id"]
     );
-    assert_eq!(imported_properties[0]["options"][0]["icon"], "flag");
+    assert!(imported_properties[0]["options"][0].get("icon").is_none());
     assert_eq!(
         imported_properties[0]["options"][0]["description"],
         "Needs prompt attention"
@@ -634,6 +764,43 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             .unwrap()
             .is_empty()
     );
+    let imported_backlog_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM task_states WHERE workspace_id = $1 AND system_role = 'backlog'",
+    )
+    .bind(imported_workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        view_query["filters"]["states"]["values"],
+        json!([imported_backlog_id])
+    );
+
+    let reexported = export_workspace(&app, &importer_token, imported_workspace_id).await;
+    let reexported_config = archive_entry_json(&reexported, ".kanleaf/task-config.json");
+    assert_eq!(reexported_config["states"].as_array().unwrap().len(), 5);
+    assert!(
+        reexported_config["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|state| state.get("icon").is_none())
+    );
+    assert!(
+        reexported_config["labels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|label| label.get("icon").is_none())
+    );
+    assert!(
+        reexported_config["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|property| property["options"].as_array().unwrap())
+            .all(|option| option.get("icon").is_none())
+    );
 
     let second_preview = preview_import(&app, &importer_token, &archive).await;
     let second = apply_import(&app, &importer_token, &second_preview).await;
@@ -666,8 +833,8 @@ async fn legacy_task_types_normalize_to_one_custom_type_property(pool: PgPool) {
             "type": "single_select",
             "default_option_id": feature_id,
             "options": [
-                {"id": bug_id, "name": "Bug", "icon": "bug", "color": "#EF4444", "description": "A defect"},
-                {"id": feature_id, "name": "Feature", "icon": "sparkles", "color": "#3B82F6", "description": "New capability"}
+                {"id": bug_id, "name": "Bug", "color": "#EF4444", "description": "A defect"},
+                {"id": feature_id, "name": "Feature", "color": "#3B82F6", "description": "New capability"}
             ]
         }),
     )
@@ -1282,6 +1449,14 @@ fn rewrite_archive(source: &[u8], mut rewrite: impl FnMut(&str, Vec<u8>) -> Vec<
     write_archive(entries)
 }
 
+fn archive_entry_json(source: &[u8], path: &str) -> Value {
+    let mut archive = ZipArchive::new(Cursor::new(source)).unwrap();
+    let mut entry = archive.by_name(path).unwrap();
+    let mut content = Vec::new();
+    entry.read_to_end(&mut content).unwrap();
+    serde_json::from_slice(&content).unwrap()
+}
+
 fn rewrite_archive_with_checksums(
     source: &[u8],
     mut rewrite: impl FnMut(&str, Vec<u8>) -> Vec<u8>,
@@ -1327,7 +1502,14 @@ fn legacy_task_config(config: &mut Value, type_property_id: Option<&str>, types:
             .remove("system_role")
             .filter(|role| !role.is_null())
             .unwrap_or_else(|| json!("todo"));
-        state.insert("group".to_owned(), group);
+        state.insert(
+            "group".to_owned(),
+            if group == "cancelled" {
+                json!("canceled")
+            } else {
+                group
+            },
+        );
         state.remove("icon");
         state.remove("description");
     }
