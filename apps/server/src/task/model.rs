@@ -12,9 +12,8 @@ use crate::error::AppError;
 pub(crate) struct TaskStateSummary {
     pub id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
     pub color: String,
-    pub system_role: Option<String>,
+    pub system_role: String,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -95,9 +94,8 @@ pub(super) struct TaskRow {
     storage_name: String,
     state_id: Uuid,
     state_name: String,
-    state_icon: Option<String>,
     state_color: String,
-    system_role: Option<String>,
+    system_role: String,
     priority: String,
     start_date: Option<NaiveDate>,
     due_date: Option<NaiveDate>,
@@ -121,7 +119,6 @@ impl From<TaskRow> for TaskResponse {
             state: TaskStateSummary {
                 id: row.state_id,
                 name: row.state_name,
-                icon: row.state_icon,
                 color: row.state_color,
                 system_role: row.system_role,
             },

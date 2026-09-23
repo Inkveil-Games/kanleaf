@@ -24,10 +24,9 @@ pub struct TaskStateResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
     pub color: String,
     pub description: String,
-    pub system_role: Option<String>,
+    pub system_role: String,
     pub position: i32,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -39,7 +38,6 @@ pub struct TaskLabelResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
     pub color: String,
     pub description: String,
     pub position: i32,
@@ -75,7 +73,7 @@ struct WorkspaceTaskConfiguration {
 }
 
 pub(crate) struct NewWorkspaceTaskConfiguration {
-    state_ids: [Uuid; 3],
+    state_ids: [Uuid; 5],
 }
 
 impl NewWorkspaceTaskConfiguration {
@@ -86,7 +84,7 @@ impl NewWorkspaceTaskConfiguration {
     }
 
     pub(crate) const fn default_state_id(&self) -> Uuid {
-        self.state_ids[0]
+        self.state_ids[1]
     }
 
     pub(crate) async fn install(
@@ -94,32 +92,54 @@ impl NewWorkspaceTaskConfiguration {
         transaction: &mut Transaction<'_, Postgres>,
         workspace_id: Uuid,
     ) -> Result<(), AppError> {
-        const STATES: [(&str, &str, &str, SystemStateRole); 3] = [
-            ("Todo", "circle", "#64748B", SystemStateRole::Todo),
+        const STATES: [(&str, &str, &str, SystemStateRole); 5] = [
+            (
+                "Backlog",
+                "#727480",
+                "Ideas and unprioritized work.",
+                SystemStateRole::Backlog,
+            ),
+            (
+                "Todo",
+                "#7A4DD1",
+                "Ready to be worked on.",
+                SystemStateRole::Todo,
+            ),
             (
                 "In Progress",
-                "loader-circle",
-                "#3B82F6",
+                "#296DD6",
+                "Currently being worked on.",
                 SystemStateRole::InProgress,
             ),
-            ("Done", "circle-check", "#22A06B", SystemStateRole::Done),
+            (
+                "Done",
+                "#2F945C",
+                "Completed and ready to close.",
+                SystemStateRole::Done,
+            ),
+            (
+                "Cancelled",
+                "#D63D3C",
+                "Won't be completed.",
+                SystemStateRole::Cancelled,
+            ),
         ];
 
-        for (position, ((name, icon, color, role), state_id)) in
+        for (position, ((name, color, description, role), state_id)) in
             STATES.into_iter().zip(self.state_ids).enumerate()
         {
             sqlx::query(
                 r#"
                 INSERT INTO task_states
-                    (id, workspace_id, name, icon, color, system_role, position)
+                    (id, workspace_id, name, color, description, system_role, position)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
             )
             .bind(state_id)
             .bind(workspace_id)
             .bind(name)
-            .bind(icon)
             .bind(color)
+            .bind(description)
             .bind(role.as_str())
             .bind(position as i32)
             .execute(&mut **transaction)
@@ -135,15 +155,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/api/workspaces/{workspace_id}/task-configuration",
             get(list).patch(update_configuration),
-        )
-        .route("/api/workspaces/{workspace_id}/states", post(state::create))
-        .route(
-            "/api/workspaces/{workspace_id}/states/reorder",
-            put(state::reorder),
-        )
-        .route(
-            "/api/workspaces/{workspace_id}/states/{state_id}",
-            patch(state::update).delete(state::remove),
         )
         .route("/api/workspaces/{workspace_id}/labels", post(label::create))
         .route(

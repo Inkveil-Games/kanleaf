@@ -341,17 +341,21 @@ impl TaskPriority {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SystemStateRole {
+    Backlog,
     Todo,
     InProgress,
     Done,
+    Cancelled,
 }
 
 impl SystemStateRole {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Backlog => "backlog",
             Self::Todo => "todo",
             Self::InProgress => "in_progress",
             Self::Done => "done",
+            Self::Cancelled => "cancelled",
         }
     }
 }

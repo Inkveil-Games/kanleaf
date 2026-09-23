@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ConfigurationDescription, HexColor, ResourceName, SelectOptionIcon},
+    domain::{ConfigurationDescription, HexColor, ResourceName},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many, read_undefined_properties, task_vault_row},
     workspace::{require_workspace_admin, require_workspace_member},
@@ -63,7 +63,6 @@ pub(crate) struct PropertyOptionResponse {
     pub workspace_id: Uuid,
     pub property_id: Uuid,
     pub name: String,
-    pub icon: Option<String>,
     pub color: String,
     pub description: String,
     pub position: i32,
@@ -93,8 +92,6 @@ pub(super) struct CreateOptionRequest {
     #[serde(default)]
     id: Option<Uuid>,
     name: String,
-    #[serde(default)]
-    icon: Option<String>,
     color: String,
     #[serde(default)]
     description: String,
@@ -139,8 +136,6 @@ struct SaveOptionRequest {
     #[serde(default)]
     id: Option<Uuid>,
     name: String,
-    #[serde(default)]
-    icon: Option<String>,
     color: String,
     #[serde(default)]
     description: String,
@@ -159,8 +154,6 @@ pub(super) struct ReorderRequest {
 pub(super) struct UpdateOptionRequest {
     #[serde(default)]
     name: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_nullable_string")]
-    icon: Option<Option<String>>,
     #[serde(default)]
     color: Option<String>,
     #[serde(default)]
@@ -258,7 +251,6 @@ pub(super) async fn create(
                 NewPropertyOption {
                     id: option.id,
                     name: option.name.as_str(),
-                    icon: option.icon.as_ref().map(SelectOptionIcon::as_str),
                     color: option.color.as_str(),
                     description: option.description.as_str(),
                     position: position as i32,
@@ -416,7 +408,6 @@ pub(super) async fn define(
                 NewPropertyOption {
                     id: option.id,
                     name: option.name.as_str(),
-                    icon: option.icon.as_ref().map(SelectOptionIcon::as_str),
                     color: option.color.as_str(),
                     description: option.description.as_str(),
                     position: position as i32,
@@ -783,7 +774,6 @@ pub(super) async fn create_option(
     let Path((workspace_id, property_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     let name = option_name(&request.name)?;
-    let icon = requested_icon(request.icon.as_deref())?;
     let color = normalized_color(&request.color)?;
     let description = ConfigurationDescription::new(&request.description)
         .map_err(|error| AppError::Validation(error.to_string()))?;
@@ -805,7 +795,6 @@ pub(super) async fn create_option(
         NewPropertyOption {
             id: request.id,
             name: name.as_str(),
-            icon: icon.as_ref().map(SelectOptionIcon::as_str),
             color: color.as_str(),
             description: description.as_str(),
             position,
@@ -825,7 +814,6 @@ pub(super) async fn update_option(
     let Path((workspace_id, property_id, option_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.name.is_none()
-        && request.icon.is_none()
         && request.color.is_none()
         && request.description.is_none()
         && request.archived.is_none()
@@ -835,7 +823,6 @@ pub(super) async fn update_option(
         ));
     }
     let name = request.name.as_deref().map(option_name).transpose()?;
-    let icon = validate_icon_update(&request.icon)?;
     let color = request.color.as_deref().map(normalized_color).transpose()?;
     let description = request
         .description
@@ -876,26 +863,20 @@ pub(super) async fn update_option(
         r#"
         UPDATE custom_property_options
         SET name = COALESCE($1, name),
-            icon = CASE WHEN $2 THEN $3 ELSE icon END,
-            color = COALESCE($4, color),
-            description = COALESCE($5, description),
+            color = COALESCE($2, color),
+            description = COALESCE($3, description),
             archived_at = CASE
-                WHEN $6::boolean IS NULL THEN archived_at
-                WHEN $6 THEN now()
+                WHEN $4::boolean IS NULL THEN archived_at
+                WHEN $4 THEN now()
                 ELSE NULL
             END,
-            position = COALESCE($7, position), updated_at = now()
-        WHERE workspace_id = $8 AND property_id = $9 AND id = $10
-        RETURNING id, workspace_id, property_id, name, icon, color, description, position,
+            position = COALESCE($5, position), updated_at = now()
+        WHERE workspace_id = $6 AND property_id = $7 AND id = $8
+        RETURNING id, workspace_id, property_id, name, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
-    .bind(request.icon.is_some())
-    .bind(
-        icon.as_ref()
-            .and_then(|icon| icon.as_ref().map(SelectOptionIcon::as_str)),
-    )
     .bind(color.as_ref().map(HexColor::as_str))
     .bind(description.as_ref().map(ConfigurationDescription::as_str))
     .bind(request.archived)
@@ -915,7 +896,7 @@ pub(super) async fn update_option(
         Err(error) => return Err(error.into()),
     };
     let task_ids = option_task_ids(&mut transaction, workspace_id, property_id, option_id).await?;
-    if name.is_some() || request.icon.is_some() || request.archived.is_some() {
+    if name.is_some() || request.archived.is_some() {
         enqueue_projection(&mut transaction, workspace_id, &task_ids).await?;
     }
     transaction.commit().await?;
@@ -1033,7 +1014,6 @@ async fn replace_options(
         validated.push((
             option.id,
             name,
-            requested_icon(option.icon.as_deref())?,
             normalized_color(&option.color)?,
             ConfigurationDescription::new(&option.description)
                 .map_err(|error| AppError::Validation(error.to_string()))?,
@@ -1074,7 +1054,7 @@ async fn replace_options(
 
     let mut active_position = 0_i32;
     let mut archived_position = 0_i32;
-    for (id, name, icon, color, description, archived) in validated {
+    for (id, name, color, description, archived) in validated {
         let position = if archived {
             let position = archived_position;
             archived_position += 1;
@@ -1092,15 +1072,14 @@ async fn replace_options(
                 sqlx::query(
                     r#"
                     UPDATE custom_property_options
-                    SET name = $1, icon = $2, color = $3, description = $4,
-                        position = $5,
-                        archived_at = CASE WHEN $6 THEN COALESCE(archived_at, now()) ELSE NULL END,
+                    SET name = $1, color = $2, description = $3,
+                        position = $4,
+                        archived_at = CASE WHEN $5 THEN COALESCE(archived_at, now()) ELSE NULL END,
                         updated_at = now()
-                    WHERE workspace_id = $7 AND property_id = $8 AND id = $9
+                    WHERE workspace_id = $6 AND property_id = $7 AND id = $8
                     "#,
                 )
                 .bind(name.as_str())
-                .bind(icon.as_ref().map(SelectOptionIcon::as_str))
                 .bind(color.as_str())
                 .bind(description.as_str())
                 .bind(position)
@@ -1119,7 +1098,6 @@ async fn replace_options(
                     NewPropertyOption {
                         id: None,
                         name: name.as_str(),
-                        icon: icon.as_ref().map(SelectOptionIcon::as_str),
                         color: color.as_str(),
                         description: description.as_str(),
                         position,
@@ -1212,7 +1190,7 @@ pub(crate) async fn load_definitions(
     .await?;
     let options = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
-        SELECT id, workspace_id, property_id, name, icon, color, description, position,
+        SELECT id, workspace_id, property_id, name, color, description, position,
                archived_at, created_at, updated_at
         FROM custom_property_options
         WHERE workspace_id = $1
@@ -1310,7 +1288,6 @@ fn validate_configuration(configuration: &Value) -> Result<(), AppError> {
 struct ValidatedCreateOption {
     id: Option<Uuid>,
     name: ResourceName,
-    icon: Option<SelectOptionIcon>,
     color: HexColor,
     description: ConfigurationDescription,
 }
@@ -1337,7 +1314,6 @@ fn validate_create_options(
             Ok(ValidatedCreateOption {
                 id: option.id,
                 name,
-                icon: requested_icon(option.icon.as_deref())?,
                 color: normalized_color(&option.color)?,
                 description: ConfigurationDescription::new(&option.description)
                     .map_err(|error| AppError::Validation(error.to_string()))?,
@@ -1373,7 +1349,6 @@ fn validate_requested_default(
 struct NewPropertyOption<'a> {
     id: Option<Uuid>,
     name: &'a str,
-    icon: Option<&'a str>,
     color: &'a str,
     description: &'a str,
     position: i32,
@@ -1388,9 +1363,9 @@ async fn insert_option(
     let inserted = sqlx::query_as::<_, PropertyOptionResponse>(
         r#"
         INSERT INTO custom_property_options
-            (id, workspace_id, property_id, name, icon, color, description, position)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, workspace_id, property_id, name, icon, color, description, position,
+            (id, workspace_id, property_id, name, color, description, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, workspace_id, property_id, name, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
@@ -1398,7 +1373,6 @@ async fn insert_option(
     .bind(workspace_id)
     .bind(property_id)
     .bind(option.name)
-    .bind(option.icon)
     .bind(option.color)
     .bind(option.description)
     .bind(option.position)
@@ -1420,7 +1394,7 @@ async fn options_for_property(
 ) -> Result<Vec<PropertyOptionResponse>, AppError> {
     Ok(sqlx::query_as(
         r#"
-        SELECT id, workspace_id, property_id, name, icon, color, description, position,
+        SELECT id, workspace_id, property_id, name, color, description, position,
                archived_at, created_at, updated_at
         FROM custom_property_options
         WHERE workspace_id = $1 AND property_id = $2
@@ -1520,29 +1494,6 @@ async fn clear_default_option(
     .execute(&mut **transaction)
     .await?;
     Ok(())
-}
-
-fn requested_icon(value: Option<&str>) -> Result<Option<SelectOptionIcon>, AppError> {
-    value
-        .map(SelectOptionIcon::new_supported)
-        .transpose()
-        .map_err(|error| AppError::Validation(error.to_string()))
-}
-
-fn validate_icon_update(
-    requested: &Option<Option<String>>,
-) -> Result<Option<Option<SelectOptionIcon>>, AppError> {
-    requested
-        .as_ref()
-        .map(|icon| requested_icon(icon.as_deref()))
-        .transpose()
-}
-
-fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_nullable_uuid<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>

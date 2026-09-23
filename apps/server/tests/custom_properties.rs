@@ -940,7 +940,6 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
             &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options"),
             Some(json!({
                 "name": "High",
-                "icon": "flag",
                 "color": "#EF4444",
                 "description": "Needs prompt attention"
             })),
@@ -950,7 +949,7 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
         .unwrap();
     assert_eq!(option.status(), StatusCode::CREATED);
     let option = response_json(option).await;
-    assert_eq!(option["icon"], "flag");
+    assert!(option.get("icon").is_none());
     assert_eq!(option["description"], "Needs prompt attention");
     let option_id = option["id"].as_str().unwrap();
 
@@ -1006,7 +1005,6 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
             "PATCH",
             &format!("/api/workspaces/{workspace_id}/properties/{property_id}/options/{option_id}"),
             Some(json!({
-                "icon": "zap",
                 "description": "Escalate immediately"
             })),
             &token,
@@ -1015,7 +1013,7 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
         .unwrap();
     assert_eq!(updated_option.status(), StatusCode::OK);
     let updated_option = response_json(updated_option).await;
-    assert_eq!(updated_option["icon"], "zap");
+    assert!(updated_option.get("icon").is_none());
     assert_eq!(updated_option["description"], "Escalate immediately");
 
     let archived = app
@@ -1099,7 +1097,6 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
                 "options": [{
                     "id": seeded_option_id,
                     "name": "Normal",
-                    "icon": null,
                     "color": "#64748B",
                     "description": "The standard urgency"
                 }]

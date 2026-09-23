@@ -5,14 +5,14 @@ use axum::{
     extract::{Path, State, rejection::JsonRejection, rejection::PathRejection},
     http::StatusCode,
 };
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ConfigurationDescription, HexColor, ResourceName, SelectOptionIcon},
+    domain::{ConfigurationDescription, HexColor, ResourceName},
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
     workspace::require_workspace_admin,
@@ -23,8 +23,6 @@ use super::TaskLabelResponse;
 #[derive(Deserialize)]
 pub(super) struct CreateLabelRequest {
     name: String,
-    #[serde(default)]
-    icon: Option<String>,
     color: String,
     #[serde(default)]
     description: String,
@@ -34,8 +32,6 @@ pub(super) struct CreateLabelRequest {
 pub(super) struct UpdateLabelRequest {
     #[serde(default)]
     name: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_nullable")]
-    icon: Option<Option<String>>,
     #[serde(default)]
     color: Option<String>,
     #[serde(default)]
@@ -55,7 +51,7 @@ pub(super) async fn list(
 ) -> Result<Vec<TaskLabelResponse>, AppError> {
     Ok(sqlx::query_as(
         r#"
-        SELECT id, workspace_id, name, icon, color, description, position,
+        SELECT id, workspace_id, name, color, description, position,
                archived_at, created_at, updated_at
         FROM task_labels
         WHERE workspace_id = $1
@@ -77,12 +73,6 @@ pub(super) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let name = ResourceName::new(&request.name)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let icon = request
-        .icon
-        .as_deref()
-        .map(SelectOptionIcon::new_supported)
-        .transpose()
-        .map_err(|error| AppError::Validation(error.to_string()))?;
     let color =
         HexColor::new(&request.color).map_err(|error| AppError::Validation(error.to_string()))?;
     let description = ConfigurationDescription::new(&request.description)
@@ -100,16 +90,15 @@ pub(super) async fn create(
     let created = sqlx::query_as::<_, TaskLabelResponse>(
         r#"
         INSERT INTO task_labels
-            (id, workspace_id, name, icon, color, description, position)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, workspace_id, name, icon, color, description, position,
+            (id, workspace_id, name, color, description, position)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, workspace_id, name, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(Uuid::new_v4())
     .bind(workspace_id)
     .bind(name.as_str())
-    .bind(icon.as_ref().map(SelectOptionIcon::as_str))
     .bind(color.as_str())
     .bind(description.as_str())
     .bind(position)
@@ -137,7 +126,6 @@ pub(super) async fn update(
     let Path((workspace_id, label_id)) = path.map_err(AppError::from)?;
     let Json(request) = payload.map_err(AppError::from)?;
     if request.name.is_none()
-        && request.icon.is_none()
         && request.color.is_none()
         && request.description.is_none()
         && request.archived.is_none()
@@ -152,7 +140,6 @@ pub(super) async fn update(
         .map(ResourceName::new)
         .transpose()
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    let icon = validate_icon_update(&request.icon)?;
     let color = request
         .color
         .as_deref()
@@ -193,27 +180,21 @@ pub(super) async fn update(
         r#"
         UPDATE task_labels
         SET name = COALESCE($1, name),
-            icon = CASE WHEN $2 THEN $3 ELSE icon END,
-            color = COALESCE($4, color),
-            description = COALESCE($5, description),
+            color = COALESCE($2, color),
+            description = COALESCE($3, description),
             archived_at = CASE
-                WHEN $6::boolean IS NULL THEN archived_at
-                WHEN $6 THEN now()
+                WHEN $4::boolean IS NULL THEN archived_at
+                WHEN $4 THEN now()
                 ELSE NULL
             END,
-            position = COALESCE($7, position),
+            position = COALESCE($5, position),
             updated_at = now()
-        WHERE id = $8 AND workspace_id = $9
-        RETURNING id, workspace_id, name, icon, color, description, position,
+        WHERE id = $6 AND workspace_id = $7
+        RETURNING id, workspace_id, name, color, description, position,
                   archived_at, created_at, updated_at
         "#,
     )
     .bind(name.as_ref().map(ResourceName::as_str))
-    .bind(request.icon.is_some())
-    .bind(
-        icon.as_ref()
-            .and_then(|icon| icon.as_ref().map(SelectOptionIcon::as_str)),
-    )
     .bind(color.as_ref().map(HexColor::as_str))
     .bind(description.as_ref().map(ConfigurationDescription::as_str))
     .bind(request.archived)
@@ -232,7 +213,7 @@ pub(super) async fn update(
         }
         Err(error) => return Err(error.into()),
     };
-    let task_ids = if name.is_some() || request.icon.is_some() {
+    let task_ids = if name.is_some() {
         assigned_task_ids(&mut transaction, workspace_id, label_id).await?
     } else {
         Vec::new()
@@ -324,27 +305,6 @@ async fn assigned_task_ids(
     .bind(label_id)
     .fetch_all(&mut **transaction)
     .await?)
-}
-
-fn validate_icon_update(
-    requested: &Option<Option<String>>,
-) -> Result<Option<Option<SelectOptionIcon>>, AppError> {
-    requested
-        .as_ref()
-        .map(|icon| {
-            icon.as_deref()
-                .map(SelectOptionIcon::new_supported)
-                .transpose()
-                .map_err(|error| AppError::Validation(error.to_string()))
-        })
-        .transpose()
-}
-
-fn deserialize_nullable<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 fn validate_reorder_ids(ids: &[Uuid], current: &[Uuid]) -> Result<(), AppError> {

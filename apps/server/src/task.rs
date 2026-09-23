@@ -1914,7 +1914,7 @@ async fn find_tasks(
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
-               states.icon AS state_icon, states.color AS state_color, states.system_role,
+               states.color AS state_color, states.system_role,
                tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
                tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
@@ -1941,7 +1941,7 @@ fn select_task_query()
         SELECT tasks.id, tasks.workspace_id, tasks.project_id, tasks.title, tasks.storage_name,
                projects.identifier AS project_identifier, tasks.task_number,
                states.id AS state_id, states.name AS state_name,
-               states.icon AS state_icon, states.color AS state_color, states.system_role,
+               states.color AS state_color, states.system_role,
                tasks.priority, tasks.start_date, tasks.due_date, tasks.estimate,
                tasks.position, tasks.archived_at, tasks.created_at, tasks.updated_at
         FROM tasks
