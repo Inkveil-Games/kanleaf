@@ -159,9 +159,8 @@ function state(id: string, name: string, position: number): TaskState {
     workspace_id: 'workspace-1',
     name,
     color: '#64748B',
-    icon: null,
     description: '',
-    system_role: null,
+    system_role: 'todo',
     position,
     archived_at: null,
     created_at: '2026-09-01T00:00:00Z',
@@ -184,7 +183,6 @@ function task(
     state: {
       id: taskState.id,
       name: taskState.name,
-      icon: taskState.icon,
       color: taskState.color,
       system_role: taskState.system_role,
     },

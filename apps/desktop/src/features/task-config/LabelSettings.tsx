@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
-import { SettingsArticle } from '../settings/SettingsArticle';
 import { SelectPropertyEditor } from '../settings/SelectPropertyEditor';
 import {
   SelectValueEditor,
@@ -62,7 +61,6 @@ export function LabelSettings(props: LabelSettingsProps) {
           props.workspace.id,
           {
             name: value.name.trim(),
-            icon: value.icon,
             color: value.color,
             description: value.description.trim(),
           },
@@ -124,12 +122,16 @@ export function LabelSettings(props: LabelSettingsProps) {
   }
 
   return (
-    <SettingsArticle
+    <section
       className="configuration-settings unified-property-settings"
-      eyebrow="Workspace"
-      title="Labels"
-      description="Create a shared vocabulary for organizing work."
+      aria-labelledby="label-settings-heading"
     >
+      <header className="embedded-settings-header">
+        <div>
+          <h2 id="label-settings-heading">Labels</h2>
+          <p>Create a shared vocabulary for organizing work.</p>
+        </div>
+      </header>
       <SelectPropertyEditor
         name="Labels"
         nameReadOnly
@@ -171,7 +173,7 @@ export function LabelSettings(props: LabelSettingsProps) {
           Only Workspace Owners and Admins can change labels.
         </p>
       ) : null}
-    </SettingsArticle>
+    </section>
   );
 }
 
@@ -180,7 +182,6 @@ function labelDrafts(labels: TaskLabel[]): SelectValueDraft[] {
     key: label.id,
     id: label.id,
     name: label.name,
-    icon: label.icon ?? null,
     color: label.color,
     description: label.description,
     archived: Boolean(label.archived_at),
@@ -190,7 +191,6 @@ function labelDrafts(labels: TaskLabel[]): SelectValueDraft[] {
 function labelChanged(label: TaskLabel, value: SelectValueDraft) {
   return (
     label.name !== value.name.trim() ||
-    (label.icon ?? null) !== value.icon ||
     label.color !== value.color ||
     label.description !== value.description.trim() ||
     Boolean(label.archived_at) !== Boolean(value.archived)
@@ -199,12 +199,11 @@ function labelChanged(label: TaskLabel, value: SelectValueDraft) {
 
 function labelPatch(label: TaskLabel, value: SelectValueDraft) {
   const patch: Partial<
-    Pick<TaskLabel, 'name' | 'icon' | 'color' | 'description'> & {
+    Pick<TaskLabel, 'name' | 'color' | 'description'> & {
       archived: boolean;
     }
   > = {};
   if (label.name !== value.name.trim()) patch.name = value.name.trim();
-  if ((label.icon ?? null) !== value.icon) patch.icon = value.icon;
   if (label.color !== value.color) patch.color = value.color;
   if (label.description !== value.description.trim()) {
     patch.description = value.description.trim();

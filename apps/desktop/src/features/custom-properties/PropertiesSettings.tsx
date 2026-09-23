@@ -21,6 +21,8 @@ import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
 import type { CustomPropertyDefinition, Workspace } from '../workspace/types';
 import type { SettingsDetailHistory } from '../workspace/workspaceLocation';
+import { LabelSettings } from '../task-config/LabelSettings';
+import { getTaskConfiguration } from '../task-config/api';
 import {
   deleteProperty,
   listProperties,
@@ -36,6 +38,7 @@ export function PropertiesSettings({
   detail,
   onDetailChange,
   definePropertyName,
+  onConfigurationUpdated,
 }: {
   context: ApiContext;
   workspace: Workspace;
@@ -48,15 +51,22 @@ export function PropertiesSettings({
     },
   ) => void;
   definePropertyName?: string;
+  onConfigurationUpdated: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
+  const canManage = workspace.role === 'owner' || workspace.role === 'admin';
+  const routedDefineName =
+    canManage && (!detail || detail === 'new') ? definePropertyName : undefined;
+  const editorRequested = Boolean(detail || routedDefineName);
   const query = useQuery({
     queryKey: ['custom-properties', workspace.id],
     queryFn: () => listProperties(context, workspace.id),
   });
-  const canManage = workspace.role === 'owner' || workspace.role === 'admin';
-  const routedDefineName =
-    canManage && (!detail || detail === 'new') ? definePropertyName : undefined;
+  const configurationQuery = useQuery({
+    queryKey: ['task-configuration', workspace.id],
+    queryFn: () => getTaskConfiguration(context, workspace.id),
+    enabled: !editorRequested,
+  });
   const undefinedQuery = useQuery({
     queryKey: ['undefined-properties', workspace.id],
     queryFn: () => listUndefinedProperties(context, workspace.id),
@@ -85,6 +95,17 @@ export function PropertiesSettings({
     ]);
   }
 
+  async function refreshConfiguration() {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ['task-configuration', workspace.id],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspace.id] }),
+      queryClient.invalidateQueries({ queryKey: ['task', workspace.id] }),
+      onConfigurationUpdated(),
+    ]);
+  }
+
   async function run(action: () => Promise<unknown>) {
     setError(null);
     try {
@@ -95,7 +116,7 @@ export function PropertiesSettings({
     }
   }
 
-  if (query.isPending) {
+  if (query.isPending || (!editorRequested && configurationQuery.isPending)) {
     return (
       <SettingsArticle
         eyebrow="Workspace"
@@ -110,21 +131,26 @@ export function PropertiesSettings({
       </SettingsArticle>
     );
   }
-  if (query.error) {
+  if (query.error || (!editorRequested && configurationQuery.error)) {
     return (
       <SettingsArticle
         eyebrow="Workspace"
         title="Properties"
         description="Add custom fields for structured task information."
       >
-        <LoadError error={query.error} onRetry={() => query.refetch()} />
+        <LoadError
+          error={query.error ?? configurationQuery.error}
+          onRetry={() => {
+            void query.refetch();
+            void configurationQuery.refetch();
+          }}
+        />
       </SettingsArticle>
     );
   }
 
   const active = query.data.filter((property) => !property.archived_at);
   const archived = query.data.filter((property) => property.archived_at);
-  const editorRequested = Boolean(detail || routedDefineName);
   const editing =
     detail && detail !== 'new'
       ? query.data.find(({ id }) => id === detail)
@@ -196,198 +222,224 @@ export function PropertiesSettings({
           {error}
         </p>
       ) : null}
-      <div
-        className="settings-segmented-tabs"
-        role="tablist"
-        aria-label="Property lists"
+      {configurationQuery.data ? (
+        <LabelSettings
+          context={context}
+          workspace={workspace}
+          configuration={configurationQuery.data}
+          onChanged={refreshConfiguration}
+        />
+      ) : null}
+      <section
+        className="custom-properties-section"
+        aria-labelledby="custom-properties-heading"
       >
-        <button
-          type="button"
-          role="tab"
-          aria-label="Defined"
-          aria-selected={tab === 'defined'}
-          onClick={() => setTab('defined')}
+        <header className="embedded-settings-header">
+          <div>
+            <h2 id="custom-properties-heading">Custom properties</h2>
+            <p>Add structured fields beyond the fixed State and Priority.</p>
+          </div>
+        </header>
+        <div
+          className="settings-segmented-tabs"
+          role="tablist"
+          aria-label="Property lists"
         >
-          Defined
-          <span>{query.data.length}</span>
-        </button>
-        {canManage ? (
           <button
             type="button"
             role="tab"
-            aria-label="Undefined"
-            aria-selected={tab === 'undefined'}
-            onClick={() => setTab('undefined')}
+            aria-label="Defined"
+            aria-selected={tab === 'defined'}
+            onClick={() => setTab('defined')}
           >
-            Undefined
-            <span>{undefinedQuery.data?.length ?? 0}</span>
+            Defined
+            <span>{query.data.length}</span>
           </button>
-        ) : null}
-      </div>
-      {tab === 'defined' ? (
-        <SettingsList
-          ariaLabel="Custom properties"
-          className="property-settings-grid"
-          header={
-            <>
-              <SettingsListCell>
-                <span className="sr-only">Order</span>
-              </SettingsListCell>
-              <SettingsListCell>Name</SettingsListCell>
-              <SettingsListCell>Type</SettingsListCell>
-              <SettingsListCell>Status</SettingsListCell>
-              <SettingsListCell>
-                <span className="sr-only">Actions</span>
-              </SettingsListCell>
-            </>
-          }
-        >
-          {active.length === 0 ? (
-            <SettingsEmptyState
-              title="No custom properties yet"
-              description="Create a property to add structured metadata to Tasks."
-            />
+          {canManage ? (
+            <button
+              type="button"
+              role="tab"
+              aria-label="Undefined"
+              aria-selected={tab === 'undefined'}
+              onClick={() => setTab('undefined')}
+            >
+              Undefined
+              <span>{undefinedQuery.data?.length ?? 0}</span>
+            </button>
           ) : null}
-          <SettingsSortableProvider
-            ids={active.map(({ id }) => id)}
-            disabled={!canManage}
-            onReorder={(ids) =>
-              run(() => reorderProperties(context, workspace.id, ids)).then(
-                () => undefined,
-              )
+        </div>
+        {tab === 'defined' ? (
+          <SettingsList
+            ariaLabel="Custom properties"
+            className="property-settings-grid"
+            header={
+              <>
+                <SettingsListCell>
+                  <span className="sr-only">Order</span>
+                </SettingsListCell>
+                <SettingsListCell>Name</SettingsListCell>
+                <SettingsListCell>Type</SettingsListCell>
+                <SettingsListCell>Status</SettingsListCell>
+                <SettingsListCell>
+                  <span className="sr-only">Actions</span>
+                </SettingsListCell>
+              </>
             }
           >
-            {active.map((property, index) => (
-              <SettingsSortableRow
-                key={property.id}
-                id={property.id}
-                index={index}
-                label={property.name}
-                disabled={!canManage}
-              >
-                <SettingsListCell primary>
-                  {canManage ? (
-                    <Button
-                      variant="text"
-                      size="sm"
-                      type="button"
-                      title={property.description || property.name}
-                      onClick={() =>
-                        onDetailChange(property.id, { history: 'push' })
-                      }
-                    >
-                      {property.name}
-                    </Button>
-                  ) : (
-                    <span title={property.description || property.name}>
-                      {property.name}
-                    </span>
-                  )}
-                  {property.description ? (
-                    <small>{property.description}</small>
-                  ) : null}
-                </SettingsListCell>
-                <SettingsListCell>
-                  {propertyTypeLabel(property.type)}
-                </SettingsListCell>
-                <SettingsListCell className="settings-status-text">
-                  {property.usage_count === 0
-                    ? 'Unused'
-                    : `${property.usage_count} ${property.usage_count === 1 ? 'Task' : 'Tasks'}`}
-                </SettingsListCell>
-                <SettingsListCell className="settings-list-actions-cell">
-                  {canManage ? (
-                    <SettingsActionsMenu label={`Actions for ${property.name}`}>
-                      <SettingsAction
-                        icon={<Pencil aria-hidden="true" size={14} />}
+            {active.length === 0 ? (
+              <SettingsEmptyState
+                title="No custom properties yet"
+                description="Create a property to add structured metadata to Tasks."
+              />
+            ) : null}
+            <SettingsSortableProvider
+              ids={active.map(({ id }) => id)}
+              disabled={!canManage}
+              onReorder={(ids) =>
+                run(() => reorderProperties(context, workspace.id, ids)).then(
+                  () => undefined,
+                )
+              }
+            >
+              {active.map((property, index) => (
+                <SettingsSortableRow
+                  key={property.id}
+                  id={property.id}
+                  index={index}
+                  label={property.name}
+                  disabled={!canManage}
+                >
+                  <SettingsListCell primary>
+                    {canManage ? (
+                      <Button
+                        variant="text"
+                        size="sm"
+                        type="button"
+                        title={property.description || property.name}
                         onClick={() =>
                           onDetailChange(property.id, { history: 'push' })
                         }
                       >
-                        Edit
-                      </SettingsAction>
-                      <SettingsAction
-                        icon={<Archive aria-hidden="true" size={14} />}
-                        onClick={() =>
-                          void run(() =>
-                            updateProperty(context, workspace.id, property.id, {
-                              archived: true,
-                            }),
-                          )
-                        }
+                        {property.name}
+                      </Button>
+                    ) : (
+                      <span title={property.description || property.name}>
+                        {property.name}
+                      </span>
+                    )}
+                    {property.description ? (
+                      <small>{property.description}</small>
+                    ) : null}
+                  </SettingsListCell>
+                  <SettingsListCell>
+                    {propertyTypeLabel(property.type)}
+                  </SettingsListCell>
+                  <SettingsListCell className="settings-status-text">
+                    {property.usage_count === 0
+                      ? 'Unused'
+                      : `${property.usage_count} ${property.usage_count === 1 ? 'Task' : 'Tasks'}`}
+                  </SettingsListCell>
+                  <SettingsListCell className="settings-list-actions-cell">
+                    {canManage ? (
+                      <SettingsActionsMenu
+                        label={`Actions for ${property.name}`}
                       >
-                        Archive
-                      </SettingsAction>
-                      <SettingsActionSeparator />
-                      <SettingsAction
-                        destructive
-                        icon={<Trash2 aria-hidden="true" size={14} />}
-                        onClick={() => setDeleteTarget(property)}
-                      >
-                        Delete
-                      </SettingsAction>
-                    </SettingsActionsMenu>
-                  ) : null}
-                </SettingsListCell>
-              </SettingsSortableRow>
-            ))}
-          </SettingsSortableProvider>
-        </SettingsList>
-      ) : (
-        <UndefinedPropertiesList
-          loading={undefinedQuery.isPending}
-          error={undefinedQuery.error}
-          properties={undefinedQuery.data ?? []}
-          onRetry={() => void undefinedQuery.refetch()}
-          onDefine={(name) =>
-            onDetailChange('new', {
-              history: 'push',
-              definePropertyName: name,
-            })
-          }
-        />
-      )}
+                        <SettingsAction
+                          icon={<Pencil aria-hidden="true" size={14} />}
+                          onClick={() =>
+                            onDetailChange(property.id, { history: 'push' })
+                          }
+                        >
+                          Edit
+                        </SettingsAction>
+                        <SettingsAction
+                          icon={<Archive aria-hidden="true" size={14} />}
+                          onClick={() =>
+                            void run(() =>
+                              updateProperty(
+                                context,
+                                workspace.id,
+                                property.id,
+                                {
+                                  archived: true,
+                                },
+                              ),
+                            )
+                          }
+                        >
+                          Archive
+                        </SettingsAction>
+                        <SettingsActionSeparator />
+                        <SettingsAction
+                          destructive
+                          icon={<Trash2 aria-hidden="true" size={14} />}
+                          onClick={() => setDeleteTarget(property)}
+                        >
+                          Delete
+                        </SettingsAction>
+                      </SettingsActionsMenu>
+                    ) : null}
+                  </SettingsListCell>
+                </SettingsSortableRow>
+              ))}
+            </SettingsSortableProvider>
+          </SettingsList>
+        ) : (
+          <UndefinedPropertiesList
+            loading={undefinedQuery.isPending}
+            error={undefinedQuery.error}
+            properties={undefinedQuery.data ?? []}
+            onRetry={() => void undefinedQuery.refetch()}
+            onDefine={(name) =>
+              onDetailChange('new', {
+                history: 'push',
+                definePropertyName: name,
+              })
+            }
+          />
+        )}
 
-      {tab === 'defined' && archived.length > 0 ? (
-        <section
-          className="settings-archived-section"
-          aria-label="Archived properties"
-        >
-          <h2>Archived</h2>
-          {archived.map((property) => (
-            <div className="settings-archived-row" key={property.id}>
-              <span>
-                <strong>{property.name}</strong>
-                <small>{propertyTypeLabel(property.type)}</small>
-              </span>
-              {canManage ? (
-                <SettingsActionsMenu label={`Actions for ${property.name}`}>
-                  <SettingsAction
-                    icon={<RotateCcw aria-hidden="true" size={14} />}
-                    onClick={() =>
-                      void run(() =>
-                        updateProperty(context, workspace.id, property.id, {
-                          archived: false,
-                        }),
-                      )
-                    }
-                  >
-                    Restore
-                  </SettingsAction>
-                  <SettingsActionSeparator />
-                  <SettingsAction
-                    destructive
-                    icon={<Trash2 aria-hidden="true" size={14} />}
-                    onClick={() => setDeleteTarget(property)}
-                  >
-                    Delete
-                  </SettingsAction>
-                </SettingsActionsMenu>
-              ) : null}
-            </div>
-          ))}
-        </section>
-      ) : null}
+        {tab === 'defined' && archived.length > 0 ? (
+          <section
+            className="settings-archived-section"
+            aria-label="Archived properties"
+          >
+            <h2>Archived</h2>
+            {archived.map((property) => (
+              <div className="settings-archived-row" key={property.id}>
+                <span>
+                  <strong>{property.name}</strong>
+                  <small>{propertyTypeLabel(property.type)}</small>
+                </span>
+                {canManage ? (
+                  <SettingsActionsMenu label={`Actions for ${property.name}`}>
+                    <SettingsAction
+                      icon={<RotateCcw aria-hidden="true" size={14} />}
+                      onClick={() =>
+                        void run(() =>
+                          updateProperty(context, workspace.id, property.id, {
+                            archived: false,
+                          }),
+                        )
+                      }
+                    >
+                      Restore
+                    </SettingsAction>
+                    <SettingsActionSeparator />
+                    <SettingsAction
+                      destructive
+                      icon={<Trash2 aria-hidden="true" size={14} />}
+                      onClick={() => setDeleteTarget(property)}
+                    >
+                      Delete
+                    </SettingsAction>
+                  </SettingsActionsMenu>
+                ) : null}
+              </div>
+            ))}
+          </section>
+        ) : null}
+      </section>
 
       <AppDialog
         open={deleteTarget !== null}

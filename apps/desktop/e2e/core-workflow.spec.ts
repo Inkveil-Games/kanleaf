@@ -324,35 +324,6 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     page.getByText(`second-invitee-${suffix}@example.com`),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'States' }).click();
-  await expect(page).toHaveURL(
-    new RegExp(`/${workspaceIdentifier}/settings/workspace/states$`),
-  );
-  await expect(
-    page.getByRole('group', { name: 'Property values' }),
-  ).toBeVisible();
-  await expect(
-    page.locator('input[aria-label="Value name"][value="Todo"]'),
-  ).toBeDisabled();
-  await page.getByRole('button', { name: 'Add state' }).click();
-  await page.getByRole('textbox', { name: 'Value name' }).last().fill('Review');
-  await page.getByRole('button', { name: 'Save changes' }).click();
-  await expect(
-    page.locator('input[aria-label="Value name"][value="Review"]'),
-  ).toBeVisible();
-  await page
-    .locator('.settings-content')
-    .evaluate((element) => element.scrollTo({ top: 0 }));
-  const statesGeometry = await settingsPageGeometry(page);
-  await page.getByRole('button', { name: 'Labels' }).click();
-  await expect(page).toHaveURL(
-    new RegExp(`/${workspaceIdentifier}/settings/workspace/labels$`),
-  );
-  await expect(
-    page.getByRole('group', { name: 'Property values' }),
-  ).toBeVisible();
-  await expect(page.getByRole('radio')).toHaveCount(0);
-  await expectSameSettingsGeometry(page, statesGeometry);
   await page.getByRole('button', { name: 'Properties' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
@@ -371,7 +342,24 @@ test('manages structured work and durable Markdown across reloads', async ({
   const propertiesArticle = workspaceSettings.locator(
     '.settings-article:visible',
   );
-  await expectSameSettingsGeometry(page, statesGeometry);
+  const taskSettingsNavigation = workspaceSettingsNavigation.getByRole(
+    'region',
+    { name: 'Task Settings' },
+  );
+  await expect(taskSettingsNavigation.getByRole('button')).toHaveCount(1);
+  await expect(
+    workspaceSettingsNavigation.getByRole('button', { name: 'States' }),
+  ).toHaveCount(0);
+  await expect(
+    workspaceSettingsNavigation.getByRole('button', { name: 'Labels' }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible();
+  await expect(
+    page.getByRole('group', { name: 'Property values' }),
+  ).toBeVisible();
+  await expect(page.getByText('Icon', { exact: true })).toHaveCount(0);
+  const propertiesGeometry = await settingsPageGeometry(page);
+  await expectSameSettingsGeometry(page, propertiesGeometry);
 
   await propertiesArticle.getByRole('button', { name: 'New property' }).click();
   await expect(page).toHaveURL(
@@ -396,8 +384,10 @@ test('manages structured work and durable Markdown across reloads', async ({
   await chooseSelectOption(page, 'Property type', 'Single select');
   await page.getByLabel('Property description').fill('Kind of work.');
   await page.getByRole('button', { name: 'Add option' }).click();
-  await page.getByRole('textbox', { name: 'Option name' }).fill('Bug');
-  await page.getByRole('radio', { name: 'Use Bug as default' }).click();
+  const optionEditor = page.getByRole('dialog', { name: 'Add option' });
+  await optionEditor.getByRole('textbox', { name: 'Option name' }).fill('Bug');
+  await optionEditor.getByRole('checkbox', { name: 'Set as default' }).check();
+  await optionEditor.getByRole('button', { name: 'Add option' }).click();
   await page.getByRole('button', { name: 'Create property' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
@@ -1061,10 +1051,10 @@ let source_is_markdown = true;
   await page.keyboard.press('Escape');
 
   await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'State', 'Review'),
+    chooseSelectOption(page, 'State', 'In Progress'),
   );
   await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'Priority', 'Urgent'),
+    chooseSelectOption(page, 'Priority', 'Critical'),
   );
   await page.getByLabel('Edit assignees').click();
   await expectTaskPatch(page, () =>
@@ -1176,7 +1166,7 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await page.getByRole('button', { name: 'Filter tasks' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Urgent' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Critical' }).click();
   await page.keyboard.press('Escape');
   await chooseSelectOption(page, 'Layout', 'Table');
   await page.getByRole('button', { name: 'Save View' }).click();
@@ -1199,13 +1189,13 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.reload();
   await expect(taskRow).toBeVisible();
   await taskRow.click();
-  await expect(page.getByLabel('State')).toContainText('Review');
+  await expect(page.getByLabel('State')).toContainText('In Progress');
   await expect(
     page.getByRole('combobox', { name: 'Type', exact: true }),
   ).toContainText('Bug');
   await expect(page.getByLabel('Priority')).toHaveAttribute(
     'data-value',
-    'urgent',
+    'critical',
   );
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(page.getByLabel('Start date')).toHaveValue('2026-09-01');
@@ -1226,9 +1216,9 @@ Kanleaf keeps **structured work** beside durable notes.
     .poll(async () => {
       const source = await readTaskVaultSource(workspaceId, createdTask.id);
       return (
-        source.includes('State:\n  - Review\n') &&
+        source.includes('State:\n  - In Progress\n') &&
         source.includes('Type: Bug\n') &&
-        source.includes('Priority:\n  - Urgent\n') &&
+        source.includes('Priority:\n  - Critical\n') &&
         source.includes(`Assignees:\n  - ${email}\n`) &&
         source.includes('Start date: 2026-09-01\n') &&
         source.includes('Due date: 2026-09-30\n') &&
@@ -1802,24 +1792,6 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   };
   const firstTask = await createTask('Overlay board A');
   const secondTask = await createTask('Overlay board B');
-  for (const [name, color] of [
-    ['Review', '#0EA5E9'],
-    ['Blocked', '#EF4444'],
-  ] as const) {
-    const response = await request.post(
-      `${serverUrl}/api/workspaces/${account.workspaceId}/states`,
-      {
-        headers,
-        data: {
-          name,
-          icon: 'circle-dot',
-          color,
-          description: `${name} board state`,
-        },
-      },
-    );
-    expect(response.status()).toBe(201);
-  }
 
   await page.goto('/');
   await page.getByLabel('Email').fill(email);

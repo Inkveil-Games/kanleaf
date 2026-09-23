@@ -343,8 +343,8 @@ describe('Settings section contracts', () => {
   it.each([
     ['general', true],
     ['members', true],
-    ['states', true],
-    ['labels', true],
+    ['states', false],
+    ['labels', false],
     ['task-types', false],
     ['properties', true],
     ['invitations', false],

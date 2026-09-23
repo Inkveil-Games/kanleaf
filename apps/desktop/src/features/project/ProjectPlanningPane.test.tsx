@@ -118,7 +118,6 @@ const task: Task = {
     id: 'state-todo',
     name: 'Todo',
     color: '#64748B',
-    icon: 'circle',
     system_role: 'todo',
   },
   priority: 'high',

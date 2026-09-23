@@ -11,7 +11,6 @@ import type {
 export interface PropertyOptionCreateInput {
   id?: string;
   name: string;
-  icon: string | null;
   color: string;
   description: string;
 }

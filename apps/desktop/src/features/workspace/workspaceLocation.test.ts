@@ -10,6 +10,39 @@ import {
   type WorkspaceContentLocation,
   type WorkspaceSettingsLocation,
 } from './workspaceLocation';
+import {
+  workspaceLocationFromRoute,
+  workspaceLocationPath,
+} from './workspaceRouteAdapter';
+
+describe('legacy Workspace Settings routes', () => {
+  it.each(['states', 'labels'])('canonicalizes %s to Properties', (section) => {
+    const location = workspaceLocationFromRoute(
+      'workspace-settings',
+      'workspace-1',
+      { section },
+      '',
+      null,
+    );
+
+    expect(location).toMatchObject({
+      kind: 'workspace-settings',
+      workspaceId: 'workspace-1',
+      section: 'properties',
+    });
+    expect(
+      workspaceLocationPath(
+        {
+          kind: 'workspace-settings',
+          workspaceId: 'workspace-1',
+          section: section as never,
+          returnTo: null,
+        },
+        'kanleaf-core',
+      ),
+    ).toBe('/w/kanleaf-core/settings/workspace/properties');
+  });
+});
 
 const baseAccess: WorkspaceLocationAccess = {
   activeWorkspaceId: 'workspace-1',

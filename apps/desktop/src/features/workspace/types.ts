@@ -173,16 +173,15 @@ export interface ProjectModulePatch {
   due_date?: string | null;
 }
 
-export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
+export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'critical';
 
 export interface TaskState {
   id: string;
   workspace_id: string;
   name: string;
-  icon: string | null;
   color: string;
   description: string;
-  system_role: 'todo' | 'in_progress' | 'done' | null;
+  system_role: 'backlog' | 'todo' | 'in_progress' | 'done' | 'cancelled';
   position: number;
   archived_at: string | null;
   created_at: string;
@@ -193,7 +192,6 @@ export interface TaskLabel {
   id: string;
   workspace_id: string;
   name: string;
-  icon: string | null;
   color: string;
   description: string;
   position: number;
@@ -224,7 +222,6 @@ export interface CustomPropertyOption {
   workspace_id: string;
   property_id: string;
   name: string;
-  icon: string | null;
   color: string;
   description: string;
   position: number;
@@ -271,7 +268,7 @@ export interface Task {
   task_number: number;
   reference: string;
   title: string;
-  state: Pick<TaskState, 'id' | 'name' | 'icon' | 'color' | 'system_role'>;
+  state: Pick<TaskState, 'id' | 'name' | 'color' | 'system_role'>;
   priority: TaskPriority;
   start_date: string | null;
   due_date: string | null;

@@ -100,7 +100,7 @@ test('opens Developer deep links and preserves app navigation and responsive chr
   });
   await expect(settings).toBeVisible();
   const propertyGroup = settings.getByRole('region', {
-    name: 'Task properties',
+    name: 'Task Settings',
   });
   await expect(
     propertyGroup.getByRole('button', { name: 'New property' }),

@@ -74,10 +74,16 @@ describe('WorkspaceSettings', () => {
   });
 
   it('renders custom Properties as a shared structured settings list', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        jsonResponse([
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/task-configuration')) {
+          return jsonResponse(taskConfiguration);
+        }
+        if (url.endsWith('/labels/label-docs') && init?.method === 'PATCH') {
+          return jsonResponse(taskConfiguration.labels[0]);
+        }
+        return jsonResponse([
           {
             id: 'property-1',
             workspace_id: workspace.id,
@@ -92,9 +98,10 @@ describe('WorkspaceSettings', () => {
             created_at: '2026-09-03T01:00:00Z',
             updated_at: '2026-09-03T01:00:00Z',
           },
-        ]),
-      ),
+        ]);
+      },
     );
+    vi.stubGlobal('fetch', fetchMock);
 
     const { onDetailChange } = renderSettings(
       workspace,
@@ -105,6 +112,34 @@ describe('WorkspaceSettings', () => {
     expect(
       await screen.findByRole('heading', { name: 'Properties' }),
     ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Labels' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Name')).toHaveValue('Labels');
+    expect(screen.getByText('Documentation')).toBeVisible();
+    expect(screen.queryByText('Icon')).toBeNull();
+    expect(screen.queryByRole('button', { name: /icon/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Documentation' }));
+    const labelEditor = screen.getByRole('dialog', {
+      name: 'Edit Documentation',
+    });
+    fireEvent.change(
+      within(labelEditor).getByRole('textbox', { name: 'Value description' }),
+      { target: { value: 'Product documentation' } },
+    );
+    fireEvent.click(
+      within(labelEditor).getByRole('button', { name: 'Save value' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/labels/label-docs',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ description: 'Product documentation' }),
+        }),
+      ),
+    );
     expect(await screen.findByText('Impact')).toBeInTheDocument();
     expect(screen.getByText('Single select')).toBeInTheDocument();
     expect(
@@ -132,7 +167,6 @@ describe('WorkspaceSettings', () => {
           workspace_id: workspace.id,
           property_id: 'property-1',
           name: 'Web',
-          icon: null,
           color: '#3B82F6',
           description: '',
           position: 0,
@@ -145,7 +179,6 @@ describe('WorkspaceSettings', () => {
           workspace_id: workspace.id,
           property_id: 'property-1',
           name: 'Desktop',
-          icon: null,
           color: '#8B5CF6',
           description: '',
           position: 1,
@@ -176,9 +209,10 @@ describe('WorkspaceSettings', () => {
     expect(
       await screen.findByRole('heading', { name: 'Edit Platforms' }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Web' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Web' }));
+    const editor = screen.getByRole('dialog', { name: 'Edit Web' });
     fireEvent.click(
-      screen.getByRole('menuitem', { name: 'Delete permanently' }),
+      within(editor).getByRole('button', { name: 'Delete permanently' }),
     );
     const optionDialog = screen.getByRole('alertdialog', {
       name: 'Delete Web?',
@@ -206,7 +240,6 @@ describe('WorkspaceSettings', () => {
               {
                 id: 'desktop-option',
                 name: 'Desktop',
-                icon: null,
                 color: '#8B5CF6',
                 description: '',
                 archived: false,
@@ -335,6 +368,9 @@ describe('WorkspaceSettings', () => {
       const url = input.toString();
       if (url.endsWith('/properties/undefined')) {
         return jsonResponse([{ name: 'External score', task_count: 2 }]);
+      }
+      if (url.endsWith('/task-configuration')) {
+        return jsonResponse(taskConfiguration);
       }
       return jsonResponse([]);
     });
@@ -811,6 +847,26 @@ const workspace: Workspace = {
   role: 'owner',
   created_at: '2026-08-20T01:00:00Z',
   updated_at: '2026-08-20T01:00:00Z',
+};
+
+const taskConfiguration = {
+  states: [],
+  labels: [
+    {
+      id: 'label-docs',
+      workspace_id: workspace.id,
+      name: 'Documentation',
+      color: '#3B82F6',
+      description: 'Docs and guides',
+      position: 0,
+      archived_at: null,
+      created_at: '2026-09-03T01:00:00Z',
+      updated_at: '2026-09-03T01:00:00Z',
+    },
+  ],
+  default_state_id: 'state-todo',
+  state_property_description: 'The current step of work.',
+  label_property_description: 'Shared tags used to organize work.',
 };
 
 function renderSettings(

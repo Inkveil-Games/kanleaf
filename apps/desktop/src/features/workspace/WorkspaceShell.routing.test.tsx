@@ -557,7 +557,6 @@ const task: Task = {
   state: {
     id: 'state-1',
     name: 'Todo',
-    icon: 'circle',
     color: '#888',
     system_role: 'todo',
   },
@@ -1418,6 +1417,22 @@ describe('WorkspaceShell routing integration', () => {
       ),
     );
   });
+
+  it.each(['states', 'labels'])(
+    'normalizes the removed %s route to Properties settings',
+    async (section) => {
+      renderWorkspaceRoutes({
+        initialEntries: [`/w/workspace-1/settings/workspace/${section}`],
+      });
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('Current location')).toHaveTextContent(
+          '/w/workspace-1/settings/workspace/properties',
+        ),
+      );
+      expect(screen.getByText('Settings section: properties')).toBeVisible();
+    },
+  );
 
   it('keeps Workspace Settings open if Markdown cannot flush before Developer navigation', async () => {
     renderWorkspaceRoutes({

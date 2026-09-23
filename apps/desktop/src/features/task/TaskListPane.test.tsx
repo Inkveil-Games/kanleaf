@@ -248,12 +248,12 @@ describe('TaskListPane', () => {
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
     fireEvent.click(screen.getByLabelText('Select Write contributor notes'));
     expect(screen.getByText('2 selected')).toBeInTheDocument();
-    await chooseSelectOption('Set priority', 'Urgent');
+    await chooseSelectOption('Set priority', 'Critical');
 
     await waitFor(() =>
       expect(props.onBulkUpdate).toHaveBeenCalledWith({
         task_ids: ['task-1', 'task-2'],
-        priority: 'urgent',
+        priority: 'critical',
       }),
     );
   });
@@ -264,7 +264,7 @@ describe('TaskListPane', () => {
     });
 
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
-    await chooseSelectOption('Set priority', 'Urgent');
+    await chooseSelectOption('Set priority', 'Critical');
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Server unavailable',
@@ -276,11 +276,11 @@ describe('TaskListPane', () => {
     const props = renderList();
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
-    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Urgent' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Critical' }));
 
     expect(props.onQueryChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        filters: expect.objectContaining({ priorities: ['urgent'] }),
+        filters: expect.objectContaining({ priorities: ['critical'] }),
       }),
     );
   });
@@ -439,7 +439,7 @@ describe('TaskListPane', () => {
       members: [{ user_id: 'user-1', display_name: 'Ada Lovelace' }],
     });
 
-    await chooseSelectOption('Design the navigation priority', 'Urgent');
+    await chooseSelectOption('Design the navigation priority', 'Critical');
     fireEvent.click(
       screen.getByRole('button', {
         name: 'Edit Design the navigation assignees',
@@ -454,7 +454,7 @@ describe('TaskListPane', () => {
 
     await waitFor(() => {
       expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {
-        priority: 'urgent',
+        priority: 'critical',
       });
       expect(props.onPatchTask).toHaveBeenCalledWith('task-1', {
         assignee_ids: ['user-1'],
@@ -625,7 +625,6 @@ function state(
     id,
     workspace_id: 'workspace-1',
     name,
-    icon: systemRole === 'in_progress' ? 'loader-circle' : 'circle',
     color,
     description: '',
     system_role: systemRole,
@@ -654,7 +653,6 @@ function task(
     state: {
       id: stateId,
       name: stateName,
-      icon: systemRole === 'in_progress' ? 'loader-circle' : 'circle',
       color: stateId === 'state-todo' ? '#64748B' : '#3B82F6',
       system_role: systemRole,
     },

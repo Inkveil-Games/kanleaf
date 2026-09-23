@@ -1,16 +1,13 @@
-import { Archive, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import {
-  createElement,
-  useState,
-  type CSSProperties,
-  type RefCallback,
-} from 'react';
+import { Archive, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { useState, type CSSProperties, type RefCallback } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
+import { FormField } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
-import { IconPicker } from '../../components/ui/IconPicker';
 import { Input } from '../../components/ui/Input';
+import { Popover } from '../../components/ui/Popover';
+import { Textarea } from '../../components/ui/Textarea';
 import {
   SettingsDragHandle,
   SettingsSortableItem,
@@ -21,17 +18,14 @@ import {
   SettingsActionSeparator,
   SettingsActionsMenu,
 } from './SettingsList';
-import { propertyIcon, propertyIconOptions } from './propertyIcons';
 
 export interface SelectValueDraft {
   key: string;
   id?: string;
   name: string;
-  icon: string | null;
   color: string;
   description: string;
   archived?: boolean;
-  locked?: boolean;
 }
 
 interface SelectValueEditorProps {
@@ -64,7 +58,6 @@ export function SelectValueEditor({
   );
   const activeValues = values.filter((value) => !value.archived);
   const archivedValues = values.filter((value) => value.archived);
-  const label = sentenceCase(itemLabel);
 
   function update(key: string, patch: Partial<SelectValueDraft>) {
     onChange(
@@ -89,22 +82,41 @@ export function SelectValueEditor({
     else setDeletingValue(value);
   }
 
+  function saveValue(nextValue: SelectValueDraft) {
+    const existing = values.some(({ key }) => key === nextValue.key);
+    onChange(
+      existing
+        ? values.map((value) =>
+            value.key === nextValue.key ? nextValue : value,
+          )
+        : [...values, nextValue],
+    );
+  }
+
   return (
     <fieldset className="select-value-editor" disabled={disabled}>
       <legend>Property values</legend>
+      <ValueEditorPopover
+        addLabel={addLabel}
+        disabled={disabled}
+        itemLabel={itemLabel}
+        showDefault={showDefault}
+        isDefault={false}
+        onSave={saveValue}
+        onDefaultChange={onDefaultChange}
+      />
       <div
         className={`select-value-editor-header${showDefault ? ' has-default' : ''}`}
         aria-hidden="true"
       >
         <span />
-        <span>Icon</span>
         <span>Color</span>
         <span>Name</span>
         <span>Description</span>
         {showDefault ? <span>Default</span> : null}
         <span />
       </div>
-      <div className="select-value-editor-list">
+      <div className="select-value-editor-list" role="list">
         {activeValues.length === 0 ? (
           <p>{emptyMessage}</p>
         ) : (
@@ -126,49 +138,22 @@ export function SelectValueEditor({
                   <div
                     ref={ref as RefCallback<HTMLDivElement>}
                     className={`select-value-editor-row${showDefault ? ' has-default' : ''}${isDragging ? ' is-dragging' : ''}`}
+                    role="listitem"
                   >
                     <SettingsDragHandle
                       ref={handleRef}
                       label={value.name || itemLabel}
                       disabled={sortingDisabled}
                     />
-                    <IconPicker
-                      allowNone
-                      ariaLabel={`Change icon for ${value.name || itemLabel}`}
-                      dialogLabel={`${label} icons`}
-                      fallbackIcon={propertyIcon(value.icon)}
-                      options={propertyIconOptions}
-                      value={value.icon}
-                      disabled={disabled || Boolean(value.locked)}
-                      onChange={(icon) => update(value.key, { icon })}
+                    <span
+                      className="select-value-color"
+                      style={{ '--value-color': value.color } as CSSProperties}
+                      aria-hidden="true"
                     />
-                    <ColorSwatchPicker
-                      ariaLabel={`Change color for ${value.name || itemLabel}`}
-                      disabled={disabled || Boolean(value.locked)}
-                      value={value.color}
-                      onChange={(color) => update(value.key, { color })}
-                    />
-                    <Input
-                      aria-label={`${label} name`}
-                      required
-                      maxLength={120}
-                      disabled={disabled || Boolean(value.locked)}
-                      value={value.name}
-                      placeholder={`${label} name`}
-                      onChange={(event) =>
-                        update(value.key, { name: event.target.value })
-                      }
-                    />
-                    <Input
-                      aria-label={`${label} description`}
-                      maxLength={500}
-                      disabled={disabled}
-                      value={value.description}
-                      placeholder="Optional description"
-                      onChange={(event) =>
-                        update(value.key, { description: event.target.value })
-                      }
-                    />
+                    <strong className="select-value-name">{value.name}</strong>
+                    <span className="select-value-description">
+                      {value.description || '—'}
+                    </span>
                     {showDefault ? (
                       <label
                         className="select-value-default"
@@ -186,27 +171,20 @@ export function SelectValueEditor({
                         />
                       </label>
                     ) : null}
-                    {value.locked ? (
-                      <span className="select-value-actions-placeholder" />
-                    ) : value.id ? (
-                      <ValueActions
-                        value={value}
-                        disabled={disabled}
-                        onArchive={() => archive(value)}
-                        onDelete={() => requestDelete(value)}
-                      />
-                    ) : (
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        type="button"
-                        aria-label={`Remove ${value.name || itemLabel}`}
-                        disabled={disabled}
-                        onClick={() => remove(value)}
-                      >
-                        <Trash2 aria-hidden="true" size={14} />
-                      </IconButton>
-                    )}
+                    <ValueEditorPopover
+                      addLabel={addLabel}
+                      disabled={disabled}
+                      itemLabel={itemLabel}
+                      value={value}
+                      showDefault={showDefault}
+                      isDefault={defaultValueId === valueIdentity(value)}
+                      onSave={saveValue}
+                      onDefaultChange={onDefaultChange}
+                      onArchive={!value.id ? undefined : () => archive(value)}
+                      onDelete={() =>
+                        value.id ? requestDelete(value) : remove(value)
+                      }
+                    />
                   </div>
                 )}
               </SettingsSortableItem>
@@ -220,12 +198,10 @@ export function SelectValueEditor({
           {archivedValues.map((value) => (
             <div className="select-value-archived-row" key={value.key}>
               <span
-                className="select-value-archived-icon"
+                className="select-value-color"
                 style={{ '--value-color': value.color } as CSSProperties}
                 aria-hidden="true"
-              >
-                {createElement(propertyIcon(value.icon), { size: 16 })}
-              </span>
+              />
               <span>{value.name}</span>
               <span>{value.description}</span>
               <SettingsActionsMenu
@@ -251,27 +227,6 @@ export function SelectValueEditor({
           ))}
         </div>
       ) : null}
-      <Button
-        className="select-value-add-button"
-        variant="text"
-        size="sm"
-        type="button"
-        disabled={disabled}
-        onClick={() =>
-          onChange([
-            ...values,
-            {
-              key: `new-${crypto.randomUUID()}`,
-              name: '',
-              icon: null,
-              color: '#64748B',
-              description: '',
-            },
-          ])
-        }
-      >
-        <Plus aria-hidden="true" size={14} /> {addLabel}
-      </Button>
       <AppDialog
         open={deletingValue !== null}
         onOpenChange={(open) => {
@@ -290,38 +245,192 @@ export function SelectValueEditor({
   );
 }
 
-function ValueActions({
-  value,
+function ValueEditorPopover({
+  addLabel,
   disabled,
+  itemLabel,
+  value,
+  showDefault,
+  isDefault,
+  onSave,
+  onDefaultChange,
   onArchive,
   onDelete,
 }: {
-  value: SelectValueDraft;
+  addLabel: string;
   disabled: boolean;
-  onArchive: () => void;
-  onDelete: () => void;
+  itemLabel: string;
+  value?: SelectValueDraft;
+  showDefault: boolean;
+  isDefault: boolean;
+  onSave: (value: SelectValueDraft) => void;
+  onDefaultChange?: (id: string | null) => void;
+  onArchive?: () => void;
+  onDelete?: () => void;
 }) {
-  return (
-    <SettingsActionsMenu
-      label={`Actions for ${value.name || 'value'}`}
-      disabled={disabled}
-    >
-      <SettingsAction
-        icon={<Archive aria-hidden="true" size={14} />}
-        onClick={onArchive}
-      >
-        Archive
-      </SettingsAction>
-      <SettingsActionSeparator />
-      <SettingsAction
-        destructive
-        icon={<Trash2 aria-hidden="true" size={14} />}
-        onClick={onDelete}
-      >
-        Delete permanently
-      </SettingsAction>
-    </SettingsActionsMenu>
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<SelectValueDraft>(() =>
+    value ? { ...value } : newValueDraft(),
   );
+  const [setAsDefault, setSetAsDefault] = useState(isDefault);
+  const label = sentenceCase(itemLabel);
+  const title = value ? `Edit ${value.name || itemLabel}` : addLabel;
+
+  function update(patch: Partial<SelectValueDraft>) {
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function save() {
+    if (!draft.name.trim()) return;
+    onSave(draft);
+    if (showDefault && setAsDefault !== isDefault) {
+      onDefaultChange?.(setAsDefault ? valueIdentity(draft) : null);
+    }
+    setOpen(false);
+  }
+
+  return (
+    <Popover
+      className={`select-value-popover ${value ? 'select-value-edit-popover' : 'select-value-add-popover'}`}
+      label={title}
+      contentLabel={title}
+      align="end"
+      disabled={disabled}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+          setDraft(value ? { ...value } : newValueDraft());
+          setSetAsDefault(isDefault);
+        }
+      }}
+      trigger={
+        value ? (
+          <Pencil aria-hidden="true" size={15} />
+        ) : (
+          <span className="select-value-add-trigger">
+            <Plus aria-hidden="true" size={15} />
+            {addLabel}
+          </span>
+        )
+      }
+    >
+      <div className="select-value-popover-form">
+        <header className="select-value-popover-header">
+          <h3>{title}</h3>
+          <IconButton
+            aria-label="Close editor"
+            type="button"
+            onClick={() => setOpen(false)}
+          >
+            <X aria-hidden="true" size={15} />
+          </IconButton>
+        </header>
+        <div className="select-value-popover-body">
+          <div className="select-value-visual-fields">
+            <div>
+              <span>Color</span>
+              <ColorSwatchPicker
+                ariaLabel={`Change color for ${draft.name || itemLabel}`}
+                value={draft.color}
+                onChange={(color) => update({ color })}
+              />
+            </div>
+          </div>
+          <FormField label="Name" required>
+            <Input
+              autoFocus
+              aria-label={`${label} name`}
+              required
+              maxLength={120}
+              value={draft.name}
+              placeholder={`${label} name`}
+              onChange={(event) => update({ name: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Description">
+            <Textarea
+              aria-label={`${label} description`}
+              maxLength={500}
+              value={draft.description}
+              placeholder="Optional description"
+              onChange={(event) => update({ description: event.target.value })}
+            />
+          </FormField>
+          {showDefault ? (
+            <label className="select-value-default-control">
+              <input
+                type="checkbox"
+                checked={setAsDefault}
+                onChange={(event) => setSetAsDefault(event.target.checked)}
+              />
+              <span>Set as default</span>
+            </label>
+          ) : null}
+        </div>
+        <footer className="select-value-popover-footer">
+          <div className="select-value-popover-destructive">
+            {onArchive ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onArchive();
+                }}
+              >
+                <Archive aria-hidden="true" size={14} /> Archive
+              </Button>
+            ) : null}
+            {onDelete ? (
+              <Button
+                className="select-value-delete-button"
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onDelete();
+                }}
+              >
+                <Trash2 aria-hidden="true" size={14} />
+                {value?.id ? 'Delete permanently' : 'Remove value'}
+              </Button>
+            ) : null}
+          </div>
+          <div className="select-value-popover-actions">
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={!draft.name.trim()}
+              onClick={save}
+            >
+              {value ? 'Save value' : addLabel}
+            </Button>
+          </div>
+        </footer>
+      </div>
+    </Popover>
+  );
+}
+
+function newValueDraft(): SelectValueDraft {
+  return {
+    key: `new-${crypto.randomUUID()}`,
+    name: '',
+    color: '#64748B',
+    description: '',
+  };
 }
 
 function valuesInOrder(values: SelectValueDraft[], ids: string[]) {

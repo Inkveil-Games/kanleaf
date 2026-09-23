@@ -1,8 +1,6 @@
 export const workspaceSettingsSections = [
   'general',
   'members',
-  'states',
-  'labels',
   'properties',
   'projects',
   'storage',

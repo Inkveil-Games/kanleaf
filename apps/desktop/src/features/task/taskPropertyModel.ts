@@ -26,7 +26,7 @@ export const TASK_PRIORITY_OPTIONS = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'urgent', label: 'Urgent' },
+  { value: 'critical', label: 'Critical' },
 ] as const;
 
 export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [

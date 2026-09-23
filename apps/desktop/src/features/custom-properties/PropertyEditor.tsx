@@ -79,7 +79,6 @@ export function PropertyEditorForm({
       key: option.id,
       id: option.id,
       name: option.name,
-      icon: option.icon ?? null,
       color: option.color,
       description: option.description ?? '',
       archived: Boolean(option.archived_at),
@@ -123,7 +122,6 @@ export function PropertyEditorForm({
             ? options.map((option) => ({
                 id: persistedOptionId(option.id ?? option.key) ?? undefined,
                 name: option.name.trim(),
-                icon: option.icon,
                 color: option.color,
                 description: option.description.trim(),
               }))
@@ -142,7 +140,6 @@ export function PropertyEditorForm({
             ? options.map((option) => ({
                 id: persistedOptionId(option.id ?? option.key) ?? undefined,
                 name: option.name.trim(),
-                icon: option.icon,
                 color: option.color,
                 description: option.description.trim(),
                 archived: Boolean(option.archived),

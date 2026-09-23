@@ -78,7 +78,7 @@ describe('settings shells', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('groups Workspace pages into General and Task properties', () => {
+  it('groups Workspace pages into General and Task Settings', () => {
     renderWithClient(
       <WorkspaceSettingsShell
         context={context}
@@ -103,8 +103,8 @@ describe('settings shells', () => {
     const general = within(navigation).getByRole('region', {
       name: 'General',
     });
-    const taskProperties = within(navigation).getByRole('region', {
-      name: 'Task properties',
+    const taskSettings = within(navigation).getByRole('region', {
+      name: 'Task Settings',
     });
 
     expect(
@@ -119,17 +119,33 @@ describe('settings shells', () => {
       'Danger zone',
     ]);
     expect(
-      within(taskProperties)
+      within(taskSettings)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['States', 'Labels', 'Properties']);
+    ).toEqual(['Properties']);
   });
 
   it('keeps property creation in the Properties page', async () => {
     const onDetailChange = vi.fn();
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response(JSON.stringify([]))),
+      vi.fn(
+        async (input: RequestInfo | URL) =>
+          new Response(
+            JSON.stringify(
+              input.toString().endsWith('/task-configuration')
+                ? {
+                    states: [],
+                    labels: [],
+                    default_state_id: 'state-todo',
+                    state_property_description: '',
+                    label_property_description: '',
+                  }
+                : [],
+            ),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+      ),
     );
     renderWithClient(
       <WorkspaceSettingsShell

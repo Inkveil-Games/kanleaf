@@ -554,14 +554,18 @@ function canonicalWorkspacePath(
     let settingsPath = pathname;
     if (
       location.kind === 'workspace-settings' &&
-      location.section === 'members' &&
-      pathname.replace(/\/+$/, '').endsWith('/settings/workspace/invitations')
+      ((location.section === 'members' &&
+        pathname
+          .replace(/\/+$/, '')
+          .endsWith('/settings/workspace/invitations')) ||
+        (location.section === 'properties' &&
+          /\/settings\/workspace\/(states|labels)\/?$/.test(pathname)))
     ) {
       const workspaceIdentifier = resolveWorkspaceIdentifier(
         location.workspaceId,
       );
       settingsPath = workspaceIdentifier
-        ? routePaths.workspaceSettings(workspaceIdentifier, 'members')
+        ? routePaths.workspaceSettings(workspaceIdentifier, location.section)
         : pathname;
     }
     if (location.kind === 'workspace-settings' && location.definePropertyName) {

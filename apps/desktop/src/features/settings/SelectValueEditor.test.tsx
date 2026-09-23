@@ -1,91 +1,104 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { createElement } from 'react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { propertyIcon } from './propertyIcons';
 import { SelectValueEditor, type SelectValueDraft } from './SelectValueEditor';
 
 const todo: SelectValueDraft = {
   key: 'todo',
   id: 'todo',
   name: 'Todo',
-  icon: 'circle',
   color: '#64748B',
-  description: 'Ready to start',
-  locked: true,
+  description: 'Ready to be worked on.',
 };
 
 describe('SelectValueEditor', () => {
-  it('locks system identity while keeping description, order, and default editable', () => {
-    render(
-      <SelectValueEditor
-        disabled={false}
-        values={[todo]}
-        defaultValueId="todo"
-        showDefault
-        onChange={vi.fn()}
-        onDefaultChange={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: 'Reorder Todo' })).toBeEnabled();
-    expect(
-      screen.getByRole('button', { name: 'Change icon for Todo' }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Change color for Todo' }),
-    ).toBeDisabled();
-    expect(screen.getByRole('textbox', { name: 'Value name' })).toBeDisabled();
-    expect(
-      screen.getByRole('textbox', { name: 'Value description' }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole('radio', { name: 'Use Todo as default' }),
-    ).toBeChecked();
-  });
-
-  it('omits defaults for multi-select and creates an icon-free value', () => {
+  it('keeps values readable in the list and applies edits from the popover', async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
-    render(
-      <SelectValueEditor
-        disabled={false}
-        values={[]}
-        showDefault={false}
-        onChange={onChange}
-      />,
+    render(<EditorHarness initialValues={[todo]} onChange={onChange} />);
+
+    expect(screen.getByText('Todo')).toBeVisible();
+    expect(screen.getByText('Ready to be worked on.')).toBeVisible();
+    expect(screen.queryByText('Icon')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /icon/i })).toBeNull();
+    expect(
+      screen.queryByRole('textbox', { name: 'Value name' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit Todo' }));
+    const editor = screen.getByRole('dialog', { name: 'Edit Todo' });
+    const name = within(editor).getByRole('textbox', { name: 'Value name' });
+    await user.clear(name);
+    await user.type(name, 'Next up');
+
+    expect(screen.getByText('Todo')).toBeVisible();
+    await user.click(
+      within(editor).getByRole('button', { name: 'Save value' }),
     );
 
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Add value' }));
-    expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({
-        name: '',
-        icon: null,
-        color: '#64748B',
-        description: '',
-      }),
+    expect(screen.getByText('Next up')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Edit Todo' })).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ key: 'todo', name: 'Next up' }),
     ]);
   });
 
-  it('uses distinct empty and unknown fallbacks whose strokes inherit color', () => {
-    const empty = createElement(propertyIcon(null), {
-      className: 'empty-test',
-    });
-    const unknown = createElement(propertyIcon('legacy-unknown'), {
-      className: 'unknown-test',
-    });
-    const { container } = render(
-      <>
-        {empty}
-        {unknown}
-      </>,
+  it('adds a value only after the popover is saved', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<EditorHarness initialValues={[todo]} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add value' }));
+    let editor = screen.getByRole('dialog', { name: 'Add value' });
+    await user.type(
+      within(editor).getByRole('textbox', { name: 'Value name' }),
+      'In progress',
+    );
+    await user.click(within(editor).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByText('In progress')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Add value' })).toBeNull(),
     );
 
-    const emptyGlyph = container.querySelector('.empty-test');
-    const unknownGlyph = container.querySelector('.unknown-test');
-    if (!emptyGlyph || !unknownGlyph) throw new Error('Expected icon glyphs');
-    expect(emptyGlyph.className).not.toBe(unknownGlyph.className);
-    expect(emptyGlyph).toHaveAttribute('stroke', 'currentColor');
-    expect(unknownGlyph).toHaveAttribute('stroke', 'currentColor');
-    expect(container.querySelectorAll('svg')).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Add value' }));
+    editor = screen.getByRole('dialog', { name: 'Add value' });
+    await user.type(
+      within(editor).getByRole('textbox', { name: 'Value name' }),
+      'In progress',
+    );
+    await user.type(
+      within(editor).getByRole('textbox', { name: 'Value description' }),
+      'Work underway.',
+    );
+    await user.click(within(editor).getByRole('button', { name: 'Add value' }));
+
+    const values = screen.getByRole('list');
+    expect(within(values).getByText('In progress')).toBeVisible();
+    expect(within(values).getByText('Work underway.')).toBeVisible();
+    expect(onChange).toHaveBeenCalledOnce();
   });
 });
+
+function EditorHarness({
+  initialValues,
+  onChange,
+}: {
+  initialValues: SelectValueDraft[];
+  onChange: (values: SelectValueDraft[]) => void;
+}) {
+  const [values, setValues] = useState(initialValues);
+
+  return (
+    <SelectValueEditor
+      disabled={false}
+      values={values}
+      onChange={(nextValues) => {
+        onChange(nextValues);
+        setValues(nextValues);
+      }}
+    />
+  );
+}

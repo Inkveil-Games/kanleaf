@@ -51,10 +51,9 @@ export function buildTaskGroups(
     const visibleStates: Task['state'][] = states
       .filter(({ archived_at }) => !archived_at)
       .sort((left, right) => left.position - right.position)
-      .map(({ id, name, icon, color, system_role }) => ({
+      .map(({ id, name, color, system_role }) => ({
         id,
         name,
-        icon,
         color,
         system_role,
       }));
@@ -76,7 +75,7 @@ export function buildTaskGroups(
     );
   }
   if (field === 'priority') {
-    return (['none', 'low', 'medium', 'high', 'urgent'] as const).map(
+    return (['none', 'low', 'medium', 'high', 'critical'] as const).map(
       (priority) =>
         group(
           priority,

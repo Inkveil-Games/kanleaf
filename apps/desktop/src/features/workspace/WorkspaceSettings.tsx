@@ -6,7 +6,6 @@ import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { PasswordField } from '../../components/ui/PasswordField';
 import { SettingsArticle } from '../settings/SettingsArticle';
-import { TaskConfigurationSettings } from '../task-config/TaskConfigurationSettings';
 import {
   ActionMessage,
   FormActions,
@@ -104,16 +103,6 @@ export function WorkspaceSettings({
       />
     );
   }
-  if (section === 'states' || section === 'labels') {
-    return (
-      <TaskConfigurationSettings
-        context={context}
-        workspace={workspace}
-        section={section}
-        onConfigurationUpdated={onConfigurationUpdated}
-      />
-    );
-  }
   if (section === 'storage') {
     return (
       <WorkspaceStorageSettings
@@ -133,6 +122,7 @@ export function WorkspaceSettings({
           onDetailChange('properties', nextDetail, options)
         }
         definePropertyName={definePropertyName}
+        onConfigurationUpdated={onConfigurationUpdated}
       />
     );
   }

@@ -44,20 +44,22 @@ export function workspaceLocationPath(
         throw new Error('Invalid Account Settings section');
       }
       return routePaths.accountSettings(workspaceIdentifier, location.section);
-    case 'workspace-settings':
-      if (!isWorkspaceSettingsSection(location.section)) {
+    case 'workspace-settings': {
+      const section = normalizeWorkspaceSettingsSection(location.section);
+      if (!isWorkspaceSettingsSection(section)) {
         throw new Error('Invalid Workspace Settings section');
       }
       return withDefineProperty(
         location.detail
           ? routePaths.workspaceSettingsDetail(
               workspaceIdentifier,
-              location.section,
+              section,
               location.detail,
             )
-          : routePaths.workspaceSettings(workspaceIdentifier, location.section),
+          : routePaths.workspaceSettings(workspaceIdentifier, section),
         location.definePropertyName,
       );
+    }
     case 'project-settings':
       if (!isProjectSettingsSection(location.section)) {
         throw new Error('Invalid Project Settings section');
@@ -163,7 +165,9 @@ export function workspaceLocationFromRoute(
         returnTo,
       };
     case 'workspace-settings': {
-      const section = requiredParameter(params, 'section');
+      const section = normalizeWorkspaceSettingsSection(
+        requiredParameter(params, 'section'),
+      );
       const detail = params.detail;
       const defineValues = new URLSearchParams(search).getAll('define');
       const definePropertyName =
@@ -175,7 +179,7 @@ export function workspaceLocationFromRoute(
       return {
         kind,
         workspaceId,
-        section: section === 'invitations' ? 'members' : section,
+        section,
         ...(detail ? { detail } : {}),
         definePropertyName,
         returnTo,
@@ -190,6 +194,12 @@ export function workspaceLocationFromRoute(
         returnTo,
       };
   }
+}
+
+function normalizeWorkspaceSettingsSection(section: string) {
+  if (section === 'states' || section === 'labels') return 'properties';
+  if (section === 'invitations') return 'members';
+  return section;
 }
 
 function withDefineProperty(path: string, name?: string) {

@@ -11,10 +11,8 @@ import {
   SlidersHorizontal,
   Settings2,
   ShieldAlert,
-  Tags,
   UserRound,
   UsersRound,
-  Workflow,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -188,19 +186,7 @@ export function WorkspaceSettingsShell({
               danger
             />
           </SettingsGroup>
-          <SettingsGroup label="Task properties">
-            <SettingsLink
-              active={section === 'states'}
-              icon={<Workflow aria-hidden="true" size={15} />}
-              label="States"
-              onClick={() => onSectionChange('states')}
-            />
-            <SettingsLink
-              active={section === 'labels'}
-              icon={<Tags aria-hidden="true" size={15} />}
-              label="Labels"
-              onClick={() => onSectionChange('labels')}
-            />
+          <SettingsGroup label="Task Settings">
             <SettingsLink
               active={section === 'properties'}
               icon={<SlidersHorizontal aria-hidden="true" size={15} />}
