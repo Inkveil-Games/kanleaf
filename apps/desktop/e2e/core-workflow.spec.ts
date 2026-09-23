@@ -43,6 +43,17 @@ async function addTaskProperty(page: Page, property: string) {
   await page.getByRole('button', { name: `Add ${property} property` }).click();
 }
 
+async function selectValueRowGrid(row: Locator) {
+  return row.evaluate((element) => ({
+    templateAreas: getComputedStyle(element).gridTemplateAreas,
+    childAreas: Array.from(
+      element.children,
+      (child) => getComputedStyle(child).gridArea,
+    ),
+    childClassNames: Array.from(element.children, (child) => child.className),
+  }));
+}
+
 async function readTaskVaultSource(workspaceId: string, taskId: string) {
   const dataDir = process.env.KANLEAF_E2E_DATA_DIR;
   if (!dataDir) throw new Error('KANLEAF_E2E_DATA_DIR is not available');
@@ -374,6 +385,48 @@ test('manages structured work and durable Markdown across reloads', async ({
     page.getByRole('group', { name: 'Property values' }),
   ).toBeVisible();
   await expect(page.getByText('Icon', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add label' }).click();
+  const labelEditor = page.getByRole('dialog', { name: 'Add label' });
+  await labelEditor
+    .getByRole('textbox', { name: 'Value name' })
+    .fill('Product');
+  await labelEditor.getByRole('button', { name: 'Add label' }).click();
+  const labelSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/workspaces/${workspaceId}/labels`),
+  );
+  const labelConfigurationRefreshed = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith(`/workspaces/${workspaceId}/task-configuration`),
+  );
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  expect((await labelSaved).status()).toBe(201);
+  expect((await labelConfigurationRefreshed).ok()).toBe(true);
+  await expect(
+    page.getByRole('button', { name: 'Save changes' }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Edit Product' }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 740, height: 800 });
+  const labelValueRow = page
+    .locator('.select-value-editor-row:not(.has-default)')
+    .first();
+  await expect(labelValueRow).toBeVisible();
+  expect(await selectValueRowGrid(labelValueRow)).toEqual({
+    templateAreas: '"drag color name actions" ". . description description"',
+    childAreas: ['drag', 'color', 'name', 'description', 'actions'],
+    childClassNames: [
+      'settings-drag-handle',
+      'select-value-color',
+      'select-value-name',
+      'select-value-description',
+      'context-menu context-menu-down select-value-popover select-value-edit-popover',
+    ],
+  });
+  await page.setViewportSize({ width: 800, height: 640 });
   const propertiesGeometry = await settingsPageGeometry(page);
   await expectSameSettingsGeometry(page, propertiesGeometry);
 
@@ -422,6 +475,40 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     page.getByRole('list', { name: 'Custom properties' }),
   ).toContainText('Type');
+  await propertiesArticle
+    .getByRole('button', { name: 'Type', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Edit Type' })).toBeVisible();
+  await page.setViewportSize({ width: 740, height: 800 });
+  const propertyValueRow = page
+    .locator('.select-value-editor-row.has-default')
+    .filter({ hasText: 'Bug' });
+  await expect(propertyValueRow).toBeVisible();
+  expect(await selectValueRowGrid(propertyValueRow)).toEqual({
+    templateAreas:
+      '"drag color name default-control actions" ". . description description ."',
+    childAreas: [
+      'drag',
+      'color',
+      'name',
+      'description',
+      'default-control',
+      'actions',
+    ],
+    childClassNames: [
+      'settings-drag-handle',
+      'select-value-color',
+      'select-value-name',
+      'select-value-description',
+      'select-value-default',
+      'context-menu context-menu-down select-value-popover select-value-edit-popover',
+    ],
+  });
+  await page.setViewportSize({ width: 800, height: 640 });
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
 
   await propertiesArticle.getByRole('button', { name: 'New property' }).click();
   await page.getByLabel('Name').fill('Story points');

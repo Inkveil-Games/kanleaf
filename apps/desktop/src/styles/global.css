@@ -9407,47 +9407,42 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 
   .select-value-editor-row,
   .select-value-editor-row.has-default {
-    --select-value-columns: 28px 36px 36px minmax(0, 1fr) 44px 28px;
+    --select-value-columns: 28px 36px minmax(0, 1fr) 44px 28px;
 
     grid-template-areas:
-      'drag icon color name default actions'
-      '. . . description description .';
+      'drag color name default-control actions'
+      '. . description description .';
   }
 
   .select-value-editor-row:not(.has-default) {
-    --select-value-columns: 28px 36px 36px minmax(0, 1fr) 28px;
+    --select-value-columns: 28px 36px minmax(0, 1fr) 28px;
 
     grid-template-areas:
-      'drag icon color name actions'
-      '. . . description description';
+      'drag color name actions'
+      '. . description description';
   }
 
-  .select-value-editor-row > :nth-child(1) {
+  .select-value-editor-row > .settings-drag-handle {
     grid-area: drag;
   }
 
-  .select-value-editor-row > :nth-child(2) {
-    grid-area: icon;
-  }
-
-  .select-value-editor-row > :nth-child(3) {
+  .select-value-editor-row > .select-value-color {
     grid-area: color;
   }
 
-  .select-value-editor-row > :nth-child(4) {
+  .select-value-editor-row > .select-value-name {
     grid-area: name;
   }
 
-  .select-value-editor-row > :nth-child(5) {
+  .select-value-editor-row > .select-value-description {
     grid-area: description;
   }
 
-  .select-value-editor-row.has-default > :nth-child(6) {
-    grid-area: default;
+  .select-value-editor-row > .select-value-default {
+    grid-area: default-control;
   }
 
-  .select-value-editor-row.has-default > :nth-child(7),
-  .select-value-editor-row:not(.has-default) > :nth-child(6) {
+  .select-value-editor-row > .select-value-edit-popover {
     grid-area: actions;
   }
 

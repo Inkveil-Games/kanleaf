@@ -19,7 +19,11 @@ import {
 } from '../settings/SettingsSortable';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
-import type { CustomPropertyDefinition, Workspace } from '../workspace/types';
+import type {
+  CustomPropertyDefinition,
+  TaskConfiguration,
+  Workspace,
+} from '../workspace/types';
 import type { SettingsDetailHistory } from '../workspace/workspaceLocation';
 import { LabelSettings } from '../task-config/LabelSettings';
 import { getTaskConfiguration } from '../task-config/api';
@@ -224,6 +228,7 @@ export function PropertiesSettings({
       ) : null}
       {configurationQuery.data ? (
         <LabelSettings
+          key={labelEditorKey(configurationQuery.data)}
           context={context}
           workspace={workspace}
           configuration={configurationQuery.data}
@@ -579,4 +584,16 @@ function propertyTypeLabel(type: CustomPropertyDefinition['type']) {
   if (type === 'single_select') return 'Single select';
   if (type === 'multi_select') return 'Multi select';
   return type === 'url' ? 'URL' : `${type[0].toUpperCase()}${type.slice(1)}`;
+}
+
+function labelEditorKey(configuration: TaskConfiguration) {
+  return JSON.stringify([
+    configuration.label_property_description,
+    configuration.labels.map((label) => [
+      label.id,
+      label.updated_at,
+      label.position,
+      label.archived_at,
+    ]),
+  ]);
 }

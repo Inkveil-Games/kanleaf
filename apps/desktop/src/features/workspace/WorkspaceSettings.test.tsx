@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { WorkspaceSettingsSection } from './settingsSections';
-import type { Workspace, WorkspaceMember } from './types';
+import type { TaskConfiguration, Workspace, WorkspaceMember } from './types';
 import { WorkspaceSettings } from './WorkspaceSettings';
 
 const context = {
@@ -149,6 +149,93 @@ describe('WorkspaceSettings', () => {
     expect(onDetailChange).toHaveBeenCalledWith('properties', 'property-1', {
       history: 'push',
     });
+  });
+
+  it('reconciles a newly created Label before the next save', async () => {
+    const createdLabel = {
+      ...taskConfiguration.labels[0],
+      id: 'label-new',
+      name: 'New label',
+      description: '',
+    };
+    let currentConfiguration: TaskConfiguration = {
+      ...taskConfiguration,
+      labels: [],
+    };
+    const requests: Array<{ method: string; url: string; body?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        const method = init?.method ?? 'GET';
+        requests.push({ method, url, body: init?.body?.toString() });
+        if (url.endsWith('/task-configuration')) {
+          return jsonResponse(currentConfiguration);
+        }
+        if (url.endsWith('/labels') && method === 'POST') {
+          currentConfiguration = {
+            ...currentConfiguration,
+            labels: [createdLabel],
+          };
+          return jsonResponse(createdLabel);
+        }
+        if (url.endsWith('/labels/label-new') && method === 'PATCH') {
+          const updatedLabel = { ...createdLabel, name: 'Renamed label' };
+          currentConfiguration = {
+            ...currentConfiguration,
+            labels: [updatedLabel],
+          };
+          return jsonResponse(updatedLabel);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    renderSettings(workspace, 'properties', owner.user_id);
+
+    await screen.findByRole('heading', { name: 'Labels' });
+    fireEvent.click(screen.getByRole('button', { name: 'Add label' }));
+    let editor = screen.getByRole('dialog', { name: 'Add label' });
+    fireEvent.change(
+      within(editor).getByRole('textbox', { name: 'Value name' }),
+      { target: { value: 'New label' } },
+    );
+    fireEvent.click(within(editor).getByRole('button', { name: 'Add label' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(
+        requests.filter(
+          ({ method, url }) => method === 'POST' && url.endsWith('/labels'),
+        ),
+      ).toHaveLength(1),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save changes' }),
+      ).toBeEnabled(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit New label' }));
+    editor = await screen.findByRole('dialog', { name: 'Edit New label' });
+    fireEvent.change(
+      within(editor).getByRole('textbox', { name: 'Value name' }),
+      { target: { value: 'Renamed label' } },
+    );
+    fireEvent.click(within(editor).getByRole('button', { name: 'Save value' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(requests).toContainEqual({
+        method: 'PATCH',
+        url: 'https://kanleaf.example.com/api/workspaces/workspace-1/labels/label-new',
+        body: JSON.stringify({ name: 'Renamed label' }),
+      }),
+    );
+    expect(
+      requests.filter(
+        ({ method, url }) => method === 'POST' && url.endsWith('/labels'),
+      ),
+    ).toHaveLength(1);
   });
 
   it('saves a property and its options in one atomic request', async () => {
