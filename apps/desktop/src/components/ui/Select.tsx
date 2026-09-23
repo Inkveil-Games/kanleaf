@@ -8,6 +8,7 @@ import { Tooltip } from './Tooltip';
 export interface SelectOption {
   value: string;
   label: string;
+  icon?: ReactNode;
   description?: string;
   disabled?: boolean;
 }
@@ -119,6 +120,11 @@ function SelectOptionItem({ option }: { option: SelectOption }) {
       nativeButton
       render={<button type="button" />}
     >
+      {option.icon ? (
+        <span className="select-option-icon" aria-hidden="true">
+          {option.icon}
+        </span>
+      ) : null}
       <BaseSelect.ItemText className="select-option-copy">
         <span>{option.label}</span>
         {option.description ? (

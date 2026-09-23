@@ -1,0 +1,8 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <mask id="done-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+    <circle cx="12" cy="12" r="8.5" fill="#fff"/>
+    <path d="M8.2 12.1L10.8 14.7L16 9.3" stroke="#000" stroke-width="2.35"
+      stroke-linecap="round" stroke-linejoin="round"/>
+  </mask>
+  <circle cx="12" cy="12" r="8.5" fill="#000" mask="url(#done-cutout)"/>
+</svg>

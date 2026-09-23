@@ -10,6 +10,44 @@ const options = [
 ];
 
 describe('Select', () => {
+  it('keeps decorative icons in the trigger and plain-named options', async () => {
+    const user = userEvent.setup();
+    render(
+      <Select
+        ariaLabel="Priority"
+        value="critical"
+        startIcon={<span data-testid="selected-critical-icon" />}
+        options={[
+          {
+            value: 'low',
+            label: 'Low',
+            icon: <span data-testid="low-icon" />,
+          },
+          {
+            value: 'critical',
+            label: 'Critical',
+            icon: <span data-testid="critical-icon" />,
+          },
+        ]}
+        onValueChange={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole('combobox', { name: 'Priority' });
+    expect(trigger).toHaveTextContent('Critical');
+    expect(trigger).toContainElement(
+      screen.getByTestId('selected-critical-icon'),
+    );
+
+    await user.click(trigger);
+    expect(screen.getByRole('option', { name: 'Low' })).toContainElement(
+      screen.getByTestId('low-icon'),
+    );
+    expect(screen.getByRole('option', { name: 'Critical' })).toContainElement(
+      screen.getByTestId('critical-icon'),
+    );
+  });
+
   it('selects an option and closes the listbox', async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();

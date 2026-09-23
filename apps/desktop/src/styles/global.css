@@ -89,6 +89,7 @@ html[data-input-modality='keyboard'] :focus-visible {
 }
 
 .select-value {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,8 +151,16 @@ html[data-input-modality='keyboard'] :focus-visible {
 
 .select-option-copy {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 1px;
+}
+
+.select-option-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
 }
 
 .select-option-copy > span {
@@ -189,6 +198,118 @@ html[data-input-modality='keyboard'] .select-option:focus-visible {
 .select-option:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.task-state-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  background: var(--task-state-color);
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
+
+.task-state-icon.is-backlog {
+  --task-state-color: #727480;
+}
+
+.task-state-icon.is-todo {
+  --task-state-color: #7a4dd1;
+}
+
+.task-state-icon.is-in_progress {
+  --task-state-color: #296dd6;
+}
+
+.task-state-icon.is-done {
+  --task-state-color: #2f945c;
+}
+
+.task-state-icon.is-cancelled {
+  --task-state-color: #d63d3c;
+}
+
+:root[data-theme='dark'] .task-state-icon.is-backlog {
+  --task-state-color: #90929f;
+}
+
+:root[data-theme='dark'] .task-state-icon.is-todo {
+  --task-state-color: #885cdd;
+}
+
+:root[data-theme='dark'] .task-state-icon.is-in_progress {
+  --task-state-color: #5896ee;
+}
+
+:root[data-theme='dark'] .task-state-icon.is-done {
+  --task-state-color: #54b781;
+}
+
+:root[data-theme='dark'] .task-state-icon.is-cancelled {
+  --task-state-color: #fa8079;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .task-state-icon.is-backlog {
+    --task-state-color: #90929f;
+  }
+
+  :root:not([data-theme='light']) .task-state-icon.is-todo {
+    --task-state-color: #885cdd;
+  }
+
+  :root:not([data-theme='light']) .task-state-icon.is-in_progress {
+    --task-state-color: #5896ee;
+  }
+
+  :root:not([data-theme='light']) .task-state-icon.is-done {
+    --task-state-color: #54b781;
+  }
+
+  :root:not([data-theme='light']) .task-state-icon.is-cancelled {
+    --task-state-color: #fa8079;
+  }
+}
+
+.task-priority-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.task-priority-badge {
+  --task-priority-color: #8b949e;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--task-priority-color);
+  background: color-mix(in srgb, var(--task-priority-color) 15%, transparent);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.task-priority-badge.is-low {
+  --task-priority-color: #5b9cf6;
+}
+
+.task-priority-badge.is-medium {
+  --task-priority-color: #eab839;
+}
+
+.task-priority-badge.is-high {
+  --task-priority-color: #f28a3b;
+}
+
+.task-priority-badge.is-critical {
+  --task-priority-color: #ef5b62;
 }
 
 .wordmark {
