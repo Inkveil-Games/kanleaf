@@ -1078,9 +1078,18 @@ let source_is_markdown = true;
 
   await page.getByRole('button', { name: 'My Work' }).click();
   const taskRow = page
-    .locator('.task-row-main')
+    .getByRole('option')
     .filter({ hasText: 'Complete the v0.1 workflow' });
-  await taskRow.click();
+  await expect(taskRow).toHaveCSS('min-height', '50px');
+  await expect(taskRow.locator('.task-row-title')).toHaveCSS(
+    'font-size',
+    '15px',
+  );
+  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('width', '30px');
+  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('height', '30px');
+  await expect(taskRow.locator('.task-row-reference')).toHaveCount(0);
+  await expect(taskRow.getByText('Critical')).toBeVisible();
+  await taskRow.locator('.task-row-main').click();
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/my-work\\?task=\\d+$`),
   );

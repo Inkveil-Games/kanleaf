@@ -4379,8 +4379,10 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 
 .task-row {
   display: grid;
-  min-height: 48px;
-  grid-template-columns: 26px 26px minmax(0, 1fr);
+  min-height: 50px;
+  grid-template-columns: 26px 36px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-1);
   padding: 0 var(--collection-content-gutter);
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-border) 42%, transparent);
@@ -4411,6 +4413,7 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 .task-status-button {
   display: grid;
   width: 100%;
+  height: 100%;
   padding: 0;
   place-items: center;
   border: 0;
@@ -4421,7 +4424,6 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   cursor: default;
 }
 
-.task-status-button > span,
 .status-glyph {
   display: block;
   width: 14px;
@@ -4430,37 +4432,23 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   border-radius: 50%;
 }
 
-.task-status-button > span {
-  border-color: var(--task-state-color, var(--color-text-muted));
-}
-
-.task-row[data-state-role='in_progress'] .task-status-button > span {
-  background: linear-gradient(
-    90deg,
-    var(--task-state-color) 50%,
-    transparent 50%
-  );
-}
-
-.task-row[data-state-role='done'] .task-status-button > span {
-  background: var(--task-state-color);
-  box-shadow: inset 0 0 0 3px var(--color-surface);
-}
-
 .task-row-main {
-  display: grid;
+  display: flex;
   min-width: 0;
-  align-content: center;
-  gap: 2px;
-  padding: 7px 0;
+  height: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  overflow: hidden;
   border: 0;
   background: transparent;
   text-align: left;
 }
 
 .task-row-title {
+  min-width: 0;
   overflow: hidden;
-  font-size: var(--font-size-sm);
+  font-size: 15px;
   font-weight: 540;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -4473,7 +4461,8 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
 }
 
 .task-row-metadata {
-  display: flex;
+  display: inline-flex;
+  flex: 0 1 auto;
   min-width: 0;
   align-items: center;
   gap: 7px;
@@ -4487,10 +4476,6 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   white-space: nowrap;
 }
 
-.task-row-reference {
-  font-variant-numeric: tabular-nums;
-}
-
 .task-row-label {
   padding: 1px 5px;
   border-radius: 3px;
@@ -4501,41 +4486,6 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-}
-
-.priority-mark {
-  padding-left: 7px;
-  position: relative;
-  text-transform: capitalize;
-}
-
-.priority-mark::before {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
-  transform: translateY(-50%);
-}
-
-.priority-high {
-  color: var(--color-danger);
-}
-
-.priority-urgent {
-  color: var(--color-danger);
-  font-weight: 680;
-}
-
-.priority-medium {
-  color: #9b6b28;
-}
-
-.priority-low {
-  color: var(--color-accent);
 }
 
 .quick-task-form {

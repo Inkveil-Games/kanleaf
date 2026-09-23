@@ -9,7 +9,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
@@ -32,6 +31,7 @@ import type {
   TaskLayout,
   TaskQuery,
 } from '../view/types';
+import { PriorityBadge, StateIcon } from './TaskValueIcon';
 
 interface TaskListPaneProps {
   collection: Collection;
@@ -562,30 +562,19 @@ function TaskRow({
           title={`Move to ${next.name}`}
           onClick={() => void onUpdateState(next.id)}
         >
-          <span
-            aria-hidden="true"
-            style={{ '--task-state-color': task.state.color } as CSSProperties}
-          />
+          <StateIcon role={task.state.system_role} size={30} />
         </button>
       ) : (
         <span
           className="task-status-button task-status-readonly"
           aria-hidden="true"
         >
-          <span
-            style={{ '--task-state-color': task.state.color } as CSSProperties}
-          />
+          <StateIcon role={task.state.system_role} size={30} />
         </span>
       )}
       <button className="task-row-main" type="button" onClick={onSelect}>
         <span className="task-row-title">{task.title}</span>
         <span className="task-row-metadata">
-          <span className="task-row-reference">{task.reference}</span>
-          {visibleFields.priority && task.priority !== 'none' && (
-            <span className={`priority-mark priority-${task.priority}`}>
-              {task.priority}
-            </span>
-          )}
           {visibleFields.assignees && task.assignees.length > 0 && (
             <span>
               {task.assignees
@@ -610,6 +599,7 @@ function TaskRow({
           )}
         </span>
       </button>
+      <PriorityBadge priority={task.priority} />
     </div>
   );
 }

@@ -181,6 +181,25 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
+  it('renders the approved one-line State and Priority treatment', () => {
+    renderList();
+
+    const rows = screen.getAllByRole('option');
+    const firstRow = rows[0]!;
+    const secondRow = rows[1]!;
+    const stateIcon = firstRow.querySelector('[data-state-role="todo"]');
+
+    expect(within(firstRow).getByText('Design the navigation')).toHaveClass(
+      'task-row-title',
+    );
+    expect(stateIcon).toHaveClass('task-state-icon');
+    expect(stateIcon).toHaveStyle({ width: '30px', height: '30px' });
+    expect(within(firstRow).getByText('High')).toBeVisible();
+    expect(within(secondRow).getByText('No priority')).toBeVisible();
+    expect(within(firstRow).queryByText('#1')).not.toBeInTheDocument();
+    expect(firstRow.querySelector('.task-row-reference')).toBeNull();
+  });
+
   it('navigates grouped rows in their rendered order', () => {
     const props = renderList({
       tasks: [tasks[1]!, tasks[0]!],
