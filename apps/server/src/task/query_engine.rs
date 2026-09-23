@@ -581,7 +581,7 @@ fn push_sort(sql: &mut QueryBuilder<'_, Postgres>, sort: &[TaskSort]) {
             TaskSortField::Manual => "tasks.position",
             TaskSortField::Title => "lower(tasks.title)",
             TaskSortField::Priority => {
-                "CASE tasks.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"
+                "CASE tasks.priority WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"
             }
             TaskSortField::StartDate => "tasks.start_date",
             TaskSortField::DueDate => "tasks.due_date",

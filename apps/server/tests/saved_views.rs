@@ -147,7 +147,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         json!({
             "title": "High priority",
             "project_id": project_id,
-            "priority": "urgent",
+            "priority": "critical",
             "due_date": "2026-10-03",
             "estimate": 5
         }),
@@ -197,7 +197,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
     let legacy = send(
         &app,
         "GET",
-        &format!("{tasks_uri}?project_id={project_id}&priority=urgent"),
+        &format!("{tasks_uri}?project_id={project_id}&priority=critical"),
         None,
         &token,
     )
@@ -211,7 +211,7 @@ async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPoo
         Some(json!({
             "version": 2,
             "scope": {"kind": "project", "project_id": project_id},
-            "filters": {"priorities": ["urgent"]},
+            "filters": {"priorities": ["critical"]},
             "include_completed": false
         })),
         &token,

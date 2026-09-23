@@ -113,7 +113,7 @@ fn task_path(
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn external_properties_preview_and_apply_through_the_task_use_case(pool: PgPool) {
+async fn external_properties_and_legacy_urgent_priority_apply_canonically(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "sync-owner@example.com").await;
@@ -165,7 +165,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
         .replace("Title: Sync me", "Title: Synced externally")
         .replace("Project:\n  - First", "Project:\n  - Second")
         .replace("State:\n  - Todo", "State:\n  - In Progress")
-        .replace("Priority: []", "Priority:\n  - High")
+        .replace("Priority: []", "Priority:\n  - Urgent")
         .replace("Impact: High", "Impact: Low")
         .replacen("---\n\n", "External tool: Obsidian\n---\n\n", 1);
     fs::write(&source_path, format!("{source}# External body\n")).unwrap();
@@ -217,7 +217,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     assert_eq!(task_response["title"], "Synced externally");
     assert_eq!(task_response["project_id"], second["id"]);
     assert_eq!(task_response["state"]["system_role"], "in_progress");
-    assert_eq!(task_response["priority"], "high");
+    assert_eq!(task_response["priority"], "critical");
     assert_eq!(
         task_response["custom_properties"][0]["value"],
         property["options"][1]["id"]
@@ -231,6 +231,7 @@ async fn external_properties_preview_and_apply_through_the_task_use_case(pool: P
     );
     let projected = fs::read_to_string(destination).unwrap();
     assert!(projected.contains("Project:\n  - Second\n"));
+    assert!(projected.contains("Priority:\n  - Critical\n"));
     assert!(projected.contains("External tool: Obsidian\n"));
     assert!(projected.ends_with("# External body\n"));
 }

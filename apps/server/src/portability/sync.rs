@@ -1073,7 +1073,7 @@ fn parse_priority(value: Option<&str>) -> Result<TaskPriority, String> {
         Some("low") => Ok(TaskPriority::Low),
         Some("medium") => Ok(TaskPriority::Medium),
         Some("high") => Ok(TaskPriority::High),
-        Some("urgent") => Ok(TaskPriority::Urgent),
+        Some("critical" | "urgent") => Ok(TaskPriority::Critical),
         Some(_) => Err("Priority is not supported".to_owned()),
     }
 }

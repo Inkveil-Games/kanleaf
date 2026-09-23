@@ -323,7 +323,7 @@ pub enum TaskPriority {
     Low,
     Medium,
     High,
-    Urgent,
+    Critical,
 }
 
 impl TaskPriority {
@@ -333,7 +333,7 @@ impl TaskPriority {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
-            Self::Urgent => "urgent",
+            Self::Critical => "critical",
         }
     }
 }
@@ -747,7 +747,16 @@ mod tests {
         assert!(TaskTitle::new(" ").is_err());
         assert!(TaskTitle::new(&"x".repeat(301)).is_err());
         assert_eq!(TaskPriority::High.as_str(), "high");
-        assert_eq!(TaskPriority::Urgent.as_str(), "urgent");
+        assert_eq!(TaskPriority::Critical.as_str(), "critical");
+    }
+
+    #[test]
+    fn task_priority_uses_critical_as_its_canonical_value() {
+        let priority: TaskPriority = serde_json::from_str("\"critical\"").unwrap();
+        assert_eq!(priority, TaskPriority::Critical);
+        assert_eq!(priority.as_str(), "critical");
+        assert_eq!(serde_json::to_string(&priority).unwrap(), "\"critical\"");
+        assert!(serde_json::from_str::<TaskPriority>("\"urgent\"").is_err());
     }
 
     #[test]

@@ -373,7 +373,7 @@ async fn moves_bulk_updates_order_and_permanent_deletion_preserve_invariants(poo
         &format!("/api/workspaces/{workspace_id}/tasks/bulk"),
         json!({
             "task_ids": [child_id, Uuid::new_v4()],
-            "priority": "urgent"
+            "priority": "critical"
         }),
     )
     .await;
@@ -392,7 +392,7 @@ async fn moves_bulk_updates_order_and_permanent_deletion_preserve_invariants(poo
         &app,
         &owner_token,
         &format!("/api/workspaces/{workspace_id}/tasks/bulk"),
-        json!({"task_ids": [child_id, third_id], "priority": "urgent"}),
+        json!({"task_ids": [child_id, third_id], "priority": "critical"}),
     )
     .await;
     assert_eq!(bulk.status(), StatusCode::OK);

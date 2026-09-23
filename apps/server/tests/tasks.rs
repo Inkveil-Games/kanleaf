@@ -184,7 +184,7 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
         VaultStorageName::from_initial_name("Finish Markdown workflow", task_id).as_str()
     );
     assert_eq!(task["state"]["system_role"], "in_progress");
-    assert_eq!(task["state"]["icon"], "loader-circle");
+    assert!(task["state"].get("icon").is_none());
     assert!(task.get("task_type").is_none());
     assert_eq!(task["priority"], "high");
 
@@ -512,13 +512,13 @@ async fn metadata_update_survives_temporary_vault_failure(pool: PgPool) {
         .oneshot(json_request(
             "PATCH",
             &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
-            json!({"priority": "urgent"}),
+            json!({"priority": "critical"}),
             Some(&token),
         ))
         .await
         .unwrap();
     assert_eq!(updated.status(), StatusCode::OK);
-    assert_eq!(response_json(updated).await["priority"], "urgent");
+    assert_eq!(response_json(updated).await["priority"], "critical");
     let error: Option<String> = sqlx::query_scalar(
         "SELECT projection_error FROM tasks WHERE workspace_id = $1 AND id = $2",
     )
@@ -534,7 +534,7 @@ async fn metadata_update_survives_temporary_vault_failure(pool: PgPool) {
     assert!(
         fs::read_to_string(&path)
             .unwrap()
-            .contains("Priority:\n  - Urgent\n")
+            .contains("Priority:\n  - Critical\n")
     );
     let versions: (i64, i64, Option<String>) = sqlx::query_as(
         r#"

@@ -1123,7 +1123,7 @@ fn priority_value(priority: Option<&str>) -> anyhow::Result<&'static str> {
         Some("low") => TaskPriority::Low,
         Some("medium") => TaskPriority::Medium,
         Some("high") => TaskPriority::High,
-        Some("urgent") => TaskPriority::Urgent,
+        Some("critical" | "urgent") => TaskPriority::Critical,
         Some(_) => return Err(anyhow::anyhow!("Portable Task Priority is invalid")),
     };
     Ok(match priority {
@@ -1131,7 +1131,7 @@ fn priority_value(priority: Option<&str>) -> anyhow::Result<&'static str> {
         TaskPriority::Low => "low",
         TaskPriority::Medium => "medium",
         TaskPriority::High => "high",
-        TaskPriority::Urgent => "urgent",
+        TaskPriority::Critical => "critical",
     })
 }
 

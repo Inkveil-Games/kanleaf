@@ -1517,7 +1517,7 @@ fn validate_task_properties(
                 .map(str::trim)
                 .map(str::to_ascii_lowercase)
                 .as_deref(),
-            None | Some("none" | "low" | "medium" | "high" | "urgent")
+            None | Some("none" | "low" | "medium" | "high" | "critical" | "urgent")
         )
         || has_duplicate_names(&properties.labels)
         || has_duplicate_names(&properties.modules)
