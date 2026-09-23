@@ -31,7 +31,8 @@ import type {
   TaskLayout,
   TaskQuery,
 } from '../view/types';
-import { PriorityBadge, StateIcon } from './TaskValueIcon';
+import { TASK_PRIORITY_OPTIONS } from './taskPropertyModel';
+import { PriorityBadge, PriorityIcon, StateIcon } from './TaskValueIcon';
 
 interface TaskListPaneProps {
   collection: Collection;
@@ -338,6 +339,7 @@ export function TaskListPane({
                     .map((state) => ({
                       value: state.id,
                       label: state.name,
+                      icon: <StateIcon role={state.system_role} size={18} />,
                     })),
                 ]}
                 onValueChange={(value) => {
@@ -355,11 +357,10 @@ export function TaskListPane({
                 disabled={bulkUpdating}
                 options={[
                   { value: '', label: 'Priority…' },
-                  { value: 'none', label: 'None' },
-                  { value: 'low', label: 'Low' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'high', label: 'High' },
-                  { value: 'critical', label: 'Critical' },
+                  ...TASK_PRIORITY_OPTIONS.map((option) => ({
+                    ...option,
+                    icon: <PriorityIcon priority={option.value} size={16} />,
+                  })),
                 ]}
                 onValueChange={(value) => {
                   if (value) {

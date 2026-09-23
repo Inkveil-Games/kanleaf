@@ -4688,6 +4688,27 @@ html[data-input-modality='keyboard'] .timeline-resize-handle:focus-visible {
   color: var(--color-text);
 }
 
+.task-value-readonly,
+.property-readonly-value.task-value-readonly {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-value-readonly > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-menu-value-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
 .task-date-control {
   position: relative;
   display: block;

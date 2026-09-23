@@ -1,4 +1,5 @@
 import type { Project, Task, TaskState } from '../workspace/types';
+import { priorityLabel } from '../task/taskPropertyModel';
 import type { TaskGroupField } from './types';
 
 export interface TaskGroup {
@@ -79,7 +80,7 @@ export function buildTaskGroups(
       (priority) =>
         group(
           priority,
-          capitalize(priority),
+          priorityLabel(priority),
           tasks,
           (task) => task.priority === priority,
         ),
@@ -178,11 +179,4 @@ function formatShortDate(value: string) {
 function parseDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(year, month - 1, day);
-}
-
-function capitalize(value: string) {
-  return value
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }

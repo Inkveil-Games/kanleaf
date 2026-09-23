@@ -61,8 +61,11 @@ const task: Task = {
 };
 
 const states: TaskState[] = [
-  taskState('state-todo', 'Todo', 'todo', 0),
-  taskState('state-progress', 'In Review', 'in_progress', 1),
+  taskState('state-backlog', 'Backlog', 'backlog', 0),
+  taskState('state-todo', 'Todo', 'todo', 1),
+  taskState('state-progress', 'In Progress', 'in_progress', 2),
+  taskState('state-done', 'Done', 'done', 3),
+  taskState('state-cancelled', 'Cancelled', 'cancelled', 4),
 ];
 
 const projects: Project[] = [
@@ -649,9 +652,46 @@ describe('TaskDetailPane', () => {
     );
 
     const editor = screen.getByText('Markdown editor');
-    await screen.findByRole('combobox', { name: 'State' });
-    await chooseSelectOption('State', 'In Review');
-    await chooseSelectOption('Priority', 'High');
+    const user = userEvent.setup();
+    const stateTrigger = await screen.findByRole('combobox', { name: 'State' });
+    expect(
+      stateTrigger.querySelector('[data-state-role="todo"]'),
+    ).not.toBeNull();
+    await user.click(stateTrigger);
+    for (const [label, role] of [
+      ['Backlog', 'backlog'],
+      ['Todo', 'todo'],
+      ['In Progress', 'in_progress'],
+      ['Done', 'done'],
+      ['Cancelled', 'cancelled'],
+    ] as const) {
+      expect(
+        screen
+          .getByRole('option', { name: label })
+          .querySelector(`[data-state-role="${role}"]`),
+      ).not.toBeNull();
+    }
+    await user.click(screen.getByRole('option', { name: 'Done' }));
+
+    const priorityTrigger = screen.getByRole('combobox', { name: 'Priority' });
+    expect(
+      priorityTrigger.querySelector('[data-priority-value="none"]'),
+    ).not.toBeNull();
+    await user.click(priorityTrigger);
+    for (const [label, priority] of [
+      ['No priority', 'none'],
+      ['Low', 'low'],
+      ['Medium', 'medium'],
+      ['High', 'high'],
+      ['Critical', 'critical'],
+    ] as const) {
+      expect(
+        screen
+          .getByRole('option', { name: label })
+          .querySelector(`[data-priority-value="${priority}"]`),
+      ).not.toBeNull();
+    }
+    await user.click(screen.getByRole('option', { name: 'Critical' }));
     fireEvent.change(screen.getByLabelText('Start date'), {
       target: { value: '2026-09-01' },
     });
@@ -684,8 +724,8 @@ describe('TaskDetailPane', () => {
     fireEvent.blur(title);
 
     await waitFor(() => {
-      expect(patch).toHaveBeenCalledWith({ state_id: 'state-progress' });
-      expect(patch).toHaveBeenCalledWith({ priority: 'high' });
+      expect(patch).toHaveBeenNthCalledWith(1, { state_id: 'state-done' });
+      expect(patch).toHaveBeenNthCalledWith(2, { priority: 'critical' });
       expect(patch).toHaveBeenCalledWith({ start_date: '2026-09-01' });
       expect(patch).toHaveBeenCalledWith({ due_date: '2026-09-04' });
       expect(patch).toHaveBeenCalledWith({ assignee_ids: ['user-1'] });
@@ -749,6 +789,11 @@ describe('TaskDetailPane', () => {
     expect(
       screen.getByRole('region', { name: 'Pinned task properties' }),
     ).toHaveTextContent('TodoNo priorityUnassignedStart dateDue date');
+    const pinned = screen.getByRole('region', {
+      name: 'Pinned task properties',
+    });
+    expect(pinned.querySelector('[data-state-role="todo"]')).not.toBeNull();
+    expect(pinned.querySelector('[data-priority-value="none"]')).not.toBeNull();
     expect(
       screen.getByRole('region', { name: 'Task properties' }),
     ).toHaveTextContent('ProjectKanleaf');

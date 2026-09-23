@@ -295,7 +295,13 @@ describe('TaskListPane', () => {
     const props = renderList();
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
-    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Critical' }));
+    const critical = screen.getByRole('menuitemcheckbox', {
+      name: 'Critical',
+    });
+    expect(
+      critical.querySelector('[data-priority-value="critical"]'),
+    ).not.toBeNull();
+    fireEvent.click(critical);
 
     expect(props.onQueryChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -443,6 +449,17 @@ describe('TaskListPane', () => {
   it('supports inline edits in the table layout', async () => {
     const props = renderList({ layout: 'table' });
 
+    expect(
+      screen
+        .getByRole('combobox', { name: 'Design the navigation state' })
+        .querySelector('[data-state-role="todo"]'),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole('combobox', { name: 'Design the navigation priority' })
+        .querySelector('[data-priority-value="high"]'),
+    ).not.toBeNull();
+
     await chooseSelectOption('Design the navigation state', 'In Progress');
 
     await waitFor(() =>
@@ -587,7 +604,9 @@ describe('TaskListPane', () => {
     ).toBeInTheDocument();
     const inProgress = screen.getByRole('group', { name: 'In Progress' });
     expect(
-      within(inProgress).getByRole('heading', { name: 'None, 1 task' }),
+      within(inProgress).getByRole('heading', {
+        name: 'No priority, 1 task',
+      }),
     ).toBeInTheDocument();
   });
 
@@ -607,7 +626,7 @@ describe('TaskListPane', () => {
       screen.getByRole('rowheader', { name: 'In Progress, 1 task' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('rowheader', { name: 'None, 1 task' }),
+      screen.getByRole('rowheader', { name: 'No priority, 1 task' }),
     ).toBeInTheDocument();
   });
 

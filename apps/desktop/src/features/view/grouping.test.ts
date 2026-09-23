@@ -97,6 +97,20 @@ describe('task grouping', () => {
     expect(groups.some(({ taskIds }) => taskIds.size > 0)).toBe(true);
   });
 
+  it('uses the canonical Priority order and labels', () => {
+    expect(
+      buildTaskGroups('priority', tasks, projects, states).map(
+        ({ id, label }) => [id, label],
+      ),
+    ).toEqual([
+      ['none', 'No priority'],
+      ['low', 'Low'],
+      ['medium', 'Medium'],
+      ['high', 'High'],
+      ['critical', 'Critical'],
+    ]);
+  });
+
   it('keeps no-value and multi-value membership consistent', () => {
     const assignees = nonEmpty('assignee');
     expect(assignees.find(({ label }) => label === 'Ada')?.taskIds).toContain(
@@ -137,7 +151,7 @@ describe('task grouping', () => {
         group.label,
         groupedTasks.length,
       ]),
-    ).toEqual([['None', 1]]);
+    ).toEqual([['No priority', 1]]);
     expect(
       tree[1]?.secondary.map(({ group, tasks: groupedTasks }) => [
         group.label,

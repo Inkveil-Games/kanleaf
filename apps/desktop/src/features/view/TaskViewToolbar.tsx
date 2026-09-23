@@ -7,7 +7,7 @@ import {
   Save,
   SlidersHorizontal,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
@@ -20,7 +20,11 @@ import {
 import { Popover } from '../../components/ui/Popover';
 import { Select } from '../../components/ui/Select';
 import { Tooltip } from '../../components/ui/Tooltip';
-import { TASK_PRIORITY_OPTIONS } from '../task/taskPropertyModel';
+import {
+  TASK_PRIORITY_OPTIONS,
+  priorityLabel,
+} from '../task/taskPropertyModel';
+import { PriorityIcon, StateIcon } from '../task/TaskValueIcon';
 import type {
   Project,
   TaskLabel,
@@ -187,6 +191,7 @@ export function TaskViewToolbar({
                 key={state.id}
                 checked={query.filters.states.values.includes(state.id)}
                 label={state.name}
+                icon={<StateIcon role={state.system_role} size={15} />}
                 onClick={() =>
                   patchFilters({
                     states: {
@@ -205,7 +210,8 @@ export function TaskViewToolbar({
             <CheckMenuItem
               key={priority}
               checked={query.filters.priorities.includes(priority)}
-              label={labelFor(priority)}
+              label={priorityLabel(priority)}
+              icon={<PriorityIcon priority={priority} size={15} />}
               onClick={() =>
                 patchFilters({
                   priorities: toggleFilterValue(
@@ -745,10 +751,12 @@ function MenuHeading({ children }: { children: string }) {
 function CheckMenuItem({
   checked,
   label,
+  icon,
   onClick,
 }: {
   checked: boolean;
   label: string;
+  icon?: ReactNode;
   onClick: () => void;
 }) {
   return (
@@ -756,7 +764,12 @@ function CheckMenuItem({
       checked={checked}
       onCheckedChange={() => onClick()}
     >
-      {label}
+      {icon ? (
+        <span className="view-menu-value-icon" aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
+      <span>{label}</span>
     </DropdownMenuCheckboxItem>
   );
 }

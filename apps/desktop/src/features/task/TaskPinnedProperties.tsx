@@ -10,6 +10,7 @@ import {
 } from './taskPropertyModel';
 import { PINNED_PROPERTIES } from './taskPropertyPresentation';
 import { TaskPropertyIcon } from './TaskPropertyIcon';
+import { PriorityIcon, StateIcon } from './TaskValueIcon';
 import type { TaskPropertyEditing } from './useTaskPropertyEditing';
 
 interface TaskPinnedPropertiesProps {
@@ -79,18 +80,23 @@ function PinnedProperty({
           ariaLabel="State"
           className="task-pinned-select"
           value={task.state.id}
+          startIcon={<StateIcon role={task.state.system_role} size={18} />}
           disabled={editing.disabled('state')}
           invalid={invalid}
           options={selectableStates(states, task).map((state) => ({
             value: state.id,
             label: state.name,
+            icon: <StateIcon role={state.system_role} size={18} />,
           }))}
           onValueChange={(value) =>
             void editing.patchProperty('state', { state_id: value })
           }
         />
       ) : (
-        <span className="property-readonly-value">{task.state.name}</span>
+        <span className="property-readonly-value task-value-readonly">
+          <StateIcon role={task.state.system_role} size={18} />
+          <span>{task.state.name}</span>
+        </span>
       );
       break;
     case 'priority':
@@ -99,9 +105,13 @@ function PinnedProperty({
           ariaLabel="Priority"
           className="task-pinned-select"
           value={task.priority}
+          startIcon={<PriorityIcon priority={task.priority} size={16} />}
           disabled={editing.disabled('priority')}
           invalid={invalid}
-          options={[...TASK_PRIORITY_OPTIONS]}
+          options={TASK_PRIORITY_OPTIONS.map((option) => ({
+            ...option,
+            icon: <PriorityIcon priority={option.value} size={16} />,
+          }))}
           onValueChange={(value) =>
             void editing.patchProperty('priority', {
               priority: value as Task['priority'],
@@ -109,8 +119,9 @@ function PinnedProperty({
           }
         />
       ) : (
-        <span className="property-readonly-value">
-          {priorityLabel(task.priority)}
+        <span className="property-readonly-value task-value-readonly">
+          <PriorityIcon priority={task.priority} size={16} />
+          <span>{priorityLabel(task.priority)}</span>
         </span>
       );
       break;
