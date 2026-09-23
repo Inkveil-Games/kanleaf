@@ -157,7 +157,9 @@ describe('Select', () => {
     );
 
     await user.click(screen.getByRole('combobox', { name: 'State' }));
-    expect(screen.getByRole('listbox').closest('dialog')).not.toBeNull();
+    expect(
+      (await screen.findByRole('listbox')).closest('dialog'),
+    ).not.toBeNull();
   });
 
   it('exposes option descriptions to assistive technology', async () => {
