@@ -232,18 +232,14 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         .unwrap()["id"]
         .as_str()
         .unwrap();
-    let canceled_state = create_json(
-        &app,
-        &owner_token,
-        &format!("/api/workspaces/{workspace_id}/states"),
-        json!({
-            "name": "Canceled",
-            "icon": "circle-x",
-            "color": "#A1A1AA",
-            "description": "Stopped without completion"
-        }),
-    )
-    .await;
+    let cancelled_state = configuration["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|state| state["system_role"] == "cancelled")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
     let tasks_uri = format!("/api/workspaces/{workspace_id}/tasks");
     let incomplete = create_json(
         &app,
@@ -274,16 +270,16 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         }),
     )
     .await;
-    let canceled = create_json(
+    let cancelled = create_json(
         &app,
         &contributor_token,
         &tasks_uri,
         json!({
-            "title": "Stopped custom state",
+            "title": "Stopped cancelled state",
             "project_id": project_id,
             "cycle_id": current_id,
             "module_ids": [backend_id],
-            "state_id": canceled_state["id"],
+            "state_id": cancelled_state,
             "estimate": 2
         }),
     )
@@ -345,15 +341,15 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         &format!("{tasks_uri}/{}", done["id"].as_str().unwrap()),
     )
     .await;
-    let canceled = get_json(
+    let cancelled = get_json(
         &app,
         &contributor_token,
-        &format!("{tasks_uri}/{}", canceled["id"].as_str().unwrap()),
+        &format!("{tasks_uri}/{}", cancelled["id"].as_str().unwrap()),
     )
     .await;
     assert_eq!(incomplete["cycle"]["id"], future_id);
     assert_eq!(done["cycle"]["id"], current_id);
-    assert_eq!(canceled["cycle"]["id"], future_id);
+    assert_eq!(cancelled["cycle"]["id"], future_id);
 
     let cycles = get_json(&app, &contributor_token, &cycles_uri).await;
     let completed = cycles

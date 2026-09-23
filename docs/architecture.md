@@ -79,19 +79,21 @@ User ──< Session
   access uses explicit fixed-role Project memberships. Private projects are
   non-disclosing, while Public projects are discoverable and joinable only by
   Workspace Members.
-- States and Labels are ordered Workspace vocabularies with stable UUIDs,
-  icons, colors, and descriptions. Each Workspace has exactly one active core
-  State for each `system_role` (`todo`, `in_progress`, and `done`); those core
-  identities and their canonical name/icon/color are protected while custom
-  States have no system role. Projects select only their default State.
+- Every Workspace has exactly five active fixed States with stable UUIDs and
+  non-null roles: Backlog, Todo, In Progress, Done, and Cancelled. Their order,
+  names, colors, descriptions, and semantic roles are server-owned; clients
+  render the corresponding fixed theme-aware icons. States cannot be created,
+  edited, reordered, archived, or deleted. Projects select only their default
+  State. Labels remain an ordered editable Workspace vocabulary with stable
+  UUIDs, colors, and descriptions, but property values do not store icons.
 - Custom property definitions and select options use stable UUIDs and remain
   Workspace-scoped. Task values reference those identities and are validated
   against the definition type and option ownership at the server boundary.
   Single-select definitions may designate one active option as their default;
   Task creation applies it in the owning transaction. Select options retain
-  nullable icons, colors, descriptions, and explicit order. Active and archived
-  definitions reserve names case-insensitively; permanent deletion removes
-  values and releases the name for reuse.
+  colors, descriptions, and explicit order, but no icon field. Active and
+  archived definitions reserve names case-insensitively; permanent deletion
+  removes values and releases the name for reuse.
 - The schema migration promotes the former special Task Type vocabulary into
   an ordinary single-select custom property named `Type`, preserves option and
   Task-value identities, and carries the former Workspace default into
@@ -138,8 +140,8 @@ User ──< Session
 - Composite foreign keys prevent projects and tasks from referencing another
   workspace's configuration. Configuration edits and assignments coordinate on
   the workspace row so archiving cannot race a new task assignment. Check
-  constraints enforce normalized email, lengths, roles, protected system State
-  identities, priorities, colors, and session hash size.
+  constraints enforce normalized email, lengths, roles, the complete fixed
+  State vocabulary, canonical priorities, colors, and session hash size.
 
 PostgreSQL is canonical for structured server data. This decision does not
 define a future offline cache or sync model.
@@ -455,10 +457,12 @@ The desktop app is feature-oriented:
 - `features/workspace` owns tenant navigation and API coordination;
 - `features/command` composes authorized Task queries, cached Library metadata,
   Project titles, and navigation actions into the global command palette;
-- `features/task-config` owns Workspace States, Labels, their descriptions, and
-  the default Inbox State;
+- `features/task-config` owns editable Workspace Labels and the fixed task
+  configuration read model; Workspace Properties Settings composes its Label
+  editor with custom property definitions;
 - `features/task` owns keyboard-selectable collection rows, bulk actions, My
-  Work, and structured detail editing;
+  Work, structured detail editing, and the fixed State/Priority icon
+  presentation;
 - `features/view` owns the typed collection query, Personal/Shared View API,
   presentation controls, and List, Board, Calendar, Table, and Timeline
   layouts;

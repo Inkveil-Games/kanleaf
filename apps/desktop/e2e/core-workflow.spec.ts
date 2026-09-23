@@ -328,6 +328,22 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
+  const legacySettingsPage = await page.context().newPage();
+  for (const legacySection of ['states', 'labels']) {
+    await legacySettingsPage.goto(
+      `/w/${workspaceIdentifier}/settings/workspace/${legacySection}`,
+    );
+    await expect(legacySettingsPage).toHaveURL(
+      new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+    );
+    await expect(
+      legacySettingsPage.getByRole('heading', {
+        name: 'Properties',
+        exact: true,
+      }),
+    ).toBeVisible();
+  }
+  await legacySettingsPage.close();
   const workspaceSettings = page.getByRole('region', {
     name: 'Workspace settings',
   });
@@ -385,6 +401,10 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByLabel('Property description').fill('Kind of work.');
   await page.getByRole('button', { name: 'Add option' }).click();
   const optionEditor = page.getByRole('dialog', { name: 'Add option' });
+  await expect(optionEditor.getByText('Icon', { exact: true })).toHaveCount(0);
+  await expect(optionEditor.getByRole('button', { name: /icon/i })).toHaveCount(
+    0,
+  );
   await optionEditor.getByRole('textbox', { name: 'Option name' }).fill('Bug');
   await optionEditor.getByRole('checkbox', { name: 'Set as default' }).check();
   await optionEditor.getByRole('button', { name: 'Add option' }).click();
@@ -1056,6 +1076,16 @@ let source_is_markdown = true;
   await expectTaskPatch(page, () =>
     chooseSelectOption(page, 'Priority', 'Critical'),
   );
+  await expect(
+    page
+      .getByRole('combobox', { name: 'State' })
+      .locator('[data-state-role="in_progress"]'),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .getByRole('combobox', { name: 'Priority' })
+      .locator('[data-priority-value="critical"]'),
+  ).toHaveCount(1);
   await page.getByLabel('Edit assignees').click();
   await expectTaskPatch(page, () =>
     page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click(),
@@ -1087,8 +1117,19 @@ let source_is_markdown = true;
   );
   await expect(taskRow.locator('.task-state-icon')).toHaveCSS('width', '30px');
   await expect(taskRow.locator('.task-state-icon')).toHaveCSS('height', '30px');
+  await expect(
+    taskRow.locator('.task-state-icon[data-state-role="in_progress"]'),
+  ).toHaveCount(1);
   await expect(taskRow.locator('.task-row-reference')).toHaveCount(0);
   await expect(taskRow.getByText('Critical')).toBeVisible();
+  const priorityBadge = taskRow.locator(
+    '.task-priority-badge[data-priority-value="critical"]',
+  );
+  await expect(priorityBadge).toHaveCSS('border-top-width', '0px');
+  await expect(priorityBadge.locator('.task-priority-icon')).toHaveCSS(
+    'width',
+    '15px',
+  );
   await taskRow.locator('.task-row-main').click();
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/my-work\\?task=\\d+$`),
@@ -1200,12 +1241,22 @@ Kanleaf keeps **structured work** beside durable notes.
   await taskRow.click();
   await expect(page.getByLabel('State')).toContainText('In Progress');
   await expect(
+    page
+      .getByRole('combobox', { name: 'State' })
+      .locator('[data-state-role="in_progress"]'),
+  ).toHaveCount(1);
+  await expect(
     page.getByRole('combobox', { name: 'Type', exact: true }),
   ).toContainText('Bug');
   await expect(page.getByLabel('Priority')).toHaveAttribute(
     'data-value',
     'critical',
   );
+  await expect(
+    page
+      .getByRole('combobox', { name: 'Priority' })
+      .locator('[data-priority-value="critical"]'),
+  ).toHaveCount(1);
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(page.getByLabel('Start date')).toHaveValue('2026-09-01');
   await expect(
