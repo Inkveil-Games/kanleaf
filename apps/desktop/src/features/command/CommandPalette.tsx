@@ -301,7 +301,11 @@ export function CommandPalette({
           />
           <kbd>Esc</kbd>
         </div>
-        <div id={listId} className="command-results" role="listbox">
+        <div
+          id={listId}
+          className="command-results ui-native-scrollbar"
+          role="listbox"
+        >
           {groupedItems.map(([group, entries]) => (
             <section key={group} aria-label={group}>
               <h2>{group}</h2>

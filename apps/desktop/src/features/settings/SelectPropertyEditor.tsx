@@ -62,7 +62,9 @@ export function SelectPropertyEditor({
           onChange={(event) => onDescriptionChange(event.target.value)}
         />
       </section>
-      <section className="select-property-values">{values}</section>
+      <section className="select-property-values ui-native-scrollbar">
+        {values}
+      </section>
       {error ? (
         <p className="settings-error select-property-error" role="alert">
           {error}

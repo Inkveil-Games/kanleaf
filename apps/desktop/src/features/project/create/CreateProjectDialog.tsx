@@ -177,7 +177,7 @@ export function CreateProjectDialog({
           </IconButton>
         </header>
 
-        <div className="project-create-content">
+        <div className="project-create-content ui-native-scrollbar">
           <div className="project-create-identity-row">
             <FormField label="Project name" error={nameError} required>
               <Input

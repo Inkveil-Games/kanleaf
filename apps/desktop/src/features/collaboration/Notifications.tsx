@@ -143,7 +143,7 @@ export function Notifications({
           <span>Updates about your work will appear here.</span>
         </div>
       ) : (
-        <div className="notification-list">
+        <div className="notification-list ui-native-scrollbar">
           {items.map((notification) => (
             <PopoverClose
               key={notification.id}

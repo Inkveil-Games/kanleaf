@@ -24,6 +24,9 @@ describe('AccountSwitcher', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
+    expect(screen.getByRole('group', { name: 'Accounts' })).toHaveClass(
+      'ui-native-scrollbar',
+    );
     expect(
       screen.getByRole('button', { name: /Account user-1/ }),
     ).toHaveAttribute('aria-pressed', 'true');

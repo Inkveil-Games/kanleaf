@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { SetupStage } from '../../lib/api/types';
 
@@ -49,7 +50,9 @@ export function SetupLayout({ stage, children }: SetupLayoutProps) {
           Structured work in PostgreSQL. Durable writing in Markdown.
         </p>
       </aside>
-      <section className="setup-content">{children}</section>
+      <ScrollArea className="setup-content-scroll-area" orientation="vertical">
+        <section className="setup-content">{children}</section>
+      </ScrollArea>
     </main>
   );
 }

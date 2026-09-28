@@ -125,7 +125,9 @@ export function DropdownMenu({
           sideOffset={sideOffset}
           collisionPadding={8}
         >
-          <Menu.Popup className="context-menu-popover">{children}</Menu.Popup>
+          <Menu.Popup className="context-menu-popover ui-native-scrollbar">
+            {children}
+          </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>

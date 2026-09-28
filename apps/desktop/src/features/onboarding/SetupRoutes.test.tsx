@@ -50,6 +50,9 @@ describe('SetupRoutes', () => {
     expect(
       screen.getByText('1', { selector: '[aria-current="step"]' }),
     ).toBeInTheDocument();
+    expect(
+      document.querySelector('.setup-content')?.closest('.ui-scroll-area'),
+    ).toHaveAttribute('data-orientation', 'vertical');
   });
 
   it('keeps the created Workspace visible when session synchronization fails', async () => {

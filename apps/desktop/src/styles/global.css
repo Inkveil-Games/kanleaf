@@ -129,7 +129,6 @@ html[data-input-modality='keyboard'] :focus-visible {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   box-shadow: var(--shadow-popover);
-  scrollbar-width: thin;
 }
 
 .select-option {
@@ -480,9 +479,9 @@ html[data-input-modality='keyboard'] .select-option:focus-visible {
 .workspace-recovery-content {
   display: grid;
   min-width: 0;
+  min-height: 100%;
   align-content: start;
   justify-items: center;
-  overflow-y: auto;
   padding: clamp(48px, 8vh, 88px) clamp(28px, 7vw, 96px);
 }
 
@@ -582,9 +581,9 @@ html[data-input-modality='keyboard'] .select-option:focus-visible {
 .setup-content {
   display: grid;
   min-width: 0;
+  min-height: 100%;
   align-content: start;
   justify-items: center;
-  overflow-y: auto;
   padding: clamp(48px, 8vh, 88px) clamp(28px, 7vw, 96px);
 }
 
@@ -2040,7 +2039,6 @@ html[data-input-modality='keyboard']
   max-height: 224px;
   gap: 2px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .workspace-menu-row {
@@ -2247,7 +2245,6 @@ html[data-input-modality='keyboard']
   min-height: 120px;
   padding: 6px;
   overflow: auto;
-  scrollbar-width: thin;
 }
 
 .command-results section + section {
@@ -2412,7 +2409,6 @@ html[data-input-modality='keyboard']
 .notification-list {
   max-height: 460px;
   overflow: auto;
-  scrollbar-width: thin;
 }
 
 .notification-list > button {
@@ -2503,9 +2499,6 @@ html[data-input-modality='keyboard']
 .navigation-rail {
   min-height: 0;
   padding: 2px 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: none;
 }
 
 .navigation-rail-actions {
@@ -2835,7 +2828,6 @@ html[data-input-modality='keyboard']
   max-height: 220px;
   gap: 2px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .account-switcher-menu .account-switcher-account {
@@ -3233,17 +3225,20 @@ html[data-input-modality='keyboard']
 
 .view-toolbar {
   display: flex;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
   min-height: 40px;
   align-items: center;
   gap: 2px;
   padding: 4px var(--collection-content-gutter) 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.view-toolbar::-webkit-scrollbar {
-  display: none;
+.view-toolbar-scroll-area {
+  height: auto;
+}
+
+.view-toolbar-scroll-area .ui-scroll-area-viewport {
+  height: auto;
 }
 
 .view-layout-select,
@@ -5258,7 +5253,6 @@ html[data-input-modality='keyboard']
   display: grid;
   max-height: 210px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .property-catalog-list > button {
@@ -6387,7 +6381,6 @@ html[data-input-modality='keyboard']
 .markdown-editor .cm-scroller {
   padding: var(--space-4) var(--document-content-gutter) var(--space-8);
   line-height: 1.65;
-  scrollbar-width: thin;
 }
 
 .markdown-editor .cm-content {
@@ -9850,10 +9843,13 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   }
 
   .host-console .settings-navigation-body {
-    display: grid;
-    gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     overflow: visible;
+  }
+
+  .host-console .settings-navigation-body > .ui-scroll-area-content {
+    display: grid;
+    gap: var(--space-2);
   }
 
   .host-console .settings-navigation-header {

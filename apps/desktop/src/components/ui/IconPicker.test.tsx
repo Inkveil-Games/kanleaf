@@ -28,6 +28,9 @@ describe('IconPicker', () => {
     await user.click(
       screen.getByRole('button', { name: 'Change icon for Task' }),
     );
+    expect(document.querySelector('.icon-picker-results')).toHaveClass(
+      'ui-native-scrollbar',
+    );
     await user.type(
       screen.getByRole('searchbox', { name: 'Search icons' }),
       'bug',

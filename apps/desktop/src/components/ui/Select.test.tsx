@@ -38,6 +38,10 @@ describe('Select', () => {
     expect(trigger).toContainElement(
       screen.getByTestId('selected-critical-icon'),
     );
+    await user.click(trigger);
+    expect(screen.getByRole('listbox').closest('.select-popover')).toHaveClass(
+      'ui-native-scrollbar',
+    );
 
     trigger.focus();
     await user.keyboard('[ArrowDown]');

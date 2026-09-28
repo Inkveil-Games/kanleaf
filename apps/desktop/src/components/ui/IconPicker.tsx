@@ -142,7 +142,7 @@ export function IconPicker<Value extends string | null = string>({
             }}
           />
         </label>
-        <div className="icon-picker-results">
+        <div className="icon-picker-results ui-native-scrollbar">
           {allowNone &&
           (!normalizedQuery ||
             'no icon empty none'.includes(normalizedQuery)) ? (

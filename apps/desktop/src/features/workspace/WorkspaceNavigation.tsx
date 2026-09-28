@@ -447,7 +447,15 @@ function NavigationRail({
   };
 
   return (
-    <nav className="navigation-rail" aria-label="Workspace navigation rail">
+    <ScrollArea
+      className="navigation-rail-scroll-area"
+      orientation="vertical"
+      viewportProps={{
+        className: 'navigation-rail',
+        role: 'navigation',
+        'aria-label': 'Workspace navigation rail',
+      }}
+    >
       <div className="navigation-rail-actions">
         <NavButton
           rail
@@ -709,7 +717,7 @@ function NavigationRail({
           </DropdownMenu>
         ) : null}
       </div>
-    </nav>
+    </ScrollArea>
   );
 }
 

@@ -546,7 +546,7 @@ function CommentHistory({
           <time dateTime={revision.created_at}>
             {formatDateTime(revision.created_at)}
           </time>
-          <pre>{revision.body}</pre>
+          <pre className="ui-native-scrollbar">{revision.body}</pre>
         </div>
       ))}
     </div>
@@ -598,7 +598,7 @@ function MentionPicker({
       </div>
       {matches.length > 0 && (
         <div
-          className="mention-suggestions"
+          className="mention-suggestions ui-native-scrollbar"
           role="listbox"
           aria-label="Mention suggestions"
         >

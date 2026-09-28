@@ -19,6 +19,7 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Popover } from '../../components/ui/Popover';
 import { Select } from '../../components/ui/Select';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import {
   TASK_PRIORITY_OPTIONS,
@@ -155,562 +156,570 @@ export function TaskViewToolbar({
 
   return (
     <>
-      <div className="view-toolbar" aria-label="Task view controls">
-        <Select
-          className="view-layout-select"
-          ariaLabel="Layout"
-          value={layout}
-          startIcon={<Columns3 size={14} />}
-          triggerTooltip={`Layout: ${labelFor(layout)}`}
-          options={[
-            { value: 'list', label: 'List' },
-            { value: 'board', label: 'Board' },
-            { value: 'calendar', label: 'Calendar' },
-            { value: 'table', label: 'Table' },
-            { value: 'timeline', label: 'Timeline' },
-          ]}
-          onValueChange={(value) => onLayoutChange(value as TaskLayout)}
-        />
+      <ScrollArea className="view-toolbar-scroll-area" orientation="horizontal">
+        <div className="view-toolbar" aria-label="Task view controls">
+          <Select
+            className="view-layout-select"
+            ariaLabel="Layout"
+            value={layout}
+            startIcon={<Columns3 size={14} />}
+            triggerTooltip={`Layout: ${labelFor(layout)}`}
+            options={[
+              { value: 'list', label: 'List' },
+              { value: 'board', label: 'Board' },
+              { value: 'calendar', label: 'Calendar' },
+              { value: 'table', label: 'Table' },
+              { value: 'timeline', label: 'Timeline' },
+            ]}
+            onValueChange={(value) => onLayoutChange(value as TaskLayout)}
+          />
 
-        <DropdownMenu
-          label="Filter tasks"
-          className="view-control-menu view-secondary-control"
-          triggerTooltip="Filter tasks"
-          trigger={
-            <>
-              <Filter aria-hidden="true" size={14} />
-              <span className="view-control-label">Filter</span>
-            </>
-          }
-        >
-          <MenuHeading>State</MenuHeading>
-          {states
-            .filter(({ archived_at }) => !archived_at)
-            .map((state) => (
+          <DropdownMenu
+            label="Filter tasks"
+            className="view-control-menu view-secondary-control"
+            triggerTooltip="Filter tasks"
+            trigger={
+              <>
+                <Filter aria-hidden="true" size={14} />
+                <span className="view-control-label">Filter</span>
+              </>
+            }
+          >
+            <MenuHeading>State</MenuHeading>
+            {states
+              .filter(({ archived_at }) => !archived_at)
+              .map((state) => (
+                <CheckMenuItem
+                  key={state.id}
+                  checked={query.filters.states.values.includes(state.id)}
+                  label={state.name}
+                  icon={<StateIcon role={state.system_role} size={15} />}
+                  onClick={() =>
+                    patchFilters({
+                      states: {
+                        ...query.filters.states,
+                        values: toggleFilterValue(
+                          query.filters.states.values,
+                          state.id,
+                        ),
+                      },
+                    })
+                  }
+                />
+              ))}
+            <MenuHeading>Priority</MenuHeading>
+            {priorities.map((priority) => (
               <CheckMenuItem
-                key={state.id}
-                checked={query.filters.states.values.includes(state.id)}
-                label={state.name}
-                icon={<StateIcon role={state.system_role} size={15} />}
+                key={priority}
+                checked={query.filters.priorities.includes(priority)}
+                label={priorityLabel(priority)}
+                icon={<PriorityIcon priority={priority} size={15} />}
                 onClick={() =>
                   patchFilters({
-                    states: {
-                      ...query.filters.states,
+                    priorities: toggleFilterValue(
+                      query.filters.priorities,
+                      priority,
+                    ),
+                  })
+                }
+              />
+            ))}
+            {members.length > 0 && <MenuHeading>Assignee</MenuHeading>}
+            {members.map((member) => (
+              <CheckMenuItem
+                key={member.user_id}
+                checked={query.filters.assignees.values.includes(
+                  member.user_id,
+                )}
+                label={member.display_name}
+                onClick={() =>
+                  patchFilters({
+                    assignees: {
+                      ...query.filters.assignees,
                       values: toggleFilterValue(
-                        query.filters.states.values,
-                        state.id,
+                        query.filters.assignees.values,
+                        member.user_id,
                       ),
                     },
                   })
                 }
               />
             ))}
-          <MenuHeading>Priority</MenuHeading>
-          {priorities.map((priority) => (
-            <CheckMenuItem
-              key={priority}
-              checked={query.filters.priorities.includes(priority)}
-              label={priorityLabel(priority)}
-              icon={<PriorityIcon priority={priority} size={15} />}
-              onClick={() =>
-                patchFilters({
-                  priorities: toggleFilterValue(
-                    query.filters.priorities,
-                    priority,
-                  ),
-                })
-              }
-            />
-          ))}
-          {members.length > 0 && <MenuHeading>Assignee</MenuHeading>}
-          {members.map((member) => (
-            <CheckMenuItem
-              key={member.user_id}
-              checked={query.filters.assignees.values.includes(member.user_id)}
-              label={member.display_name}
-              onClick={() =>
-                patchFilters({
-                  assignees: {
-                    ...query.filters.assignees,
-                    values: toggleFilterValue(
-                      query.filters.assignees.values,
-                      member.user_id,
-                    ),
-                  },
-                })
-              }
-            />
-          ))}
-          {members.length > 0 && (
-            <CheckMenuItem
-              checked={query.filters.assignees.include_none}
-              label="No assignee"
-              onClick={() =>
-                patchFilters({
-                  assignees: {
-                    ...query.filters.assignees,
-                    include_none: !query.filters.assignees.include_none,
-                  },
-                })
-              }
-            />
-          )}
-          {labels.length > 0 && <MenuHeading>Label</MenuHeading>}
-          {labels
-            .filter(({ archived_at }) => !archived_at)
-            .map((label) => (
+            {members.length > 0 && (
               <CheckMenuItem
-                key={label.id}
-                checked={query.filters.labels.values.includes(label.id)}
-                label={label.name}
+                checked={query.filters.assignees.include_none}
+                label="No assignee"
+                onClick={() =>
+                  patchFilters({
+                    assignees: {
+                      ...query.filters.assignees,
+                      include_none: !query.filters.assignees.include_none,
+                    },
+                  })
+                }
+              />
+            )}
+            {labels.length > 0 && <MenuHeading>Label</MenuHeading>}
+            {labels
+              .filter(({ archived_at }) => !archived_at)
+              .map((label) => (
+                <CheckMenuItem
+                  key={label.id}
+                  checked={query.filters.labels.values.includes(label.id)}
+                  label={label.name}
+                  onClick={() =>
+                    patchFilters({
+                      labels: {
+                        ...query.filters.labels,
+                        values: toggleFilterValue(
+                          query.filters.labels.values,
+                          label.id,
+                        ),
+                      },
+                    })
+                  }
+                />
+              ))}
+            {labels.length > 0 && (
+              <CheckMenuItem
+                checked={query.filters.labels.include_none}
+                label="No label"
                 onClick={() =>
                   patchFilters({
                     labels: {
                       ...query.filters.labels,
+                      include_none: !query.filters.labels.include_none,
+                    },
+                  })
+                }
+              />
+            )}
+            {projects.length > 0 && <MenuHeading>Project</MenuHeading>}
+            {projects.map((project) => (
+              <CheckMenuItem
+                key={project.id}
+                checked={query.filters.projects.values.includes(project.id)}
+                label={project.name}
+                onClick={() =>
+                  patchFilters({
+                    projects: {
+                      ...query.filters.projects,
                       values: toggleFilterValue(
-                        query.filters.labels.values,
-                        label.id,
+                        query.filters.projects.values,
+                        project.id,
                       ),
                     },
                   })
                 }
               />
             ))}
-          {labels.length > 0 && (
+            {projects.length > 0 && (
+              <CheckMenuItem
+                checked={query.filters.projects.include_none}
+                label="Inbox"
+                onClick={() =>
+                  patchFilters({
+                    projects: {
+                      ...query.filters.projects,
+                      include_none: !query.filters.projects.include_none,
+                    },
+                  })
+                }
+              />
+            )}
+            {cycles.length > 0 && <MenuHeading>Cycle</MenuHeading>}
+            {cycles.map((cycle) => (
+              <CheckMenuItem
+                key={cycle.id}
+                checked={query.filters.cycles.values.includes(cycle.id)}
+                label={cycle.name}
+                onClick={() =>
+                  patchFilters({
+                    cycles: {
+                      ...query.filters.cycles,
+                      values: toggleFilterValue(
+                        query.filters.cycles.values,
+                        cycle.id,
+                      ),
+                    },
+                  })
+                }
+              />
+            ))}
+            {cycles.length > 0 && (
+              <CheckMenuItem
+                checked={query.filters.cycles.include_none}
+                label="No cycle"
+                onClick={() =>
+                  patchFilters({
+                    cycles: {
+                      ...query.filters.cycles,
+                      include_none: !query.filters.cycles.include_none,
+                    },
+                  })
+                }
+              />
+            )}
+            {modules.length > 0 && <MenuHeading>Module</MenuHeading>}
+            {modules.map((module) => (
+              <CheckMenuItem
+                key={module.id}
+                checked={query.filters.modules.values.includes(module.id)}
+                label={module.name}
+                onClick={() =>
+                  patchFilters({
+                    modules: {
+                      ...query.filters.modules,
+                      values: toggleFilterValue(
+                        query.filters.modules.values,
+                        module.id,
+                      ),
+                    },
+                  })
+                }
+              />
+            ))}
+            {modules.length > 0 && (
+              <CheckMenuItem
+                checked={query.filters.modules.include_none}
+                label="No module"
+                onClick={() =>
+                  patchFilters({
+                    modules: {
+                      ...query.filters.modules,
+                      include_none: !query.filters.modules.include_none,
+                    },
+                  })
+                }
+              />
+            )}
+            <MenuHeading>Completion</MenuHeading>
             <CheckMenuItem
-              checked={query.filters.labels.include_none}
-              label="No label"
+              checked={query.include_completed}
+              label="Include completed"
               onClick={() =>
-                patchFilters({
-                  labels: {
-                    ...query.filters.labels,
-                    include_none: !query.filters.labels.include_none,
-                  },
+                onQueryChange({
+                  ...query,
+                  include_completed: !query.include_completed,
                 })
               }
             />
-          )}
-          {projects.length > 0 && <MenuHeading>Project</MenuHeading>}
-          {projects.map((project) => (
-            <CheckMenuItem
-              key={project.id}
-              checked={query.filters.projects.values.includes(project.id)}
-              label={project.name}
-              onClick={() =>
-                patchFilters({
-                  projects: {
-                    ...query.filters.projects,
-                    values: toggleFilterValue(
-                      query.filters.projects.values,
-                      project.id,
-                    ),
-                  },
-                })
-              }
-            />
-          ))}
-          {projects.length > 0 && (
-            <CheckMenuItem
-              checked={query.filters.projects.include_none}
-              label="Inbox"
-              onClick={() =>
-                patchFilters({
-                  projects: {
-                    ...query.filters.projects,
-                    include_none: !query.filters.projects.include_none,
-                  },
-                })
-              }
-            />
-          )}
-          {cycles.length > 0 && <MenuHeading>Cycle</MenuHeading>}
-          {cycles.map((cycle) => (
-            <CheckMenuItem
-              key={cycle.id}
-              checked={query.filters.cycles.values.includes(cycle.id)}
-              label={cycle.name}
-              onClick={() =>
-                patchFilters({
-                  cycles: {
-                    ...query.filters.cycles,
-                    values: toggleFilterValue(
-                      query.filters.cycles.values,
-                      cycle.id,
-                    ),
-                  },
-                })
-              }
-            />
-          ))}
-          {cycles.length > 0 && (
-            <CheckMenuItem
-              checked={query.filters.cycles.include_none}
-              label="No cycle"
-              onClick={() =>
-                patchFilters({
-                  cycles: {
-                    ...query.filters.cycles,
-                    include_none: !query.filters.cycles.include_none,
-                  },
-                })
-              }
-            />
-          )}
-          {modules.length > 0 && <MenuHeading>Module</MenuHeading>}
-          {modules.map((module) => (
-            <CheckMenuItem
-              key={module.id}
-              checked={query.filters.modules.values.includes(module.id)}
-              label={module.name}
-              onClick={() =>
-                patchFilters({
-                  modules: {
-                    ...query.filters.modules,
-                    values: toggleFilterValue(
-                      query.filters.modules.values,
-                      module.id,
-                    ),
-                  },
-                })
-              }
-            />
-          ))}
-          {modules.length > 0 && (
-            <CheckMenuItem
-              checked={query.filters.modules.include_none}
-              label="No module"
-              onClick={() =>
-                patchFilters({
-                  modules: {
-                    ...query.filters.modules,
-                    include_none: !query.filters.modules.include_none,
-                  },
-                })
-              }
-            />
-          )}
-          <MenuHeading>Completion</MenuHeading>
-          <CheckMenuItem
-            checked={query.include_completed}
-            label="Include completed"
-            onClick={() =>
+          </DropdownMenu>
+
+          <Popover
+            label="Date and estimate filters"
+            className="view-range-menu view-secondary-control"
+            triggerTooltip="Date and estimate filters"
+            trigger={
+              <>
+                <CalendarRange aria-hidden="true" size={14} />
+                <span className="view-control-label">Date</span>
+              </>
+            }
+          >
+            <div className="view-range-filters">
+              <DateRangeControl
+                label="Start date"
+                value={query.filters.start_date}
+                onChange={(start_date) => patchFilters({ start_date })}
+              />
+              <DateRangeControl
+                label="Due date"
+                value={query.filters.due_date}
+                onChange={(due_date) => patchFilters({ due_date })}
+              />
+              <fieldset>
+                <legend>Estimate</legend>
+                <label>
+                  <span>Minimum</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={query.filters.estimate.minimum ?? ''}
+                    onChange={(event) =>
+                      patchFilters({
+                        estimate: {
+                          ...query.filters.estimate,
+                          minimum: optionalNumber(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Maximum</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={query.filters.estimate.maximum ?? ''}
+                    onChange={(event) =>
+                      patchFilters({
+                        estimate: {
+                          ...query.filters.estimate,
+                          maximum: optionalNumber(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <div className="view-range-check">
+                  <Checkbox
+                    aria-label="Include unestimated Tasks"
+                    checked={query.filters.estimate.include_none}
+                    onCheckedChange={() =>
+                      patchFilters({
+                        estimate: {
+                          ...query.filters.estimate,
+                          include_none: !query.filters.estimate.include_none,
+                        },
+                      })
+                    }
+                  />
+                  Include unestimated
+                </div>
+              </fieldset>
+            </div>
+          </Popover>
+
+          <Select
+            className="view-compact-select view-group-select"
+            ariaLabel="Group by"
+            value={query.grouping.primary ?? ''}
+            startIcon={<Group size={14} />}
+            triggerTooltip={groupingLabel(query.grouping.primary)}
+            options={[{ value: '', label: 'No grouping' }, ...groupFields]}
+            onValueChange={(value) =>
               onQueryChange({
                 ...query,
-                include_completed: !query.include_completed,
+                grouping: {
+                  primary: (value || null) as TaskGroupField | null,
+                  secondary: null,
+                },
               })
             }
           />
-        </DropdownMenu>
-
-        <Popover
-          label="Date and estimate filters"
-          className="view-range-menu view-secondary-control"
-          triggerTooltip="Date and estimate filters"
-          trigger={
-            <>
-              <CalendarRange aria-hidden="true" size={14} />
-              <span className="view-control-label">Date</span>
-            </>
-          }
-        >
-          <div className="view-range-filters">
-            <DateRangeControl
-              label="Start date"
-              value={query.filters.start_date}
-              onChange={(start_date) => patchFilters({ start_date })}
-            />
-            <DateRangeControl
-              label="Due date"
-              value={query.filters.due_date}
-              onChange={(due_date) => patchFilters({ due_date })}
-            />
-            <fieldset>
-              <legend>Estimate</legend>
-              <label>
-                <span>Minimum</span>
-                <Input
-                  type="number"
-                  min="0"
-                  value={query.filters.estimate.minimum ?? ''}
-                  onChange={(event) =>
-                    patchFilters({
-                      estimate: {
-                        ...query.filters.estimate,
-                        minimum: optionalNumber(event.target.value),
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label>
-                <span>Maximum</span>
-                <Input
-                  type="number"
-                  min="0"
-                  value={query.filters.estimate.maximum ?? ''}
-                  onChange={(event) =>
-                    patchFilters({
-                      estimate: {
-                        ...query.filters.estimate,
-                        maximum: optionalNumber(event.target.value),
-                      },
-                    })
-                  }
-                />
-              </label>
-              <div className="view-range-check">
-                <Checkbox
-                  aria-label="Include unestimated Tasks"
-                  checked={query.filters.estimate.include_none}
-                  onCheckedChange={() =>
-                    patchFilters({
-                      estimate: {
-                        ...query.filters.estimate,
-                        include_none: !query.filters.estimate.include_none,
-                      },
-                    })
-                  }
-                />
-                Include unestimated
-              </div>
-            </fieldset>
-          </div>
-        </Popover>
-
-        <Select
-          className="view-compact-select view-group-select"
-          ariaLabel="Group by"
-          value={query.grouping.primary ?? ''}
-          startIcon={<Group size={14} />}
-          triggerTooltip={groupingLabel(query.grouping.primary)}
-          options={[{ value: '', label: 'No grouping' }, ...groupFields]}
-          onValueChange={(value) =>
-            onQueryChange({
-              ...query,
-              grouping: {
-                primary: (value || null) as TaskGroupField | null,
-                secondary: null,
-              },
-            })
-          }
-        />
-        {query.grouping.primary && (
-          <div className="view-secondary-select">
-            <span>then</span>
-            <Select
-              className="view-compact-select"
-              ariaLabel="Then group by"
-              value={query.grouping.secondary ?? ''}
-              startIcon={<Group size={14} />}
-              triggerTooltip={secondaryGroupingLabel(query.grouping.secondary)}
-              options={[
-                { value: '', label: 'No second group' },
-                ...groupFields.filter(
-                  ({ value }) => value !== query.grouping.primary,
-                ),
-              ]}
-              onValueChange={(value) =>
-                onQueryChange({
-                  ...query,
-                  grouping: {
-                    ...query.grouping,
-                    secondary: (value || null) as TaskGroupField | null,
-                  },
-                })
-              }
-            />
-          </div>
-        )}
-
-        <Select
-          className="view-compact-select view-sort-select"
-          ariaLabel="Sort by"
-          value={query.sort[0]?.field ?? ''}
-          startIcon={<ArrowDownAZ size={14} />}
-          triggerTooltip={sortLabel(query.sort[0]?.field)}
-          options={[
-            { value: '', label: 'Manual' },
-            { value: 'title', label: 'Title' },
-            { value: 'priority', label: 'Priority' },
-            { value: 'start_date', label: 'Start date' },
-            { value: 'due_date', label: 'Due date' },
-            { value: 'estimate', label: 'Estimate' },
-            { value: 'updated_at', label: 'Updated' },
-          ]}
-          onValueChange={(value) => {
-            const field = value as TaskSortField;
-            onQueryChange({
-              ...query,
-              sort: field ? [{ field, direction: 'ascending' }] : [],
-            });
-          }}
-        />
-        {query.sort[0] && (
-          <>
-            <Tooltip
-              label={`Sort direction: ${query.sort[0].direction}`}
-              trigger={
-                <IconButton
-                  className="view-sort-direction"
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  aria-label={`Sort direction: ${query.sort[0].direction}`}
-                  onClick={() =>
-                    onQueryChange({
-                      ...query,
-                      sort: [
-                        {
-                          ...query.sort[0]!,
-                          direction:
-                            query.sort[0]!.direction === 'ascending'
-                              ? 'descending'
-                              : 'ascending',
-                        },
-                        ...query.sort.slice(1),
-                      ],
-                    })
-                  }
-                >
-                  {query.sort[0].direction === 'ascending' ? '↑' : '↓'}
-                </IconButton>
-              }
-            />
+          {query.grouping.primary && (
             <div className="view-secondary-select">
               <span>then</span>
               <Select
                 className="view-compact-select"
-                ariaLabel="Then sort by"
-                value={query.sort[1]?.field ?? ''}
-                startIcon={<ArrowDownAZ size={14} />}
-                triggerTooltip={secondarySortLabel(query.sort[1]?.field)}
+                ariaLabel="Then group by"
+                value={query.grouping.secondary ?? ''}
+                startIcon={<Group size={14} />}
+                triggerTooltip={secondaryGroupingLabel(
+                  query.grouping.secondary,
+                )}
                 options={[
-                  { value: '', label: 'No second sort' },
-                  ...sortFields.filter(
-                    ({ value }) => value !== query.sort[0]?.field,
+                  { value: '', label: 'No second group' },
+                  ...groupFields.filter(
+                    ({ value }) => value !== query.grouping.primary,
                   ),
                 ]}
-                onValueChange={(value) => {
-                  const field = value as TaskSortField;
+                onValueChange={(value) =>
                   onQueryChange({
                     ...query,
-                    sort: field
-                      ? [query.sort[0]!, { field, direction: 'ascending' }]
-                      : [query.sort[0]!],
-                  });
-                }}
-              />
-            </div>
-          </>
-        )}
-
-        <DropdownMenu
-          label="Visible task fields"
-          className="view-control-menu view-secondary-control"
-          triggerTooltip="Visible task fields"
-          trigger={
-            <>
-              <SlidersHorizontal aria-hidden="true" size={14} />
-              <span className="view-control-label">Properties</span>
-            </>
-          }
-        >
-          {displayProperties.map((property) => (
-            <CheckMenuItem
-              key={property}
-              checked={query.display.includes(property)}
-              label={labelFor(property)}
-              onClick={() =>
-                onQueryChange({
-                  ...query,
-                  display: toggleFilterValue(query.display, property),
-                })
-              }
-            />
-          ))}
-        </DropdownMenu>
-
-        <span className="view-toolbar-spacer" />
-        {activeView ? (
-          <>
-            {canManageActiveView && (
-              <Tooltip
-                label="Save changes"
-                trigger={
-                  <Button
-                    className="view-save-button"
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    aria-label="Save changes"
-                    onClick={() => runAction(onSaveViewConfiguration)}
-                  >
-                    <Save aria-hidden="true" size={14} />
-                    <span className="view-control-label">Save changes</span>
-                  </Button>
+                    grouping: {
+                      ...query.grouping,
+                      secondary: (value || null) as TaskGroupField | null,
+                    },
+                  })
                 }
               />
-            )}
-            <DropdownMenu
-              label="Saved view actions"
-              className="view-actions-menu"
-              triggerTooltip="Saved view actions"
-            >
-              {canManageActiveView && (
-                <DropdownMenuItem onClick={() => setDialog('rename')}>
-                  Rename
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={() => setDialog('duplicate')}>
-                Duplicate
-              </DropdownMenuItem>
-              {canChangeActiveViewVisibility &&
-                (activeView.visibility === 'shared' || canShare) && (
-                  <DropdownMenuItem
+            </div>
+          )}
+
+          <Select
+            className="view-compact-select view-sort-select"
+            ariaLabel="Sort by"
+            value={query.sort[0]?.field ?? ''}
+            startIcon={<ArrowDownAZ size={14} />}
+            triggerTooltip={sortLabel(query.sort[0]?.field)}
+            options={[
+              { value: '', label: 'Manual' },
+              { value: 'title', label: 'Title' },
+              { value: 'priority', label: 'Priority' },
+              { value: 'start_date', label: 'Start date' },
+              { value: 'due_date', label: 'Due date' },
+              { value: 'estimate', label: 'Estimate' },
+              { value: 'updated_at', label: 'Updated' },
+            ]}
+            onValueChange={(value) => {
+              const field = value as TaskSortField;
+              onQueryChange({
+                ...query,
+                sort: field ? [{ field, direction: 'ascending' }] : [],
+              });
+            }}
+          />
+          {query.sort[0] && (
+            <>
+              <Tooltip
+                label={`Sort direction: ${query.sort[0].direction}`}
+                trigger={
+                  <IconButton
+                    className="view-sort-direction"
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    aria-label={`Sort direction: ${query.sort[0].direction}`}
                     onClick={() =>
-                      runAction(() =>
-                        onUpdateView({
-                          visibility:
-                            activeView.visibility === 'shared'
-                              ? 'personal'
-                              : 'shared',
-                        }),
-                      )
+                      onQueryChange({
+                        ...query,
+                        sort: [
+                          {
+                            ...query.sort[0]!,
+                            direction:
+                              query.sort[0]!.direction === 'ascending'
+                                ? 'descending'
+                                : 'ascending',
+                          },
+                          ...query.sort.slice(1),
+                        ],
+                      })
                     }
                   >
-                    Make{' '}
-                    {activeView.visibility === 'shared' ? 'personal' : 'shared'}
+                    {query.sort[0].direction === 'ascending' ? '↑' : '↓'}
+                  </IconButton>
+                }
+              />
+              <div className="view-secondary-select">
+                <span>then</span>
+                <Select
+                  className="view-compact-select"
+                  ariaLabel="Then sort by"
+                  value={query.sort[1]?.field ?? ''}
+                  startIcon={<ArrowDownAZ size={14} />}
+                  triggerTooltip={secondarySortLabel(query.sort[1]?.field)}
+                  options={[
+                    { value: '', label: 'No second sort' },
+                    ...sortFields.filter(
+                      ({ value }) => value !== query.sort[0]?.field,
+                    ),
+                  ]}
+                  onValueChange={(value) => {
+                    const field = value as TaskSortField;
+                    onQueryChange({
+                      ...query,
+                      sort: field
+                        ? [query.sort[0]!, { field, direction: 'ascending' }]
+                        : [query.sort[0]!],
+                    });
+                  }}
+                />
+              </div>
+            </>
+          )}
+
+          <DropdownMenu
+            label="Visible task fields"
+            className="view-control-menu view-secondary-control"
+            triggerTooltip="Visible task fields"
+            trigger={
+              <>
+                <SlidersHorizontal aria-hidden="true" size={14} />
+                <span className="view-control-label">Properties</span>
+              </>
+            }
+          >
+            {displayProperties.map((property) => (
+              <CheckMenuItem
+                key={property}
+                checked={query.display.includes(property)}
+                label={labelFor(property)}
+                onClick={() =>
+                  onQueryChange({
+                    ...query,
+                    display: toggleFilterValue(query.display, property),
+                  })
+                }
+              />
+            ))}
+          </DropdownMenu>
+
+          <span className="view-toolbar-spacer" />
+          {activeView ? (
+            <>
+              {canManageActiveView && (
+                <Tooltip
+                  label="Save changes"
+                  trigger={
+                    <Button
+                      className="view-save-button"
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      aria-label="Save changes"
+                      onClick={() => runAction(onSaveViewConfiguration)}
+                    >
+                      <Save aria-hidden="true" size={14} />
+                      <span className="view-control-label">Save changes</span>
+                    </Button>
+                  }
+                />
+              )}
+              <DropdownMenu
+                label="Saved view actions"
+                className="view-actions-menu"
+                triggerTooltip="Saved view actions"
+              >
+                {canManageActiveView && (
+                  <DropdownMenuItem onClick={() => setDialog('rename')}>
+                    Rename
                   </DropdownMenuItem>
                 )}
-              {canManageActiveView && (
-                <DropdownMenuItem
-                  className="danger-menu-item"
-                  onClick={() => runAction(onDeleteView)}
-                >
-                  Delete View
+                <DropdownMenuItem onClick={() => setDialog('duplicate')}>
+                  Duplicate
                 </DropdownMenuItem>
-              )}
-            </DropdownMenu>
-          </>
-        ) : (
-          <Tooltip
-            label="Save View"
-            trigger={
-              <Button
-                className="view-save-button"
-                variant="secondary"
-                size="sm"
-                type="button"
-                aria-label="Save View"
-                onClick={() => setDialog('create')}
-              >
-                <Save aria-hidden="true" size={14} />
-                <span className="view-control-label">Save View</span>
-              </Button>
-            }
-          />
-        )}
-      </div>
+                {canChangeActiveViewVisibility &&
+                  (activeView.visibility === 'shared' || canShare) && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        runAction(() =>
+                          onUpdateView({
+                            visibility:
+                              activeView.visibility === 'shared'
+                                ? 'personal'
+                                : 'shared',
+                          }),
+                        )
+                      }
+                    >
+                      Make{' '}
+                      {activeView.visibility === 'shared'
+                        ? 'personal'
+                        : 'shared'}
+                    </DropdownMenuItem>
+                  )}
+                {canManageActiveView && (
+                  <DropdownMenuItem
+                    className="danger-menu-item"
+                    onClick={() => runAction(onDeleteView)}
+                  >
+                    Delete View
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenu>
+            </>
+          ) : (
+            <Tooltip
+              label="Save View"
+              trigger={
+                <Button
+                  className="view-save-button"
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  aria-label="Save View"
+                  onClick={() => setDialog('create')}
+                >
+                  <Save aria-hidden="true" size={14} />
+                  <span className="view-control-label">Save View</span>
+                </Button>
+              }
+            />
+          )}
+        </div>
+      </ScrollArea>
 
       {dialog && (
         <SavedViewDialog

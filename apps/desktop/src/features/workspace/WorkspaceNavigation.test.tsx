@@ -80,6 +80,11 @@ describe('WorkspaceNavigation', () => {
     const rail = screen.getByRole('navigation', {
       name: 'Workspace navigation rail',
     });
+    expect(rail).toHaveClass('ui-scroll-area-viewport', 'navigation-rail');
+    expect(rail.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
     const railButtons = within(rail).getAllByRole('button');
     expect(railButtons[0]).toHaveAccessibleName('Expand navigation');
     expect(railButtons[1]).toHaveAccessibleName(

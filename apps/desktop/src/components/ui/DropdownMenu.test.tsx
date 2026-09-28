@@ -20,6 +20,7 @@ describe('DropdownMenu', () => {
     const trigger = screen.getByRole('button', { name: 'Item actions' });
     trigger.focus();
     await user.keyboard('[ArrowDown]');
+    expect(screen.getByRole('menu')).toHaveClass('ui-native-scrollbar');
 
     await waitFor(() =>
       expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus(),

@@ -13,6 +13,7 @@ import {
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
@@ -1591,19 +1592,26 @@ export function WorkspaceShell({
           </div>
           <small>You can belong to more than one Workspace.</small>
         </aside>
-        <section className="workspace-recovery-content">
-          <WorkspaceSetupStep
-            context={context}
-            isHost={Boolean(onOpenHostConsole)}
-            inviteAfterCreate
-            invalidateAfterCreate={false}
-            createWorkspaceAction={(identity) => addWorkspace(identity, false)}
-            onWorkspaceCreated={finishRecoveryWorkspace}
-            onJoined={finishWorkspaceJoin}
-            onHostContinue={() => onOpenHostConsole?.()}
-            onSignOut={onSignOut}
-          />
-        </section>
+        <ScrollArea
+          className="workspace-recovery-content-scroll-area"
+          orientation="vertical"
+        >
+          <section className="workspace-recovery-content">
+            <WorkspaceSetupStep
+              context={context}
+              isHost={Boolean(onOpenHostConsole)}
+              inviteAfterCreate
+              invalidateAfterCreate={false}
+              createWorkspaceAction={(identity) =>
+                addWorkspace(identity, false)
+              }
+              onWorkspaceCreated={finishRecoveryWorkspace}
+              onJoined={finishWorkspaceJoin}
+              onHostContinue={() => onOpenHostConsole?.()}
+              onSignOut={onSignOut}
+            />
+          </section>
+        </ScrollArea>
       </main>
     );
   }

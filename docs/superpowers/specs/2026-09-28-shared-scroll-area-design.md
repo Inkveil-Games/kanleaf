@@ -96,6 +96,8 @@ coherent feature groups:
    wrapper without changing focus management or popup positioning.
 3. Horizontal table, board, calendar, timeline, and responsive Settings
    overflow.
+4. Compact navigation rails, setup/recovery surfaces, and the horizontal Task
+   toolbar.
 
 Some scroll containers are owned internally by CodeMirror, native form
 controls, or rendered Markdown elements. Wrapping those nodes would change DOM
@@ -103,9 +105,9 @@ or editor contracts, so they retain native overflow and receive a shared CSS
 fallback based on the same size, color, hover, focus, and reduced-motion tokens.
 Touch platforms continue using their platform overlay scrollbar.
 
-Deliberately hidden toolbar scrollbars remain hidden. They are horizontal
-overflow affordances controlled by direct manipulation and should not gain a
-thumb merely because the shared primitive exists.
+Previously hidden application-owned toolbar and navigation overflow migrates to
+the shared primitive as well. The thumb remains out of the way while idle and
+appears only from its interaction strip, focus, or active scrolling.
 
 ## Layout compatibility
 

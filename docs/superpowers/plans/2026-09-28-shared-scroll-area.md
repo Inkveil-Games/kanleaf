@@ -18,7 +18,8 @@
 - Remove the opacity transition under `prefers-reduced-motion`.
 - Do not alter wheel, trackpad, touch, keyboard, momentum, selection, routing, virtualization, or editor behavior.
 - Render an axis only when requested and let Base UI omit it when that axis has no overflow.
-- Preserve intentionally hidden toolbar scrollbars and platform-native touch overlay scrollbars.
+- Migrate application-owned toolbar and navigation overflow; preserve only
+  platform-native touch overlay scrollbars and embedded/editor contracts.
 - Keep semantic roles, accessible names, keyboard handlers, and scroll refs on the viewport rather than the decorative root.
 - Preserve the existing uncommitted Task column-header work and commit it separately before staging ScrollArea implementation files.
 
@@ -359,7 +360,7 @@ Expected: FAIL only on missing common-scroll styling/structure.
 
 - [ ] **Step 3: Apply the common treatment and audit remaining overflow declarations**
 
-Prefer the native fallback class for positioned popups and dialog bodies when an extra wrapper would affect Base UI anchors, collision measurement, or focus trapping. Use `ScrollArea` only where the existing scroll container can become its viewport directly. Run `rg -n "overflow(-[xy])?: auto|scrollbar-width" apps/desktop/src` and classify every remaining match as shared primitive, shared fallback, intentionally hidden toolbar, platform/editor-owned exception, or non-scroll layout rule.
+Prefer the native fallback class for positioned popups and dialog bodies when an extra wrapper would affect Base UI anchors, collision measurement, or focus trapping. Use `ScrollArea` where the existing scroll container can become its viewport directly, including compact rails, setup/recovery surfaces, and the horizontal Task toolbar. Run `rg -n "overflow(-[xy])?: auto|scrollbar-width" apps/desktop/src` and classify every remaining match as shared primitive, shared fallback, platform/editor-owned exception, or non-scroll layout rule.
 
 - [ ] **Step 4: Run focused tests and commit**
 
@@ -425,7 +426,7 @@ git status --short
 rg -n "overflow(-[xy])?: auto|scrollbar-width" apps/desktop/src
 ```
 
-Expected: every remaining match is a documented shared fallback, deliberately hidden toolbar, or platform/editor-owned exception; no temporary screenshots, databases, or preview data are tracked.
+Expected: every remaining match is the shared primitive, a documented shared fallback, or a platform/editor-owned exception; no temporary screenshots, databases, or preview data are tracked.
 
 - [ ] **Step 5: Commit any verification-only fixes separately**
 

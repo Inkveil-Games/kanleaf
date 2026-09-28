@@ -113,7 +113,7 @@ export function WorkspaceControl({
           </div>
           <div className="workspace-menu-divider" role="separator" />
           <div
-            className="workspace-menu-list"
+            className="workspace-menu-list ui-native-scrollbar"
             role="group"
             aria-label="Workspaces"
           >

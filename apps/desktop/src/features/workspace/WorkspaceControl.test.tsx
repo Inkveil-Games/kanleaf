@@ -72,6 +72,10 @@ describe('WorkspaceControl', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: workspaceTriggerName }));
+    expect(screen.getByRole('group', { name: 'Workspaces' })).toHaveClass(
+      'workspace-menu-list',
+      'ui-native-scrollbar',
+    );
     expect(screen.getByText('quang@example.com')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Settings for Kanleaf Core' }),

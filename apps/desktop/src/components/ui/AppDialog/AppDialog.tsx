@@ -182,7 +182,7 @@ export function AppDialog(props: AppDialogProps) {
       onConfirmationChange: setConfirmation,
       onConfirm: () => void confirm(),
     };
-  const popupClassName = `app-dialog-popup app-dialog-${size}`;
+  const popupClassName = `app-dialog-popup app-dialog-${size} ui-native-scrollbar`;
   const initialFocus =
     type === 'typed-confirm'
       ? confirmationInputRef
@@ -197,7 +197,7 @@ export function AppDialog(props: AppDialogProps) {
       <Dialog.Root open={open} onOpenChange={handleOpenChange}>
         <Dialog.Portal>
           <Dialog.Backdrop forceRender className="app-dialog-backdrop" />
-          <Dialog.Viewport className="app-dialog-viewport">
+          <Dialog.Viewport className="app-dialog-viewport ui-native-scrollbar">
             <Dialog.Popup
               className={popupClassName}
               data-ui-portal-container
@@ -229,7 +229,7 @@ export function AppDialog(props: AppDialogProps) {
     <AlertDialog.Root open={open} onOpenChange={handleOpenChange}>
       <AlertDialog.Portal>
         <AlertDialog.Backdrop forceRender className="app-dialog-backdrop" />
-        <AlertDialog.Viewport className="app-dialog-viewport">
+        <AlertDialog.Viewport className="app-dialog-viewport ui-native-scrollbar">
           <AlertDialog.Popup
             className={popupClassName}
             data-ui-portal-container

@@ -93,7 +93,7 @@ export function Select({
             collisionPadding={8}
             sideOffset={4}
           >
-            <BaseSelect.Popup className="select-popover">
+            <BaseSelect.Popup className="select-popover ui-native-scrollbar">
               <BaseSelect.List>
                 {options.map((option) => (
                   <SelectOptionItem key={option.value} option={option} />

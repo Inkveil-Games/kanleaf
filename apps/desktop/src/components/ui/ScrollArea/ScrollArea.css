@@ -98,7 +98,6 @@
   scrollbar-width: thin;
 }
 
-.ui-native-scrollbar:hover,
 .ui-native-scrollbar:focus-within {
   scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
@@ -121,7 +120,6 @@
   transition: background-color 160ms ease;
 }
 
-.ui-native-scrollbar:hover::-webkit-scrollbar-thumb,
 .ui-native-scrollbar:focus-within::-webkit-scrollbar-thumb {
   background-color: var(--color-scrollbar-thumb);
 }

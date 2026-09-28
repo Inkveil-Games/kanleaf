@@ -107,9 +107,17 @@ export function DeveloperNavigation({
       className={`navigation-pane${compact ? ' navigation-pane-rail' : ''}`}
     >
       {compact ? (
-        <nav className="navigation-rail" aria-label="Developer navigation">
+        <ScrollArea
+          className="developer-navigation-scroll-area"
+          orientation="vertical"
+          viewportProps={{
+            className: 'navigation-rail',
+            role: 'navigation',
+            'aria-label': 'Developer navigation',
+          }}
+        >
           {navigationContent}
-        </nav>
+        </ScrollArea>
       ) : (
         <ScrollArea
           className="developer-navigation-scroll-area"

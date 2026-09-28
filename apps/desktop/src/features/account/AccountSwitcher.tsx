@@ -74,7 +74,11 @@ export function AccountSwitcher({
         <span>Signed in accounts</span>
         <small>Kanleaf server</small>
       </div>
-      <div className="account-switcher-list" role="group" aria-label="Accounts">
+      <div
+        className="account-switcher-list ui-native-scrollbar"
+        role="group"
+        aria-label="Accounts"
+      >
         {accounts.map((account) => {
           const isActive = account.user_id === activeUserId;
           const content = (

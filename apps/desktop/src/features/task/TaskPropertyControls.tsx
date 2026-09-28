@@ -76,7 +76,7 @@ function PropertyCatalog({
           onChange={(event) => setSearch(event.target.value)}
         />
       </label>
-      <div className="property-catalog-list">
+      <div className="property-catalog-list ui-native-scrollbar">
         {filtered.length === 0 && filteredCustom.length === 0 ? (
           <span className="menu-empty-state">
             {properties.length === 0 && customProperties.length === 0

@@ -179,6 +179,10 @@ describe('CommandPalette', () => {
     trigger.focus();
     fireEvent.click(trigger);
 
+    expect(screen.getByRole('listbox')).toHaveClass(
+      'command-results',
+      'ui-native-scrollbar',
+    );
     expect(screen.getByRole('option', { name: /^Inbox/ })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
 

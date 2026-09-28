@@ -41,6 +41,8 @@ describe('AppDialog', () => {
     const dialog = screen.getByRole('alertdialog', {
       name: 'Delete label?',
     });
+    expect(dialog).toHaveClass('ui-native-scrollbar');
+    expect(dialog.parentElement).toHaveClass('ui-native-scrollbar');
     expect(dialog).toHaveTextContent('Tasks will keep their other labels.');
     expect(dialog).toHaveTextContent('Custom consequence');
 

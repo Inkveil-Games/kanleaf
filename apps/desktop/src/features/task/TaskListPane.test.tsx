@@ -116,6 +116,11 @@ describe('TaskListPane', () => {
     expect(
       screen.getByRole('button', { name: 'New task' }),
     ).toBeInTheDocument();
+    const toolbar = screen.getByLabelText('Task view controls');
+    expect(toolbar.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'horizontal',
+    );
   });
 
   it('keeps a Saved View accessibly named without a visible Shared View header', () => {

@@ -48,6 +48,9 @@ describe('Notifications', () => {
 
     expect(await screen.findByLabelText('1 unread')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+    expect(document.querySelector('.notification-list')).toHaveClass(
+      'ui-native-scrollbar',
+    );
     fireEvent.click(
       await screen.findByRole('button', {
         name: /Sam Lee assigned you to KAN-12 Review collaboration/,

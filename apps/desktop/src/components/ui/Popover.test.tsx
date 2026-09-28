@@ -21,9 +21,9 @@ describe('Popover', () => {
     await user.click(screen.getByRole('button', { name: 'Notifications' }));
     await user.click(screen.getByRole('button', { name: 'Mark all read' }));
     expect(action).toHaveBeenCalledOnce();
-    expect(
-      screen.getByRole('dialog', { name: 'Notifications' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toHaveClass(
+      'ui-native-scrollbar',
+    );
 
     await user.click(screen.getByRole('button', { name: 'Outside' }));
     await waitFor(() =>

@@ -118,7 +118,7 @@ export function Popover({
           sideOffset={sideOffset}
           collisionPadding={8}
         >
-          <BasePopover.Popup className="context-menu-popover">
+          <BasePopover.Popup className="context-menu-popover ui-native-scrollbar">
             <BasePopover.Title className="sr-only">
               {contentLabel ?? label}
             </BasePopover.Title>
