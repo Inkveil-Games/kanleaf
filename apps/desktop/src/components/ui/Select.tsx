@@ -24,6 +24,7 @@ interface SelectProps {
   className?: string;
   startIcon?: ReactNode;
   triggerTooltip?: string;
+  popupMatchesTrigger?: boolean;
 }
 
 export function Select({
@@ -37,6 +38,7 @@ export function Select({
   className,
   startIcon,
   triggerTooltip,
+  popupMatchesTrigger = false,
 }: SelectProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
@@ -87,7 +89,7 @@ export function Select({
         )}
         <BaseSelect.Portal container={portalContainer}>
           <BaseSelect.Positioner
-            className="select-positioner"
+            className={`select-positioner${popupMatchesTrigger ? ' is-trigger-width' : ''}`}
             align="start"
             alignItemWithTrigger={false}
             collisionPadding={8}

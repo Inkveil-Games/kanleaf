@@ -26,6 +26,7 @@ interface DropdownMenuProps {
   sideOffset?: number;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  popupMatchesTrigger?: boolean;
 }
 
 interface DropdownMenuItemProps {
@@ -62,6 +63,7 @@ export function DropdownMenu({
   sideOffset = 4,
   open,
   onOpenChange,
+  popupMatchesTrigger = false,
 }: DropdownMenuProps) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
@@ -78,7 +80,7 @@ export function DropdownMenu({
     onOpenChange?.(nextOpen);
   };
   const triggerClassName = `context-menu context-menu-${placement}${className ? ` ${className}` : ''}`;
-  const positionerClassName = `context-menu-positioner context-menu-${placement}${className ? ` ${className}` : ''}`;
+  const positionerClassName = `context-menu-positioner context-menu-${placement}${popupMatchesTrigger ? ' is-trigger-width' : ''}${className ? ` ${className}` : ''}`;
   const menuTrigger = (
     <Menu.Trigger
       ref={(element: HTMLElement | null) => {

@@ -16,6 +16,7 @@ describe('Select', () => {
       <Select
         ariaLabel="Priority"
         value="critical"
+        popupMatchesTrigger
         startIcon={<span data-testid="selected-critical-icon" />}
         options={[
           {
@@ -42,6 +43,9 @@ describe('Select', () => {
     expect(screen.getByRole('listbox').closest('.select-popover')).toHaveClass(
       'ui-native-scrollbar',
     );
+    expect(
+      screen.getByRole('listbox').closest('.select-positioner'),
+    ).toHaveClass('is-trigger-width');
 
     trigger.focus();
     await user.keyboard('[ArrowDown]');

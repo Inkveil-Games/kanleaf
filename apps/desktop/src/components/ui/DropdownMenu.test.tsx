@@ -34,7 +34,7 @@ describe('DropdownMenu', () => {
     const action = vi.fn();
     const toggle = vi.fn();
     render(
-      <DropdownMenu label="Visible fields">
+      <DropdownMenu label="Visible fields" popupMatchesTrigger>
         <DropdownMenuCheckboxItem checked onCheckedChange={toggle}>
           Due date
         </DropdownMenuCheckboxItem>
@@ -47,6 +47,9 @@ describe('DropdownMenu', () => {
     await user.click(
       screen.getByRole('menuitemcheckbox', { name: 'Due date' }),
     );
+    expect(
+      screen.getByRole('menu').closest('.context-menu-positioner'),
+    ).toHaveClass('is-trigger-width');
     expect(toggle).toHaveBeenCalledWith(false);
     expect(screen.getByRole('menu')).toBeInTheDocument();
 

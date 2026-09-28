@@ -158,6 +158,7 @@ export function MultiValuePicker({
   options,
   onChange,
   className,
+  popupMatchesTrigger = false,
 }: {
   label: string;
   emptyLabel: string;
@@ -167,6 +168,7 @@ export function MultiValuePicker({
   options: { id: string; label: string }[];
   onChange: (values: string[]) => Promise<void>;
   className?: string;
+  popupMatchesTrigger?: boolean;
 }) {
   const selectedLabels = options
     .filter(({ id }) => values.includes(id))
@@ -181,6 +183,7 @@ export function MultiValuePicker({
       className={`property-picker${className ? ` ${className}` : ''}`}
       align="start"
       disabled={saving}
+      popupMatchesTrigger={popupMatchesTrigger}
       trigger={<span>{summary}</span>}
     >
       {options.length === 0 ? (
@@ -234,6 +237,7 @@ export function TaskDateControl({
         disabled={disabled}
         aria-invalid={invalid || undefined}
         value={value ?? ''}
+        onClick={(event) => event.currentTarget.showPicker?.()}
         onChange={(event) => void onChange(event.target.value || null)}
       />
     </label>

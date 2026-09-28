@@ -118,6 +118,11 @@ html[data-input-modality='keyboard'] :focus-visible {
   max-width: calc(100vw - 16px);
 }
 
+.select-positioner.is-trigger-width {
+  width: max-content;
+  min-width: var(--anchor-width);
+}
+
 .select-popover {
   display: grid;
   width: 100%;
@@ -2905,6 +2910,17 @@ html[data-input-modality='keyboard']
   z-index: 20;
 }
 
+.context-menu-positioner.is-trigger-width {
+  width: max-content;
+  min-width: var(--anchor-width);
+  max-width: calc(100vw - 16px);
+}
+
+.context-menu-positioner.is-trigger-width > .context-menu-popover {
+  width: 100%;
+  min-width: 0;
+}
+
 .ui-tooltip-positioner {
   z-index: var(--layer-tooltip);
 }
@@ -4956,10 +4972,16 @@ html[data-input-modality='keyboard']
   min-width: 0;
 }
 
+.task-pinned-property > .kanleaf-select,
+.task-pinned-property > .property-picker {
+  width: calc(100% + 20px);
+  margin-left: -20px;
+}
+
 .task-pinned-property .select-trigger,
 .task-pinned-property .property-picker .context-menu-trigger {
   height: 32px;
-  padding: 0 6px 0 0;
+  padding: 0 6px 0 20px;
   border: 0;
   color: var(--color-text);
   background: transparent;

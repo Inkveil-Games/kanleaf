@@ -674,6 +674,9 @@ describe('TaskDetailPane', () => {
     ).toHaveLength(1);
     expect(stateTrigger.querySelector('[data-state-role="todo"]')).toBeNull();
     await user.click(stateTrigger);
+    expect(
+      screen.getByRole('listbox').closest('.select-positioner'),
+    ).toHaveClass('is-trigger-width');
     for (const [label, role] of [
       ['Backlog', 'backlog'],
       ['Todo', 'todo'],
@@ -703,6 +706,9 @@ describe('TaskDetailPane', () => {
       priorityTrigger.querySelector('[data-priority-value="none"]'),
     ).toBeNull();
     await user.click(priorityTrigger);
+    expect(
+      screen.getByRole('listbox').closest('.select-positioner'),
+    ).toHaveClass('is-trigger-width');
     for (const [label, priority] of [
       ['No priority', 'none'],
       ['Low', 'low'],
@@ -724,6 +730,9 @@ describe('TaskDetailPane', () => {
       target: { value: '2026-09-04' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Edit assignees' }));
+    expect(
+      screen.getByRole('menu').closest('.context-menu-positioner'),
+    ).toHaveClass('is-trigger-width');
     fireEvent.click(
       screen.getByRole('menuitemcheckbox', { name: 'Alex Morgan' }),
     );

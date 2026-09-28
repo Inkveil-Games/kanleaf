@@ -36,6 +36,15 @@ async function expectTaskPatch(page: Page, action: () => Promise<void>) {
   expect((await completed).ok()).toBe(true);
 }
 
+async function expectPopupMatchesTrigger(trigger: Locator, popup: Locator) {
+  const triggerBox = await trigger.boundingBox();
+  const popupBox = await popup.boundingBox();
+  expect(triggerBox).not.toBeNull();
+  expect(popupBox).not.toBeNull();
+  expect(Math.abs((popupBox?.x ?? 0) - (triggerBox?.x ?? 0))).toBeLessThan(1);
+  expect(popupBox?.width ?? 0).toBeGreaterThanOrEqual(triggerBox?.width ?? 0);
+}
+
 async function addTaskProperty(page: Page, property: string) {
   await page.getByRole('button', { name: 'Add property' }).click();
   await expect(page.getByLabel('Search properties')).toBeVisible();
@@ -1159,11 +1168,33 @@ let source_is_markdown = true;
   await expect(page.getByLabel('Edit Modules')).toContainText('Core');
   await page.keyboard.press('Escape');
 
-  await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'State', 'In Progress'),
+  const stateTrigger = page.getByRole('combobox', {
+    name: 'State',
+    exact: true,
+  });
+  await stateTrigger.click();
+  await expectPopupMatchesTrigger(
+    stateTrigger,
+    page.locator(
+      '.select-positioner.is-trigger-width .select-popover[data-open]',
+    ),
   );
   await expectTaskPatch(page, () =>
-    chooseSelectOption(page, 'Priority', 'Critical'),
+    page.getByRole('option', { name: 'In Progress', exact: true }).click(),
+  );
+  const priorityTrigger = page.getByRole('combobox', {
+    name: 'Priority',
+    exact: true,
+  });
+  await priorityTrigger.click();
+  await expectPopupMatchesTrigger(
+    priorityTrigger,
+    page.locator(
+      '.select-positioner.is-trigger-width .select-popover[data-open]',
+    ),
+  );
+  await expectTaskPatch(page, () =>
+    page.getByRole('option', { name: 'Critical', exact: true }).click(),
   );
   await expect(
     page.locator(
@@ -1175,7 +1206,17 @@ let source_is_markdown = true;
       '[data-task-property="priority"] > [data-priority-value="critical"]',
     ),
   ).toHaveCount(1);
-  await page.getByLabel('Edit assignees').click();
+  const assigneeTrigger = page.getByRole('button', {
+    name: 'Edit assignees',
+    exact: true,
+  });
+  await assigneeTrigger.click();
+  await expectPopupMatchesTrigger(
+    assigneeTrigger,
+    page.locator(
+      '.context-menu-positioner.is-trigger-width .context-menu-popover[data-open]',
+    ),
+  );
   await expectTaskPatch(page, () =>
     page.getByRole('menuitemcheckbox', { name: 'Kanleaf Tester' }).click(),
   );

@@ -82,6 +82,7 @@ function PinnedProperty({
           value={task.state.id}
           disabled={editing.disabled('state')}
           invalid={invalid}
+          popupMatchesTrigger
           options={selectableStates(states, task).map((state) => ({
             value: state.id,
             label: state.name,
@@ -103,6 +104,7 @@ function PinnedProperty({
           value={task.priority}
           disabled={editing.disabled('priority')}
           invalid={invalid}
+          popupMatchesTrigger
           options={TASK_PRIORITY_OPTIONS.map((option) => ({
             ...option,
             icon: <PriorityIcon priority={option.value} size={16} />,
@@ -126,6 +128,7 @@ function PinnedProperty({
           emptyLabel="Unassigned"
           readOnly={!canEdit}
           saving={editing.savingProperties.has('assignees')}
+          popupMatchesTrigger
           values={task.assignees.map(({ user_id }) => user_id)}
           options={assigneeCandidates.map((member) => ({
             id: member.user_id,
