@@ -280,7 +280,12 @@ export interface Task {
   cycle: TaskPlanningLink | null;
   modules: TaskPlanningLink[];
   subtasks: TaskLink[];
+  subtask_progress: {
+    completed: number;
+    total: number;
+  };
   relations: TaskRelation[];
+  comment_count: number;
   custom_properties?: TaskCustomPropertyValue[];
   archived_at: string | null;
   created_at: string;

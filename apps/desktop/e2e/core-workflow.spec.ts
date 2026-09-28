@@ -1164,14 +1164,14 @@ let source_is_markdown = true;
     chooseSelectOption(page, 'Priority', 'Critical'),
   );
   await expect(
-    page
-      .getByRole('combobox', { name: 'State' })
-      .locator('[data-state-role="in_progress"]'),
+    page.locator(
+      '[data-task-property="state"] > [data-state-role="in_progress"]',
+    ),
   ).toHaveCount(1);
   await expect(
-    page
-      .getByRole('combobox', { name: 'Priority' })
-      .locator('[data-priority-value="critical"]'),
+    page.locator(
+      '[data-task-property="priority"] > [data-priority-value="critical"]',
+    ),
   ).toHaveCount(1);
   await page.getByLabel('Edit assignees').click();
   await expectTaskPatch(page, () =>
@@ -1197,25 +1197,25 @@ let source_is_markdown = true;
   const taskRow = page
     .getByRole('option')
     .filter({ hasText: 'Complete the v0.1 workflow' });
-  await expect(taskRow).toHaveCSS('min-height', '50px');
+  await expect(taskRow).toHaveCSS('min-height', '64px');
   await expect(taskRow.locator('.task-row-title')).toHaveCSS(
     'font-size',
-    '15px',
+    '14px',
   );
-  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('width', '30px');
-  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('height', '30px');
+  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('width', '27px');
+  await expect(taskRow.locator('.task-state-icon')).toHaveCSS('height', '27px');
   await expect(
     taskRow.locator('.task-state-icon[data-state-role="in_progress"]'),
   ).toHaveCount(1);
-  await expect(taskRow.locator('.task-row-reference')).toHaveCount(0);
+  await expect(taskRow.locator('.task-row-reference')).toHaveText(/#\d+/);
   await expect(taskRow.getByText('Critical')).toBeVisible();
   const priorityBadge = taskRow.locator(
     '.task-priority-badge[data-priority-value="critical"]',
   );
-  await expect(priorityBadge).toHaveCSS('border-top-width', '0px');
+  await expect(priorityBadge).toHaveCSS('border-top-width', '1px');
   await expect(priorityBadge.locator('.task-priority-icon')).toHaveCSS(
     'width',
-    '15px',
+    '17px',
   );
   await taskRow.locator('.task-row-main').click();
   await expect(page).toHaveURL(
@@ -1325,12 +1325,12 @@ Kanleaf keeps **structured work** beside durable notes.
 
   await page.reload();
   await expect(taskRow).toBeVisible();
-  await taskRow.click();
+  await taskRow.locator('.task-row-main').click();
   await expect(page.getByLabel('State')).toContainText('In Progress');
   await expect(
-    page
-      .getByRole('combobox', { name: 'State' })
-      .locator('[data-state-role="in_progress"]'),
+    page.locator(
+      '[data-task-property="state"] > [data-state-role="in_progress"]',
+    ),
   ).toHaveCount(1);
   await expect(
     page.getByRole('combobox', { name: 'Type', exact: true }),
@@ -1340,9 +1340,9 @@ Kanleaf keeps **structured work** beside durable notes.
     'critical',
   );
   await expect(
-    page
-      .getByRole('combobox', { name: 'Priority' })
-      .locator('[data-priority-value="critical"]'),
+    page.locator(
+      '[data-task-property="priority"] > [data-priority-value="critical"]',
+    ),
   ).toHaveCount(1);
   await expect(page.getByLabel('Due date')).toHaveValue('2026-09-30');
   await expect(page.getByLabel('Start date')).toHaveValue('2026-09-01');

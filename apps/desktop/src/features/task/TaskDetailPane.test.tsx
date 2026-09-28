@@ -54,7 +54,9 @@ const task: Task = {
   cycle: null,
   modules: [],
   subtasks: [],
+  subtask_progress: { completed: 0, total: 0 },
   relations: [],
+  comment_count: 0,
   archived_at: null,
   created_at: '2026-08-26T10:00:00Z',
   updated_at: '2026-08-26T10:00:00Z',
@@ -654,9 +656,14 @@ describe('TaskDetailPane', () => {
     const editor = screen.getByText('Markdown editor');
     const user = userEvent.setup();
     const stateTrigger = await screen.findByRole('combobox', { name: 'State' });
+    const stateProperty = stateTrigger.closest('[data-task-property="state"]');
     expect(
-      stateTrigger.querySelector('[data-state-role="todo"]'),
+      stateProperty?.querySelector(':scope > [data-state-role="todo"]'),
     ).not.toBeNull();
+    expect(
+      stateProperty?.querySelectorAll('[data-state-role="todo"]'),
+    ).toHaveLength(1);
+    expect(stateTrigger.querySelector('[data-state-role="todo"]')).toBeNull();
     await user.click(stateTrigger);
     for (const [label, role] of [
       ['Backlog', 'backlog'],
@@ -666,17 +673,26 @@ describe('TaskDetailPane', () => {
       ['Cancelled', 'cancelled'],
     ] as const) {
       expect(
-        screen
-          .getByRole('option', { name: label })
-          .querySelector(`[data-state-role="${role}"]`),
+        (await screen.findByRole('option', { name: label })).querySelector(
+          `[data-state-role="${role}"]`,
+        ),
       ).not.toBeNull();
     }
     await user.click(screen.getByRole('option', { name: 'Done' }));
 
     const priorityTrigger = screen.getByRole('combobox', { name: 'Priority' });
+    const priorityProperty = priorityTrigger.closest(
+      '[data-task-property="priority"]',
+    );
+    expect(
+      priorityProperty?.querySelector(':scope > [data-priority-value="none"]'),
+    ).not.toBeNull();
+    expect(
+      priorityProperty?.querySelectorAll('[data-priority-value="none"]'),
+    ).toHaveLength(1);
     expect(
       priorityTrigger.querySelector('[data-priority-value="none"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     await user.click(priorityTrigger);
     for (const [label, priority] of [
       ['No priority', 'none'],
@@ -686,9 +702,9 @@ describe('TaskDetailPane', () => {
       ['Critical', 'critical'],
     ] as const) {
       expect(
-        screen
-          .getByRole('option', { name: label })
-          .querySelector(`[data-priority-value="${priority}"]`),
+        (await screen.findByRole('option', { name: label })).querySelector(
+          `[data-priority-value="${priority}"]`,
+        ),
       ).not.toBeNull();
     }
     await user.click(screen.getByRole('option', { name: 'Critical' }));

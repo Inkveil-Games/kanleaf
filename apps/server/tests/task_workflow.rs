@@ -151,6 +151,88 @@ async fn task_numbers_are_unique_and_monotonic_under_concurrent_creation(pool: P
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn task_responses_include_terminal_subtask_progress_and_visible_comment_count(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "metrics@example.com").await;
+    let configuration = get(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/task-configuration"),
+    )
+    .await;
+    let state_id = |role: &str| {
+        configuration["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|state| state["system_role"] == role)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let parent = create_task(&app, &token, workspace_id, json!({"title": "Parent task"})).await;
+    let parent_id = parent["id"].as_str().unwrap().to_owned();
+    for (title, state_id) in [
+        ("Todo child", state_id("todo")),
+        ("Done child", state_id("done")),
+        ("Cancelled child", state_id("cancelled")),
+    ] {
+        create_task(
+            &app,
+            &token,
+            workspace_id,
+            json!({"title": title, "parent_id": parent_id, "state_id": state_id}),
+        )
+        .await;
+    }
+
+    let comments_uri = format!("/api/workspaces/{workspace_id}/tasks/{parent_id}/comments");
+    create(
+        &app,
+        &token,
+        &comments_uri,
+        json!({"body": "Visible comment"}),
+    )
+    .await;
+    let deleted_comment = create(
+        &app,
+        &token,
+        &comments_uri,
+        json!({"body": "Deleted comment"}),
+    )
+    .await;
+    let delete_response = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("{comments_uri}/{}", deleted_comment["id"].as_str().unwrap()),
+            None,
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+    let parent = get(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/tasks/{parent_id}"),
+    )
+    .await;
+    assert_eq!(parent["subtask_progress"]["completed"], 2);
+    assert_eq!(parent["subtask_progress"]["total"], 3);
+    assert_eq!(parent["comment_count"], 1);
+
+    let empty = create_task(&app, &token, workspace_id, json!({"title": "No metrics"})).await;
+    assert_eq!(empty["subtask_progress"]["completed"], 0);
+    assert_eq!(empty["subtask_progress"]["total"], 0);
+    assert_eq!(empty["comment_count"], 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn metadata_hierarchy_relations_and_my_work_are_tenant_scoped(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);

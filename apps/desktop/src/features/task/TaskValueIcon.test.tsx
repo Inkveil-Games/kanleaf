@@ -31,9 +31,11 @@ describe('TaskValueIcon', () => {
 
     for (const role of stateRoles) {
       const icon = container.querySelector(`[data-state-role="${role}"]`);
+      expect(icon).toBeInstanceOf(SVGSVGElement);
       expect(icon).toHaveClass('task-state-icon', `is-${role}`);
       expect(icon).toHaveAttribute('aria-hidden', 'true');
       expect(icon).toHaveStyle({ width: '30px', height: '30px' });
+      expect(icon?.getAttribute('style')).not.toContain('mask');
     }
   });
 

@@ -43,6 +43,12 @@ pub(crate) struct TaskLink {
     pub title: String,
 }
 
+#[derive(Debug, Default, Serialize)]
+pub struct TaskSubtaskProgress {
+    pub completed: i64,
+    pub total: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct TaskRelationSummary {
     pub task: TaskLink,
@@ -76,7 +82,9 @@ pub struct TaskResponse {
     pub cycle: Option<TaskPlanningSummary>,
     pub modules: Vec<TaskPlanningSummary>,
     pub subtasks: Vec<TaskLink>,
+    pub subtask_progress: TaskSubtaskProgress,
     pub relations: Vec<TaskRelationSummary>,
+    pub comment_count: i64,
     pub custom_properties: Vec<TaskCustomPropertyValue>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -133,7 +141,9 @@ impl From<TaskRow> for TaskResponse {
             cycle: None,
             modules: Vec::new(),
             subtasks: Vec::new(),
+            subtask_progress: TaskSubtaskProgress::default(),
             relations: Vec::new(),
+            comment_count: 0,
             custom_properties: Vec::new(),
             archived_at: row.archived_at,
             created_at: row.created_at,
@@ -291,11 +301,15 @@ pub(super) async fn hydrate_tasks(
         tasks[indexes[&owner_id]].parent = Some(row.into_link());
     }
 
-    let subtasks = sqlx::query_as::<_, RelatedTaskRow>(
+    let subtasks = sqlx::query_as::<_, SubtaskRow>(
         r#"
         SELECT child.parent_id AS owner_id, child.id, child.task_number,
-               child.title, projects.identifier AS project_identifier
+               child.title, projects.identifier AS project_identifier,
+               states.system_role
         FROM tasks AS child
+        JOIN task_states AS states
+          ON states.workspace_id = child.workspace_id
+         AND states.id = child.state_id
         LEFT JOIN projects ON projects.id = child.project_id
         WHERE child.workspace_id = $1
           AND child.parent_id = ANY($2)
@@ -308,7 +322,32 @@ pub(super) async fn hydrate_tasks(
     .fetch_all(pool)
     .await?;
     for row in subtasks {
-        tasks[indexes[&row.owner_id]].subtasks.push(row.into_link());
+        let owner_id = row.owner_id;
+        let completed = matches!(row.system_role.as_str(), "done" | "cancelled");
+        let task = &mut tasks[indexes[&owner_id]];
+        task.subtasks.push(row.into_link());
+        task.subtask_progress.total += 1;
+        if completed {
+            task.subtask_progress.completed += 1;
+        }
+    }
+
+    let comment_counts = sqlx::query_as::<_, TaskCommentCountRow>(
+        r#"
+        SELECT task_id, count(*) AS comment_count
+        FROM task_comments
+        WHERE workspace_id = $1
+          AND task_id = ANY($2)
+          AND deleted_at IS NULL
+        GROUP BY task_id
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(&ids)
+    .fetch_all(pool)
+    .await?;
+    for row in comment_counts {
+        tasks[indexes[&row.task_id]].comment_count = row.comment_count;
     }
 
     let relations = sqlx::query_as::<_, RelationRow>(
@@ -403,6 +442,12 @@ struct TaskPlanningRow {
     name: String,
 }
 
+#[derive(FromRow)]
+struct TaskCommentCountRow {
+    task_id: Uuid,
+    comment_count: i64,
+}
+
 impl TaskPlanningRow {
     fn into_summary(self) -> TaskPlanningSummary {
         TaskPlanningSummary {
@@ -419,6 +464,26 @@ struct RelatedTaskRow {
     task_number: i64,
     title: String,
     project_identifier: Option<String>,
+}
+
+#[derive(FromRow)]
+struct SubtaskRow {
+    owner_id: Uuid,
+    id: Uuid,
+    task_number: i64,
+    title: String,
+    project_identifier: Option<String>,
+    system_role: String,
+}
+
+impl SubtaskRow {
+    fn into_link(self) -> TaskLink {
+        TaskLink {
+            id: self.id,
+            reference: task_reference(self.project_identifier.as_deref(), self.task_number),
+            title: self.title,
+        }
+    }
 }
 
 impl RelatedTaskRow {

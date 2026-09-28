@@ -80,7 +80,6 @@ function PinnedProperty({
           ariaLabel="State"
           className="task-pinned-select"
           value={task.state.id}
-          startIcon={<StateIcon role={task.state.system_role} size={18} />}
           disabled={editing.disabled('state')}
           invalid={invalid}
           options={selectableStates(states, task).map((state) => ({
@@ -93,10 +92,7 @@ function PinnedProperty({
           }
         />
       ) : (
-        <span className="property-readonly-value task-value-readonly">
-          <StateIcon role={task.state.system_role} size={18} />
-          <span>{task.state.name}</span>
-        </span>
+        <span className="property-readonly-value">{task.state.name}</span>
       );
       break;
     case 'priority':
@@ -105,7 +101,6 @@ function PinnedProperty({
           ariaLabel="Priority"
           className="task-pinned-select"
           value={task.priority}
-          startIcon={<PriorityIcon priority={task.priority} size={16} />}
           disabled={editing.disabled('priority')}
           invalid={invalid}
           options={TASK_PRIORITY_OPTIONS.map((option) => ({
@@ -119,9 +114,8 @@ function PinnedProperty({
           }
         />
       ) : (
-        <span className="property-readonly-value task-value-readonly">
-          <PriorityIcon priority={task.priority} size={16} />
-          <span>{priorityLabel(task.priority)}</span>
+        <span className="property-readonly-value">
+          {priorityLabel(task.priority)}
         </span>
       );
       break;
@@ -189,7 +183,13 @@ function PinnedProperty({
       data-task-property={property.key}
       data-invalid={invalid || undefined}
     >
-      <TaskPropertyIcon propertyKey={property.key} />
+      {property.key === 'state' ? (
+        <StateIcon role={task.state.system_role} size={18} />
+      ) : property.key === 'priority' ? (
+        <PriorityIcon priority={task.priority} size={16} />
+      ) : (
+        <TaskPropertyIcon propertyKey={property.key} />
+      )}
       {control}
     </div>
   );

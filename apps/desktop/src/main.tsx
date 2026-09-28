@@ -4,6 +4,8 @@ import { App } from './app/App';
 import { Providers } from './app/providers';
 import { AppRouter } from './app/routing/AppRouter';
 import { installInputModality } from './lib/inputModality';
+import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource-variable/geist/wght.css';
 import './styles/tokens.css';
 import './styles/global.css';
 

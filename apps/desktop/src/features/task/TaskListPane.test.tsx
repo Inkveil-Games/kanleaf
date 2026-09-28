@@ -6,9 +6,9 @@ import {
   within,
 } from '@testing-library/react';
 import type { ComponentProps } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
-import type { Task, TaskState } from '../workspace/types';
+import type { Project, Task, TaskState } from '../workspace/types';
 import {
   createTaskQuery,
   taskGroupFields,
@@ -33,6 +33,32 @@ const states: TaskState[] = [
   state('state-progress', 'In Progress', 'in_progress', 1, '#3B82F6'),
   state('state-done', 'Done', 'done', 2, '#22A06B'),
 ];
+
+const project: Project = {
+  id: 'project-1',
+  workspace_id: 'workspace-1',
+  name: 'Test Project',
+  identifier: 'test-project',
+  description: '',
+  icon: 'folder',
+  lead_user_id: null,
+  visibility: 'public',
+  default_assignee_id: null,
+  default_state_id: 'state-todo',
+  cycles_enabled: false,
+  modules_enabled: false,
+  pages_enabled: false,
+  views_enabled: false,
+  effective_role: 'contributor',
+  can_join: false,
+  archived_at: null,
+  created_at: '2026-08-26T08:00:00Z',
+  updated_at: '2026-08-26T08:00:00Z',
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function renderList(
   overrides: Partial<ComponentProps<typeof TaskListPane>> = {},
@@ -181,23 +207,168 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('renders the approved one-line State and Priority treatment', () => {
-    renderList();
+  it('renders the approved two-line row with aligned task metrics', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    const enrichedTask = {
+      ...tasks[0]!,
+      project_id: project.id,
+      task_number: 8,
+      reference: '#8',
+      assignees: [
+        {
+          user_id: 'user-1',
+          email: 'quang@example.com',
+          display_name: 'Quang Tran',
+        },
+        {
+          user_id: 'user-2',
+          email: 'ngoc@example.com',
+          display_name: 'Ngoc Anh',
+        },
+        {
+          user_id: 'user-3',
+          email: 'minh@example.com',
+          display_name: 'Minh Le',
+        },
+      ],
+      labels: [],
+      subtasks: [
+        { id: 'subtask-1', reference: '#9', title: 'One' },
+        { id: 'subtask-2', reference: '#10', title: 'Two' },
+        { id: 'subtask-3', reference: '#11', title: 'Three' },
+        { id: 'subtask-4', reference: '#12', title: 'Four' },
+      ],
+      subtask_progress: { completed: 3, total: 4 },
+      comment_count: 5,
+    };
+    renderList({ projects: [project], query, tasks: [enrichedTask] });
 
-    const rows = screen.getAllByRole('option');
-    const firstRow = rows[0]!;
-    const secondRow = rows[1]!;
-    const stateIcon = firstRow.querySelector('[data-state-role="todo"]');
+    const row = screen.getByRole('option');
+    const stateIcon = row.querySelector('[data-state-role="todo"]');
+    const group = screen.getByRole('group', { name: 'Todo' });
+    const groupIcon = group.querySelector('.task-list-group-icon');
 
-    expect(within(firstRow).getByText('Design the navigation')).toHaveClass(
+    expect(within(row).getByText('Design the navigation')).toHaveClass(
       'task-row-title',
     );
     expect(stateIcon).toHaveClass('task-state-icon');
-    expect(stateIcon).toHaveStyle({ width: '30px', height: '30px' });
-    expect(within(firstRow).getByText('High')).toBeVisible();
-    expect(within(secondRow).getByText('No priority')).toBeVisible();
-    expect(within(firstRow).queryByText('#1')).not.toBeInTheDocument();
-    expect(firstRow.querySelector('.task-row-reference')).toBeNull();
+    expect(stateIcon).toHaveStyle({ width: '27px', height: '27px' });
+    expect(groupIcon).toHaveStyle({ width: '18px', height: '18px' });
+    expect(within(row).getByText('#8')).toHaveClass('task-row-reference');
+    expect(within(row).getByText('Test Project')).toBeVisible();
+    expect(within(row).getByText('High')).toBeVisible();
+    expect(within(row).getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '75',
+    );
+    expect(within(row).getByText('75%')).toBeVisible();
+    expect(within(row).getByText('No label')).toBeVisible();
+    expect(within(row).getByLabelText('3 assignees')).toBeVisible();
+    expect(within(row).getByText('5')).toBeVisible();
+    expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('hides zero-subtask progress and opens Edit from the row menu', async () => {
+    const props = renderList();
+    const row = screen.getAllByRole('option')[0]!;
+
+    expect(within(row).queryByRole('progressbar')).not.toBeInTheDocument();
+    fireEvent.click(
+      within(row).getByRole('button', {
+        name: 'Task actions for Design the navigation',
+      }),
+    );
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+
+    expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('shows three task labels before the overflow badge', () => {
+    const labeledTask = {
+      ...tasks[0]!,
+      labels: [
+        { id: 'label-1', name: 'Security', color: '#C2413A' },
+        { id: 'label-2', name: 'Backend', color: '#3977B8' },
+        { id: 'label-3', name: 'Release', color: '#8661C1' },
+        { id: 'label-4', name: 'Hidden label', color: '#4F7A58' },
+      ],
+    };
+
+    renderList({ tasks: [labeledTask] });
+
+    const row = screen.getByRole('option');
+    expect(within(row).getByText('Security')).toBeVisible();
+    expect(within(row).getByText('Backend')).toBeVisible();
+    expect(within(row).getByText('Release')).toBeVisible();
+    expect(within(row).queryByText('Hidden label')).not.toBeInTheDocument();
+    expect(within(row).getByText('…')).toHaveClass('is-overflow');
+  });
+
+  it('shows due dates with a calendar and marks dates under three days urgent', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-24T12:00:00Z'));
+    const today = {
+      ...tasks[0]!,
+      due_date: '2026-09-24',
+      subtask_progress: { completed: 0, total: 0 },
+      comment_count: 0,
+    };
+    const tomorrow = {
+      ...tasks[1]!,
+      due_date: '2026-09-25',
+      state: {
+        id: 'state-done',
+        name: 'Done',
+        color: '#22A06B',
+        system_role: 'done' as const,
+      },
+      subtask_progress: { completed: 0, total: 0 },
+      comment_count: 0,
+    };
+    const threeDaysAway = {
+      ...tasks[0]!,
+      id: 'task-3',
+      task_number: 3,
+      reference: '#3',
+      title: 'Review the launch checklist',
+      due_date: '2026-09-27',
+      subtask_progress: { completed: 0, total: 0 },
+      comment_count: 0,
+    };
+    const twoDaysAway = {
+      ...tasks[0]!,
+      id: 'task-4',
+      task_number: 4,
+      reference: '#4',
+      title: 'Prepare the release notes',
+      due_date: '2026-09-26',
+      subtask_progress: { completed: 0, total: 0 },
+      comment_count: 0,
+    };
+
+    renderList({ tasks: [today, tomorrow, twoDaysAway, threeDaysAway] });
+
+    const todayDueDate = screen
+      .getByText('Today')
+      .closest('.task-row-due-date');
+    const tomorrowDueDate = screen
+      .getByText('Tomorrow')
+      .closest('.task-row-due-date');
+    const twoDaysAwayDueDate = screen
+      .getByText('Sep 26')
+      .closest('.task-row-due-date');
+    const threeDaysAwayDueDate = screen
+      .getByText('Sep 27')
+      .closest('.task-row-due-date');
+
+    expect(todayDueDate).toHaveAttribute('data-urgent', 'true');
+    expect(tomorrowDueDate).toHaveAttribute('data-urgent', 'true');
+    expect(twoDaysAwayDueDate).toHaveAttribute('data-urgent', 'true');
+    expect(threeDaysAwayDueDate).not.toHaveAttribute('data-urgent');
+    expect(todayDueDate?.querySelector('.lucide-calendar-days')).not.toBeNull();
+    expect(
+      screen.getByText('Write contributor notes').closest('del'),
+    ).toBeNull();
   });
 
   it('navigates grouped rows in their rendered order', () => {
@@ -261,8 +432,8 @@ describe('TaskListPane', () => {
     ).toBeInTheDocument();
   });
 
-  it('applies one bulk mutation to the checked task rows', async () => {
-    const props = renderList();
+  it('applies one bulk mutation to checked Table rows', async () => {
+    const props = renderList({ layout: 'table' });
 
     fireEvent.click(screen.getByLabelText('Select Design the navigation'));
     fireEvent.click(screen.getByLabelText('Select Write contributor notes'));
@@ -277,8 +448,9 @@ describe('TaskListPane', () => {
     );
   });
 
-  it('recovers after a bulk mutation fails', async () => {
+  it('recovers after a Table bulk mutation fails', async () => {
     renderList({
+      layout: 'table',
       onBulkUpdate: vi.fn().mockRejectedValue(new Error('Server unavailable')),
     });
 
@@ -586,7 +758,10 @@ describe('TaskListPane', () => {
 
     renderList({ query });
 
-    expect(screen.getByRole('group', { name: 'Todo' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Todo' })).toHaveAttribute(
+      'data-state-role',
+      'todo',
+    );
     expect(
       screen.getByRole('group', { name: 'In Progress' }),
     ).toBeInTheDocument();
@@ -705,7 +880,9 @@ function task(
     cycle: null,
     modules: [],
     subtasks: [],
+    subtask_progress: { completed: 0, total: 0 },
     relations: [],
+    comment_count: 0,
     archived_at: null,
     created_at: '2026-08-26T10:00:00Z',
     updated_at: '2026-08-26T10:00:00Z',

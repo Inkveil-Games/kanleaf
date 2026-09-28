@@ -1,6 +1,16 @@
-import { CalendarDays, Plus, Search, X } from 'lucide-react';
-import { Checkbox } from '../../components/ui/Checkbox';
+import {
+  CalendarDays,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+} from '../../components/ui/DropdownMenu';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -9,6 +19,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
@@ -124,7 +135,7 @@ export function TaskListPane({
   const visibleFields = {
     priority: query.display.includes('priority'),
     assignees: query.display.includes('assignees'),
-    labels: query.display.includes('labels'),
+    labels: layout === 'list' || query.display.includes('labels'),
     dueDate: query.display.includes('due_date'),
     updated: query.display.includes('updated_at'),
   };
@@ -185,11 +196,6 @@ export function TaskListPane({
   }, [canCreate, onClearSelection]);
 
   function moveSelection(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key === ' ' && selectedTaskId) {
-      event.preventDefault();
-      toggleChecked(selectedTaskId);
-      return;
-    }
     const key = event.key.toLocaleLowerCase();
     if (!['arrowdown', 'arrowup', 'j', 'k'].includes(key)) return;
     event.preventDefault();
@@ -234,13 +240,12 @@ export function TaskListPane({
       <TaskRow
         key={task.id}
         task={task}
+        projects={projects}
         states={states}
         canEdit={canEditTask(task)}
         selected={task.id === selectedTaskId}
-        checked={checkedTaskIds.has(task.id)}
         visibleFields={visibleFields}
         onSelect={() => onSelectTask(task.id)}
-        onToggleChecked={() => toggleChecked(task.id)}
         onUpdateState={(stateId) => onUpdateState(task, stateId)}
       />
     ));
@@ -343,9 +348,7 @@ export function TaskListPane({
                     })),
                 ]}
                 onValueChange={(value) => {
-                  if (value) {
-                    void applyBulk({ state_id: value });
-                  }
+                  if (value) void applyBulk({ state_id: value });
                 }}
               />
             </label>
@@ -364,9 +367,7 @@ export function TaskListPane({
                 ]}
                 onValueChange={(value) => {
                   if (value) {
-                    void applyBulk({
-                      priority: value as Task['priority'],
-                    });
+                    void applyBulk({ priority: value as Task['priority'] });
                   }
                 }}
               />
@@ -428,21 +429,32 @@ export function TaskListPane({
           <div
             className="task-list"
             role="listbox"
-            aria-multiselectable="true"
             aria-label={`${title} tasks`}
             tabIndex={0}
             onKeyDown={moveSelection}
           >
             {groupedTasks.length > 0
               ? groupedTasks.map((branch) => {
+                  const groupState =
+                    query.grouping.primary === 'state'
+                      ? stateForGroup(branch.group.id, states)
+                      : undefined;
                   return (
                     <section
                       className="task-list-group"
                       role="group"
                       aria-label={branch.group.label}
+                      data-state-role={groupState?.system_role}
                       key={branch.group.id}
                     >
                       <header>
+                        {groupState && (
+                          <StateIcon
+                            className="task-list-group-icon"
+                            role={groupState.system_role}
+                            size={18}
+                          />
+                        )}
                         <strong>{branch.group.label}</strong>
                         <span>{branch.tasks.length}</span>
                       </header>
@@ -513,9 +525,9 @@ function uniqueGroupedTasks(
 
 interface TaskRowProps {
   task: Task;
+  projects: Project[];
   states: TaskState[];
   selected: boolean;
-  checked: boolean;
   visibleFields: {
     priority: boolean;
     assignees: boolean;
@@ -525,22 +537,31 @@ interface TaskRowProps {
   };
   canEdit: boolean;
   onSelect: () => void;
-  onToggleChecked: () => void;
   onUpdateState: (stateId: string) => Promise<void>;
 }
 
 function TaskRow({
   task,
+  projects,
   states,
   selected,
-  checked,
   visibleFields,
   canEdit,
   onSelect,
-  onToggleChecked,
   onUpdateState,
 }: TaskRowProps) {
   const next = nextState(task, states);
+  const projectName =
+    projects.find(({ id }) => id === task.project_id)?.name ?? 'Inbox';
+  const progress = task.subtask_progress.total
+    ? Math.round(
+        (task.subtask_progress.completed / task.subtask_progress.total) * 100,
+      )
+    : null;
+  const dueDate =
+    visibleFields.dueDate && task.due_date ? taskDueDate(task.due_date) : null;
+  const visibleAssignees = task.assignees.slice(0, 2);
+  const visibleLabels = task.labels.slice(0, 3);
   return (
     <div
       className="task-row"
@@ -548,13 +569,6 @@ function TaskRow({
       aria-selected={selected}
       data-state-role={task.state.system_role ?? undefined}
     >
-      <div className="task-select-control">
-        <Checkbox
-          aria-label={`Select ${task.title}`}
-          checked={checked}
-          onCheckedChange={onToggleChecked}
-        />
-      </div>
       {canEdit ? (
         <button
           className="task-status-button"
@@ -563,44 +577,134 @@ function TaskRow({
           title={`Move to ${next.name}`}
           onClick={() => void onUpdateState(next.id)}
         >
-          <StateIcon role={task.state.system_role} size={30} />
+          <StateIcon role={task.state.system_role} size={27} />
         </button>
       ) : (
         <span
           className="task-status-button task-status-readonly"
           aria-hidden="true"
         >
-          <StateIcon role={task.state.system_role} size={30} />
+          <StateIcon role={task.state.system_role} size={27} />
         </span>
       )}
       <button className="task-row-main" type="button" onClick={onSelect}>
         <span className="task-row-title">{task.title}</span>
         <span className="task-row-metadata">
-          {visibleFields.assignees && task.assignees.length > 0 && (
-            <span>
-              {task.assignees
-                .map(({ display_name }) => display_name)
-                .join(', ')}
-            </span>
-          )}
-          {visibleFields.labels &&
-            task.labels.slice(0, 2).map((label) => (
-              <span className="task-row-label" key={label.id}>
-                {label.name}
+          <span className="task-row-reference">{task.reference}</span>
+          <span aria-hidden="true">·</span>
+          <span className="task-row-project">{projectName}</span>
+          {visibleFields.labels && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="task-row-labels">
+                {visibleLabels.map((label) => (
+                  <span
+                    className="task-row-label"
+                    key={label.id}
+                    style={
+                      { '--task-label-color': label.color } as CSSProperties
+                    }
+                  >
+                    {label.name}
+                  </span>
+                ))}
+                {task.labels.length === 0 && (
+                  <span className="task-row-label is-empty">No label</span>
+                )}
+                {task.labels.length > visibleLabels.length && (
+                  <span className="task-row-label is-overflow">…</span>
+                )}
               </span>
-            ))}
-          {visibleFields.dueDate && task.due_date && (
-            <span className="task-row-date">
-              <CalendarDays aria-hidden="true" size={11} />
-              {formatTaskDate(task.due_date)}
-            </span>
+            </>
           )}
           {visibleFields.updated && (
-            <span>{formatUpdatedAt(task.updated_at)}</span>
+            <span className="task-row-updated">
+              · Updated {formatUpdatedAt(task.updated_at)}
+            </span>
           )}
         </span>
       </button>
-      <PriorityBadge priority={task.priority} />
+      <span className="task-row-priority">
+        {visibleFields.priority && <PriorityBadge priority={task.priority} />}
+      </span>
+      <span className="task-row-progress">
+        {progress !== null && (
+          <span
+            className="task-progress"
+            role="progressbar"
+            aria-label={`${task.subtask_progress.completed} of ${task.subtask_progress.total} subtasks complete`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <span className="task-progress-track" aria-hidden="true">
+              <span
+                className="task-progress-fill"
+                style={{ '--task-progress': `${progress}%` } as CSSProperties}
+              />
+            </span>
+            <span>{progress}%</span>
+          </span>
+        )}
+      </span>
+      <span className="task-row-assignees">
+        {visibleFields.assignees && task.assignees.length > 0 && (
+          <span
+            className="task-assignee-stack"
+            aria-label={`${task.assignees.length} assignees`}
+          >
+            {visibleAssignees.map(({ user_id, display_name }) => (
+              <span
+                aria-hidden="true"
+                className="task-assignee-avatar"
+                key={user_id}
+                title={display_name}
+              >
+                {initials(display_name)}
+              </span>
+            ))}
+            {task.assignees.length > visibleAssignees.length && (
+              <span
+                aria-hidden="true"
+                className="task-assignee-avatar is-overflow"
+              >
+                …
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+      <span
+        className="task-row-due-date"
+        data-urgent={dueDate?.urgent || undefined}
+      >
+        {dueDate && (
+          <>
+            <CalendarDays aria-hidden="true" size={15} />
+            <time dateTime={dueDate.value}>{dueDate.label}</time>
+          </>
+        )}
+      </span>
+      <span className="task-row-comments">
+        {task.comment_count > 0 && (
+          <span aria-label={`${task.comment_count} comments`}>
+            <MessageSquare aria-hidden="true" size={16} />
+            {task.comment_count}
+          </span>
+        )}
+      </span>
+      <span className="task-row-actions">
+        {canEdit && (
+          <DropdownMenu
+            label={`Task actions for ${task.title}`}
+            className="task-row-menu"
+          >
+            <DropdownMenuItem onClick={onSelect}>
+              <Pencil aria-hidden="true" size={14} /> Edit
+            </DropdownMenuItem>
+          </DropdownMenu>
+        )}
+      </span>
     </div>
   );
 }
@@ -680,11 +784,37 @@ function collectionTitle(collection: Collection, projects: Project[]) {
   );
 }
 
-function formatTaskDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(`${value}T00:00:00`));
+function taskDueDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  const today = new Date();
+  const dayDifference = Math.round(
+    (Date.UTC(year!, month! - 1, day!) -
+      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) /
+      86_400_000,
+  );
+  const label =
+    dayDifference === 0
+      ? 'Today'
+      : dayDifference === 1
+        ? 'Tomorrow'
+        : new Intl.DateTimeFormat(undefined, {
+            month: 'short',
+            day: 'numeric',
+          }).format(new Date(`${value}T00:00:00`));
+  return { value, label, urgent: dayDifference < 3 };
+}
+
+function initials(displayName: string) {
+  return displayName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase())
+    .join('');
+}
+
+function stateForGroup(groupId: string, states: TaskState[]) {
+  return states.find(({ id }) => id === groupId);
 }
 
 function nextState(task: Task, states: TaskState[]) {
