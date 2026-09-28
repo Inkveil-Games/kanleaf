@@ -433,6 +433,22 @@ export function TaskListPane({
             tabIndex={0}
             onKeyDown={moveSelection}
           >
+            <div className="task-list-column-header" aria-hidden="true">
+              <span className="task-list-column-task">Task</span>
+              {visibleFields.priority && (
+                <span className="task-list-column-priority">Priority</span>
+              )}
+              <span className="task-list-column-progress">Progress</span>
+              {visibleFields.assignees && (
+                <span className="task-list-column-assignees">Assignee</span>
+              )}
+              {visibleFields.dueDate && (
+                <span className="task-list-column-due-date">Due date</span>
+              )}
+              <span className="task-list-column-comments" title="Comments">
+                <MessageSquare size={13} />
+              </span>
+            </div>
             {groupedTasks.length > 0
               ? groupedTasks.map((branch) => {
                   const groupState =

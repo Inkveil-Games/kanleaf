@@ -268,6 +268,36 @@ describe('TaskListPane', () => {
     expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
+  it('labels the visible list metadata columns and Priority values', () => {
+    renderList();
+
+    const header = document.querySelector('.task-list-column-header');
+    expect(header).not.toBeNull();
+    expect(header).toHaveAttribute('aria-hidden', 'true');
+    expect(within(header as HTMLElement).getByText('Task')).toBeVisible();
+    expect(within(header as HTMLElement).getByText('Priority')).toBeVisible();
+    expect(within(header as HTMLElement).getByText('Progress')).toBeVisible();
+    expect(within(header as HTMLElement).getByText('Assignee')).toBeVisible();
+    expect(within(header as HTMLElement).getByText('Due date')).toBeVisible();
+    expect(within(header as HTMLElement).getByTitle('Comments')).toBeVisible();
+    expect(screen.getByLabelText('Priority: High')).toBeVisible();
+    expect(screen.getByLabelText('Priority: None')).toBeVisible();
+  });
+
+  it('omits list column labels for hidden properties', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    query.display = ['state'];
+    renderList({ query });
+
+    const header = document.querySelector('.task-list-column-header');
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).getByText('Task')).toBeVisible();
+    expect(within(header as HTMLElement).getByText('Progress')).toBeVisible();
+    expect(within(header as HTMLElement).queryByText('Priority')).toBeNull();
+    expect(within(header as HTMLElement).queryByText('Assignee')).toBeNull();
+    expect(within(header as HTMLElement).queryByText('Due date')).toBeNull();
+  });
+
   it('hides zero-subtask progress and opens Edit from the row menu', async () => {
     const props = renderList();
     const row = screen.getAllByRole('option')[0]!;

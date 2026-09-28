@@ -164,13 +164,16 @@ export function PriorityIcon({
 }
 
 export function PriorityBadge({ priority }: { priority: TaskPriority }) {
+  const label = priority === 'none' ? 'None' : priorityLabel(priority);
   return (
     <span
+      aria-label={`Priority: ${label}`}
       className={`task-priority-badge is-${priority}`}
       data-priority-value={priority}
+      title={`Priority: ${label}`}
     >
       <PriorityIcon priority={priority} />
-      <span>{priorityLabel(priority)}</span>
+      <span>{label}</span>
     </span>
   );
 }
