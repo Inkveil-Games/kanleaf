@@ -35,6 +35,8 @@
     var(--color-border) 82%,
     transparent
   );
+  --color-scrollbar-thumb: rgb(91 94 86 / 48%);
+  --color-scrollbar-thumb-active: rgb(74 78 70 / 72%);
   --color-overlay: rgb(20 22 18 / 42%);
   --color-focus: #537c5e;
   --color-control-border: #bfc0b7;
@@ -105,6 +107,8 @@
     --color-warning-muted: #403521;
     --color-progress-start: #4f8ff7;
     --color-progress-end: #79a9f8;
+    --color-scrollbar-thumb: rgb(178 185 175 / 48%);
+    --color-scrollbar-thumb-active: rgb(211 217 207 / 72%);
     --color-overlay: rgb(0 0 0 / 64%);
     --color-focus: #a7cdae;
     --color-control-border: #555b53;
@@ -149,6 +153,8 @@
   --color-warning-muted: #403521;
   --color-progress-start: #4f8ff7;
   --color-progress-end: #79a9f8;
+  --color-scrollbar-thumb: rgb(178 185 175 / 48%);
+  --color-scrollbar-thumb-active: rgb(211 217 207 / 72%);
   --color-overlay: rgb(0 0 0 / 64%);
   --color-focus: #a7cdae;
   --color-control-border: #555b53;
