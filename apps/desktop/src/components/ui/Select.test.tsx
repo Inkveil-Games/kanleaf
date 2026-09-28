@@ -39,13 +39,14 @@ describe('Select', () => {
       screen.getByTestId('selected-critical-icon'),
     );
 
-    await user.click(trigger);
-    expect(screen.getByRole('option', { name: 'Low' })).toContainElement(
+    trigger.focus();
+    await user.keyboard('[ArrowDown]');
+    expect(await screen.findByRole('option', { name: 'Low' })).toContainElement(
       screen.getByTestId('low-icon'),
     );
-    expect(screen.getByRole('option', { name: 'Critical' })).toContainElement(
-      screen.getByTestId('critical-icon'),
-    );
+    expect(
+      await screen.findByRole('option', { name: 'Critical' }),
+    ).toContainElement(screen.getByTestId('critical-icon'));
   });
 
   it('selects an option and closes the listbox', async () => {
@@ -60,8 +61,11 @@ describe('Select', () => {
       />,
     );
 
-    await user.click(screen.getByRole('combobox', { name: 'State' }));
-    await user.click(screen.getByRole('option', { name: 'In progress' }));
+    screen.getByRole('combobox', { name: 'State' }).focus();
+    await user.keyboard('[ArrowDown]');
+    await user.click(
+      await screen.findByRole('option', { name: 'In progress' }),
+    );
 
     expect(onValueChange).toHaveBeenCalledWith('started');
     await waitFor(() =>
@@ -134,7 +138,9 @@ describe('Select', () => {
       </div>,
     );
 
-    await user.click(screen.getByRole('combobox', { name: 'State' }));
+    screen.getByRole('combobox', { name: 'State' }).focus();
+    await user.keyboard('[ArrowDown]');
+    await screen.findByRole('listbox');
     const outside = screen.getByRole('button', { name: 'Outside' });
     fireEvent.pointerDown(outside);
     fireEvent.mouseDown(outside);
@@ -156,7 +162,8 @@ describe('Select', () => {
       </dialog>,
     );
 
-    await user.click(screen.getByRole('combobox', { name: 'State' }));
+    screen.getByRole('combobox', { name: 'State' }).focus();
+    await user.keyboard('[ArrowDown]');
     expect(
       (await screen.findByRole('listbox')).closest('dialog'),
     ).not.toBeNull();
