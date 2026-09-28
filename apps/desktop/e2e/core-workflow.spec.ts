@@ -653,12 +653,14 @@ test('manages structured work and durable Markdown across reloads', async ({
     name: 'Project settings',
   });
   await expect(
-    projectSettings.locator('.settings-navigation-body > nav'),
+    projectSettings.getByRole('navigation', {
+      name: 'Project settings sections',
+    }),
   ).toBeVisible();
   const projectNavigationGap = await projectSettings.evaluate((settings) => {
     const header = settings.querySelector('.settings-navigation-header');
     const navigation = settings.querySelector(
-      '.settings-navigation-body > nav',
+      'nav[aria-label="Project settings sections"]',
     );
     if (!header || !navigation) {
       throw new Error('Shared Project settings navigation is missing');
@@ -1335,10 +1337,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('combobox', { name: 'Type', exact: true }),
   ).toContainText('Bug');
-  await expect(page.getByLabel('Priority')).toHaveAttribute(
-    'data-value',
-    'critical',
-  );
+  await expect(
+    page.getByRole('combobox', { name: 'Priority', exact: true }),
+  ).toHaveAttribute('data-value', 'critical');
   await expect(
     page.locator(
       '[data-task-property="priority"] > [data-priority-value="critical"]',
@@ -1957,6 +1958,9 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   await page.waitForLoadState('networkidle');
 
   const board = page.locator('.task-board');
+  const boardViewport = page.locator(
+    '.task-board-scroll-area > .ui-scroll-area-viewport',
+  );
   const taskSurface = page.locator('.collection-pane');
   const shell = page.locator('.workspace-shell');
   await expect(board).toBeVisible();
@@ -1966,18 +1970,19 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   await taskSurface.evaluate((element) => {
     Reflect.set(element, '__kanleafOverlayContinuity', 'task-surface');
   });
+  await boardViewport.evaluate((element) => {
+    element.scrollLeft = 80;
+  });
   await board.evaluate((element) => {
     Reflect.set(element, '__kanleafOverlayContinuity', 'board');
-    element.scrollLeft = 80;
-    element.scrollTop = 20;
   });
-  const boardBounds = await board.boundingBox();
+  const boardViewportBounds = await boardViewport.boundingBox();
   const taskSurfaceBounds = await taskSurface.boundingBox();
-  const boardScroll = await board.evaluate((element) => ({
+  const boardScroll = await boardViewport.evaluate((element) => ({
     left: element.scrollLeft,
     top: element.scrollTop,
   }));
-  expect(boardBounds).not.toBeNull();
+  expect(boardViewportBounds).not.toBeNull();
   expect(taskSurfaceBounds).not.toBeNull();
   expect(boardScroll.left).toBeGreaterThan(0);
 
@@ -2017,14 +2022,14 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
       Reflect.get(element, '__kanleafOverlayContinuity'),
     ),
   ).toBe('task-surface');
-  expect(await board.boundingBox()).toEqual(boardBounds);
+  expect(await boardViewport.boundingBox()).toEqual(boardViewportBounds);
   expect(
     await board.evaluate((element) =>
       Reflect.get(element, '__kanleafOverlayContinuity'),
     ),
   ).toBe('board');
   expect(
-    await board.evaluate((element) => ({
+    await boardViewport.evaluate((element) => ({
       left: element.scrollLeft,
       top: element.scrollTop,
     })),
@@ -2062,7 +2067,7 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   const resizedDrawerBounds = await drawer.boundingBox();
   expect(resizedDrawerBounds).not.toBeNull();
   expect(resizedDrawerBounds!.width).toBeGreaterThan(drawerBounds!.width);
-  expect(await board.boundingBox()).toEqual(boardBounds);
+  expect(await boardViewport.boundingBox()).toEqual(boardViewportBounds);
   expect(await taskSurface.boundingBox()).toEqual(taskSurfaceBounds);
   await page
     .locator('.board-task', { hasText: secondTask.title })
@@ -2096,7 +2101,7 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
       Reflect.get(element, '__kanleafOverlayContinuity'),
     ),
   ).toBe('board');
-  expect(await board.boundingBox()).toEqual(boardBounds);
+  expect(await boardViewport.boundingBox()).toEqual(boardViewportBounds);
 
   await page
     .locator('.board-task', { hasText: firstTask.title })
