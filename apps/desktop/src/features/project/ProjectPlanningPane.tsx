@@ -7,6 +7,7 @@ import { FormField } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Textarea } from '../../components/ui/Textarea';
 import {
   archiveProjectCycle,
@@ -230,7 +231,15 @@ export function ProjectPlanningPane({
               onSubmit={(name) => run(() => createModule(name))}
             />
           ))}
-        <div className="planning-list" role="listbox" aria-label={kind}>
+        <ScrollArea
+          className="planning-list-scroll-area"
+          orientation="vertical"
+          viewportProps={{
+            className: 'planning-list',
+            role: 'listbox',
+            'aria-label': kind,
+          }}
+        >
           {loading && <p className="pane-state">Loading {kind}…</p>}
           {loadError && (
             <p className="pane-state" role="alert">
@@ -275,7 +284,7 @@ export function ProjectPlanningPane({
               </span>
             </button>
           ))}
-        </div>
+        </ScrollArea>
       </section>
 
       <section className="planning-detail-pane">
@@ -290,7 +299,11 @@ export function ProjectPlanningPane({
             <p>Planning details and linked work items will appear here.</p>
           </div>
         ) : (
-          <div className="planning-detail-scroll">
+          <ScrollArea
+            className="planning-detail-scroll-area"
+            orientation="vertical"
+            viewportProps={{ className: 'planning-detail-scroll' }}
+          >
             <header className="planning-detail-header">
               <div>
                 <p className="pane-eyebrow">
@@ -374,7 +387,7 @@ export function ProjectPlanningPane({
               ))}
               {tasks.data?.length === 0 && <p>No linked work items.</p>}
             </section>
-          </div>
+          </ScrollArea>
         )}
       </section>
       <AppDialog

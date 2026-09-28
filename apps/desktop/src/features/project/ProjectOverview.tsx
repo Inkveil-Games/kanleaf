@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import type { Project } from '../workspace/types';
 import { ProjectIconGlyph } from './ProjectIconGlyph';
 
@@ -40,7 +41,15 @@ export function ProjectOverview({
   const accessible = project.effective_role !== null;
 
   return (
-    <section className="project-surface" aria-labelledby="project-heading">
+    <ScrollArea
+      className="project-surface"
+      orientation="vertical"
+      viewportProps={{
+        className: 'project-overview-scroll',
+        role: 'region',
+        'aria-labelledby': 'project-heading',
+      }}
+    >
       <div className="project-overview-cover" aria-hidden="true">
         <span />
         <span />
@@ -176,7 +185,7 @@ export function ProjectOverview({
           </section>
         )}
       </div>
-    </section>
+    </ScrollArea>
   );
 }
 

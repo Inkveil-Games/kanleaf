@@ -49,6 +49,14 @@ describe('ProjectOverview', () => {
     expect(
       screen.getByRole('heading', { name: 'Kanleaf Core' }),
     ).toBeInTheDocument();
+    const projectRegion = screen.getByRole('region', {
+      name: 'Kanleaf Core',
+    });
+    expect(projectRegion).toHaveClass('ui-scroll-area-viewport');
+    expect(projectRegion.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
     expect(screen.getByText('Open Markdown Library')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /Work items/ })[0]);
     fireEvent.click(screen.getByRole('button', { name: /Cycles/ }));

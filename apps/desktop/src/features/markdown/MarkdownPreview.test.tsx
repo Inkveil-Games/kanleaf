@@ -27,6 +27,10 @@ describe('MarkdownPreview', () => {
 | --- | --- |
 | Vault | Ready |
 
+\`\`\`ts
+const ready = true;
+\`\`\`
+
 <script>alert('unsafe')</script>`}
       />,
     );
@@ -36,6 +40,8 @@ describe('MarkdownPreview', () => {
     ).toBeInTheDocument();
     expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
     expect(screen.getByRole('table')).toHaveTextContent('VaultReady');
+    expect(screen.getByRole('table')).toHaveClass('ui-native-scrollbar');
+    expect(container.querySelector('pre')).toHaveClass('ui-native-scrollbar');
     expect(container.querySelector('script')).not.toBeInTheDocument();
     expect(container).not.toHaveTextContent('unsafe');
   });

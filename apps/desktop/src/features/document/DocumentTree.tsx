@@ -26,6 +26,7 @@ import {
   DropdownMenuSeparator,
 } from '../../components/ui/DropdownMenu';
 import { Button } from '../../components/ui/Button';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { DocumentTreeDnd } from './DocumentTreeDnd';
@@ -206,7 +207,11 @@ function DocumentTreeContent({
   }
 
   return (
-    <div className="document-tree-scroll">
+    <ScrollArea
+      className="document-tree-scroll-area"
+      orientation="vertical"
+      viewportProps={{ className: 'document-tree-scroll' }}
+    >
       {canCreate && (
         <div className="document-tree-inline-action">
           <Button
@@ -295,7 +300,7 @@ function DocumentTreeContent({
           ))}
         </div>
       )}
-    </div>
+    </ScrollArea>
   );
 }
 

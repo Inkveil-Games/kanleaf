@@ -145,6 +145,7 @@ describe('MarkdownSourceEditor', () => {
       />,
     );
     const scroller = container.querySelector<HTMLElement>('.cm-scroller')!;
+    expect(scroller).toHaveClass('ui-native-scrollbar');
     const content = container.querySelector<HTMLElement>('.cm-content')!;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
       function (this: HTMLElement) {

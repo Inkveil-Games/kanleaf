@@ -259,9 +259,15 @@ describe('DocumentTree drag and drop', () => {
     expect(
       screen.queryByRole('button', { name: 'Reorder Read only' }),
     ).toBeNull();
-    expect(
-      screen.getByRole('treeitem', { name: 'Editable' }),
-    ).not.toHaveAttribute('aria-grabbed');
+    const treeItem = screen.getByRole('treeitem', { name: 'Editable' });
+    const tree = screen.getByRole('tree', { name: 'Workspace Library' });
+    expect(treeItem).not.toHaveAttribute('aria-grabbed');
+    expect(tree).toContainElement(treeItem);
+    expect(tree.closest('.ui-scroll-area-viewport')).not.toBeNull();
+    expect(tree.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
   });
 
   it('aligns leaf and parent content with a non-interactive leaf chevron spacer', () => {

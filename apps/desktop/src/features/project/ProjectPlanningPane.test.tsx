@@ -193,6 +193,23 @@ describe('ProjectPlanningPane', () => {
     expect(
       await screen.findByRole('heading', { name: 'Cycle 1', level: 2 }),
     ).toBeInTheDocument();
+    const list = screen.getByRole('listbox', { name: 'cycles' });
+    const detailHeading = screen.getByRole('heading', {
+      name: 'Cycle 1',
+      level: 2,
+    });
+    expect(list).toHaveClass('ui-scroll-area-viewport', 'planning-list');
+    expect(list.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
+    expect(detailHeading.closest('.planning-detail-scroll')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
+    expect(detailHeading.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
     expect(selectId).not.toHaveBeenCalled();
   });
 

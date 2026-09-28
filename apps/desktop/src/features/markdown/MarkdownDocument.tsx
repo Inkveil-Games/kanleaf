@@ -19,6 +19,7 @@ import { ApiError } from '../../lib/api/client';
 import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
@@ -398,12 +399,17 @@ function LoadedMarkdownDocument({
           </div>
         )}
         {(mode === 'reading' || mode === 'split') && (
-          <MarkdownPreview
-            content={content}
-            onTaskToggle={
-              mode === 'reading' && !readOnly ? changeContent : undefined
-            }
-          />
+          <ScrollArea
+            className="markdown-preview-scroll-area"
+            orientation="both"
+          >
+            <MarkdownPreview
+              content={content}
+              onTaskToggle={
+                mode === 'reading' && !readOnly ? changeContent : undefined
+              }
+            />
+          </ScrollArea>
         )}
       </div>
     </DocumentFrame>

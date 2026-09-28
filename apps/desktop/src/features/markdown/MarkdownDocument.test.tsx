@@ -128,6 +128,14 @@ describe('MarkdownDocument', () => {
       screen.getByRole('heading', { name: 'Architecture' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('table')).toHaveTextContent('VaultFilesystem');
+    const preview = document.querySelector('.markdown-preview');
+    expect(preview?.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'both',
+    );
+    expect(
+      document.querySelectorAll('.document-workspace > .ui-scroll-area'),
+    ).toHaveLength(1);
 
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     await waitFor(() =>

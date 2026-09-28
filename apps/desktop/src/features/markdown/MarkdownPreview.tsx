@@ -55,6 +55,15 @@ export function MarkdownPreview({
                 {children}
               </a>
             ),
+            pre: ({ className, ...props }) => (
+              <pre {...props} className={nativeScrollbarClassName(className)} />
+            ),
+            table: ({ className, ...props }) => (
+              <table
+                {...props}
+                className={nativeScrollbarClassName(className)}
+              />
+            ),
             li: MarkdownListItem,
           }}
         >
@@ -63,6 +72,10 @@ export function MarkdownPreview({
       </MarkdownTaskContext.Provider>
     </article>
   );
+}
+
+function nativeScrollbarClassName(className: string | undefined) {
+  return ['ui-native-scrollbar', className].filter(Boolean).join(' ');
 }
 
 function MarkdownListItem({

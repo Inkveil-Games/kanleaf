@@ -18,6 +18,14 @@ const markdownSupport = markdown({
   codeLanguages: languages,
 });
 const livePreviewExtension = markdownLivePreview();
+const nativeScrollbarExtension = ViewPlugin.define((view) => {
+  view.scrollDOM.classList.add('ui-native-scrollbar');
+  return {
+    destroy() {
+      view.scrollDOM.classList.remove('ui-native-scrollbar');
+    },
+  };
+});
 const trailingWhitespaceExtension = ViewPlugin.define((view) => {
   const handleMouseDown = (event: MouseEvent) => {
     if (
@@ -84,6 +92,7 @@ const sourceExtensions = [
   keymap.of([indentWithTab]),
   EditorView.lineWrapping,
   kanleafMarkdownTheme,
+  nativeScrollbarExtension,
 ];
 const livePreviewExtensions = [
   ...sourceExtensions,
