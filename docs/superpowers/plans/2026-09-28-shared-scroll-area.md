@@ -328,12 +328,15 @@ git commit -m "feat(settings): unify shell scroll areas"
 - Modify: `apps/desktop/src/features/command/CommandPalette.test.tsx`
 - Modify: `apps/desktop/src/features/workspace/WorkspaceControl.tsx`
 - Modify: `apps/desktop/src/features/workspace/WorkspaceControl.test.tsx`
+- Create: `apps/desktop/src/lib/nativeScrollbarReveal.ts`
+- Create: `apps/desktop/src/lib/nativeScrollbarReveal.test.ts`
+- Modify: `apps/desktop/src/main.tsx`
 - Modify: `apps/desktop/src/styles/global.css`
 
 **Interfaces:**
 
 - Consumes: shared native fallback class/tokens and `ScrollArea` only where a wrapper does not alter popup positioning or focus ownership.
-- Produces: the common visual treatment for remaining app-owned overflow with unchanged Base UI Select/Menu/Popover/Dialog dismissal and focus behavior.
+- Produces: the common visual treatment for remaining app-owned overflow with unchanged Base UI Select/Menu/Popover/Dialog dismissal and focus behavior, plus delegated strip-hover and active-scroll state for native fallback owners.
 
 - [ ] **Step 1: Add failing popup interaction tests**
 

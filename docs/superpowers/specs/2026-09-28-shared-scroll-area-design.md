@@ -103,6 +103,8 @@ Some scroll containers are owned internally by CodeMirror, native form
 controls, or rendered Markdown elements. Wrapping those nodes would change DOM
 or editor contracts, so they retain native overflow and receive a shared CSS
 fallback based on the same size, color, hover, focus, and reduced-motion tokens.
+A delegated interaction controller marks only the native scrollbar strip and
+active scrolling state; hovering the content itself does not reveal the thumb.
 Touch platforms continue using their platform overlay scrollbar.
 
 Previously hidden application-owned toolbar and navigation overflow migrates to
@@ -120,9 +122,11 @@ header stays at `top: 0` and grouped State headers stay immediately below it.
 Table headers, planning headers, and navigation footers must retain their
 current sticky or fixed relationships.
 
-Nested scroll areas keep a single wheel owner at each pointer position. No
-wrapper should be added around content that already delegates scrolling to a
-child unless the old parent overflow is removed in the same change.
+Nested scroll areas keep a single wheel owner at each pointer position while
+allowing a gesture on an axis the inner viewport cannot consume to chain to its
+parent. No wrapper should be added around content that already delegates
+scrolling to a child unless the old parent overflow is removed in the same
+change.
 
 ## Accessibility and interaction
 
