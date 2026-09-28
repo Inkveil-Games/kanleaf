@@ -360,10 +360,9 @@ test('restores a Workspace route through refresh and browser history', async ({
   await page.goto(inboxPath);
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
   await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  await expect(
+    page.getByRole('button', { name: 'Inbox', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
 
   await page.reload();
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
