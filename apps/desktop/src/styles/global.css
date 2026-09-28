@@ -2595,8 +2595,6 @@ html[data-input-modality='keyboard']
 
 .navigation-scroll {
   padding: var(--space-2) var(--space-3);
-  overflow: auto;
-  scrollbar-width: thin;
 }
 
 .nav-section {
@@ -3181,16 +3179,16 @@ html[data-input-modality='keyboard']
 
 .task-layout-surface
   > :is(
-    .task-list,
-    .task-board,
-    .task-calendar,
+    .task-list-scroll-area,
+    .task-board-scroll-area,
+    .task-calendar-scroll-area,
     .task-table-wrap,
-    .task-timeline
+    .task-timeline-scroll-area
   ) {
   grid-row: 2;
 }
 
-.task-layout-surface > .task-list {
+.task-layout-surface > .task-list-scroll-area {
   height: 100%;
 }
 
@@ -3688,14 +3686,12 @@ kbd {
 
 .task-list {
   min-height: 0;
-  overflow: auto;
   outline: 0;
-  scrollbar-width: thin;
 }
 
 .task-list-group,
 .task-list-column-header,
-.task-list > .task-row {
+.task-list > .ui-scroll-area-content > .task-row {
   min-width: 900px;
 }
 
@@ -3829,7 +3825,6 @@ html[data-input-modality='keyboard'] .task-list:focus-visible {
   height: 100%;
   gap: var(--space-3);
   padding: var(--space-3);
-  overflow-x: auto;
   background: var(--color-canvas);
 }
 
@@ -3875,16 +3870,19 @@ html[data-input-modality='keyboard'] .task-list:focus-visible {
   font-size: 0.65rem;
 }
 
-.board-column-list {
+.board-column-scroll-area {
+  min-height: 0;
+}
+
+.board-column-list-content {
   display: grid;
   min-height: 48px;
   align-content: start;
   gap: 5px;
   padding: 5px;
-  overflow-y: auto;
 }
 
-.board-column-list > p {
+.board-column-list-content > p {
   margin: 10px 6px;
   color: var(--color-text-muted);
   font-size: 0.68rem;
@@ -3948,7 +3946,6 @@ html[data-input-modality='keyboard'] .task-list:focus-visible {
   display: grid;
   height: 100%;
   grid-template-rows: 38px 25px minmax(420px, 1fr) auto;
-  overflow: auto;
 }
 
 .calendar-toolbar {
@@ -4074,7 +4071,6 @@ html[data-input-modality='keyboard'] .task-list:focus-visible {
 
 .task-table-wrap {
   height: 100%;
-  overflow: auto;
 }
 
 .task-table {
@@ -4290,7 +4286,6 @@ html[data-input-modality='keyboard'] .task-table .select-trigger:focus-visible {
   min-height: 100%;
   grid-template-columns: 190px minmax(700px, 1fr);
   align-content: start;
-  overflow: auto;
   font-size: 0.68rem;
 }
 
@@ -4905,8 +4900,6 @@ html[data-input-modality='keyboard']
   container: task-detail / inline-size;
   min-height: 0;
   padding: clamp(24px, 4vw, 48px);
-  overflow: auto;
-  scrollbar-width: thin;
 }
 
 .task-title-input {

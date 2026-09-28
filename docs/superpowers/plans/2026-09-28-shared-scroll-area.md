@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Add no dependency; use `@base-ui/react/scroll-area` already in the lockfile.
-- Show scrollbar chrome during hover, focus-within, scrolling, and dragging; Base UI's active-scroll state clears after 500 ms and CSS fades opacity over 160 ms.
+- Show scrollbar chrome while its 10 px interaction strip is hovered, or during focus-within, scrolling, and dragging; Base UI's active-scroll state clears after 500 ms and CSS fades opacity over 160 ms.
 - Use a 10 px interaction strip and approximately 5 px visible pill thumb; keep track and corner transparent.
 - Remove the opacity transition under `prefers-reduced-motion`.
 - Do not alter wheel, trackpad, touch, keyboard, momentum, selection, routing, virtualization, or editor behavior.

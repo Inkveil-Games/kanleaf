@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
 } from '../../components/ui/DropdownMenu';
 import { IconButton } from '../../components/ui/IconButton';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { CreateProjectDialog } from '../project/create/CreateProjectDialog';
 import { ProjectIconGlyph } from '../project/ProjectIconGlyph';
@@ -146,7 +147,15 @@ export function WorkspaceNavigation({
 
   return (
     <aside className="navigation-pane navigation-pane-full">
-      <nav className="navigation-scroll" aria-label="Workspace">
+      <ScrollArea
+        className="navigation-scroll-area"
+        orientation="vertical"
+        viewportProps={{
+          className: 'navigation-scroll',
+          role: 'navigation',
+          'aria-label': 'Workspace',
+        }}
+      >
         <div className="nav-section nav-primary">
           {canUseContent && (
             <>
@@ -352,7 +361,7 @@ export function WorkspaceNavigation({
             </div>
           )}
         </section>
-      </nav>
+      </ScrollArea>
 
       {composingProject ? (
         <CreateProjectDialog

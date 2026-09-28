@@ -163,9 +163,18 @@ describe('TaskDetailPane', () => {
     };
     const { rerender } = render(<TaskDetailPane {...props} task={task} />);
     const drawer = screen.getByRole('region', { name: 'Task detail' });
+    const detailViewport = drawer.querySelector('.detail-scroll');
 
     expect(screen.getByRole('button', { name: 'Close task' })).toBeVisible();
     expect(screen.queryByText('Back')).not.toBeInTheDocument();
+    expect(detailViewport).toHaveClass('ui-scroll-area-viewport');
+    expect(detailViewport?.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
+    expect(detailViewport).toContainElement(
+      screen.getByRole('textbox', { name: 'Task title' }),
+    );
 
     rerender(
       <TaskDetailPane

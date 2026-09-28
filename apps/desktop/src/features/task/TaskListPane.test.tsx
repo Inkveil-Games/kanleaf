@@ -190,13 +190,27 @@ describe('TaskListPane', () => {
 
   it('moves to the next semantic state and supports keyboard row navigation', async () => {
     const props = renderList();
+    const listbox = screen.getByRole('listbox', { name: 'Inbox tasks' });
+    const header = document.querySelector('.task-list-column-header');
+    const firstOption = screen.getAllByRole('option')[0]!;
+
+    expect(listbox).toHaveClass('ui-scroll-area-viewport', 'task-list');
+    expect(listbox.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'both',
+    );
+    expect(header).not.toBeNull();
+    expect(
+      (header as HTMLElement).compareDocumentPosition(firstOption) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole('button', {
         name: 'Move Design the navigation to In Progress',
       }),
     );
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
 
     await waitFor(() =>
       expect(props.onUpdateState).toHaveBeenCalledWith(
@@ -633,18 +647,36 @@ describe('TaskListPane', () => {
   ] as const)('renders the %s layout', (layout, expectedName) => {
     renderList({ layout });
 
+    const scrollRoot = document.querySelector(
+      '.task-layout-surface > .ui-scroll-area',
+    );
+    expect(scrollRoot).not.toBeNull();
+    expect(
+      document.querySelectorAll('.task-layout-surface > .ui-scroll-area'),
+    ).toHaveLength(1);
+
     if (layout === 'board') {
-      expect(screen.getByLabelText(expectedName)).toBeInTheDocument();
+      const board = screen.getByLabelText(expectedName);
+      expect(board).toBeInTheDocument();
+      expect(scrollRoot).toHaveAttribute('data-orientation', 'horizontal');
+      expect(scrollRoot).toContainElement(board);
     } else if (layout === 'calendar') {
-      expect(
-        screen.getByRole('grid', { name: expectedName }),
-      ).toBeInTheDocument();
+      const calendar = screen.getByRole('grid', { name: expectedName });
+      expect(calendar).toBeInTheDocument();
+      expect(scrollRoot).toHaveAttribute('data-orientation', 'both');
+      expect(scrollRoot).toContainElement(calendar);
     } else if (layout === 'table') {
-      expect(
-        screen.getByRole('columnheader', { name: expectedName }),
-      ).toBeInTheDocument();
+      const tableHeading = screen.getByRole('columnheader', {
+        name: expectedName,
+      });
+      expect(tableHeading).toBeInTheDocument();
+      expect(scrollRoot).toHaveAttribute('data-orientation', 'both');
+      expect(scrollRoot).toContainElement(tableHeading);
     } else {
-      expect(screen.getByText(expectedName)).toBeInTheDocument();
+      const unscheduled = screen.getByText(expectedName);
+      expect(unscheduled).toBeInTheDocument();
+      expect(scrollRoot).toHaveAttribute('data-orientation', 'both');
+      expect(scrollRoot).toContainElement(unscheduled);
     }
   });
 

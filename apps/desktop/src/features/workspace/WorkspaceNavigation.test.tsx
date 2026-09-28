@@ -44,10 +44,21 @@ describe('WorkspaceNavigation', () => {
   it('keeps the full hierarchy in expanded and drawer modes', () => {
     const { rerender } = renderNavigation({ mode: 'expanded' });
 
-    expect(screen.getByRole('navigation', { name: 'Workspace' })).toHaveClass(
+    const workspaceNavigation = screen.getByRole('navigation', {
+      name: 'Workspace',
+    });
+    expect(workspaceNavigation).toHaveClass(
+      'ui-scroll-area-viewport',
       'navigation-scroll',
     );
+    expect(workspaceNavigation.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
     expect(screen.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    expect(workspaceNavigation).toContainElement(
+      screen.getByRole('button', { name: 'Inbox' }),
+    );
     expect(screen.getByText('Saved Views')).toBeVisible();
     expect(screen.getByText('Projects')).toBeVisible();
 

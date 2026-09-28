@@ -5,7 +5,7 @@
 ## Intent
 
 Kanleaf will use one restrained scrollbar treatment across its application-owned
-scroll regions. Scrollbars remain discoverable on hover and keyboard focus, are
+scroll regions. Scrollbars remain discoverable at their interaction strip and on keyboard focus, are
 visible while content is moving, and fade away when the region becomes idle.
 The change must preserve the desktop pane hierarchy, dense layouts, sticky
 headers, keyboard operation, and platform scrolling behavior.
@@ -16,7 +16,7 @@ headers, keyboard operation, and platform scrolling behavior.
   already-installed Base UI Scroll Area.
 - Give vertical and horizontal scrolling the same visual language in light and
   dark themes.
-- Show a scrollbar while its area is hovered, focused, actively scrolled, or
+- Show a scrollbar while its 10 px interaction strip is hovered, while its area is focused, actively scrolled, or
   dragged; otherwise hide it without reserving visible gutter space.
 - Adopt the primitive across Kanleaf-owned panes, lists, menus, tables, boards,
   dialogs, Settings surfaces, and Developer surfaces.
@@ -67,7 +67,7 @@ Base UI provides `data-hovering`, `data-scrolling`, overflow, and orientation
 states. The scrollbar is transparent by default and becomes visible when any
 of these conditions hold:
 
-- the pointer is over the scroll area;
+- the pointer is over the scrollbar interaction strip;
 - the viewport or a descendant has keyboard focus;
 - Base UI reports active scrolling;
 - the thumb is being dragged.

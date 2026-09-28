@@ -32,6 +32,7 @@ import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Select } from '../../components/ui/Select';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Textarea } from '../../components/ui/Textarea';
 import { TaskActivity } from '../collaboration/TaskActivity';
 import { TaskPinnedProperties } from './TaskPinnedProperties';
@@ -313,212 +314,212 @@ function SelectedTaskDetail({
   }
 
   return (
-    <>
-      <div className="detail-scroll">
-        <Textarea
-          ref={titleRef}
-          className="task-title-input"
-          aria-label="Task title"
-          rows={1}
-          maxLength={300}
-          value={title}
-          readOnly={!canEdit}
-          disabled={savingTitle}
-          onChange={(event) => setTitle(event.target.value)}
-          onBlur={() => void saveTitle()}
-          onKeyDown={titleKeyDown}
-        />
+    <ScrollArea
+      className="task-detail-scroll-area"
+      orientation="vertical"
+      viewportProps={{ className: 'detail-scroll' }}
+    >
+      <Textarea
+        ref={titleRef}
+        className="task-title-input"
+        aria-label="Task title"
+        rows={1}
+        maxLength={300}
+        value={title}
+        readOnly={!canEdit}
+        disabled={savingTitle}
+        onChange={(event) => setTitle(event.target.value)}
+        onBlur={() => void saveTitle()}
+        onKeyDown={titleKeyDown}
+      />
 
-        <TaskPinnedProperties
-          task={task}
-          states={states}
-          assigneeCandidates={assigneeCandidates}
-          canEdit={canEdit}
-          editing={propertyEditing}
-        />
+      <TaskPinnedProperties
+        task={task}
+        states={states}
+        assigneeCandidates={assigneeCandidates}
+        canEdit={canEdit}
+        editing={propertyEditing}
+      />
 
-        <div className="task-detail-error-slot">
-          {error ? (
-            <p className="detail-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-        </div>
-
-        <Suspense
-          fallback={
-            <section className="task-document" aria-label="Markdown document">
-              <header className="document-toolbar document-toolbar-pending">
-                <span>Markdown</span>
-                <span className="save-indicator" role="status">
-                  Loading…
-                </span>
-              </header>
-              <div className="document-state">Loading editor…</div>
-            </section>
-          }
-        >
-          <MarkdownDocument
-            serverUrl={serverUrl}
-            token={token}
-            workspaceId={workspaceId}
-            target={{ kind: 'task', id: task.id }}
-            readOnly={!canEdit}
-          />
-        </Suspense>
-
-        <TaskProperties
-          task={task}
-          projects={projects}
-          labels={labels}
-          cycles={cycles}
-          modules={modules}
-          taskCandidates={taskCandidates}
-          canEdit={canEdit}
-          canManageProperties={canManageProperties}
-          editing={propertyEditing}
-          customProperties={customProperties}
-          customPropertiesLoading={customPropertiesLoading}
-          customPropertiesError={customPropertiesError}
-          onRetryCustomProperties={onRetryCustomProperties}
-          undefinedProperties={undefinedProperties}
-          undefinedPropertiesLoading={undefinedPropertiesLoading}
-          undefinedPropertiesError={undefinedPropertiesError}
-          onRetryUndefinedProperties={onRetryUndefinedProperties}
-          onCustomPropertyChange={onCustomPropertyChange}
-          onDefineProperty={onDefineProperty}
-        />
-
-        <section className="task-secondary-details" aria-label="Task structure">
-          <details className="task-structure-disclosure">
-            <summary>
-              <span>Subtasks</span>
-              <span>{task.subtasks.length}</span>
-            </summary>
-            <div className="task-link-section">
-              {task.subtasks.length === 0 ? (
-                <p>No subtasks.</p>
-              ) : (
-                task.subtasks.map((subtask) => (
-                  <button
-                    key={subtask.id}
-                    type="button"
-                    onClick={() => onOpenTask(subtask.id)}
-                  >
-                    <span>{subtask.reference}</span>
-                    {subtask.title}
-                  </button>
-                ))
-              )}
-            </div>
-          </details>
-          <details className="task-structure-disclosure">
-            <summary>
-              <span>Relations</span>
-              <span>{task.relations.length}</span>
-            </summary>
-            <div className="task-link-section">
-              {task.relations.map((relation) => (
-                <div className="task-relation-row" key={relation.task.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenTask(relation.task.id)}
-                  >
-                    <span>{relationLabel(relation.relation_type)}</span>
-                    {relation.task.reference} · {relation.task.title}
-                  </button>
-                  {canEdit && (
-                    <IconButton
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      aria-label={`Remove relation to ${relation.task.title}`}
-                      onClick={() =>
-                        void onRemoveRelation(relation.task.id).catch(
-                          (caught: unknown) => setError(errorMessage(caught)),
-                        )
-                      }
-                    >
-                      <X aria-hidden="true" size={13} />
-                    </IconButton>
-                  )}
-                </div>
-              ))}
-              {task.relations.length === 0 && <p>No relations.</p>}
-              {canEdit && (
-                <form
-                  className="relation-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!relatedTaskId) return;
-                    setRelationSaving(true);
-                    void onAddRelation(relatedTaskId, relationType)
-                      .then(() => setRelatedTaskId(''))
-                      .catch((caught: unknown) =>
-                        setError(errorMessage(caught)),
-                      )
-                      .finally(() => setRelationSaving(false));
-                  }}
-                >
-                  <Link2 aria-hidden="true" size={14} />
-                  <Select
-                    ariaLabel="Relation type"
-                    value={relationType}
-                    options={[
-                      { value: 'relates_to', label: 'Relates to' },
-                      { value: 'blocking', label: 'Blocking' },
-                      { value: 'blocked_by', label: 'Blocked by' },
-                      { value: 'duplicate', label: 'Duplicate' },
-                    ]}
-                    onValueChange={(value) =>
-                      setRelationType(value as TaskRelationType)
-                    }
-                  />
-                  <Select
-                    ariaLabel="Related task"
-                    value={relatedTaskId}
-                    options={[
-                      { value: '', label: 'Choose a Task…' },
-                      ...taskCandidates
-                        .filter(
-                          (candidate) =>
-                            candidate.id !== task.id &&
-                            !task.relations.some(
-                              (relation) => relation.task.id === candidate.id,
-                            ),
-                        )
-                        .map((candidate) => ({
-                          value: candidate.id,
-                          label: `${candidate.reference} · ${candidate.title}`,
-                        })),
-                    ]}
-                    onValueChange={setRelatedTaskId}
-                  />
-                  <Button
-                    variant="primary"
-                    type="submit"
-                    loading={relationSaving}
-                    loadingLabel="Adding relation"
-                    disabled={!relatedTaskId}
-                  >
-                    <Plus aria-hidden="true" size={14} /> Add
-                  </Button>
-                </form>
-              )}
-            </div>
-          </details>
-        </section>
-
-        <TaskActivity
-          context={{ serverUrl, token }}
-          workspaceId={workspaceId}
-          taskId={task.id}
-          currentUserId={currentUserId}
-          canComment={canComment}
-          canModerate={canModerate}
-        />
+      <div className="task-detail-error-slot">
+        {error ? (
+          <p className="detail-error" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
-    </>
+
+      <Suspense
+        fallback={
+          <section className="task-document" aria-label="Markdown document">
+            <header className="document-toolbar document-toolbar-pending">
+              <span>Markdown</span>
+              <span className="save-indicator" role="status">
+                Loading…
+              </span>
+            </header>
+            <div className="document-state">Loading editor…</div>
+          </section>
+        }
+      >
+        <MarkdownDocument
+          serverUrl={serverUrl}
+          token={token}
+          workspaceId={workspaceId}
+          target={{ kind: 'task', id: task.id }}
+          readOnly={!canEdit}
+        />
+      </Suspense>
+
+      <TaskProperties
+        task={task}
+        projects={projects}
+        labels={labels}
+        cycles={cycles}
+        modules={modules}
+        taskCandidates={taskCandidates}
+        canEdit={canEdit}
+        canManageProperties={canManageProperties}
+        editing={propertyEditing}
+        customProperties={customProperties}
+        customPropertiesLoading={customPropertiesLoading}
+        customPropertiesError={customPropertiesError}
+        onRetryCustomProperties={onRetryCustomProperties}
+        undefinedProperties={undefinedProperties}
+        undefinedPropertiesLoading={undefinedPropertiesLoading}
+        undefinedPropertiesError={undefinedPropertiesError}
+        onRetryUndefinedProperties={onRetryUndefinedProperties}
+        onCustomPropertyChange={onCustomPropertyChange}
+        onDefineProperty={onDefineProperty}
+      />
+
+      <section className="task-secondary-details" aria-label="Task structure">
+        <details className="task-structure-disclosure">
+          <summary>
+            <span>Subtasks</span>
+            <span>{task.subtasks.length}</span>
+          </summary>
+          <div className="task-link-section">
+            {task.subtasks.length === 0 ? (
+              <p>No subtasks.</p>
+            ) : (
+              task.subtasks.map((subtask) => (
+                <button
+                  key={subtask.id}
+                  type="button"
+                  onClick={() => onOpenTask(subtask.id)}
+                >
+                  <span>{subtask.reference}</span>
+                  {subtask.title}
+                </button>
+              ))
+            )}
+          </div>
+        </details>
+        <details className="task-structure-disclosure">
+          <summary>
+            <span>Relations</span>
+            <span>{task.relations.length}</span>
+          </summary>
+          <div className="task-link-section">
+            {task.relations.map((relation) => (
+              <div className="task-relation-row" key={relation.task.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenTask(relation.task.id)}
+                >
+                  <span>{relationLabel(relation.relation_type)}</span>
+                  {relation.task.reference} · {relation.task.title}
+                </button>
+                {canEdit && (
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    aria-label={`Remove relation to ${relation.task.title}`}
+                    onClick={() =>
+                      void onRemoveRelation(relation.task.id).catch(
+                        (caught: unknown) => setError(errorMessage(caught)),
+                      )
+                    }
+                  >
+                    <X aria-hidden="true" size={13} />
+                  </IconButton>
+                )}
+              </div>
+            ))}
+            {task.relations.length === 0 && <p>No relations.</p>}
+            {canEdit && (
+              <form
+                className="relation-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!relatedTaskId) return;
+                  setRelationSaving(true);
+                  void onAddRelation(relatedTaskId, relationType)
+                    .then(() => setRelatedTaskId(''))
+                    .catch((caught: unknown) => setError(errorMessage(caught)))
+                    .finally(() => setRelationSaving(false));
+                }}
+              >
+                <Link2 aria-hidden="true" size={14} />
+                <Select
+                  ariaLabel="Relation type"
+                  value={relationType}
+                  options={[
+                    { value: 'relates_to', label: 'Relates to' },
+                    { value: 'blocking', label: 'Blocking' },
+                    { value: 'blocked_by', label: 'Blocked by' },
+                    { value: 'duplicate', label: 'Duplicate' },
+                  ]}
+                  onValueChange={(value) =>
+                    setRelationType(value as TaskRelationType)
+                  }
+                />
+                <Select
+                  ariaLabel="Related task"
+                  value={relatedTaskId}
+                  options={[
+                    { value: '', label: 'Choose a Task…' },
+                    ...taskCandidates
+                      .filter(
+                        (candidate) =>
+                          candidate.id !== task.id &&
+                          !task.relations.some(
+                            (relation) => relation.task.id === candidate.id,
+                          ),
+                      )
+                      .map((candidate) => ({
+                        value: candidate.id,
+                        label: `${candidate.reference} · ${candidate.title}`,
+                      })),
+                  ]}
+                  onValueChange={setRelatedTaskId}
+                />
+                <Button
+                  variant="primary"
+                  type="submit"
+                  loading={relationSaving}
+                  loadingLabel="Adding relation"
+                  disabled={!relatedTaskId}
+                >
+                  <Plus aria-hidden="true" size={14} /> Add
+                </Button>
+              </form>
+            )}
+          </div>
+        </details>
+      </section>
+
+      <TaskActivity
+        context={{ serverUrl, token }}
+        workspaceId={workspaceId}
+        taskId={task.id}
+        currentUserId={currentUserId}
+        canComment={canComment}
+        canModerate={canModerate}
+      />
+    </ScrollArea>
   );
 }
 

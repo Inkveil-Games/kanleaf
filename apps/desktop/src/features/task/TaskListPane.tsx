@@ -14,6 +14,7 @@ import {
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Tooltip } from '../../components/ui/Tooltip';
 import {
   useEffect,
@@ -426,12 +427,16 @@ export function TaskListPane({
           </div>
         )}
         {tasks.length > 0 && layout === 'list' && (
-          <div
-            className="task-list"
-            role="listbox"
-            aria-label={`${title} tasks`}
-            tabIndex={0}
-            onKeyDown={moveSelection}
+          <ScrollArea
+            className="task-list-scroll-area"
+            orientation="both"
+            viewportProps={{
+              className: 'task-list',
+              role: 'listbox',
+              'aria-label': `${title} tasks`,
+              tabIndex: 0,
+              onKeyDown: moveSelection,
+            }}
           >
             <div className="task-list-column-header" aria-hidden="true">
               <span className="task-list-column-task">Task</span>
@@ -494,7 +499,7 @@ export function TaskListPane({
                   );
                 })
               : renderTaskRows(tasks)}
-          </div>
+          </ScrollArea>
         )}
         {tasks.length > 0 && layout !== 'list' && (
           <TaskLayouts

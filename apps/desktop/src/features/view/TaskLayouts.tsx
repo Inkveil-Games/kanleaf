@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { IconButton } from '../../components/ui/IconButton';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Select } from '../../components/ui/Select';
 import {
   MultiValuePicker,
@@ -88,70 +89,80 @@ function TaskBoard({
   }
 
   return (
-    <div className="task-board" aria-label={`Board grouped by ${field}`}>
-      {groups.map((group) => {
-        const groupedTasks = tasks.filter((task) => group.taskIds.has(task.id));
-        const secondaryGroups = query.grouping.secondary
-          ? buildTaskGroups(
-              query.grouping.secondary,
-              groupedTasks,
-              projects,
-              states,
-            ).filter(({ taskIds }) => taskIds.size > 0)
-          : [];
-        return (
-          <section
-            className="board-column"
-            key={group.id}
-            onDragOver={(event) => {
-              if (boardDropPatch(field, group.id)) {
-                event.preventDefault();
-              }
-            }}
-            onDrop={(event) => void dropTask(event, group)}
-          >
-            <header>
-              {group.color && (
-                <span
-                  style={{ '--group-color': group.color } as CSSProperties}
-                />
-              )}
-              <h2>{group.label}</h2>
-              <small>{groupedTasks.length}</small>
-            </header>
-            <div className="board-column-list">
-              {secondaryGroups.length > 0
-                ? secondaryGroups.map((secondary) => (
-                    <section className="board-subgroup" key={secondary.id}>
-                      <h3>{secondary.label}</h3>
-                      {groupedTasks
-                        .filter((task) => secondary.taskIds.has(task.id))
-                        .map((task) => (
-                          <BoardTaskButton
-                            key={task.id}
-                            task={task}
-                            selected={task.id === selectedTaskId}
-                            draggable={canEditTask(task)}
-                            onSelect={() => onSelectTask(task.id)}
-                          />
-                        ))}
-                    </section>
-                  ))
-                : groupedTasks.map((task) => (
-                    <BoardTaskButton
-                      key={task.id}
-                      task={task}
-                      selected={task.id === selectedTaskId}
-                      draggable={canEditTask(task)}
-                      onSelect={() => onSelectTask(task.id)}
-                    />
-                  ))}
-              {groupedTasks.length === 0 && <p>Drop tasks here</p>}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <ScrollArea className="task-board-scroll-area" orientation="horizontal">
+      <div className="task-board" aria-label={`Board grouped by ${field}`}>
+        {groups.map((group) => {
+          const groupedTasks = tasks.filter((task) =>
+            group.taskIds.has(task.id),
+          );
+          const secondaryGroups = query.grouping.secondary
+            ? buildTaskGroups(
+                query.grouping.secondary,
+                groupedTasks,
+                projects,
+                states,
+              ).filter(({ taskIds }) => taskIds.size > 0)
+            : [];
+          return (
+            <section
+              className="board-column"
+              key={group.id}
+              onDragOver={(event) => {
+                if (boardDropPatch(field, group.id)) {
+                  event.preventDefault();
+                }
+              }}
+              onDrop={(event) => void dropTask(event, group)}
+            >
+              <header>
+                {group.color && (
+                  <span
+                    style={{ '--group-color': group.color } as CSSProperties}
+                  />
+                )}
+                <h2>{group.label}</h2>
+                <small>{groupedTasks.length}</small>
+              </header>
+              <ScrollArea
+                className="board-column-scroll-area"
+                orientation="vertical"
+                viewportProps={{ className: 'board-column-list' }}
+              >
+                <div className="board-column-list-content">
+                  {secondaryGroups.length > 0
+                    ? secondaryGroups.map((secondary) => (
+                        <section className="board-subgroup" key={secondary.id}>
+                          <h3>{secondary.label}</h3>
+                          {groupedTasks
+                            .filter((task) => secondary.taskIds.has(task.id))
+                            .map((task) => (
+                              <BoardTaskButton
+                                key={task.id}
+                                task={task}
+                                selected={task.id === selectedTaskId}
+                                draggable={canEditTask(task)}
+                                onSelect={() => onSelectTask(task.id)}
+                              />
+                            ))}
+                        </section>
+                      ))
+                    : groupedTasks.map((task) => (
+                        <BoardTaskButton
+                          key={task.id}
+                          task={task}
+                          selected={task.id === selectedTaskId}
+                          draggable={canEditTask(task)}
+                          onSelect={() => onSelectTask(task.id)}
+                        />
+                      ))}
+                  {groupedTasks.length === 0 && <p>Drop tasks here</p>}
+                </div>
+              </ScrollArea>
+            </section>
+          );
+        })}
+      </div>
+    </ScrollArea>
   );
 }
 
@@ -212,85 +223,87 @@ function TaskCalendar({
   }
 
   return (
-    <div className="task-calendar">
-      <header className="calendar-toolbar">
-        <IconButton
-          variant="ghost"
-          size="sm"
-          type="button"
-          aria-label="Previous month"
-          onClick={() => setAnchor(addMonths(anchor, -1))}
-        >
-          <ChevronLeft aria-hidden="true" size={15} />
-        </IconButton>
-        <h2>
-          {new Intl.DateTimeFormat(undefined, {
-            month: 'long',
-            year: 'numeric',
-          }).format(anchor)}
-        </h2>
-        <IconButton
-          variant="ghost"
-          size="sm"
-          type="button"
-          aria-label="Next month"
-          onClick={() => setAnchor(addMonths(anchor, 1))}
-        >
-          <ChevronRight aria-hidden="true" size={15} />
-        </IconButton>
-      </header>
-      <div className="calendar-weekdays" aria-hidden="true">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-          <span key={day}>{day}</span>
-        ))}
-      </div>
-      <div className="calendar-grid" role="grid" aria-label="Task due dates">
-        {days.map((day) => {
-          const key = toDateInput(day);
-          const dayTasks = tasks.filter(({ due_date }) => due_date === key);
-          return (
-            <div
-              className="calendar-day"
-              data-outside={day.getMonth() !== anchor.getMonth() || undefined}
-              data-today={isSameDay(day, new Date()) || undefined}
-              key={key}
-              role="gridcell"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => void dropOnDate(event, key)}
-            >
-              <span>{day.getDate()}</span>
-              {dayTasks.map((task) => (
-                <CalendarTask
-                  key={task.id}
-                  task={task}
-                  selected={task.id === selectedTaskId}
-                  draggable={canEditTask(task)}
-                  onSelect={() => onSelectTask(task.id)}
-                />
-              ))}
-            </div>
-          );
-        })}
-      </div>
-      {unscheduled.length > 0 && (
-        <section
-          className="calendar-unscheduled"
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => void dropOnDate(event, null)}
-        >
-          <strong>Unscheduled</strong>
-          {unscheduled.map((task) => (
-            <CalendarTask
-              key={task.id}
-              task={task}
-              selected={task.id === selectedTaskId}
-              draggable={canEditTask(task)}
-              onSelect={() => onSelectTask(task.id)}
-            />
+    <ScrollArea className="task-calendar-scroll-area" orientation="both">
+      <div className="task-calendar">
+        <header className="calendar-toolbar">
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="Previous month"
+            onClick={() => setAnchor(addMonths(anchor, -1))}
+          >
+            <ChevronLeft aria-hidden="true" size={15} />
+          </IconButton>
+          <h2>
+            {new Intl.DateTimeFormat(undefined, {
+              month: 'long',
+              year: 'numeric',
+            }).format(anchor)}
+          </h2>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            type="button"
+            aria-label="Next month"
+            onClick={() => setAnchor(addMonths(anchor, 1))}
+          >
+            <ChevronRight aria-hidden="true" size={15} />
+          </IconButton>
+        </header>
+        <div className="calendar-weekdays" aria-hidden="true">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+            <span key={day}>{day}</span>
           ))}
-        </section>
-      )}
-    </div>
+        </div>
+        <div className="calendar-grid" role="grid" aria-label="Task due dates">
+          {days.map((day) => {
+            const key = toDateInput(day);
+            const dayTasks = tasks.filter(({ due_date }) => due_date === key);
+            return (
+              <div
+                className="calendar-day"
+                data-outside={day.getMonth() !== anchor.getMonth() || undefined}
+                data-today={isSameDay(day, new Date()) || undefined}
+                key={key}
+                role="gridcell"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => void dropOnDate(event, key)}
+              >
+                <span>{day.getDate()}</span>
+                {dayTasks.map((task) => (
+                  <CalendarTask
+                    key={task.id}
+                    task={task}
+                    selected={task.id === selectedTaskId}
+                    draggable={canEditTask(task)}
+                    onSelect={() => onSelectTask(task.id)}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        {unscheduled.length > 0 && (
+          <section
+            className="calendar-unscheduled ui-native-scrollbar"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => void dropOnDate(event, null)}
+          >
+            <strong>Unscheduled</strong>
+            {unscheduled.map((task) => (
+              <CalendarTask
+                key={task.id}
+                task={task}
+                selected={task.id === selectedTaskId}
+                draggable={canEditTask(task)}
+                onSelect={() => onSelectTask(task.id)}
+              />
+            ))}
+          </section>
+        )}
+      </div>
+    </ScrollArea>
   );
 }
 
@@ -393,7 +406,7 @@ function TaskTable({
   }
 
   return (
-    <div className="task-table-wrap">
+    <ScrollArea className="task-table-wrap" orientation="both">
       <table className="task-table" aria-label="Tasks">
         <thead>
           <tr>
@@ -424,7 +437,7 @@ function TaskTable({
             : renderRows(tasks)}
         </tbody>
       </table>
-    </div>
+    </ScrollArea>
   );
 }
 
@@ -683,146 +696,151 @@ function TaskTimeline({
   }
 
   return (
-    <div className="task-timeline">
-      <div className="timeline-header timeline-task-heading">Task</div>
-      <div className="timeline-dates">
-        {days.map((day) => (
-          <span
-            data-today={isSameDay(day, new Date()) || undefined}
-            key={toDateInput(day)}
-          >
-            {day.getDate()}
-            <small>
-              {day.toLocaleDateString(undefined, { weekday: 'short' })}
-            </small>
-          </span>
-        ))}
-      </div>
-      {tasks
-        .filter((task) => task.start_date || task.due_date)
-        .map((task) => {
-          const range = timelineRange(task, anchor, days.length);
-          return (
-            <div className="timeline-row" key={task.id}>
+    <ScrollArea className="task-timeline-scroll-area" orientation="both">
+      <div className="task-timeline">
+        <div className="timeline-header timeline-task-heading">Task</div>
+        <div className="timeline-dates">
+          {days.map((day) => (
+            <span
+              data-today={isSameDay(day, new Date()) || undefined}
+              key={toDateInput(day)}
+            >
+              {day.getDate()}
+              <small>
+                {day.toLocaleDateString(undefined, { weekday: 'short' })}
+              </small>
+            </span>
+          ))}
+        </div>
+        {tasks
+          .filter((task) => task.start_date || task.due_date)
+          .map((task) => {
+            const range = timelineRange(task, anchor, days.length);
+            return (
+              <div className="timeline-row" key={task.id}>
+                <button
+                  className="timeline-task-name"
+                  data-selected={task.id === selectedTaskId || undefined}
+                  type="button"
+                  onClick={() => onSelectTask(task.id)}
+                >
+                  <span>{task.title}</span>
+                  <small>{task.reference}</small>
+                </button>
+                <div className="timeline-track">
+                  {days.map((day) => (
+                    <span
+                      key={toDateInput(day)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => void moveTask(event, day)}
+                    />
+                  ))}
+                  <div
+                    className="timeline-bar"
+                    style={
+                      {
+                        '--timeline-start': range.start,
+                        '--timeline-span': range.span,
+                        '--task-state-color': task.state.color,
+                      } as CSSProperties
+                    }
+                  >
+                    {canEditTask(task) && (
+                      <button
+                        className="timeline-resize-handle timeline-resize-start"
+                        type="button"
+                        draggable
+                        aria-label={`Resize ${task.title} start`}
+                        title="Drag to change the start date; click to extend one day"
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            'text/kanleaf-task',
+                            task.id,
+                          );
+                          event.dataTransfer.setData(
+                            'text/kanleaf-timeline-mode',
+                            'start',
+                          );
+                        }}
+                        onClick={() => {
+                          const start = parseDate(
+                            task.start_date ?? task.due_date!,
+                          );
+                          void onPatchTask(task.id, {
+                            start_date: toDateInput(addDays(start, -1)),
+                          });
+                        }}
+                      />
+                    )}
+                    <button
+                      className="timeline-bar-main"
+                      type="button"
+                      draggable={canEditTask(task)}
+                      title="Drag to move this schedule"
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData(
+                          'text/kanleaf-task',
+                          task.id,
+                        );
+                        event.dataTransfer.setData(
+                          'text/kanleaf-timeline-mode',
+                          'move',
+                        );
+                        event.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onClick={() => onSelectTask(task.id)}
+                    >
+                      {task.title}
+                    </button>
+                    {canEditTask(task) && (
+                      <button
+                        className="timeline-resize-handle timeline-resize-end"
+                        type="button"
+                        draggable
+                        aria-label={`Resize ${task.title} end`}
+                        title="Drag to change the due date; click to extend one day"
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            'text/kanleaf-task',
+                            task.id,
+                          );
+                          event.dataTransfer.setData(
+                            'text/kanleaf-timeline-mode',
+                            'end',
+                          );
+                        }}
+                        onClick={() => {
+                          const end = parseDate(
+                            task.due_date ?? task.start_date!,
+                          );
+                          void onPatchTask(task.id, {
+                            due_date: toDateInput(addDays(end, 1)),
+                          });
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        {unscheduled.length > 0 && (
+          <section className="timeline-unscheduled">
+            <CalendarDays aria-hidden="true" size={14} />
+            <strong>Unscheduled</strong>
+            {unscheduled.map((task) => (
               <button
-                className="timeline-task-name"
-                data-selected={task.id === selectedTaskId || undefined}
+                key={task.id}
                 type="button"
                 onClick={() => onSelectTask(task.id)}
               >
-                <span>{task.title}</span>
-                <small>{task.reference}</small>
+                {task.title}
               </button>
-              <div className="timeline-track">
-                {days.map((day) => (
-                  <span
-                    key={toDateInput(day)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => void moveTask(event, day)}
-                  />
-                ))}
-                <div
-                  className="timeline-bar"
-                  style={
-                    {
-                      '--timeline-start': range.start,
-                      '--timeline-span': range.span,
-                      '--task-state-color': task.state.color,
-                    } as CSSProperties
-                  }
-                >
-                  {canEditTask(task) && (
-                    <button
-                      className="timeline-resize-handle timeline-resize-start"
-                      type="button"
-                      draggable
-                      aria-label={`Resize ${task.title} start`}
-                      title="Drag to change the start date; click to extend one day"
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData(
-                          'text/kanleaf-task',
-                          task.id,
-                        );
-                        event.dataTransfer.setData(
-                          'text/kanleaf-timeline-mode',
-                          'start',
-                        );
-                      }}
-                      onClick={() => {
-                        const start = parseDate(
-                          task.start_date ?? task.due_date!,
-                        );
-                        void onPatchTask(task.id, {
-                          start_date: toDateInput(addDays(start, -1)),
-                        });
-                      }}
-                    />
-                  )}
-                  <button
-                    className="timeline-bar-main"
-                    type="button"
-                    draggable={canEditTask(task)}
-                    title="Drag to move this schedule"
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData('text/kanleaf-task', task.id);
-                      event.dataTransfer.setData(
-                        'text/kanleaf-timeline-mode',
-                        'move',
-                      );
-                      event.dataTransfer.effectAllowed = 'move';
-                    }}
-                    onClick={() => onSelectTask(task.id)}
-                  >
-                    {task.title}
-                  </button>
-                  {canEditTask(task) && (
-                    <button
-                      className="timeline-resize-handle timeline-resize-end"
-                      type="button"
-                      draggable
-                      aria-label={`Resize ${task.title} end`}
-                      title="Drag to change the due date; click to extend one day"
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData(
-                          'text/kanleaf-task',
-                          task.id,
-                        );
-                        event.dataTransfer.setData(
-                          'text/kanleaf-timeline-mode',
-                          'end',
-                        );
-                      }}
-                      onClick={() => {
-                        const end = parseDate(
-                          task.due_date ?? task.start_date!,
-                        );
-                        void onPatchTask(task.id, {
-                          due_date: toDateInput(addDays(end, 1)),
-                        });
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      {unscheduled.length > 0 && (
-        <section className="timeline-unscheduled">
-          <CalendarDays aria-hidden="true" size={14} />
-          <strong>Unscheduled</strong>
-          {unscheduled.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              onClick={() => onSelectTask(task.id)}
-            >
-              {task.title}
-            </button>
-          ))}
-        </section>
-      )}
-    </div>
+            ))}
+          </section>
+        )}
+      </div>
+    </ScrollArea>
   );
 }
 

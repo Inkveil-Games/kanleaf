@@ -32,7 +32,7 @@
   border-radius: 999px;
   opacity: 0;
   transition: opacity 160ms ease;
-  pointer-events: none;
+  pointer-events: auto;
   touch-action: none;
   user-select: none;
 }
@@ -54,10 +54,10 @@
 }
 
 .ui-scroll-area:focus-within > .ui-scroll-area-scrollbar,
+.ui-scroll-area-scrollbar:hover,
 .ui-scroll-area-scrollbar[data-hovering],
 .ui-scroll-area-scrollbar[data-scrolling] {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .ui-scroll-area-scrollbar[data-scrolling] {
