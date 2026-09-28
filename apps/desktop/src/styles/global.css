@@ -7023,8 +7023,6 @@ html[data-input-modality='keyboard']
 .settings-navigation-body {
   min-height: 0;
   padding: var(--space-3);
-  overflow: auto;
-  scrollbar-width: thin;
 }
 
 .settings-navigation-footer {
@@ -7145,8 +7143,6 @@ html[data-input-modality='keyboard']
 .settings-content {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  scrollbar-width: thin;
 }
 
 .host-console {
@@ -10006,12 +10002,11 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
-.developer-content {
+.developer-content-scroll-area {
   min-width: 0;
   min-height: 0;
   grid-column: 2;
   grid-row: 2 / -1;
-  overflow: auto;
 }
 
 .developer-navigation-title {

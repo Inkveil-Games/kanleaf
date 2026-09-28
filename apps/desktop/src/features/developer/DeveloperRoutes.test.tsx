@@ -219,6 +219,12 @@ describe('Developer routes', () => {
     renderRoutes('/developer/w/kanleaf');
     await screen.findByRole('heading', { name: 'Developer overview' });
     const footer = screen.getByLabelText('Developer footer');
+    const navigation = screen.getByRole('navigation', {
+      name: 'Developer navigation',
+    });
+    const content = screen
+      .getByRole('heading', { name: 'Developer overview' })
+      .closest('.developer-content');
     const back = within(footer).getByRole('link', {
       name: 'Back to Workspace',
     });
@@ -229,10 +235,17 @@ describe('Developer routes', () => {
       back.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      within(
-        screen.getByRole('navigation', { name: 'Developer navigation' }),
-      ).queryByRole('link', { name: 'Back to Workspace' }),
+      within(navigation).queryByRole('link', { name: 'Back to Workspace' }),
     ).not.toBeInTheDocument();
+    expect(navigation).toHaveClass(
+      'ui-scroll-area-viewport',
+      'navigation-scroll',
+    );
+    expect(navigation.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
+    expect(content).toHaveClass('ui-scroll-area-viewport');
   });
   it('offers only eligible workspaces at the global entry', async () => {
     mocks.listWorkspaces.mockResolvedValue([

@@ -2,6 +2,7 @@ import { ArrowLeft, House, PanelLeft, Webhook } from 'lucide-react';
 import type { MouseEventHandler, ReactNode, RefObject } from 'react';
 import { Link } from 'react-router';
 import { routePaths } from '../../app/routing/routePaths';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import type { Workspace } from '../workspace/types';
 import type { NavigationMode } from '../workspace/workspacePaneLayout';
 import type { DeveloperSection } from './developerLocation';
@@ -50,71 +51,78 @@ export function DeveloperNavigation({
         },
       ]
     : [];
+  const navigationContent = (
+    <div className={compact ? 'navigation-rail-actions' : undefined}>
+      {compact ? (
+        <>
+          {workspaceControl}
+          <button
+            ref={toggleRef}
+            type="button"
+            className="navigation-rail-button"
+            aria-label={narrow ? 'Open navigation' : 'Expand navigation'}
+            aria-expanded={drawerOpen}
+            aria-haspopup={narrow ? 'dialog' : undefined}
+            aria-controls={narrow ? 'workspace-navigation-drawer' : undefined}
+            onClick={onToggle}
+          >
+            <PanelLeft aria-hidden="true" size={17} />
+          </button>
+        </>
+      ) : (
+        <p className="developer-navigation-title">Developer</p>
+      )}
+      {items.map(({ label, group, icon: Icon, section: itemSection, path }) => (
+        <section className={compact ? undefined : 'nav-section'} key={label}>
+          {!compact && (
+            <div className="nav-section-heading">
+              <h2>{group}</h2>
+            </div>
+          )}
+          <Link
+            className={compact ? 'navigation-rail-button' : 'nav-button'}
+            aria-label={label}
+            title={compact ? label : undefined}
+            aria-current={
+              (
+                itemSection === 'webhooks'
+                  ? section !== 'overview'
+                  : section === itemSection
+              )
+                ? 'page'
+                : undefined
+            }
+            to={path}
+            onClick={onNavigate}
+          >
+            <Icon aria-hidden="true" size={16} />
+            {!compact && <span>{label}</span>}
+          </Link>
+        </section>
+      ))}
+    </div>
+  );
   return (
     <aside
       className={`navigation-pane${compact ? ' navigation-pane-rail' : ''}`}
     >
-      <nav
-        className={compact ? 'navigation-rail' : 'navigation-scroll'}
-        aria-label="Developer navigation"
-      >
-        <div className={compact ? 'navigation-rail-actions' : undefined}>
-          {compact ? (
-            <>
-              {workspaceControl}
-              <button
-                ref={toggleRef}
-                type="button"
-                className="navigation-rail-button"
-                aria-label={narrow ? 'Open navigation' : 'Expand navigation'}
-                aria-expanded={drawerOpen}
-                aria-haspopup={narrow ? 'dialog' : undefined}
-                aria-controls={
-                  narrow ? 'workspace-navigation-drawer' : undefined
-                }
-                onClick={onToggle}
-              >
-                <PanelLeft aria-hidden="true" size={17} />
-              </button>
-            </>
-          ) : (
-            <p className="developer-navigation-title">Developer</p>
-          )}
-          {items.map(
-            ({ label, group, icon: Icon, section: itemSection, path }) => (
-              <section
-                className={compact ? undefined : 'nav-section'}
-                key={label}
-              >
-                {!compact && (
-                  <div className="nav-section-heading">
-                    <h2>{group}</h2>
-                  </div>
-                )}
-                <Link
-                  className={compact ? 'navigation-rail-button' : 'nav-button'}
-                  aria-label={label}
-                  title={compact ? label : undefined}
-                  aria-current={
-                    (
-                      itemSection === 'webhooks'
-                        ? section !== 'overview'
-                        : section === itemSection
-                    )
-                      ? 'page'
-                      : undefined
-                  }
-                  to={path}
-                  onClick={onNavigate}
-                >
-                  <Icon aria-hidden="true" size={16} />
-                  {!compact && <span>{label}</span>}
-                </Link>
-              </section>
-            ),
-          )}
-        </div>
-      </nav>
+      {compact ? (
+        <nav className="navigation-rail" aria-label="Developer navigation">
+          {navigationContent}
+        </nav>
+      ) : (
+        <ScrollArea
+          className="developer-navigation-scroll-area"
+          orientation="vertical"
+          viewportProps={{
+            className: 'navigation-scroll',
+            role: 'navigation',
+            'aria-label': 'Developer navigation',
+          }}
+        >
+          {navigationContent}
+        </ScrollArea>
+      )}
       <footer aria-label="Developer footer">
         <div className="developer-workspace-return">
           <Link

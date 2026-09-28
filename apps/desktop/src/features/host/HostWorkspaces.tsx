@@ -190,7 +190,7 @@ function WorkspaceTable({
   onDelete?: (workspace: HostWorkspace) => void;
 }) {
   return (
-    <div className="host-workspace-table-wrap">
+    <div className="host-workspace-table-wrap ui-native-scrollbar">
       <table className="host-workspace-table" aria-busy={loading || undefined}>
         <caption className="sr-only">All Workspaces and their Owners</caption>
         <thead>

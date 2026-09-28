@@ -141,7 +141,9 @@ describe('ProjectSettings', () => {
     const navigation = screen.getByRole('navigation', {
       name: 'Project settings sections',
     });
-    expect(navigation.parentElement).toHaveClass('settings-navigation-body');
+    expect(navigation.closest('.settings-navigation-body')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
     expect(
       navigation.closest('.settings-navigation')?.querySelector('strong'),
     ).toHaveTextContent(project.name);

@@ -34,10 +34,19 @@ describe('settings shells', () => {
     expect(
       screen.getByRole('region', { name: 'Account settings' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('navigation', { name: 'Account settings sections' })
-        .parentElement,
-    ).toHaveClass('settings-navigation-body');
+    const navigation = screen.getByRole('navigation', {
+      name: 'Account settings sections',
+    });
+    expect(navigation.closest('.settings-navigation-body')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
+    expect(navigation.closest('.ui-scroll-area')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
+    expect(document.querySelector('.settings-content')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
     expect(screen.queryByRole('button', { name: 'Members' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Security' }));
     expect(onSectionChange).toHaveBeenCalledWith('security');
@@ -99,7 +108,9 @@ describe('settings shells', () => {
     const navigation = screen.getByRole('navigation', {
       name: 'Workspace settings sections',
     });
-    expect(navigation.parentElement).toHaveClass('settings-navigation-body');
+    expect(navigation.closest('.settings-navigation-body')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
     const general = within(navigation).getByRole('region', {
       name: 'General',
     });

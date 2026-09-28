@@ -18,6 +18,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { User } from '../../lib/api/types';
 import { Button } from '../../components/ui/Button';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import { routePaths } from '../../app/routing/routePaths';
 import { canManageWorkspace } from '../workspace/permissions';
 import { AccountSettings } from '../account/AccountSettings';
@@ -260,7 +261,11 @@ export function SettingsFrame({
   return (
     <section className="settings-pane" aria-label={label}>
       <aside className="settings-navigation">
-        <div className="settings-navigation-body">
+        <ScrollArea
+          className="settings-navigation-scroll-area"
+          orientation="vertical"
+          viewportProps={{ className: 'settings-navigation-body' }}
+        >
           <div className="settings-navigation-header">
             <Button
               className="settings-back"
@@ -274,12 +279,18 @@ export function SettingsFrame({
             <strong>{title}</strong>
           </div>
           <nav aria-label={`${label} sections`}>{navigation}</nav>
-        </div>
+        </ScrollArea>
         {footer ? (
           <div className="settings-navigation-footer">{footer}</div>
         ) : null}
       </aside>
-      <div className="settings-content">{children}</div>
+      <ScrollArea
+        className="settings-content-scroll-area"
+        orientation="vertical"
+        viewportProps={{ className: 'settings-content' }}
+      >
+        {children}
+      </ScrollArea>
     </section>
   );
 }

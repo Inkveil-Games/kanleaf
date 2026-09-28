@@ -38,6 +38,9 @@ describe('HostWorkspaces', () => {
       name: 'All Workspaces and their Owners',
     });
     expect(table).toBeInTheDocument();
+    expect(table.closest('.host-workspace-table-wrap')).toHaveClass(
+      'ui-native-scrollbar',
+    );
     expect(
       screen.getByRole('columnheader', { name: 'Workspace' }),
     ).toBeInTheDocument();

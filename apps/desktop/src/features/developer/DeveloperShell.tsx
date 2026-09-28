@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { routePaths, withTask } from '../../app/routing/routePaths';
+import { ScrollArea } from '../../components/ui/ScrollArea';
 import type { User } from '../../lib/api/types';
 import { AccountSwitcher } from '../account/AccountSwitcher';
 import { AppTopBar } from '../app-shell/AppTopBar';
@@ -229,7 +230,11 @@ export function DeveloperShell(props: DeveloperShellProps) {
           onChange={paneLayout.setNavigationWidth}
         />
       ) : null}
-      <div className="developer-content">
+      <ScrollArea
+        className="developer-content-scroll-area"
+        orientation="vertical"
+        viewportProps={{ className: 'developer-content' }}
+      >
         {actionError ? (
           <p className="developer-action-error" role="alert">
             {actionError}
@@ -255,7 +260,7 @@ export function DeveloperShell(props: DeveloperShellProps) {
         ) : (
           <DeveloperLanding workspaces={eligible} onNavigate={navigateLink} />
         )}
-      </div>
+      </ScrollArea>
     </main>
   );
 }

@@ -48,6 +48,15 @@ describe('HostConsole', () => {
     expect(
       screen.getByRole('region', { name: 'Host Console' }),
     ).toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', {
+      name: 'Host Console sections',
+    });
+    expect(navigation.closest('.settings-navigation-body')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
+    expect(document.querySelector('.settings-content')).toHaveClass(
+      'ui-scroll-area-viewport',
+    );
     expect(screen.getByText('Workspace list')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
     expect(onClose).toHaveBeenCalledOnce();

@@ -20,7 +20,7 @@ export function SettingsList({
 }: SettingsListProps) {
   return (
     <div
-      className={`settings-list${className ? ` ${className}` : ''}`}
+      className={`settings-list ui-native-scrollbar${className ? ` ${className}` : ''}`}
       role="list"
       aria-label={ariaLabel}
     >

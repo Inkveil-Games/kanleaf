@@ -50,7 +50,11 @@ export function WebhookPreview({
               }}
             />
           </FormField>
-          <pre tabIndex={0} aria-label="JSON request body">
+          <pre
+            className="ui-native-scrollbar"
+            tabIndex={0}
+            aria-label="JSON request body"
+          >
             <code>
               {json
                 .split(
@@ -81,7 +85,11 @@ export function WebhookPreview({
           {error ? <p role="alert">{error}</p> : null}
           <details className="webhook-request-headers">
             <summary>Request headers</summary>
-            <pre tabIndex={0} aria-label="Example request headers">
+            <pre
+              className="ui-native-scrollbar"
+              tabIndex={0}
+              aria-label="Example request headers"
+            >
               <code>{`Content-Type: application/json\nX-Kanleaf-Event: ${event}\nX-Kanleaf-Delivery: <generated per delivery>\nX-Kanleaf-Timestamp: <delivery timestamp>\nX-Kanleaf-Signature: v1=<HMAC signature>`}</code>
             </pre>
             <p>

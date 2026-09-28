@@ -350,6 +350,9 @@ describe('Webhook pages', () => {
     mount('/developer/w/kanleaf/webhooks/new');
     await screen.findByRole('textbox', { name: 'Name' });
     await user.click(screen.getByRole('checkbox', { name: 'Comment deleted' }));
+    expect(screen.getByLabelText('JSON request body')).toHaveClass(
+      'ui-native-scrollbar',
+    );
     expect(
       JSON.parse(screen.getByLabelText('JSON request body').textContent ?? ''),
     ).toEqual(examples['comment.deleted']);
@@ -359,6 +362,7 @@ describe('Webhook pages', () => {
     );
     await user.click(screen.getByText('Request headers'));
     const headers = screen.getByLabelText('Example request headers');
+    expect(headers).toHaveClass('ui-native-scrollbar');
     expect(headers).toHaveTextContent('X-Kanleaf-Event: comment.deleted');
     expect(headers).toHaveTextContent('v1=<HMAC signature>');
     await user.click(screen.getByRole('checkbox', { name: 'Task created' }));

@@ -199,7 +199,7 @@ export function WebhookForm({
                 />
               </FormField>
               <div
-                className="webhook-project-options"
+                className="webhook-project-options ui-native-scrollbar"
                 role="group"
                 aria-label="Projects"
               >
