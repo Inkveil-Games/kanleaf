@@ -685,7 +685,7 @@ describe('TaskDetailPane', () => {
     expect(stateTrigger.querySelector('[data-state-role="todo"]')).toBeNull();
     await user.click(stateTrigger);
     expect(
-      screen.getByRole('listbox').closest('.select-positioner'),
+      (await screen.findByRole('listbox')).closest('.select-positioner'),
     ).toHaveClass('is-trigger-width');
     for (const [label, role] of [
       ['Backlog', 'backlog'],
@@ -717,7 +717,7 @@ describe('TaskDetailPane', () => {
     ).toBeNull();
     await user.click(priorityTrigger);
     expect(
-      screen.getByRole('listbox').closest('.select-positioner'),
+      (await screen.findByRole('listbox')).closest('.select-positioner'),
     ).toHaveClass('is-trigger-width');
     for (const [label, priority] of [
       ['No priority', 'none'],
