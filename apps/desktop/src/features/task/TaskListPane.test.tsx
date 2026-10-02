@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
@@ -230,6 +231,58 @@ describe('TaskListPane', () => {
     await waitFor(() =>
       expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument(),
     );
+  });
+
+  it('cancels task creation by button or Escape and restores focus', async () => {
+    const user = userEvent.setup();
+    const props = renderList();
+    const create = screen.getByRole('button', { name: 'New task' });
+
+    await user.click(create);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    expect(create).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText('Task title')).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    expect(create).toHaveFocus();
+    expect(props.onCreateTask).not.toHaveBeenCalled();
+  });
+
+  it('keeps the task draft available after a failed creation', async () => {
+    const user = userEvent.setup();
+    const onCreateTask = vi.fn().mockRejectedValueOnce(new Error('Try again'));
+    renderList({ onCreateTask });
+    await user.click(screen.getByRole('button', { name: 'New task' }));
+    const title = screen.getByLabelText('Task title');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+    await user.type(title, 'Retry this task{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Try again');
+    expect(title).toHaveValue('Retry this task');
+    expect(title).toHaveFocus();
+    expect(title).toHaveAccessibleDescription('Try again');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+  });
+
+  it('prevents editing or canceling while adding a task', async () => {
+    const onCreateTask = vi.fn(() => new Promise<void>(() => {}));
+    renderList({ onCreateTask });
+    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const title = screen.getByLabelText('Task title');
+    fireEvent.change(title, { target: { value: 'Pending task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Adding Task' }),
+    ).toBeDisabled();
+    expect(title).toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    fireEvent.keyDown(title, { key: 'Escape' });
+    expect(title).toBeInTheDocument();
+    expect(onCreateTask).toHaveBeenCalledTimes(1);
   });
 
   it('moves to the next semantic state and supports keyboard row navigation', async () => {
@@ -480,17 +533,19 @@ describe('TaskListPane', () => {
     expect(props.onSelectTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('lets an open menu consume Escape before clearing the task detail', async () => {
+  it('lets Filter consume Escape before clearing the task detail', async () => {
     const onClearSelection = vi.fn();
     renderList({ selectedTaskId: 'task-1', onClearSelection });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Visible task fields' }),
-    );
-    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Filter tasks' }), {
+      key: 'Escape',
+    });
 
     await waitFor(() =>
-      expect(screen.queryByRole('menu')).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole('dialog', { name: 'Filter tasks' }),
+      ).not.toBeInTheDocument(),
     );
     expect(onClearSelection).not.toHaveBeenCalled();
   });
@@ -555,12 +610,14 @@ describe('TaskListPane', () => {
     const props = renderList();
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
-    const critical = screen.getByRole('menuitemcheckbox', {
+    const critical = screen.getByRole('checkbox', {
       name: 'Critical',
     });
     expect(
-      critical.querySelector('[data-priority-value="critical"]'),
-    ).not.toBeNull();
+      critical
+        .closest('label')
+        ?.querySelector('[data-priority-value="critical"]'),
+    ).toBeInTheDocument();
     fireEvent.click(critical);
 
     expect(props.onQueryChange).toHaveBeenCalledWith(
@@ -570,18 +627,43 @@ describe('TaskListPane', () => {
     );
   });
 
-  it('shows complete icon-and-text toolbar values at normal width', () => {
+  it.each(['list', 'board', 'calendar', 'table', 'timeline'] as const)(
+    'switches directly between all five layouts with %s selected',
+    (layout) => {
+      const props = renderList({ layout });
+      const layouts = screen.getByRole('group', { name: 'Task layout' });
+      expect(within(layouts).getAllByRole('button')).toHaveLength(5);
+
+      for (const [value, name] of [
+        ['list', 'List view'],
+        ['board', 'Board view'],
+        ['calendar', 'Calendar view'],
+        ['table', 'Table view'],
+        ['timeline', 'Timeline view'],
+      ]) {
+        const button = within(layouts).getByRole('button', { name });
+        expect(button).toHaveAttribute(
+          'aria-pressed',
+          String(layout === value),
+        );
+        fireEvent.click(button);
+        expect(props.onLayoutChange).toHaveBeenLastCalledWith(value);
+      }
+    },
+  );
+
+  it('keeps only Filter, grouping, sorting and saving alongside layout icons', () => {
     renderList();
 
-    expect(screen.getByRole('combobox', { name: 'Layout' })).toHaveTextContent(
-      'List',
-    );
+    expect(
+      screen.queryByRole('combobox', { name: 'Layout' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Filter tasks' }),
     ).toHaveTextContent('Filter');
     expect(
-      screen.getByRole('button', { name: 'Date and estimate filters' }),
-    ).toHaveTextContent('Date');
+      screen.queryByRole('button', { name: 'Date and estimate filters' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('combobox', { name: 'Group by' }),
     ).toHaveTextContent('State');
@@ -589,8 +671,8 @@ describe('TaskListPane', () => {
       'Manual',
     );
     expect(
-      screen.getByRole('button', { name: 'Visible task fields' }),
-    ).toHaveTextContent('Properties');
+      screen.queryByRole('button', { name: 'Visible task fields' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save View' })).toHaveTextContent(
       'Save View',
     );
@@ -618,34 +700,25 @@ describe('TaskListPane', () => {
     }
   });
 
-  it('excludes the primary field from secondary grouping', async () => {
-    const props = renderList();
+  it('omits the second grouping control even for a saved two-level grouping', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    query.grouping.secondary = 'priority';
+    renderList({ query });
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'Then group by' }));
     expect(
-      screen.queryByRole('option', { name: /^State$/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('option', { name: 'Priority' }),
+      screen.getByRole('combobox', { name: 'Group by' }),
     ).toBeInTheDocument();
-    fireEvent.keyDown(selectListbox(), { key: 'Escape' });
-
-    await chooseSelectOption('Then group by', 'Priority');
-    expect(props.onQueryChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        grouping: { primary: 'state', secondary: 'priority' },
-      }),
-    );
+    expect(
+      screen.queryByRole('combobox', { name: 'Then group by' }),
+    ).not.toBeInTheDocument();
   });
 
   it('adds date and unassigned estimate filters without a second query model', () => {
     const props = renderList();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Date and estimate filters' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
     const dialog = screen.getByRole('dialog', {
-      name: 'Date and estimate filters',
+      name: 'Filter tasks',
     });
     const dueDate = within(dialog).getByRole('group', { name: 'Due date' });
     fireEvent.change(within(dueDate).getByLabelText('From'), {
@@ -663,6 +736,106 @@ describe('TaskListPane', () => {
         }),
       }),
     );
+
+    const estimate = within(dialog).getByRole('group', { name: 'Estimate' });
+    fireEvent.change(within(estimate).getByLabelText('Minimum'), {
+      target: { value: '3' },
+    });
+    expect(props.onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          estimate: { minimum: 3, maximum: null, include_none: false },
+        }),
+      }),
+    );
+    fireEvent.click(
+      within(estimate).getByRole('checkbox', {
+        name: 'Include unestimated Tasks',
+      }),
+    );
+    expect(props.onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          estimate: { minimum: null, maximum: null, include_none: true },
+        }),
+      }),
+    );
+  });
+
+  it('clears a date range while preserving other filter choices', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    query.filters.priorities = ['high'];
+    query.filters.start_date = {
+      from: '2026-10-01',
+      to: '2026-10-15',
+      include_none: true,
+    };
+    const props = renderList({ query });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Clear Start date range' }),
+    );
+    expect(props.onQueryChange).toHaveBeenCalledWith({
+      ...query,
+      filters: {
+        ...query.filters,
+        start_date: { from: null, to: null, include_none: true },
+      },
+    });
+    expect(
+      screen.getByRole('dialog', { name: 'Filter tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it('omits Properties from Filter and preserves display settings when filtering', () => {
+    const query = createTaskQuery({ kind: 'inbox' });
+    query.filters.priorities = ['high'];
+    const props = renderList({ query });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter tasks' }));
+    const filter = screen.getByRole('dialog', { name: 'Filter tasks' });
+    expect(
+      within(filter).queryByRole('group', { name: 'Properties' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(filter).getByRole('checkbox', { name: 'Critical' }));
+
+    expect(props.onQueryChange).toHaveBeenCalledWith({
+      ...query,
+      filters: { ...query.filters, priorities: ['high', 'critical'] },
+    });
+    expect(
+      screen.getByRole('dialog', { name: 'Filter tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it('supports keyboard layout switching and restores focus after closing Filter', async () => {
+    const user = userEvent.setup();
+    const props = renderList();
+    screen.getByRole('button', { name: 'Board view' }).focus();
+    await user.keyboard('{Enter}');
+    expect(props.onLayoutChange).toHaveBeenLastCalledWith('board');
+
+    const filter = screen.getByRole('button', { name: 'Filter tasks' });
+    filter.focus();
+    await user.keyboard('{Enter}');
+    expect(
+      await screen.findByRole('dialog', { name: 'Filter tasks' }),
+    ).toBeInTheDocument();
+    const critical = screen.getByRole('checkbox', { name: 'Critical' });
+    critical.focus();
+    await user.keyboard(' ');
+    expect(props.onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ priorities: ['critical'] }),
+      }),
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Filter tasks' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(filter).toHaveFocus();
   });
 
   it('saves the current query and layout as a shared View', async () => {

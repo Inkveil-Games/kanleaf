@@ -43,4 +43,31 @@ describe('TaskDateControl', () => {
 
     expect(showPicker).toHaveBeenCalledOnce();
   });
+
+  it('keeps its accessible label when using a separate empty prompt', () => {
+    const { rerender } = render(
+      <TaskDateControl
+        label="From"
+        emptyLabel="Any date"
+        value={null}
+        disabled={false}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('From')).toHaveValue('');
+    expect(screen.getByText('Any date')).toBeInTheDocument();
+
+    rerender(
+      <TaskDateControl
+        label="From"
+        emptyLabel="Any date"
+        value="2026-10-03"
+        disabled={false}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('From')).toHaveValue('2026-10-03');
+    expect(screen.getByText('2026-10-03')).toBeInTheDocument();
+    expect(screen.queryByText('Any date')).not.toBeInTheDocument();
+  });
 });

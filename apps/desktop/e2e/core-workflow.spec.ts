@@ -727,7 +727,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/p/${projectIdentifier}/work-items$`),
   );
-  await chooseSelectOption(page, 'Layout', 'Board');
+  await page.getByRole('button', { name: 'Board view', exact: true }).click();
   await projectNavigation.getByRole('button', { name: 'Library' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/p/${projectIdentifier}/library$`),
@@ -1065,7 +1065,7 @@ let source_is_markdown = true;
   ).not.toBeVisible();
 
   await projectNavigation.getByRole('button', { name: 'Work items' }).click();
-  await chooseSelectOption(page, 'Layout', 'List');
+  await page.getByRole('button', { name: 'List view', exact: true }).click();
   await projectNavigation.getByRole('button', { name: 'Cycles' }).click();
   await expect(page).toHaveURL(
     new RegExp(`/w/${workspaceIdentifier}/p/${projectIdentifier}/cycles$`),
@@ -1308,7 +1308,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.keyboard.press('/');
   await expect(taskSearch).toBeFocused();
   await taskSearch.blur();
-  await expect(taskToolbar.getByLabel('Layout')).toContainText('List');
+  await expect(
+    taskToolbar.getByRole('button', { name: 'List view', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   const filterControl = taskToolbar.getByLabel('Filter tasks');
   const filterLabel = filterControl.locator('.view-control-label');
   await expect(filterLabel).toBeVisible();
@@ -1327,16 +1329,29 @@ Kanleaf keeps **structured work** beside durable notes.
     taskToolbar.getByRole('combobox', { name: 'Group by', exact: true }),
   ).toContainText('State');
   await expect(taskToolbar.getByLabel('Sort by')).toContainText('Manual');
-  await expect(taskToolbar.getByLabel('Visible task fields')).toContainText(
-    'Properties',
-  );
+  await expect(
+    taskToolbar.getByRole('button', { name: 'Visible task fields' }),
+  ).toHaveCount(0);
+  await expect(
+    taskToolbar.getByRole('button', { name: 'Date and estimate filters' }),
+  ).toHaveCount(0);
+  await expect(
+    taskToolbar.getByRole('combobox', { name: 'Then group by' }),
+  ).toHaveCount(0);
   await expect(taskToolbar.getByLabel('Save View')).toContainText('Save View');
 
   await page.setViewportSize({ width: 580, height: 700 });
-  await expect(taskToolbar.getByLabel('Layout')).toBeVisible();
-  await expect(
-    taskToolbar.getByLabel('Layout').locator('.select-value'),
-  ).toBeHidden();
+  for (const name of [
+    'List view',
+    'Board view',
+    'Calendar view',
+    'Table view',
+    'Timeline view',
+  ]) {
+    await expect(
+      taskToolbar.getByRole('button', { name, exact: true }),
+    ).toBeVisible();
+  }
   await expect(
     taskToolbar.getByLabel('Filter tasks').locator('.view-control-label'),
   ).toBeHidden();
@@ -1349,9 +1364,24 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await page.getByRole('button', { name: 'Filter tasks' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Critical' }).click();
+  const taskFilters = page.getByRole('dialog', { name: 'Filter tasks' });
+  await expect(
+    taskFilters.getByRole('group', { name: 'Start date', exact: true }),
+  ).toBeVisible();
+  await expect(
+    taskFilters.getByRole('group', { name: 'Due date', exact: true }),
+  ).toBeVisible();
+  await expect(
+    taskFilters.getByRole('group', { name: 'Estimate', exact: true }),
+  ).toBeVisible();
+  await expect(
+    taskFilters.getByRole('group', { name: 'Properties', exact: true }),
+  ).toHaveCount(0);
+  await taskFilters
+    .getByRole('checkbox', { name: 'Critical', exact: true })
+    .click();
   await page.keyboard.press('Escape');
-  await chooseSelectOption(page, 'Layout', 'Table');
+  await page.getByRole('button', { name: 'Table view', exact: true }).click();
   await page.getByRole('button', { name: 'Save View' }).click();
   await page.getByLabel('Name').fill('Urgent work');
   await page.getByRole('radio', { name: /Shared/ }).click();
@@ -1423,10 +1453,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await page.getByRole('button', { name: 'Reading' }).click();
 
   await page.getByRole('button', { name: 'Urgent work' }).click();
-  await expect(page.getByLabel('Layout')).toHaveAttribute(
-    'data-value',
-    'table',
-  );
+  await expect(
+    page.getByRole('button', { name: 'Table view', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('table')).toContainText(
     'Complete the v0.1 workflow',
   );
@@ -1479,7 +1508,7 @@ Kanleaf keeps **structured work** beside durable notes.
       `/w/${workspaceIdentifier}/p/${projectIdentifier}/views/[^/?]+$`,
     ),
   );
-  await chooseSelectOption(page, 'Layout', 'Board');
+  await page.getByRole('button', { name: 'Board view', exact: true }).click();
   const viewSaved = page.waitForResponse((response) => {
     const path = new URL(response.url()).pathname;
     return (
@@ -1495,10 +1524,9 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(
     page.getByRole('region', { name: 'Project focus' }),
   ).toBeVisible();
-  await expect(page.getByLabel('Layout')).toHaveAttribute(
-    'data-value',
-    'board',
-  );
+  await expect(
+    page.getByRole('button', { name: 'Board view', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await page
     .locator('.project-nav-row')
     .getByRole('button', { name: 'Kanleaf', exact: true })
@@ -1579,6 +1607,115 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
   expect(failedResponses).toEqual([]);
   expect(consoleErrors).toEqual([]);
+});
+
+test('aligns task controls with consistent outer corners and concentric layout buttons', async ({
+  page,
+  request,
+}) => {
+  const email = `toolbar-row-${Date.now()}@example.com`;
+  const account = await register(request, email);
+  await page.goto('/');
+  await page.getByLabel('Email').fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('playwright-password');
+  await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/w/${account.workspaceIdentifier}$`),
+  );
+  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+
+  for (const width of [1718, 1280, 960, 580, 360]) {
+    await page.setViewportSize({ width, height: 640 });
+    const geometry = await page
+      .getByLabel('Search tasks')
+      .evaluate((search) => {
+        const controls = search.closest('.collection-controls');
+        const searchField = search.closest('.ui-search-field');
+        const switcher = controls?.querySelector('.view-layout-switcher');
+        const selected = switcher?.querySelector('[aria-pressed="true"]');
+        const create = controls?.querySelector('.task-new-button');
+        const toolbar = controls?.querySelector('.view-toolbar');
+        const viewport = toolbar?.closest('.ui-scroll-area-viewport');
+        if (
+          !controls ||
+          !searchField ||
+          !switcher ||
+          !selected ||
+          !create ||
+          !toolbar ||
+          !viewport
+        ) {
+          throw new Error('Task toolbar controls are missing');
+        }
+        const searchBox = searchField.getBoundingClientRect();
+        const switcherBox = switcher.getBoundingClientRect();
+        const selectedBox = selected.getBoundingClientRect();
+        const createBox = create.getBoundingClientRect();
+        const outerStyle = getComputedStyle(switcher);
+        const innerStyle = getComputedStyle(selected);
+        const toolbarBoxes = Array.from(toolbar.children, (control) =>
+          control.getBoundingClientRect(),
+        );
+        const lastControl = toolbarBoxes.at(-1);
+        return {
+          searchCenter: searchBox.top + searchBox.height / 2,
+          controlCenters: Array.from(
+            controls.querySelectorAll('button'),
+            (button) => {
+              const box = button.getBoundingClientRect();
+              return box.top + box.height / 2;
+            },
+          ),
+          searchRight: searchBox.right,
+          switcherLeft: switcherBox.left,
+          rightGutter: controls.getBoundingClientRect().right - createBox.right,
+          controlHeights: [
+            searchBox.height,
+            createBox.height,
+            ...toolbarBoxes.map(({ height }) => height),
+          ],
+          toolbarGaps: toolbarBoxes
+            .slice(1)
+            .map((box, index) => box.left - toolbarBoxes[index]!.right),
+          createGap:
+            lastControl && viewport.scrollWidth <= viewport.clientWidth
+              ? createBox.left - lastControl.right
+              : null,
+          controlRadii: Array.from(
+            controls.querySelectorAll(
+              'button:not(.view-layout-switcher button), .task-search-field, .view-layout-switcher',
+            ),
+            (control) => getComputedStyle(control).borderRadius,
+          ),
+          outerRadius: Number.parseFloat(outerStyle.borderTopLeftRadius),
+          innerRadius: Number.parseFloat(innerStyle.borderTopLeftRadius),
+          inset:
+            Number.parseFloat(outerStyle.paddingTop) +
+            Number.parseFloat(outerStyle.borderTopWidth),
+          topInset: selectedBox.top - switcherBox.top,
+          bottomInset: switcherBox.bottom - selectedBox.bottom,
+        };
+      });
+
+    for (const center of geometry.controlCenters) {
+      expect(Math.abs(center - geometry.searchCenter)).toBeLessThan(1);
+    }
+    expect(geometry.switcherLeft).toBeGreaterThan(geometry.searchRight);
+    expect(geometry.rightGutter).toBeGreaterThanOrEqual(0);
+    expect(geometry.rightGutter).toBeLessThanOrEqual(20);
+    expect(new Set(geometry.controlHeights).size).toBe(1);
+    for (const gap of geometry.toolbarGaps) {
+      expect(gap).toBe(8);
+    }
+    if (geometry.createGap !== null) {
+      expect(geometry.createGap).toBe(8);
+    }
+    expect(new Set(geometry.controlRadii).size).toBe(1);
+    expect(geometry.outerRadius).toBe(geometry.innerRadius + geometry.inset);
+    expect(Math.abs(geometry.topInset - geometry.bottomInset)).toBeLessThan(1);
+  }
 });
 
 test('preserves open Task state through overlay and responsive resizing', async ({
@@ -1743,7 +1880,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
   await taskDetail.evaluate((element) => {
     element.setAttribute('data-resize-continuity', 'detail');
   });
-  await chooseSelectOption(page, 'Layout', 'Table');
+  await page.getByRole('button', { name: 'Table view', exact: true }).click();
 
   const workspaceRequests: string[] = [];
   page.on('request', (outgoing) => {
@@ -1805,7 +1942,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
     taskSurfaceBeforeDrawerResize,
   );
   await drag('Resize navigation', 48);
-  await chooseSelectOption(page, 'Layout', 'List');
+  await page.getByRole('button', { name: 'List view', exact: true }).click();
   await expect(
     page.getByRole('separator', { name: 'Resize collection' }),
   ).toHaveCount(0);
@@ -1999,7 +2136,7 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   await expect(
     page.locator('.task-row-main', { hasText: secondTask.title }),
   ).toBeVisible();
-  await chooseSelectOption(page, 'Layout', 'Board');
+  await page.getByRole('button', { name: 'Board view', exact: true }).click();
   await page.waitForLoadState('networkidle');
 
   const board = page.locator('.task-board');
@@ -2180,7 +2317,7 @@ test('keeps Board geometry and scroll state beneath the Task detail overlay', as
   ).not.toHaveProperty('taskDetailDrawerWidth');
   await drawer.getByRole('button', { name: 'Close task' }).click();
   await expect(drawer).not.toBeVisible();
-  await chooseSelectOption(page, 'Layout', 'Board');
+  await page.getByRole('button', { name: 'Board view', exact: true }).click();
   await expect(board).toBeVisible();
 
   await page.setViewportSize({ width: 960, height: 640 });

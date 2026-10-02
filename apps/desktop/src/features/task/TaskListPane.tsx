@@ -127,6 +127,7 @@ export function TaskListPane({
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const newTaskRef = useRef<HTMLButtonElement>(null);
   const title = activeView?.name ?? collectionTitle(collection, projects);
   const visibleFields = {
     priority: query.display.includes('priority'),
@@ -250,60 +251,66 @@ export function TaskListPane({
   return (
     <section className="collection-pane" aria-label={title}>
       <div className="collection-controls">
-        <div className="task-search">
-          <SearchField
-            id="task-search-input"
-            ref={searchRef}
-            aria-label="Search tasks"
-            aria-keyshortcuts="/"
-            value={query.search ?? ''}
-            placeholder="Search tasks"
-            onValueChange={(search) =>
-              onQueryChange({ ...query, search: search || null })
-            }
-            trailing={<kbd aria-hidden="true">/</kbd>}
-          />
-          {canCreate && (
-            <Tooltip
-              label="New task"
-              trigger={
-                <Button
-                  className="task-new-button"
-                  variant="primary"
-                  size="sm"
-                  type="button"
-                  aria-label="New task"
-                  onClick={() => setComposing(true)}
-                >
-                  <Plus aria-hidden="true" size={15} />
-                  <span className="task-new-label">New task</span>
-                </Button>
+        <div className="task-controls-row">
+          <div className="task-search">
+            <SearchField
+              id="task-search-input"
+              className="task-search-field"
+              ref={searchRef}
+              aria-label="Search tasks"
+              aria-keyshortcuts="/"
+              value={query.search ?? ''}
+              placeholder="Search tasks"
+              onValueChange={(search) =>
+                onQueryChange({ ...query, search: search || null })
               }
+              trailing={<kbd aria-hidden="true">/</kbd>}
             />
-          )}
+          </div>
+          <div className="task-controls-actions">
+            <TaskViewToolbar
+              query={query}
+              layout={layout}
+              states={states}
+              labels={labels}
+              projects={projects}
+              cycles={cycles}
+              modules={modules}
+              members={members}
+              activeView={activeView}
+              canShare={canShareView}
+              canManageActiveView={canManageActiveView}
+              canChangeActiveViewVisibility={canChangeActiveViewVisibility}
+              onQueryChange={onQueryChange}
+              onLayoutChange={onLayoutChange}
+              onCreateView={onCreateView}
+              onUpdateView={onUpdateView}
+              onSaveViewConfiguration={onSaveViewConfiguration}
+              onDuplicateView={onDuplicateView}
+              onDeleteView={onDeleteView}
+              onActionError={onViewActionError}
+            />
+            {canCreate && (
+              <Tooltip
+                label="New task"
+                trigger={
+                  <Button
+                    ref={newTaskRef}
+                    className="task-new-button"
+                    variant="primary"
+                    size="sm"
+                    type="button"
+                    aria-label="New task"
+                    onClick={() => setComposing(true)}
+                  >
+                    <Plus aria-hidden="true" size={14} />
+                    <span className="task-new-label">New task</span>
+                  </Button>
+                }
+              />
+            )}
+          </div>
         </div>
-        <TaskViewToolbar
-          query={query}
-          layout={layout}
-          states={states}
-          labels={labels}
-          projects={projects}
-          cycles={cycles}
-          modules={modules}
-          members={members}
-          activeView={activeView}
-          canShare={canShareView}
-          canManageActiveView={canManageActiveView}
-          canChangeActiveViewVisibility={canChangeActiveViewVisibility}
-          onQueryChange={onQueryChange}
-          onLayoutChange={onLayoutChange}
-          onCreateView={onCreateView}
-          onUpdateView={onUpdateView}
-          onSaveViewConfiguration={onSaveViewConfiguration}
-          onDuplicateView={onDuplicateView}
-          onDeleteView={onDeleteView}
-          onActionError={onViewActionError}
-        />
         {checkedVisibleIds.length > 0 && (
           <div className="bulk-toolbar" aria-label="Bulk task actions">
             <strong>{checkedVisibleIds.length} selected</strong>
@@ -365,7 +372,10 @@ export function TaskListPane({
       <div className={`task-layout-surface task-layout-${layout}`}>
         {canCreate && composing && (
           <QuickTaskForm
-            onCancel={() => setComposing(false)}
+            onCancel={() => {
+              setComposing(false);
+              newTaskRef.current?.focus();
+            }}
             onCreate={async (taskTitle) => {
               await onCreateTask(taskTitle);
               setComposing(false);
@@ -711,12 +721,23 @@ function QuickTaskForm({ onCreate, onCancel }: QuickTaskFormProps) {
     <InlineTextForm
       className="quick-task-form"
       label="Task title"
-      placeholder="Task title"
+      placeholder="What needs to be done?"
       maxLength={300}
       submitLabel="Add"
       loadingLabel="Adding Task"
       errorLabel="Task creation failed"
-      leading={<span className="status-glyph status-todo" aria-hidden="true" />}
+      leading={<Plus aria-hidden="true" size={16} />}
+      cancelContent="Cancel"
+      hint={
+        <span className="quick-task-hint">
+          <span>
+            <kbd>Enter</kbd> to add
+          </span>
+          <span>
+            <kbd>Esc</kbd> to cancel
+          </span>
+        </span>
+      }
       onSubmit={onCreate}
       onCancel={onCancel}
     />

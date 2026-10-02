@@ -215,6 +215,7 @@ export function MultiValuePicker({
 
 export function TaskDateControl({
   label,
+  emptyLabel = label,
   value,
   disabled,
   invalid = false,
@@ -222,6 +223,7 @@ export function TaskDateControl({
   onChange,
 }: {
   label: string;
+  emptyLabel?: string;
   value: string | null;
   disabled: boolean;
   invalid?: boolean;
@@ -230,7 +232,7 @@ export function TaskDateControl({
 }) {
   return (
     <label className={`task-date-control${className ? ` ${className}` : ''}`}>
-      <span aria-hidden="true">{value || label}</span>
+      <span aria-hidden="true">{value || emptyLabel}</span>
       <Input
         aria-label={label}
         type="date"

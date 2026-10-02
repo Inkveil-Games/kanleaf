@@ -24,6 +24,8 @@ export interface InlineTextFormProps {
   onSubmit: (value: string) => Promise<void>;
   onCancel: () => void;
   leading?: ReactNode;
+  hint?: ReactNode;
+  cancelContent?: ReactNode;
   submitIcon?: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -41,6 +43,8 @@ export function InlineTextForm({
   onSubmit,
   onCancel,
   leading,
+  hint,
+  cancelContent,
   submitIcon,
   className,
   style,
@@ -116,6 +120,19 @@ export function InlineTextForm({
           composingRef.current = false;
         }}
       />
+      {hint && <div className="ui-inline-text-form-hint">{hint}</div>}
+      {cancelContent && (
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          aria-label={cancelLabel}
+          disabled={submitting}
+          onClick={cancel}
+        >
+          {cancelContent}
+        </Button>
+      )}
       {submitIcon ? (
         <IconButton
           variant="primary"
@@ -124,6 +141,7 @@ export function InlineTextForm({
           aria-label={submitLabel}
           loading={submitting}
           loadingLabel={loadingLabel}
+          disabled={!value.trim()}
         >
           {submitIcon}
         </IconButton>
@@ -134,20 +152,23 @@ export function InlineTextForm({
           type="submit"
           loading={submitting}
           loadingLabel={loadingLabel}
+          disabled={!value.trim()}
         >
           {submitLabel}
         </Button>
       )}
-      <IconButton
-        variant="ghost"
-        size="sm"
-        type="button"
-        aria-label={cancelLabel}
-        disabled={submitting}
-        onClick={cancel}
-      >
-        <X aria-hidden="true" size={14} />
-      </IconButton>
+      {!cancelContent && (
+        <IconButton
+          variant="ghost"
+          size="sm"
+          type="button"
+          aria-label={cancelLabel}
+          disabled={submitting}
+          onClick={cancel}
+        >
+          <X aria-hidden="true" size={14} />
+        </IconButton>
+      )}
       {error && (
         <p id={errorId} className="ui-inline-text-form-error" role="alert">
           {error}

@@ -10,6 +10,32 @@ import { describe, expect, it, vi } from 'vitest';
 import { InlineTextForm } from './InlineTextForm';
 
 describe('InlineTextForm', () => {
+  it('supports a visible cancel action and hints without submitting an empty draft', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <InlineTextForm
+        label="Task title"
+        maxLength={300}
+        submitLabel="Add"
+        cancelContent="Cancel"
+        hint="Enter to add"
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+    await user.type(screen.getByRole('textbox'), 'Draft task');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+    expect(screen.getByText('Enter to add')).toBeVisible();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('keeps a pending draft open and submits it only once', async () => {
     const user = userEvent.setup();
     let rejectSubmit: (error: Error) => void = () => undefined;

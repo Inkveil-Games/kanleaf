@@ -1,11 +1,13 @@
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { Button } from '../Button';
+import { Tooltip } from '../Tooltip';
 import './SegmentedControl.css';
 
 export interface SegmentedControlOption<Value extends string> {
   value: Value;
   label: ReactNode;
   disabled?: boolean;
+  tooltip?: string;
 }
 
 export interface SegmentedControlProps<Value extends string> {
@@ -65,24 +67,31 @@ export function SegmentedControl<Value extends string>({
       role="group"
       aria-label={ariaLabel}
     >
-      {options.map((option) => (
-        <Button
-          key={option.value}
-          ref={(button) => {
-            if (button) buttons.current.set(option.value, button);
-            else buttons.current.delete(option.value);
-          }}
-          variant="ghost"
-          size="sm"
-          disabled={disabled || option.disabled}
-          aria-pressed={value === option.value}
-          tabIndex={tabValue === option.value ? 0 : -1}
-          onClick={() => onValueChange(option.value)}
-          onKeyDown={(event) => move(event, option.value)}
-        >
-          {option.label}
-        </Button>
-      ))}
+      {options.map((option) => {
+        const button = (
+          <Button
+            key={option.value}
+            ref={(button) => {
+              if (button) buttons.current.set(option.value, button);
+              else buttons.current.delete(option.value);
+            }}
+            variant="ghost"
+            size="sm"
+            disabled={disabled || option.disabled}
+            aria-pressed={value === option.value}
+            tabIndex={tabValue === option.value ? 0 : -1}
+            onClick={() => onValueChange(option.value)}
+            onKeyDown={(event) => move(event, option.value)}
+          >
+            {option.label}
+          </Button>
+        );
+        return option.tooltip ? (
+          <Tooltip key={option.value} label={option.tooltip} trigger={button} />
+        ) : (
+          button
+        );
+      })}
     </div>
   );
 }

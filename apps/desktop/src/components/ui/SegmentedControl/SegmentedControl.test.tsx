@@ -12,6 +12,36 @@ const options = [
 ] as const;
 
 describe('SegmentedControl', () => {
+  it('keeps keyboard selection and tooltips on icon choices', async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    render(
+      <SegmentedControl
+        aria-label="Task layout"
+        value="list"
+        options={[
+          {
+            value: 'list',
+            label: <span>List view</span>,
+            tooltip: 'List view',
+          },
+          {
+            value: 'board',
+            label: <span>Board view</span>,
+            tooltip: 'Board view',
+          },
+        ]}
+        onValueChange={onValueChange}
+      />,
+    );
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'List view' })).toHaveFocus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('List view');
+    await user.keyboard('{ArrowRight}');
+    expect(onValueChange).toHaveBeenLastCalledWith('board');
+    expect(screen.getByRole('button', { name: 'Board view' })).toHaveFocus();
+  });
+
   it('uses one tab stop and selects enabled options with arrows, Home and End', async () => {
     const user = userEvent.setup();
     function Example() {
