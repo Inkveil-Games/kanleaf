@@ -198,8 +198,9 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
         }
       />
       <Route path={routePatterns.root} element={workspaceScreen('root')} />
+      <Route path={routePatterns.workspace} element={workspaceScreen('home')} />
       <Route
-        path={routePatterns.workspace}
+        path={routePatterns.legacyWorkspaceHome}
         element={<WorkspaceCanonicalRedirect />}
       />
       <Route
@@ -340,7 +341,7 @@ function WorkspaceCanonicalRedirect() {
   const { workspaceIdentifier } = useParams();
 
   return workspaceIdentifier ? (
-    <Navigate replace to={routePaths.workspaceMyWork(workspaceIdentifier)} />
+    <Navigate replace to={routePaths.workspaceHome(workspaceIdentifier)} />
   ) : (
     <Navigate replace to={routePaths.root()} />
   );

@@ -11,10 +11,11 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    quick_link::QuickLinkConfig,
     vault::{PortableConfigSnapshot, VaultError},
 };
 
-const WORKSPACE_CONFIG_FORMAT_VERSION: u16 = 2;
+const WORKSPACE_CONFIG_FORMAT_VERSION: u16 = 3;
 const VIEWS_CONFIG_FORMAT_VERSION: u16 = 1;
 const LIVE_MANIFEST_FORMAT_VERSION: u16 = 2;
 const TASK_CONFIG_FORMAT_VERSION: u16 = 3;
@@ -33,6 +34,7 @@ pub(super) struct WorkspaceConfig {
     pub state_property_description: String,
     pub label_property_description: String,
     pub members: Vec<MemberReference>,
+    pub quick_links: Vec<QuickLinkConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -503,6 +505,12 @@ async fn build_snapshot(
         state_property_description: workspace.state_property_description.clone(),
         label_property_description: workspace.label_property_description.clone(),
         members,
+        quick_links: sqlx::query_as::<_, QuickLinkConfig>(
+            "SELECT id, kind, title, url, project_id, document_id, position FROM workspace_quick_links WHERE workspace_id = $1 ORDER BY position, id",
+        )
+        .bind(workspace_id)
+        .fetch_all(&mut **transaction)
+        .await?,
     };
 
     let states = sqlx::query_as::<_, TaskStateConfig>(

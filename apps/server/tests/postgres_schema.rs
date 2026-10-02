@@ -1,10 +1,158 @@
 #![cfg(feature = "postgres-tests")]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fs, time::Duration};
 
-use kanleaf_server::{domain::VaultStorageName, migration::run_database_migrations};
+use kanleaf_server::{
+    AppState, domain::VaultStorageName, migration::run_database_migrations,
+    portability::recover_config_projection_jobs,
+};
+use serde_json::{Value, json};
 use sqlx::{PgPool, migrate::Migrator};
+use tempfile::TempDir;
 use uuid::Uuid;
+
+#[sqlx::test(migrations = false)]
+async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool) {
+    let all_migrations = sqlx::migrate!();
+    Migrator {
+        migrations: Cow::Owned(
+            all_migrations
+                .iter()
+                .filter(|migration| migration.version <= 28)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    }
+    .run(&pool)
+    .await
+    .unwrap();
+
+    let data_dir = TempDir::new().unwrap();
+    let mut workspaces = Vec::new();
+    for pending in [false, true] {
+        let id = Uuid::new_v4();
+        let state_id = Uuid::new_v4();
+        let identifier = format!("workspace-{}", id.simple());
+        let mut transaction = pool.begin().await.unwrap();
+        sqlx::query(
+            "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
+        )
+        .bind(&identifier)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO workspaces (id, name, identifier, default_inbox_state_id) VALUES ($1, 'Existing workspace', $2, $3)",
+        )
+        .bind(id)
+        .bind(&identifier)
+        .bind(state_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO task_states (id, workspace_id, name, color, description, system_role, position) VALUES ($1, $2, 'Todo', '#7A4DD1', 'Ready to be worked on.', 'todo', 1)",
+        )
+        .bind(state_id)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        let version: i64 =
+            sqlx::query_scalar("SELECT config_version FROM workspaces WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if pending {
+            sqlx::query(
+                "UPDATE workspace_config_projection_jobs SET attempts = 4, last_error = 'disk unavailable', next_attempt_at = now() + interval '1 day' WHERE workspace_id = $1",
+            )
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        } else {
+            sqlx::query(
+                "UPDATE workspaces SET projected_config_version = config_version WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("DELETE FROM workspace_config_projection_jobs WHERE workspace_id = $1")
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        workspaces.push((id, state_id, identifier, version));
+    }
+
+    run_database_migrations(&pool).await.unwrap();
+    run_database_migrations(&pool).await.unwrap();
+    for (id, state_id, identifier, version) in &workspaces {
+        let metadata: (String, String, Uuid, i64) = sqlx::query_as(
+            "SELECT name, identifier, default_inbox_state_id, config_version FROM workspaces WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            metadata,
+            (
+                "Existing workspace".into(),
+                identifier.clone(),
+                *state_id,
+                version + 1
+            )
+        );
+        let job: (i64, i32, Option<String>, bool) = sqlx::query_as(
+            "SELECT config_version, attempts, last_error, next_attempt_at <= now() FROM workspace_config_projection_jobs WHERE workspace_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(job, (version + 1, 0, None, true));
+    }
+
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    recover_config_projection_jobs(&state).await.unwrap();
+    for (id, state_id, _, version) in workspaces {
+        let path = data_dir
+            .path()
+            .join("vaults")
+            .join(id.to_string())
+            .join(".kanleaf/workspace.json");
+        let config: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(config["format_version"], 3);
+        assert_eq!(config["name"], "Existing workspace");
+        assert_eq!(config["default_state_id"], state_id.to_string());
+        assert_eq!(config["quick_links"], json!([]));
+        let projected: i64 =
+            sqlx::query_scalar("SELECT projected_config_version FROM workspaces WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(projected, version + 1);
+    }
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workspace_config_projection_jobs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+}
 
 #[sqlx::test(migrations = "./migrations")]
 async fn migration_runner_restores_an_interrupted_saved_view_trigger(pool: PgPool) {

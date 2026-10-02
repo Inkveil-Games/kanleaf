@@ -77,6 +77,10 @@ vi.mock('./api', () => ({
   updateTask: vi.fn(),
 }));
 
+vi.mock('../home/api', () => ({
+  listQuickLinks: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../view/api', () => ({
   createSavedView: mocks.createSavedView,
   deleteSavedView: mocks.deleteSavedView,
@@ -162,11 +166,16 @@ vi.mock('./WorkspaceControl', async (importOriginal) => {
 
 vi.mock('./WorkspaceNavigation', () => ({
   WorkspaceNavigation: ({
+    onOpenHome,
     onSelectCollection,
   }: {
+    onOpenHome: () => void;
     onSelectCollection: (collection: { kind: 'all' }) => void;
   }) => (
     <nav data-testid="workspace-navigation">
+      <button type="button" onClick={onOpenHome}>
+        Home
+      </button>
       <button type="button" onClick={() => onSelectCollection({ kind: 'all' })}>
         Open all tasks
       </button>
@@ -719,17 +728,17 @@ describe('WorkspaceShell routing integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip invitations' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/new/my-work',
+        '/new',
       ),
     );
   });
 
-  it('replaces the root entry with the active Workspace My Work route', async () => {
+  it('replaces the root entry with the active Workspace Home route', async () => {
     renderWorkspaceRoutes({ initialEntries: ['/sentinel', '/'] });
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/w/workspace-1/my-work',
+        '/w/workspace-1',
       ),
     );
 
@@ -826,7 +835,7 @@ describe('WorkspaceShell routing integration', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        '/w/workspace-1/my-work',
+        '/w/workspace-1',
       ),
     );
     await waitFor(() =>
@@ -1189,7 +1198,7 @@ describe('WorkspaceShell routing integration', () => {
         }),
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/w/workspace-2/my-work',
+      '/w/workspace-2',
     );
     await act(async () => workspaceFour.resolve());
     await waitFor(() =>
@@ -1865,7 +1874,7 @@ describe('WorkspaceShell routing integration', () => {
     });
     await waitFor(() =>
       expect(screen.getByLabelText('Current location')).toHaveTextContent(
-        /^\/w\/workspace-1\/my-work$/,
+        /^\/w\/workspace-1$/,
       ),
     );
   });
@@ -2356,6 +2365,26 @@ describe('WorkspaceShell routing integration', () => {
     expect(flushDocumentSaves).toHaveBeenCalledOnce();
   });
 
+  it('blocks Home navigation when a pending Markdown save fails', async () => {
+    const flushDocumentSaves = vi
+      .fn()
+      .mockRejectedValue(new Error('Document save failed'));
+    renderWorkspaceRoutes({
+      initialEntries: ['/w/workspace-1/library?page=1'],
+      flushDocumentSaves,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Home' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Document save failed',
+    );
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/library?page=1',
+    );
+    expect(flushDocumentSaves).toHaveBeenCalledOnce();
+  });
+
   it('keeps the shell mounted while an uncached Library Page resolves', async () => {
     const routedDocument = deferred<WorkspaceDocument>();
     mocks.getDocumentByNumber.mockImplementation(
@@ -2807,6 +2836,10 @@ function renderWorkspaceRoutes({
           <Route
             path="/"
             element={<WorkspaceRouteScreen routeKind="root" {...shellProps} />}
+          />
+          <Route
+            path="/w/:workspaceIdentifier"
+            element={<WorkspaceRouteScreen routeKind="home" {...shellProps} />}
           />
           <Route
             path="/w/:workspaceIdentifier/my-work"

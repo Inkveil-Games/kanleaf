@@ -17,6 +17,7 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  transition: var(--transition-hover);
 }
 
 .ui-button[data-size='sm'] {

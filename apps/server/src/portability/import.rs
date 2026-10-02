@@ -468,6 +468,7 @@ async fn apply_validated(
     insert_projects(&mut transaction, workspace_id, &validated, &maps).await?;
     insert_tasks(&mut transaction, workspace_id, &validated, &maps).await?;
     insert_documents(&mut transaction, workspace_id, &validated, &maps).await?;
+    insert_quick_links(&mut transaction, workspace_id, &validated, &maps).await?;
     insert_views(&mut transaction, actor_id, workspace_id, &validated, &maps).await?;
     rewrite_task_files(state, staging_key, &validated, &maps).await?;
     state.vault.remove_imported_config(staging_key).await?;
@@ -1109,6 +1110,30 @@ async fn insert_documents(
             .bind(mapped(&maps.documents, document.id)?)
             .execute(&mut **transaction)
             .await?;
+    }
+    Ok(())
+}
+
+async fn insert_quick_links(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    validated: &ValidatedImport,
+    maps: &IdMaps,
+) -> anyhow::Result<()> {
+    for link in &validated.workspace.quick_links {
+        sqlx::query(
+            "INSERT INTO workspace_quick_links (id, workspace_id, kind, title, url, project_id, document_id, position) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(workspace_id)
+        .bind(&link.kind)
+        .bind(&link.title)
+        .bind(&link.url)
+        .bind(link.project_id.map(|id| mapped(&maps.projects, id)).transpose()?)
+        .bind(link.document_id.map(|id| mapped(&maps.documents, id)).transpose()?)
+        .bind(link.position)
+        .execute(&mut **transaction)
+        .await?;
     }
     Ok(())
 }

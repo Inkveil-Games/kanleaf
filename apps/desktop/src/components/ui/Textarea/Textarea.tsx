@@ -1,6 +1,7 @@
 import { forwardRef, type TextareaHTMLAttributes } from 'react';
 import { useFormFieldControl } from '../FormField/FormFieldContext';
 import '../formControl.css';
+import '../ScrollArea/ScrollArea.css';
 import './Textarea.css';
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -32,7 +33,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       <textarea
         {...textareaProps}
         ref={ref}
-        className={`ui-textarea${className ? ` ${className}` : ''}`}
+        className={`ui-textarea ui-native-scrollbar${className ? ` ${className}` : ''}`}
         id={field.id}
         required={field.required}
         aria-describedby={field.describedBy}

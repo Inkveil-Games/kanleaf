@@ -206,6 +206,111 @@ async fn apply_import(app: &Router, token: &str, preview: &Value) -> Value {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn quick_links_round_trip_preserves_order_and_remaps_targets(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "quick-links-export@example.com").await;
+    let base = format!("/api/workspaces/{workspace_id}");
+    let project = create(
+        &app,
+        &token,
+        &format!("{base}/projects"),
+        json!({"name": "Design"}),
+    )
+    .await;
+    let page = create(
+        &app,
+        &token,
+        &format!("{base}/documents"),
+        json!({"title": "API Design", "project_id": project["id"]}),
+    )
+    .await;
+    let mut source_ids = Vec::new();
+    for payload in [
+        json!({"kind": "external", "title": "GitHub", "url": "https://github.com/org/repo#readme"}),
+        json!({"kind": "project", "project_id": project["id"]}),
+        json!({"kind": "page", "document_id": page["id"]}),
+    ] {
+        source_ids.push(
+            create(&app, &token, &format!("{base}/quick-links"), payload).await["id"].clone(),
+        );
+    }
+    let archive = export_workspace(&app, &token, workspace_id).await;
+    let preview = preview_import(&app, &token, &archive).await;
+    assert_eq!(preview["state"], "ready", "{preview:#}");
+    let imported = apply_import(&app, &token, &preview).await;
+    let new_workspace = imported["workspace_id"].as_str().unwrap();
+    let links = get_json(
+        &app,
+        &token,
+        &format!("/api/workspaces/{new_workspace}/quick-links"),
+    )
+    .await;
+    let links = links.as_array().unwrap();
+    assert_eq!(links.len(), 3);
+    assert_eq!(links[0]["url"], "https://github.com/org/repo#readme");
+    assert_eq!(links[1]["title"], "Design");
+    assert_eq!(links[2]["title"], "API Design");
+    assert_ne!(links[1]["project_id"], project["id"]);
+    assert_eq!(links[2]["project_id"], links[1]["project_id"]);
+    assert_ne!(links[2]["document_id"], page["id"]);
+    for (index, link) in links.iter().enumerate() {
+        assert_eq!(link["position"], index);
+        assert_eq!(link["available"], true);
+        assert!(!source_ids.contains(&link["id"]));
+    }
+    let legacy = rewrite_archive_with_checksums(&archive, |path, content| {
+        if path != ".kanleaf/workspace.json" {
+            return content;
+        }
+        let mut value: Value = serde_json::from_slice(&content).unwrap();
+        value["format_version"] = json!(2);
+        value.as_object_mut().unwrap().remove("quick_links");
+        serde_json::to_vec(&value).unwrap()
+    });
+    let legacy_preview = preview_import(&app, &token, &legacy).await;
+    assert_eq!(legacy_preview["state"], "ready", "{legacy_preview:#}");
+    let legacy_import = apply_import(&app, &token, &legacy_preview).await;
+    let legacy_id = legacy_import["workspace_id"].as_str().unwrap();
+    assert_eq!(
+        get_json(
+            &app,
+            &token,
+            &format!("/api/workspaces/{legacy_id}/quick-links")
+        )
+        .await,
+        json!([])
+    );
+
+    for mutation in [
+        "missing_target",
+        "script_url",
+        "duplicate_id",
+        "duplicate_position",
+    ] {
+        let broken = rewrite_archive_with_checksums(&archive, |path, content| {
+            if path != ".kanleaf/workspace.json" {
+                return content;
+            }
+            let mut value: Value = serde_json::from_slice(&content).unwrap();
+            match mutation {
+                "missing_target" => value["quick_links"][1]["project_id"] = json!(Uuid::new_v4()),
+                "script_url" => value["quick_links"][0]["url"] = json!("javascript:alert(1)"),
+                "duplicate_id" => {
+                    value["quick_links"][1]["id"] = value["quick_links"][0]["id"].clone()
+                }
+                "duplicate_position" => value["quick_links"][1]["position"] = json!(0),
+                _ => unreachable!(),
+            }
+            serde_json::to_vec(&value).unwrap()
+        });
+        let rejected = preview_import(&app, &token, &broken).await;
+        assert_eq!(rejected["state"], "failed", "{mutation}: {rejected:#}");
+        assert_eq!(rejected["error"]["code"], "invalid_metadata");
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn account_details_are_required_before_import_apply(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
@@ -879,6 +984,7 @@ async fn legacy_task_types_normalize_to_one_custom_type_property(pool: PgPool) {
         if path == ".kanleaf/workspace.json" {
             let value = value.as_mut().unwrap();
             value["format_version"] = json!(1);
+            value.as_object_mut().unwrap().remove("quick_links");
             value["default_task_type_id"] = json!(feature_id);
             value
                 .as_object_mut()
@@ -1073,6 +1179,7 @@ async fn legacy_protected_default_type_is_removed_instead_of_becoming_custom_dat
         if path == ".kanleaf/workspace.json" {
             let mut value: Value = serde_json::from_slice(&content).unwrap();
             value["format_version"] = json!(1);
+            value.as_object_mut().unwrap().remove("quick_links");
             value["default_task_type_id"] = json!(task_type_id);
             value
                 .as_object_mut()

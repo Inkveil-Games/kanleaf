@@ -41,6 +41,87 @@ const workspaceView = savedView('workspace-view', 'Board View', null);
 const projectView = savedView('project-view', 'Release View', project.id);
 
 describe('WorkspaceNavigation', () => {
+  it('collapses and expands the current project with its chevron without navigating away', async () => {
+    const callbacks = callbackSpies();
+    renderNavigation({ surface: 'project-overview', callbacks });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Collapse Kanleaf Core' }),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Overview' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Expand Kanleaf Core' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand Kanleaf Core' }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Overview' }),
+    ).toBeVisible();
+    expect(callbacks.onOpenProjectOverview).not.toHaveBeenCalled();
+  });
+  it('keeps only the active project subnavigation accessible when switching projects', async () => {
+    const projects = [
+      project,
+      { ...project, id: 'project-2', name: 'Website', identifier: 'website' },
+    ];
+    const view = renderNavigation({ projects, surface: 'project-overview' });
+    expect(screen.getAllByRole('button', { name: 'Overview' })).toHaveLength(1);
+    view.rerender(
+      navigation({
+        projects,
+        surface: 'project-overview',
+        activeProjectId: 'project-2',
+      }),
+    );
+    expect(screen.getAllByRole('button', { name: 'Overview' })).toHaveLength(1);
+    expect(
+      screen
+        .getByRole('button', { name: 'Overview' })
+        .closest('.project-nav-group'),
+    ).toHaveTextContent('Website');
+    expect(
+      screen
+        .getByRole('button', { name: 'Overview' })
+        .closest('.project-subnav-motion'),
+    ).not.toBeNull();
+    view.rerender(
+      navigation({
+        projects: projects.map((p) => ({ ...p, effective_role: null })),
+        surface: 'project-overview',
+        activeProjectId: 'project-2',
+      }),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Overview' }),
+    ).not.toBeInTheDocument();
+  });
+  it.each(['expanded', 'drawer'] as const)(
+    'highlights only Overview inside an active project in %s mode',
+    (mode) => {
+      renderNavigation({ mode, surface: 'project-overview' });
+      expect(screen.getByRole('button', { name: 'Overview' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(
+        screen.getByRole('button', { name: 'Kanleaf Core' }),
+      ).not.toHaveAttribute('aria-current');
+    },
+  );
+  it('keeps the project overview selected when there is no accessible subnavigation', () => {
+    renderNavigation({
+      surface: 'project-overview',
+      projects: [{ ...project, effective_role: null, can_join: true }],
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Overview' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Kanleaf Core/ }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
   it('keeps the full hierarchy in expanded and drawer modes', () => {
     const { rerender } = renderNavigation({ mode: 'expanded' });
 
@@ -55,15 +136,15 @@ describe('WorkspaceNavigation', () => {
       'data-orientation',
       'vertical',
     );
-    expect(screen.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Home' })).toBeVisible();
     expect(workspaceNavigation).toContainElement(
-      screen.getByRole('button', { name: 'Inbox' }),
+      screen.getByRole('button', { name: 'Home' }),
     );
     expect(screen.getByText('Saved Views')).toBeVisible();
     expect(screen.getByText('Projects')).toBeVisible();
 
     rerender(navigation({ mode: 'drawer' }));
-    expect(screen.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Home' })).toBeVisible();
     expect(screen.getByText('Kanleaf Core')).toBeVisible();
   });
 
@@ -90,18 +171,16 @@ describe('WorkspaceNavigation', () => {
     expect(railButtons[1]).toHaveAccessibleName(
       'Switch workspace, current workspace Kanleaf',
     );
-    expect(within(rail).getByRole('button', { name: 'Inbox' })).toBeVisible();
+    expect(within(rail).getByRole('button', { name: 'Home' })).toBeVisible();
     expect(within(rail).getByRole('button', { name: 'My Work' })).toBeVisible();
     expect(
       within(rail).getByRole('button', { name: 'All tasks' }),
     ).toHaveAttribute('aria-current', 'page');
     expect(within(rail).getByRole('button', { name: 'Library' })).toBeVisible();
-    expect(within(rail).queryByText('Inbox')).not.toBeInTheDocument();
+    expect(within(rail).queryByText('Home')).not.toBeInTheDocument();
 
-    await user.click(within(rail).getByRole('button', { name: 'Inbox' }));
-    expect(callbacks.onSelectCollection).toHaveBeenCalledWith({
-      kind: 'inbox',
-    });
+    await user.click(within(rail).getByRole('button', { name: 'Home' }));
+    expect(callbacks.onOpenHome).toHaveBeenCalled();
     await user.click(within(rail).getByRole('button', { name: 'Library' }));
     expect(callbacks.onOpenDocuments).toHaveBeenCalledWith(null);
     await user.click(
@@ -168,7 +247,7 @@ describe('WorkspaceNavigation', () => {
       mode: 'rail',
       navigationRouteKey: 'task:1',
     });
-    const inbox = screen.getByRole('button', { name: 'Inbox' });
+    const inbox = screen.getByRole('button', { name: 'Home' });
 
     await user.click(screen.getByRole('button', { name: 'Saved Views' }));
     expect(screen.getByRole('menu')).toBeVisible();
@@ -177,7 +256,7 @@ describe('WorkspaceNavigation', () => {
     await waitFor(() =>
       expect(screen.queryByRole('menu')).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole('button', { name: 'Inbox' })).toBe(inbox);
+    expect(screen.getByRole('button', { name: 'Home' })).toBe(inbox);
 
     rerender(navigation({ mode: 'rail', navigationRouteKey: 'task:1' }));
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
@@ -320,6 +399,7 @@ function navigation({
       activeViewId={activeViewId}
       navigationRouteKey={navigationRouteKey}
       onCreateProject={callbacks.onCreateProject}
+      onOpenHome={callbacks.onOpenHome}
       onSelectCollection={callbacks.onSelectCollection}
       onOpenProjectOverview={callbacks.onOpenProjectOverview}
       onOpenPlanning={callbacks.onOpenPlanning}
@@ -336,6 +416,7 @@ function navigation({
 
 function callbackSpies() {
   return {
+    onOpenHome: vi.fn(),
     onCreateProject: vi.fn().mockResolvedValue(project),
     onSelectCollection: vi.fn(),
     onOpenProjectOverview: vi.fn(),

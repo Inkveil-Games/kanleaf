@@ -9,7 +9,13 @@ import {
 } from './workspaceLocation';
 
 export type WorkspacePresentationSurface =
-  'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents' | 'views';
+  | 'home'
+  | 'tasks'
+  | 'project-overview'
+  | 'cycles'
+  | 'modules'
+  | 'documents'
+  | 'views';
 
 export interface WorkspacePresentation {
   content: WorkspaceContentLocation;
@@ -75,6 +81,7 @@ function collectionFor(
       return savedView
         ? collectionFromScope(savedView.query.scope)
         : { kind: 'all' };
+    case 'home':
     case 'workspace-library':
       return { kind: 'my-work' };
     case 'project-view':
@@ -90,6 +97,8 @@ function surfaceFor(
   location: WorkspaceContentLocation,
 ): WorkspacePresentationSurface {
   switch (location.kind) {
+    case 'home':
+      return 'home';
     case 'project-overview':
       return 'project-overview';
     case 'project-cycles':

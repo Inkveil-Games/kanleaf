@@ -519,7 +519,7 @@ export function LegacyWorkspaceRedirect({
         ...legacySuffix.slice(2),
       ]
     : legacySuffix;
-  const suffixPath = suffix.length > 0 ? `/${suffix.join('/')}` : '/my-work';
+  const suffixPath = suffix.length > 0 ? `/${suffix.join('/')}` : '';
   return (
     <Navigate
       replace

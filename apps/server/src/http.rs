@@ -54,6 +54,7 @@ pub fn router(state: AppState, allowed_origins: Vec<HeaderValue>) -> Router {
         .merge(portability::routes())
         .merge(workspace::routes())
         .merge(webhook::routes())
+        .merge(crate::quick_link::routes())
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
         .with_state(state)

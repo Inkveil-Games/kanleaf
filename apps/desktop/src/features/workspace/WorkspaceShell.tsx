@@ -1,3 +1,4 @@
+import { WorkspaceHome } from '../home/WorkspaceHome';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useCallback,
@@ -611,7 +612,9 @@ export function WorkspaceShell({
         workspaces.data?.[0];
       if (target) {
         onNavigate(
-          { kind: 'my-work', workspaceId: target.id, taskId: null },
+          target.role === 'guest'
+            ? { kind: 'my-work', workspaceId: target.id, taskId: null }
+            : { kind: 'home', workspaceId: target.id },
           { replace: true },
         );
       }
@@ -1827,6 +1830,14 @@ export function WorkspaceShell({
         activeViewId={activeView?.id ?? null}
         navigationRouteKey={navigationRouteKey}
         onCreateProject={addProject}
+        onOpenHome={() =>
+          completeNavigation(() => {
+            void navigateSafely({
+              kind: 'home',
+              workspaceId: visibleWorkspace.id,
+            });
+          })
+        }
         onSelectCollection={(nextCollection) =>
           completeNavigation(() => selectCollection(nextCollection))
         }
@@ -1910,7 +1921,25 @@ export function WorkspaceShell({
           onChange={paneLayout.setCollectionWidth}
         />
       )}
-      {visibleSurface === 'project-overview' && activeProject ? (
+      {visibleSurface === 'home' ? (
+        <WorkspaceHome
+          key={`${serverUrl}:${token}:${workspaceId}`}
+          context={context}
+          workspace={activeWorkspace}
+          displayName={user.display_name}
+          userId={user.id}
+          accessSettled={hasSettledWorkspaceAccess}
+          projects={projects.data ?? []}
+          projectsAccessSettled={projectAccessSettled}
+          projectsError={projects.error}
+          onRetryProjects={() => {
+            void projects.refetch();
+          }}
+          onNavigate={(next) => {
+            void navigateSafely(next);
+          }}
+        />
+      ) : visibleSurface === 'project-overview' && activeProject ? (
         <ProjectOverview
           project={activeProject}
           joining={joiningProject}

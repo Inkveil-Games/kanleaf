@@ -202,7 +202,8 @@ describe('Workspace content path parsing', () => {
     '/host',
     '/missing/my-work',
     '/workspace-1/my-work',
-    '/w/workspace-1',
+    '/w/workspace-1/home',
+    '/w/workspace-1?task=42',
     '/w/workspace-1/my-work/',
     '/w/workspace-1/settings/account/profile',
     '/w/workspace-1/p/project-1/settings/general',
@@ -1774,5 +1775,38 @@ describe('Task detail reconciliation', () => {
       location: { ...projectLocation, taskId: null },
       notice: 'task-unavailable',
     });
+  });
+});
+
+describe('Workspace Home location', () => {
+  it('round-trips Home as a durable location without task selection', () => {
+    const location = workspaceLocationFromRoute(
+      'home',
+      'workspace-1',
+      {},
+      '',
+      null,
+    );
+    expect(location).toEqual({ kind: 'home', workspaceId: 'workspace-1' });
+    expect(
+      parseWorkspaceContentPath('/w/workspace-1', resolveWorkspaceId),
+    ).toEqual(location);
+    if (!location) throw new Error('Missing Home location');
+    expect(workspaceLocationPath(location, 'kanleaf-core')).toBe(
+      '/w/kanleaf-core',
+    );
+    expect(workspaceLocationIdentity(location)).toBe('workspace-1:home');
+    expect(reconcileWorkspaceLocation(location, baseAccess)).toEqual({
+      status: 'keep',
+    });
+    expect(
+      reconcileWorkspaceLocation(location, {
+        ...baseAccess,
+        workspaces: {
+          status: 'resolved',
+          value: [{ id: 'workspace-1', role: 'guest' }],
+        },
+      }),
+    ).toEqual({ status: 'keep' });
   });
 });

@@ -361,8 +361,8 @@ test('restores a Workspace route through refresh and browser history', async ({
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
   await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Inbox', exact: true }),
-  ).toHaveAttribute('aria-current', 'page');
+    page.getByRole('button', { name: 'Home', exact: true }),
+  ).toBeVisible();
 
   await page.reload();
   await expect(page).toHaveURL(`${serverUrl}${inboxPath}`);
@@ -391,6 +391,24 @@ test('restores a Workspace route through refresh and browser history', async ({
   await page.reload();
   await expect(page).toHaveURL(`${serverUrl}${canonicalLegacyPath}`);
   await expect(page.getByRole('region', { name: 'Inbox' })).toBeVisible();
+
+  const homePath = `/w/${host.workspace.identifier}`;
+  await page.goto(`${homePath}/home`);
+  await expect(page).toHaveURL(`${serverUrl}${homePath}`);
+  await expect(
+    page.getByRole('region', { name: 'Workspace Home' }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page).toHaveURL(`${serverUrl}${homePath}`);
+  await expect(
+    page.getByRole('region', { name: 'Workspace Home' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'My Work', exact: true }).click();
+  await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${serverUrl}${homePath}`);
+  await page.goForward();
+  await expect(page).toHaveURL(`${serverUrl}${myWorkPath}`);
 });
 
 test('manages Restricted access through the Host Console', async ({

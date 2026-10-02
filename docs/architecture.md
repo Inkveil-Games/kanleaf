@@ -114,6 +114,25 @@ User ──< Session
   layout. Personal names are unique per owner and scope; shared names are
   unique per scope. Project foreign keys and membership ownership keep records
   inside the same tenant.
+- Home summarizes authorized Task and Library metadata through existing feature
+  APIs. Today and overdue counts include unfinished Tasks assigned to the current
+  user, using the device's local calendar date; Inbox counts unfinished Tasks
+  without a Project. Upcoming shows up to five unfinished assigned Tasks with due
+  dates, ordered by earliest due date (including overdue), then highest priority;
+  each row displays its actual due date. Projects remain a separate list, ordered by last update with
+  open Task counts. Recent pages shows the five most recently updated accessible
+  pages, excluding archived pages and Projects with Library disabled. Home reads
+  are gated on settled Workspace/Project access; failures hide stale results and
+  provide retry. These summaries are derived, not persisted separately.
+- Home Quick links are shared, ordered Workspace records in PostgreSQL.
+  Home uses `/w/:workspaceIdentifier`; the older `/home` suffix redirects to
+  that Workspace root.
+  Owner/Admin manages them; other members see only currently accessible
+  targets. Page and Project links retain UUIDs and resolve their current names
+  and public locations. External links store a display title and HTTP(S) URL
+  without embedded credentials. Archived targets remain manageable but cannot
+  be opened; permanent target deletion removes its links through tenant-safe
+  foreign keys.
 - Library notes keep stable IDs, titles, portable storage names, hierarchy, and
   ordering in PostgreSQL. A parent must share the same Workspace/Project scope;
   subtree moves validate cycles and move every descendant together. Workspace
@@ -306,6 +325,14 @@ A startup/periodic worker writes `workspace.json`, `task-config.json`,
 as the snapshot commit marker. User profile changes fan out only display
 references; account preferences, sessions, invitations, notifications, and
 comment/activity history never mark or enter portable configuration.
+
+Workspace config format 3 includes the ordered `quick_links` array in
+`.kanleaf/workspace.json`. Link changes enqueue the same transactional config
+projection used by other Workspace metadata. Import validates target references,
+URLs, unique link identities and positions, then remaps Page/Project and link
+UUIDs into the new Workspace. Formats 1 and 2 remain importable with an empty
+Quick links list. The projected file is a portable snapshot, not a live
+configuration-editing API.
 
 Workspace export is an actor-scoped, expiring server operation available to
 current Owner/Admin roles. It drains Task and config projections, inventories

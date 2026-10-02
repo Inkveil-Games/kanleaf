@@ -31,6 +31,7 @@ export type TaskCollectionLocation =
 
 export type WorkspaceContentLocation =
   | TaskCollectionLocation
+  | { kind: 'home'; workspaceId: string }
   | {
       kind: 'workspace-library';
       workspaceId: string;
@@ -575,6 +576,7 @@ export function workspaceLocationIdentity(location: WorkspaceLocation): string {
   const content = workspaceBaseLocation(location);
 
   switch (content.kind) {
+    case 'home':
     case 'my-work':
     case 'inbox':
     case 'all-tasks':
@@ -777,6 +779,7 @@ function contentLocationFromSegments(
   segments: string[],
   workspaceId: string,
 ): WorkspaceContentLocation | null {
+  if (segments.length === 0) return { kind: 'home', workspaceId };
   const [area, projectId, surface, resourceId] = segments;
 
   if (segments.length === 1) {
@@ -900,6 +903,8 @@ function contentPathWithoutSelection(
   const publicProjectId = (projectId: string) =>
     resolveProjectIdentifier(projectId) ?? projectId;
   switch (location.kind) {
+    case 'home':
+      return routePaths.workspaceHome(workspaceIdentifier);
     case 'my-work':
       return routePaths.workspaceMyWork(workspaceIdentifier);
     case 'inbox':

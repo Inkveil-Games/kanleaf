@@ -11,6 +11,7 @@ import { workspaceContentPath } from './workspaceLocation';
 
 export type WorkspaceRouteKind =
   | 'root'
+  | 'home'
   | 'my-work'
   | 'inbox'
   | 'all-tasks'
@@ -96,6 +97,8 @@ export function workspaceLocationFromRoute(
   const documentId = pageSelection(search);
 
   switch (kind) {
+    case 'home':
+      return { kind, workspaceId };
     case 'my-work':
     case 'inbox':
       return { kind, workspaceId, taskId };

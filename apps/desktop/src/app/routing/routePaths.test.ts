@@ -48,6 +48,7 @@ describe('routePatterns', () => {
       legacyProjectWildcard:
         '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId/*',
       workspace: '/w/:workspaceIdentifier',
+      legacyWorkspaceHome: '/w/:workspaceIdentifier/home',
       workspaceMyWork: '/w/:workspaceIdentifier/my-work',
       workspaceInbox: '/w/:workspaceIdentifier/inbox',
       workspaceTasks: '/w/:workspaceIdentifier/tasks',
@@ -79,6 +80,9 @@ describe('routePatterns', () => {
 });
 
 describe('routePaths', () => {
+  it('uses the Workspace root for Home', () => {
+    expect(routePaths.workspaceHome('kanleaf-core')).toBe('/w/kanleaf-core');
+  });
   it('builds Developer routes through the canonical path contract', () => {
     expect(routePaths.developer()).toBe('/developer');
     expect(routePaths.developerWorkspace('kanleaf')).toBe(

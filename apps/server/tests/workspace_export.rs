@@ -289,7 +289,8 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     assert!(entries.contains_key(&format!(".kanleaf/projects/{project_id}.json")));
     let workspace_config: Value =
         serde_json::from_slice(&entries[".kanleaf/workspace.json"]).unwrap();
-    assert_eq!(workspace_config["format_version"], 2);
+    assert_eq!(workspace_config["format_version"], 3);
+    assert_eq!(workspace_config["quick_links"], json!([]));
     assert!(workspace_config.get("default_task_type_id").is_none());
     assert!(workspace_config["state_property_description"].is_string());
     assert!(workspace_config["label_property_description"].is_string());

@@ -96,6 +96,8 @@ async fn update(
     require_workspace_admin(&state.pool, auth.user.id, workspace_id).await?;
 
     let mut transaction = state.pool.begin().await?;
+    lock_workspace(&mut transaction, workspace_id).await?;
+    require_admin_in_transaction(&mut transaction, workspace_id, auth.user.id).await?;
     let current = lock_member_role(&mut transaction, workspace_id, user_id).await?;
     if current == WorkspaceRole::Owner {
         return Err(AppError::Validation(
@@ -202,6 +204,8 @@ async fn remove(
     }
 
     let mut transaction = state.pool.begin().await?;
+    lock_workspace(&mut transaction, workspace_id).await?;
+    require_admin_in_transaction(&mut transaction, workspace_id, auth.user.id).await?;
     let role = lock_member_role(&mut transaction, workspace_id, user_id).await?;
     if role == WorkspaceRole::Owner {
         return Err(AppError::Validation(
@@ -234,7 +238,9 @@ async fn leave(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
     let Path(workspace_id) = path.map_err(AppError::from)?;
+    require_workspace_member(&state.pool, auth.user.id, workspace_id).await?;
     let mut transaction = state.pool.begin().await?;
+    lock_workspace(&mut transaction, workspace_id).await?;
     let role = lock_member_role(&mut transaction, workspace_id, auth.user.id).await?;
     if role == WorkspaceRole::Owner {
         return Err(AppError::Validation(
@@ -304,6 +310,25 @@ async fn transfer_ownership(
     }
     transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn require_admin_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    // The Workspace fence serializes membership changes and their projection triggers.
+    let allowed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2 AND role IN ('owner', 'admin'))",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !allowed {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
 }
 
 async fn lock_member_role(

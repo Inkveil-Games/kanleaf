@@ -1,10 +1,12 @@
+import { Collapsible } from '@base-ui/react/collapsible';
 import {
   CheckSquare2,
+  ChevronRight,
   Bookmark,
   BookOpenText,
   CalendarRange,
   FolderKanban,
-  Inbox,
+  House,
   LayoutPanelTop,
   ListTodo,
   Layers3,
@@ -54,6 +56,7 @@ interface WorkspaceNavigationProps {
   activeViewId: string | null;
   navigationRouteKey: string | null;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project>;
+  onOpenHome: () => void;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
@@ -68,7 +71,13 @@ interface WorkspaceNavigationProps {
 }
 
 export type WorkspaceSurface =
-  'tasks' | 'project-overview' | 'cycles' | 'modules' | 'documents' | 'views';
+  | 'home'
+  | 'tasks'
+  | 'project-overview'
+  | 'cycles'
+  | 'modules'
+  | 'documents'
+  | 'views';
 
 export function WorkspaceNavigation({
   mode,
@@ -86,6 +95,7 @@ export function WorkspaceNavigation({
   activeViewId,
   navigationRouteKey,
   onCreateProject,
+  onOpenHome,
   onSelectCollection,
   onOpenProjectOverview,
   onOpenPlanning,
@@ -99,6 +109,10 @@ export function WorkspaceNavigation({
   railToggleRef,
 }: WorkspaceNavigationProps) {
   const [composingProject, setComposingProject] = useState(false);
+  const [collapsedProject, setCollapsedProject] = useState<{
+    id: string;
+    routeKey: string | null;
+  } | null>(null);
   const canUseContent = workspace.role !== 'guest';
   const activeProject = projects.find(({ id }) => id === activeProjectId);
 
@@ -117,6 +131,7 @@ export function WorkspaceNavigation({
           activeViewId={activeViewId}
           navigationRouteKey={navigationRouteKey}
           onCreateProject={() => setComposingProject(true)}
+          onOpenHome={onOpenHome}
           onSelectCollection={onSelectCollection}
           onOpenProjectOverview={onOpenProjectOverview}
           onOpenPlanning={onOpenPlanning}
@@ -157,18 +172,14 @@ export function WorkspaceNavigation({
         }}
       >
         <div className="nav-section nav-primary">
+          <NavButton
+            active={surface === 'home'}
+            icon={<House aria-hidden="true" size={16} />}
+            label="Home"
+            onClick={onOpenHome}
+          />
           {canUseContent && (
             <>
-              <NavButton
-                active={
-                  surface === 'tasks' &&
-                  collection.kind === 'inbox' &&
-                  !activeViewId
-                }
-                icon={<Inbox aria-hidden="true" size={16} />}
-                label="Inbox"
-                onClick={() => onSelectCollection({ kind: 'inbox' })}
-              />
               <NavButton
                 active={
                   surface === 'tasks' &&
@@ -253,11 +264,26 @@ export function WorkspaceNavigation({
             <div className="project-nav-list">
               {projects.map((project) => {
                 const active = activeProjectId === project.id;
+                const expanded =
+                  active &&
+                  Boolean(project.effective_role) &&
+                  !(
+                    collapsedProject?.id === project.id &&
+                    collapsedProject.routeKey === navigationRouteKey
+                  );
                 return (
-                  <div className="project-nav-group" key={project.id}>
+                  <Collapsible.Root
+                    className="project-nav-group"
+                    key={project.id}
+                    open={expanded}
+                  >
                     <div className="project-nav-row">
                       <NavButton
-                        active={active && surface === 'project-overview'}
+                        active={
+                          active &&
+                          surface === 'project-overview' &&
+                          !project.effective_role
+                        }
                         icon={
                           <ProjectIconGlyph
                             name={project.icon}
@@ -267,95 +293,137 @@ export function WorkspaceNavigation({
                         }
                         label={project.name}
                         suffix={project.can_join ? 'Open' : undefined}
-                        onClick={() => onOpenProjectOverview(project.id)}
+                        onClick={() => {
+                          setCollapsedProject(null);
+                          onOpenProjectOverview(project.id);
+                        }}
                       />
+                      {project.effective_role && (
+                        <IconButton
+                          className="project-nav-toggle"
+                          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`}
+                          aria-expanded={expanded}
+                          onClick={() => {
+                            if (expanded)
+                              setCollapsedProject({
+                                id: project.id,
+                                routeKey: navigationRouteKey,
+                              });
+                            else {
+                              setCollapsedProject(null);
+                              if (!active) onOpenProjectOverview(project.id);
+                            }
+                          }}
+                        >
+                          <ChevronRight
+                            className="project-nav-chevron"
+                            size={14}
+                            aria-hidden="true"
+                          />
+                        </IconButton>
+                      )}
                     </div>
-                    {active && project.effective_role && (
-                      <div className="project-subnav">
-                        <NavButton
-                          active={surface === 'project-overview'}
-                          icon={<LayoutPanelTop aria-hidden="true" size={14} />}
-                          label="Overview"
-                          onClick={() => onOpenProjectOverview(project.id)}
-                        />
-                        <NavButton
-                          active={
-                            surface === 'tasks' &&
-                            collection.kind === 'project' &&
-                            collection.projectId === project.id &&
-                            !activeViewId
-                          }
-                          icon={<ListTodo aria-hidden="true" size={14} />}
-                          label="Work items"
-                          onClick={() =>
-                            onSelectCollection({
-                              kind: 'project',
-                              projectId: project.id,
-                            })
-                          }
-                        />
-                        {project.cycles_enabled && (
+                    {project.effective_role && (
+                      <Collapsible.Panel
+                        className="project-subnav-motion"
+                        inert={!expanded}
+                        aria-hidden={!expanded}
+                      >
+                        <div className="project-subnav">
                           <NavButton
-                            active={surface === 'cycles'}
+                            active={surface === 'project-overview'}
                             icon={
-                              <CalendarRange aria-hidden="true" size={14} />
+                              <LayoutPanelTop aria-hidden="true" size={14} />
                             }
-                            label="Cycles"
-                            onClick={() => onOpenPlanning(project.id, 'cycles')}
+                            label="Overview"
+                            onClick={() => onOpenProjectOverview(project.id)}
                           />
-                        )}
-                        {project.modules_enabled && (
                           <NavButton
-                            active={surface === 'modules'}
-                            icon={<Layers3 aria-hidden="true" size={14} />}
-                            label="Modules"
+                            active={
+                              surface === 'tasks' &&
+                              collection.kind === 'project' &&
+                              collection.projectId === project.id &&
+                              !activeViewId
+                            }
+                            icon={<ListTodo aria-hidden="true" size={14} />}
+                            label="Work items"
                             onClick={() =>
-                              onOpenPlanning(project.id, 'modules')
+                              onSelectCollection({
+                                kind: 'project',
+                                projectId: project.id,
+                              })
                             }
                           />
-                        )}
-                        {project.pages_enabled && (
-                          <NavButton
-                            active={surface === 'documents'}
-                            icon={<BookOpenText aria-hidden="true" size={14} />}
-                            label="Library"
-                            onClick={() => onOpenDocuments(project.id)}
-                          />
-                        )}
-                        {project.views_enabled && (
-                          <>
+                          {project.cycles_enabled && (
                             <NavButton
-                              active={surface === 'views'}
-                              icon={<Bookmark aria-hidden="true" size={14} />}
-                              label="Views"
-                              onClick={() => onOpenViews(project.id)}
+                              active={surface === 'cycles'}
+                              icon={
+                                <CalendarRange aria-hidden="true" size={14} />
+                              }
+                              label="Cycles"
+                              onClick={() =>
+                                onOpenPlanning(project.id, 'cycles')
+                              }
                             />
-                            {projectViews.length > 0 && (
-                              <div className="project-view-nav">
-                                <span>Saved</span>
-                                {projectViews.map((view) => (
-                                  <NavButton
-                                    key={view.id}
-                                    active={activeViewId === view.id}
-                                    icon={
-                                      <Bookmark aria-hidden="true" size={13} />
-                                    }
-                                    label={view.name}
-                                    suffix={
-                                      view.visibility === 'shared'
-                                        ? 'Shared'
-                                        : undefined
-                                    }
-                                    onClick={() => onOpenSavedView(view)}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
+                          )}
+                          {project.modules_enabled && (
+                            <NavButton
+                              active={surface === 'modules'}
+                              icon={<Layers3 aria-hidden="true" size={14} />}
+                              label="Modules"
+                              onClick={() =>
+                                onOpenPlanning(project.id, 'modules')
+                              }
+                            />
+                          )}
+                          {project.pages_enabled && (
+                            <NavButton
+                              active={surface === 'documents'}
+                              icon={
+                                <BookOpenText aria-hidden="true" size={14} />
+                              }
+                              label="Library"
+                              onClick={() => onOpenDocuments(project.id)}
+                            />
+                          )}
+                          {project.views_enabled && (
+                            <>
+                              <NavButton
+                                active={surface === 'views'}
+                                icon={<Bookmark aria-hidden="true" size={14} />}
+                                label="Views"
+                                onClick={() => onOpenViews(project.id)}
+                              />
+                              {projectViews.length > 0 && (
+                                <div className="project-view-nav">
+                                  <span>Saved</span>
+                                  {projectViews.map((view) => (
+                                    <NavButton
+                                      key={view.id}
+                                      active={activeViewId === view.id}
+                                      icon={
+                                        <Bookmark
+                                          aria-hidden="true"
+                                          size={13}
+                                        />
+                                      }
+                                      label={view.name}
+                                      suffix={
+                                        view.visibility === 'shared'
+                                          ? 'Shared'
+                                          : undefined
+                                      }
+                                      onClick={() => onOpenSavedView(view)}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </Collapsible.Panel>
                     )}
-                  </div>
+                  </Collapsible.Root>
                 );
               })}
             </div>
@@ -390,6 +458,7 @@ interface NavigationRailProps {
   activeViewId: string | null;
   navigationRouteKey: string | null;
   onCreateProject: () => void;
+  onOpenHome: () => void;
   onSelectCollection: (collection: Collection) => void;
   onOpenProjectOverview: (projectId: string) => void;
   onOpenPlanning: (projectId: string, kind: 'cycles' | 'modules') => void;
@@ -415,6 +484,7 @@ function NavigationRail({
   activeViewId,
   navigationRouteKey,
   onCreateProject,
+  onOpenHome,
   onSelectCollection,
   onOpenProjectOverview,
   onOpenPlanning,
@@ -471,19 +541,15 @@ function NavigationRail({
         />
         {workspaceControl}
         <div className="navigation-rail-separator" role="separator" />
+        <NavButton
+          rail
+          active={surface === 'home'}
+          icon={<House aria-hidden="true" size={17} />}
+          label="Home"
+          onClick={onOpenHome}
+        />
         {canUseContent ? (
           <>
-            <NavButton
-              rail
-              active={
-                surface === 'tasks' &&
-                collection.kind === 'inbox' &&
-                !activeViewId
-              }
-              icon={<Inbox aria-hidden="true" size={17} />}
-              label="Inbox"
-              onClick={() => onSelectCollection({ kind: 'inbox' })}
-            />
             <NavButton
               rail
               active={

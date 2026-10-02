@@ -30,6 +30,7 @@ export const routePatterns = {
   legacyProjectWildcard:
     '/w/:legacyWorkspaceIdentifier/projects/:legacyProjectId/*',
   workspace: '/w/:workspaceIdentifier',
+  legacyWorkspaceHome: '/w/:workspaceIdentifier/home',
   workspaceMyWork: '/w/:workspaceIdentifier/my-work',
   workspaceInbox: '/w/:workspaceIdentifier/inbox',
   workspaceTasks: '/w/:workspaceIdentifier/tasks',
@@ -84,6 +85,8 @@ export const routePaths = {
   setupWorkspace: () => '/setup/workspace',
   setupInvite: () => '/setup/invite',
   workspace: (workspaceIdentifier: string) =>
+    workspacePath(workspaceIdentifier),
+  workspaceHome: (workspaceIdentifier: string) =>
     workspacePath(workspaceIdentifier),
   workspaceMyWork: (workspaceIdentifier: string) =>
     `${workspacePath(workspaceIdentifier)}/my-work`,

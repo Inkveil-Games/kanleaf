@@ -262,15 +262,25 @@ pub(super) fn validate_staging(
         }
     }
 
-    let workspace_source: serde_json::Value = load_json(staging_vault, ".kanleaf/workspace.json")?;
+    let mut workspace_source: serde_json::Value =
+        load_json(staging_vault, ".kanleaf/workspace.json")?;
     let task_config_source: serde_json::Value =
         load_json(staging_vault, ".kanleaf/task-config.json")?;
     let mut views: ViewsConfig = load_json(staging_vault, ".kanleaf/views.json")?;
     let workspace_version = json_format_version(&workspace_source)?;
     let task_config_version = json_format_version(&task_config_source)?;
+    if workspace_version == 2 {
+        let object = workspace_source
+            .as_object_mut()
+            .ok_or(ImportArchiveError::InvalidMetadata)?;
+        if object.contains_key("quick_links") {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+        object.insert("quick_links".to_owned(), serde_json::json!([]));
+    }
     let (workspace, task_config, legacy_type_ids, legacy_configuration) =
         match (workspace_version, task_config_version) {
-            (2, 3) => (
+            (2 | 3, 3) => (
                 serde_json::from_value(workspace_source)
                     .map_err(|_| ImportArchiveError::InvalidMetadata)?,
                 serde_json::from_value(task_config_source)
@@ -478,6 +488,11 @@ pub(super) fn validate_staging(
     if document_ids.len() != manifest.source.documents.len() {
         return Err(ImportArchiveError::InvalidMetadata);
     }
+    validate_quick_links(
+        &workspace.quick_links,
+        &project_map.keys().copied().collect(),
+        &document_ids,
+    )?;
     let document_numbers = manifest
         .source
         .documents
@@ -1120,7 +1135,7 @@ fn normalize_legacy_configuration(
 
     Ok((
         WorkspaceConfig {
-            format_version: 2,
+            format_version: 3,
             workspace_id: workspace.workspace_id,
             name: workspace.name,
             accent: workspace.accent,
@@ -1128,6 +1143,7 @@ fn normalize_legacy_configuration(
             state_property_description: "The current step of work.".to_owned(),
             label_property_description: "Shared tags used to organize work.".to_owned(),
             members: workspace.members,
+            quick_links: Vec::new(),
         },
         TaskConfig {
             format_version: 3,
@@ -1936,6 +1952,28 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         write!(&mut revision, "{byte:02x}").expect("writing to String cannot fail");
     }
     revision
+}
+
+fn validate_quick_links(
+    links: &[crate::quick_link::QuickLinkConfig],
+    project_ids: &HashSet<Uuid>,
+    document_ids: &HashSet<Uuid>,
+) -> Result<(), ImportArchiveError> {
+    let mut ids = HashSet::new();
+    let mut positions = HashSet::new();
+    for link in links {
+        if crate::quick_link::validate_config(link).is_err()
+            || !ids.insert(link.id)
+            || !positions.insert(link.position)
+            || link.project_id.is_some_and(|id| !project_ids.contains(&id))
+            || link
+                .document_id
+                .is_some_and(|id| !document_ids.contains(&id))
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+    }
+    Ok(())
 }
 
 fn name_eq(left: &str, right: &str) -> bool {

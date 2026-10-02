@@ -269,6 +269,11 @@ describe('DocumentWorkspace', () => {
     const newNote = screen.getByRole('button', { name: 'New Library note' });
 
     expect(tree).not.toContainElement(newNote);
+    const heading = screen.getByRole('heading', {
+      name: 'Library',
+    });
+    expect(heading.closest('header')).toContainElement(newNote);
+    expect(newNote.closest('.ui-scroll-area-viewport')).toBeNull();
   });
 
   it('does not expose a cached selected note before access settles', () => {

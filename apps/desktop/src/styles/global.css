@@ -30,6 +30,7 @@ textarea {
 
 button {
   color: inherit;
+  transition: var(--transition-hover);
 }
 
 button,
@@ -52,6 +53,11 @@ select {
 html[data-input-modality='keyboard'] :focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+html[data-input-modality='pointer'] .navigation-pane button:focus-visible,
+html[data-input-modality='pointer'] .workspace-control button:focus-visible {
+  outline: none;
 }
 
 .kanleaf-select {
@@ -1686,6 +1692,23 @@ html[data-input-modality='keyboard']
   transition: grid-template-columns 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+.workspace-shell.is-navigation-transitioning > .navigation-pane-full,
+.workspace-shell.is-navigation-transitioning > .workspace-control {
+  overflow: clip;
+  animation: navigation-content-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes navigation-content-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .workspace-shell:has(.pane-resize-handle.is-dragging) {
   transition: none;
 }
@@ -1848,7 +1871,7 @@ html[data-input-modality='keyboard'] .pane-resize-handle:focus-visible {
   min-height: 0;
   grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
-  background: var(--color-surface-muted);
+  background: var(--color-canvas);
   box-shadow: var(--shadow-popover);
   pointer-events: auto;
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1885,8 +1908,7 @@ html[data-input-modality='keyboard'] .pane-resize-handle:focus-visible {
   grid-row: 2;
   place-items: center;
   border-right: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface-muted);
+  background: var(--color-canvas);
 }
 
 .workspace-control-group {
@@ -1910,19 +1932,29 @@ html[data-input-modality='keyboard'] .pane-resize-handle:focus-visible {
   height: var(--control-height);
   min-width: 0;
   justify-content: flex-start;
-  gap: 6px;
+  gap: var(--space-2);
   padding: 0 6px;
-  border: 1px solid var(--color-border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: var(--color-canvas);
-  font-size: 0.72rem;
-  font-weight: 620;
+  color: var(--color-text);
+  background: transparent;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
   text-align: left;
+  transition: var(--transition-hover);
 }
 
 .workspace-switcher-menu .context-menu-trigger:hover,
 .workspace-switcher-menu .context-menu-trigger[aria-expanded='true'] {
-  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+.workspace-switcher-menu .context-menu-trigger:hover .workspace-trigger-chevron,
+.workspace-switcher-menu
+  .context-menu-trigger[aria-expanded='true']
+  .workspace-trigger-chevron {
+  color: var(--color-text);
 }
 
 html[data-input-modality='keyboard']
@@ -1939,10 +1971,10 @@ html[data-input-modality='keyboard']
   height: var(--control-height);
   padding: 0;
   place-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
-  background: var(--color-canvas);
+  background: transparent;
 }
 
 .workspace-control-toggle:hover {
@@ -1962,10 +1994,10 @@ html[data-input-modality='keyboard']
 }
 
 .workspace-trigger-mark {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: var(--radius-sm);
-  font-size: 0.62rem;
+  font-size: 0.68rem;
 }
 
 .workspace-trigger-name {
@@ -1978,7 +2010,10 @@ html[data-input-modality='keyboard']
 
 .workspace-trigger-chevron {
   flex: 0 0 auto;
-  transition: transform 120ms ease;
+  color: var(--color-text-muted);
+  transition:
+    transform 120ms ease,
+    color var(--duration-hover) ease;
 }
 
 .workspace-switcher-menu
@@ -2144,7 +2179,16 @@ html[data-input-modality='keyboard']
 .workspace-control[data-navigation-mode='rail']
   .workspace-switcher-menu
   .context-menu-trigger[aria-expanded='true'] {
-  background: var(--color-surface-hover);
+  background: transparent;
+}
+
+.workspace-control[data-navigation-mode='rail']
+  .context-menu-trigger:hover
+  .workspace-trigger-mark,
+.workspace-control[data-navigation-mode='rail']
+  .context-menu-trigger[aria-expanded='true']
+  .workspace-trigger-mark {
+  box-shadow: 0 0 0 1px var(--color-control-border);
 }
 
 html[data-input-modality='keyboard']
@@ -2498,7 +2542,7 @@ html[data-input-modality='keyboard']
   grid-template-rows: 1fr auto;
   color: var(--color-text);
   border-right: 1px solid var(--color-border);
-  background: var(--color-surface-muted);
+  background: var(--color-canvas);
 }
 
 .navigation-rail {
@@ -2529,12 +2573,12 @@ html[data-input-modality='keyboard']
 .navigation-rail-menu .context-menu-trigger:hover,
 .navigation-rail-menu .context-menu-trigger[aria-expanded='true'] {
   color: var(--color-text);
-  background: var(--color-surface-hover);
+  background: var(--color-surface-muted);
 }
 
 .navigation-rail-button[aria-current='page'],
 .navigation-rail-menu .context-menu-trigger[aria-current='page'] {
-  color: var(--color-text);
+  color: var(--color-text-emphasis);
   background: var(--color-selection);
 }
 
@@ -2580,7 +2624,7 @@ html[data-input-modality='keyboard']
 }
 
 .navigation-rail-menu .context-menu-popover button[aria-current='page'] {
-  color: var(--color-text);
+  color: var(--color-text-emphasis);
   background: var(--color-selection);
 }
 
@@ -2640,19 +2684,24 @@ html[data-input-modality='keyboard']
 
 .nav-button span {
   overflow: hidden;
+  color: var(--color-text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .nav-button:hover {
   color: var(--color-text);
-  background: var(--color-surface-hover);
+  background: var(--color-surface-muted);
 }
 
 .nav-button[aria-current='page'] {
-  color: var(--color-text);
+  color: var(--color-text-emphasis);
   background: var(--color-selection);
   font-weight: 610;
+}
+
+.nav-button[aria-current='page'] span {
+  color: inherit;
 }
 
 .project-nav-list {
@@ -2669,6 +2718,27 @@ html[data-input-modality='keyboard']
   position: relative;
   min-width: 0;
 }
+.project-nav-row:has(.project-nav-toggle) > .nav-button {
+  padding-right: var(--space-8);
+}
+.project-nav-toggle {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  transition: none;
+}
+.project-nav-toggle.ui-button[data-variant='ghost']:hover:not(:disabled) {
+  background: transparent;
+}
+.project-nav-chevron {
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.project-nav-toggle[aria-expanded='true'] .project-nav-chevron {
+  transform: rotate(90deg);
+}
 
 .project-subnav {
   display: grid;
@@ -2676,6 +2746,19 @@ html[data-input-modality='keyboard']
   margin: 1px 0 var(--space-2) 16px;
   padding-left: var(--space-2);
   border-left: 1px solid var(--color-border);
+}
+.project-subnav-motion {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    height 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 200ms ease-out;
+}
+.project-subnav-motion[data-starting-style],
+.project-subnav-motion[data-ending-style] {
+  height: 0;
+  opacity: 0;
 }
 
 .project-subnav .nav-button {
@@ -5924,7 +6007,7 @@ html[data-input-modality='keyboard']
 }
 
 .document-collection-pane {
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .document-tree-scroll {
@@ -5940,46 +6023,54 @@ html[data-input-modality='keyboard'] .document-tree-body:focus-visible {
   box-shadow: inset 0 0 0 2px var(--color-focus);
 }
 
-.document-tree-inline-action {
+.document-tree-header {
   display: flex;
-  min-height: 31px;
+  min-height: 48px;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 var(--space-1) var(--space-1);
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.document-tree-inline-action .ui-button {
-  color: var(--color-text-muted);
-  font-weight: 570;
+.document-tree-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.document-tree-header .ui-button:hover:not(:disabled) {
+  color: var(--color-text-emphasis);
 }
 
 .document-tree-section {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   margin-bottom: var(--space-4);
 }
 
 .document-tree-section h2 {
-  margin: var(--space-2) var(--space-2) 4px;
+  margin: var(--space-2) var(--space-2) 6px;
   color: var(--color-text-muted);
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .document-tree-row {
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 20px 20px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr) 20px 24px;
   align-items: center;
-  padding-left: calc(var(--tree-depth) * 15px);
-  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1) 0 calc(var(--space-2) + var(--tree-depth) * 16px);
+  border-radius: var(--radius-md);
+  transition: var(--transition-hover);
 }
 
 .document-tree-drag-handle,
 .document-tree-drag-spacer {
+  grid-column: 3;
+  grid-row: 1;
   display: grid;
   width: 20px;
   height: 27px;
@@ -6027,8 +6118,10 @@ html[data-input-modality='keyboard'] .document-tree-drag-handle:focus-visible {
 }
 
 .document-tree-toggle {
+  grid-column: 1;
+  grid-row: 1;
   display: grid;
-  width: 20px;
+  width: 16px;
   height: 27px;
   padding: 0;
   place-items: center;
@@ -6050,8 +6143,10 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
 }
 
 .document-tree-chevron-slot {
+  grid-column: 1;
+  grid-row: 1;
   display: grid;
-  width: 20px;
+  width: 16px;
   height: 27px;
   place-items: center;
   color: var(--color-accent);
@@ -6078,7 +6173,7 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
 }
 
 .document-tree-row[data-selected='true'] {
-  color: var(--color-text);
+  color: var(--color-text-emphasis);
   background: var(--color-selection);
 }
 
@@ -6086,7 +6181,7 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
 .document-tree-row[data-drop-intent='after']::after {
   position: absolute;
   right: 3px;
-  left: calc(var(--tree-depth) * 15px + 20px);
+  left: calc(var(--tree-depth) * 16px + 24px);
   z-index: 1;
   height: 2px;
   border-radius: 999px;
@@ -6117,23 +6212,37 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
 }
 
 .document-tree-main {
+  grid-column: 2;
+  grid-row: 1;
   display: grid;
   min-width: 0;
-  height: 31px;
+  height: 34px;
   grid-template-columns: 15px minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
-  padding: 0 3px 0 2px;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
   border: 0;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   background: transparent;
-  font-size: 0.74rem;
+  font-size: var(--font-size-sm);
   text-align: left;
 }
 
+.document-tree-main > svg {
+  color: var(--color-text-muted);
+}
+
+.document-tree-row:hover .document-tree-main {
+  color: var(--color-text-emphasis);
+}
+
 .document-tree-row[data-selected='true'] .document-tree-main {
-  color: var(--color-text);
+  color: var(--color-text-emphasis);
   font-weight: 590;
+}
+
+.document-tree-row[data-selected='true'] .document-tree-main > svg {
+  color: inherit;
 }
 
 .document-tree-main span {
@@ -6142,8 +6251,13 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
   white-space: nowrap;
 }
 
+.document-tree-row > .context-menu {
+  grid-column: 4;
+  grid-row: 1;
+}
+
 .document-tree-row .context-menu-trigger {
-  width: 25px;
+  width: 24px;
   height: 25px;
   opacity: 0;
 }
@@ -6202,7 +6316,7 @@ html[data-input-modality='keyboard']
       --control-height-sm
     );
   gap: 3px;
-  margin: 2px 0 3px calc(var(--tree-depth) * 15px);
+  margin: 2px var(--space-1) 3px calc(var(--tree-depth) * 16px + var(--space-2));
 }
 
 .document-name-form .ui-input {
@@ -9981,11 +10095,18 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-shell.is-navigation-transitioning > .navigation-pane-full,
+  .workspace-shell.is-navigation-transitioning > .workspace-control {
+    animation: none;
+  }
+
   .workspace-shell.is-navigation-transitioning,
   .navigation-drawer-backdrop,
   .navigation-drawer-popup,
   .ui-tooltip-popup,
   .workspace-trigger-chevron,
+  .project-subnav-motion,
+  .project-nav-chevron,
   .account-switcher-chevron {
     transition: none;
   }

@@ -8,7 +8,14 @@ describe('Textarea', () => {
     const ref = createRef<HTMLTextAreaElement>();
 
     render(
-      <Textarea ref={ref} aria-label="Description" invalid disabled rows={4} />,
+      <Textarea
+        ref={ref}
+        aria-label="Description"
+        className="description"
+        invalid
+        disabled
+        rows={4}
+      />,
     );
 
     const textarea = screen.getByRole('textbox', { name: 'Description' });
@@ -16,5 +23,10 @@ describe('Textarea', () => {
     expect(textarea).toHaveAttribute('aria-invalid', 'true');
     expect(textarea).toHaveAttribute('rows', '4');
     expect(ref.current).toBe(textarea);
+    expect(textarea).toHaveClass(
+      'ui-textarea',
+      'ui-native-scrollbar',
+      'description',
+    );
   });
 });

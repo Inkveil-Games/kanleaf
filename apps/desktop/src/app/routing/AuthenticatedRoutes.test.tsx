@@ -116,6 +116,7 @@ describe('AuthenticatedRoutes Workspace tree', () => {
 
   it.each([
     ['/', null],
+    ['/w/kanleaf-core', { kind: 'home', workspaceId: 'workspace-1' }],
     [
       '/w/kanleaf-core/my-work?task=42',
       {
@@ -296,14 +297,16 @@ describe('AuthenticatedRoutes Workspace tree', () => {
   );
 
   it.each([
-    ['/kanleaf-core', '/w/kanleaf-core/my-work'],
-    ['/kanleaf-core/not-a-route', '/w/kanleaf-core/my-work'],
+    ['/w/kanleaf-core/home', '/w/kanleaf-core'],
+    ['/w/workspace-1/home', '/w/kanleaf-core'],
+    ['/kanleaf-core', '/w/kanleaf-core'],
+    ['/kanleaf-core/not-a-route', '/w/kanleaf-core'],
     ['/not-a-route', '/'],
   ])('replaces %s with %s', async (path, expected) => {
     renderAuthenticatedRoutes(path);
 
     await waitFor(() =>
-      expect(browserLocationOutput()).toHaveTextContent(expected),
+      expect(browserLocationOutput().textContent).toBe(expected),
     );
   });
 
@@ -317,13 +320,11 @@ describe('AuthenticatedRoutes Workspace tree', () => {
     );
   });
 
-  it('redirects a legacy Workspace index to its public My Work route', async () => {
+  it('redirects a legacy Workspace index to its public Home route', async () => {
     renderAuthenticatedRoutes('/w/workspace-1');
 
     await waitFor(() =>
-      expect(browserLocationOutput()).toHaveTextContent(
-        '/w/kanleaf-core/my-work',
-      ),
+      expect(browserLocationOutput()).toHaveTextContent('/w/kanleaf-core'),
     );
   });
 

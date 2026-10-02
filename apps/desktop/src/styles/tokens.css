@@ -1,4 +1,6 @@
 :root {
+  --color-favicon-surface: #f6f7f6;
+  --color-favicon-foreground: #65716a;
   color-scheme: light;
   --font-ui:
     'Geist Variable', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
@@ -16,6 +18,7 @@
   --color-surface-hover: #e7e6df;
   --color-selection: #dce6dc;
   --color-text: #22231f;
+  --color-text-emphasis: #11130f;
   --color-text-muted: #73756d;
   --color-border: #d9d8d1;
   --color-accent: #42664a;
@@ -69,6 +72,11 @@
   --navigation-rail-width: 44px;
   --radius-sm: 4px;
   --radius-md: 7px;
+  --duration-hover: 180ms;
+  --transition-hover:
+    background-color var(--duration-hover) ease,
+    border-color var(--duration-hover) ease, color var(--duration-hover) ease,
+    filter var(--duration-hover) ease;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -93,6 +101,7 @@
     --color-surface-hover: #2d312b;
     --color-selection: #2b4031;
     --color-text: #eef0ea;
+    --color-text-emphasis: #ffffff;
     --color-text-muted: #a5aaa1;
     --color-border: #343832;
     --color-accent: #80ad8a;
@@ -139,6 +148,7 @@
   --color-surface-hover: #2d312b;
   --color-selection: #2b4031;
   --color-text: #eef0ea;
+  --color-text-emphasis: #ffffff;
   --color-text-muted: #a5aaa1;
   --color-border: #343832;
   --color-accent: #80ad8a;
@@ -174,4 +184,10 @@
   --color-syntax-comment: #777b72;
   --color-syntax-operator: #a6aaa0;
   --shadow-popover: 0 12px 34px rgb(0 0 0 / 35%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-hover: 0ms;
+  }
 }

@@ -207,100 +207,103 @@ function DocumentTreeContent({
   }
 
   return (
-    <ScrollArea
-      className="document-tree-scroll-area"
-      orientation="vertical"
-      viewportProps={{ className: 'document-tree-scroll' }}
-    >
-      {canCreate && (
-        <div className="document-tree-inline-action">
+    <>
+      <header className="document-tree-header">
+        <h2>Library</h2>
+        {canCreate && (
           <Button
-            variant="text"
+            variant="ghost"
             size="sm"
             type="button"
             aria-label="New Library note"
             onClick={() => onStartCreate(null)}
           >
-            <FilePlus2 aria-hidden="true" size={14} /> New note
+            <Plus aria-hidden="true" size={14} /> New note
           </Button>
-        </div>
-      )}
-      {creatingParentId === null && (
-        <DocumentNameForm
-          label="Note title"
-          submitLabel="Create note"
-          onCancel={onCancelCreate}
-          onSubmit={(title) => onCreate(title, null)}
-        />
-      )}
-      {loading ? (
-        <DocumentCollectionState>Loading Library…</DocumentCollectionState>
-      ) : error ? (
-        <DocumentCollectionState error>{error}</DocumentCollectionState>
-      ) : sections.length === 0 ? (
-        <DocumentCollectionState>
-          {canCreate
-            ? 'Create a Markdown note to start this Library.'
-            : 'No Library notes are available in this scope.'}
-        </DocumentCollectionState>
-      ) : (
-        <div
-          ref={treeRef}
-          className="document-tree-body"
-          role="tree"
-          aria-label={projectId ? 'Project Library' : 'Workspace Library'}
-          tabIndex={0}
-          onKeyDown={treeKeyDown}
-        >
-          {sections.map((section) => (
-            <section
-              className="document-tree-section"
-              key={section.id}
-              role="group"
-            >
-              {!projectId && <h2>{section.label}</h2>}
-              {section.entries.map((entry) => (
-                <div key={entry.document.id}>
-                  {renamingId === entry.document.id ? (
-                    <DocumentNameForm
-                      label="Note title"
-                      initialValue={entry.document.title}
-                      submitLabel="Rename note"
-                      depth={entry.depth}
-                      onCancel={onCancelRename}
-                      onSubmit={(title) => onRename(entry.document.id, title)}
-                    />
-                  ) : (
-                    <DocumentTreeRow
-                      entry={entry}
-                      active={entry.document.id === selectedId}
-                      collapsed={collapsedIds.has(entry.document.id)}
-                      onSelect={() => onSelect(entry.document.id)}
-                      onToggleCollapsed={() =>
-                        onToggleCollapsed(entry.document.id)
-                      }
-                      onCreateChild={() => onStartCreate(entry.document.id)}
-                      onRename={() => onStartRename(entry.document.id)}
-                      onArchive={() => onArchive(entry.document.id)}
-                      onDelete={() => onDelete(entry.document.id)}
-                    />
-                  )}
-                  {creatingParentId === entry.document.id && (
-                    <DocumentNameForm
-                      label="Nested note title"
-                      submitLabel="Create nested note"
-                      depth={entry.depth + 1}
-                      onCancel={onCancelCreate}
-                      onSubmit={(title) => onCreate(title, entry.document.id)}
-                    />
-                  )}
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-      )}
-    </ScrollArea>
+        )}
+      </header>
+      <ScrollArea
+        className="document-tree-scroll-area"
+        orientation="vertical"
+        viewportProps={{ className: 'document-tree-scroll' }}
+      >
+        {creatingParentId === null && (
+          <DocumentNameForm
+            label="Note title"
+            submitLabel="Create note"
+            onCancel={onCancelCreate}
+            onSubmit={(title) => onCreate(title, null)}
+          />
+        )}
+        {loading ? (
+          <DocumentCollectionState>Loading Library…</DocumentCollectionState>
+        ) : error ? (
+          <DocumentCollectionState error>{error}</DocumentCollectionState>
+        ) : sections.length === 0 ? (
+          <DocumentCollectionState>
+            {canCreate
+              ? 'Create a Markdown note to start this Library.'
+              : 'No Library notes are available in this scope.'}
+          </DocumentCollectionState>
+        ) : (
+          <div
+            ref={treeRef}
+            className="document-tree-body"
+            role="tree"
+            aria-label={projectId ? 'Project Library' : 'Workspace Library'}
+            tabIndex={0}
+            onKeyDown={treeKeyDown}
+          >
+            {sections.map((section) => (
+              <section
+                className="document-tree-section"
+                key={section.id}
+                role="group"
+              >
+                {!projectId && <h2>{section.label}</h2>}
+                {section.entries.map((entry) => (
+                  <div key={entry.document.id}>
+                    {renamingId === entry.document.id ? (
+                      <DocumentNameForm
+                        label="Note title"
+                        initialValue={entry.document.title}
+                        submitLabel="Rename note"
+                        depth={entry.depth}
+                        onCancel={onCancelRename}
+                        onSubmit={(title) => onRename(entry.document.id, title)}
+                      />
+                    ) : (
+                      <DocumentTreeRow
+                        entry={entry}
+                        active={entry.document.id === selectedId}
+                        collapsed={collapsedIds.has(entry.document.id)}
+                        onSelect={() => onSelect(entry.document.id)}
+                        onToggleCollapsed={() =>
+                          onToggleCollapsed(entry.document.id)
+                        }
+                        onCreateChild={() => onStartCreate(entry.document.id)}
+                        onRename={() => onStartRename(entry.document.id)}
+                        onArchive={() => onArchive(entry.document.id)}
+                        onDelete={() => onDelete(entry.document.id)}
+                      />
+                    )}
+                    {creatingParentId === entry.document.id && (
+                      <DocumentNameForm
+                        label="Nested note title"
+                        submitLabel="Create nested note"
+                        depth={entry.depth + 1}
+                        onCancel={onCancelCreate}
+                        onSubmit={(title) => onCreate(title, entry.document.id)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
+    </>
   );
 }
 

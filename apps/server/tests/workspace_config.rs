@@ -100,6 +100,72 @@ fn config_path(data_dir: &TempDir, workspace_id: Uuid, name: &str) -> std::path:
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn projects_shared_quick_link_changes_into_workspace_config(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(pool, &data_dir);
+    let app = test_app(state.clone());
+    let (token, _, workspace_id) = register(&app, "quick-links-config@example.com").await;
+    let uri = format!("/api/workspaces/{workspace_id}/quick-links");
+    let first = create(
+        &app,
+        &token,
+        &uri,
+        json!({"kind": "external", "title": "Docs", "url": "https://example.com/docs"}),
+    )
+    .await;
+    let second = create(
+        &app,
+        &token,
+        &uri,
+        json!({"kind": "external", "title": "Source", "url": "https://github.com"}),
+    )
+    .await;
+    let first_uri = format!("{uri}/{}", first["id"].as_str().unwrap());
+    assert_eq!(
+        send(
+            &app,
+            "PUT",
+            &first_uri,
+            Some(json!({"kind": "external", "title": "Guide", "url": "https://example.com/guide"})),
+            &token
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            &app,
+            "PUT",
+            &format!("{uri}/order"),
+            Some(json!({"ids": [second["id"], first["id"]]})),
+            &token
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    recover_config_projection_jobs(&state).await.unwrap();
+    let path = config_path(&data_dir, workspace_id, "workspace.json");
+    let config: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(config["format_version"], 3);
+    assert_eq!(config["quick_links"][0]["id"], second["id"]);
+    assert_eq!(config["quick_links"][1]["title"], "Guide");
+    assert_eq!(config["quick_links"][1]["url"], "https://example.com/guide");
+    assert!(config["quick_links"][1].get("available").is_none());
+    assert_eq!(
+        send(&app, "DELETE", &first_uri, None, &token)
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    recover_config_projection_jobs(&state).await.unwrap();
+    let config: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(config["quick_links"].as_array().unwrap().len(), 1);
+    assert_eq!(config["quick_links"][0]["id"], second["id"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(pool.clone(), &data_dir);
@@ -181,7 +247,8 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
         &fs::read_to_string(config_path(&data_dir, workspace_id, "workspace.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(workspace["format_version"], 2);
+    assert_eq!(workspace["format_version"], 3);
+    assert_eq!(workspace["quick_links"], json!([]));
     assert_eq!(workspace["workspace_id"], workspace_id.to_string());
     assert_eq!(workspace["members"].as_array().unwrap().len(), 2);
     assert!(workspace.get("sessions").is_none());

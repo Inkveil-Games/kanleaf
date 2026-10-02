@@ -206,7 +206,7 @@ async function registerAccountThroughSetup(
   await page.getByRole('button', { name: 'Create Workspace' }).click();
   await expect(page).toHaveURL(/\/setup\/invite$/);
   await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
 }
 
 test('manages structured work and durable Markdown across reloads', async ({
@@ -271,7 +271,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     name: /^Switch workspace, current workspace /,
   });
   await expect(workspaceSelect).toContainText('Studio');
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
 
   await workspaceSelect.click();
   await page.getByRole('button', { name: 'Settings for Studio' }).click();
@@ -304,7 +304,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile updated')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
   await expect(
     page.getByRole('button', { name: 'Switch account' }),
   ).toContainText('Kanleaf Tester');
@@ -595,14 +595,14 @@ test('manages structured work and durable Markdown across reloads', async ({
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
   await expect(
     page.getByRole('region', { name: 'Workspace settings' }),
   ).not.toBeVisible();
   await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
+  await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}$`));
 
   const narrowRail = page.getByRole('navigation', {
     name: 'Workspace navigation rail',
@@ -616,7 +616,7 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     navigationDrawer.getByRole('navigation', { name: 'Workspace' }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Home' })).toHaveCount(1);
   await navigationDrawer.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Kanleaf');
   await expect(page.getByLabel('Project ID')).toHaveValue('kanleaf');
@@ -1445,7 +1445,7 @@ Kanleaf keeps **structured work** beside durable notes.
 
   await page
     .locator('.project-nav-row')
-    .getByRole('button', { name: 'Kanleaf' })
+    .getByRole('button', { name: 'Kanleaf', exact: true })
     .click();
   await page
     .locator('.project-subnav')
@@ -1498,7 +1498,7 @@ Kanleaf keeps **structured work** beside durable notes.
   );
   await page
     .locator('.project-nav-row')
-    .getByRole('button', { name: 'Kanleaf' })
+    .getByRole('button', { name: 'Kanleaf', exact: true })
     .click();
   await page
     .locator('.project-subnav')
@@ -1515,7 +1515,7 @@ Kanleaf keeps **structured work** beside durable notes.
 
   await page
     .locator('.project-nav-row')
-    .getByRole('button', { name: 'Kanleaf' })
+    .getByRole('button', { name: 'Kanleaf', exact: true })
     .click();
   await page
     .locator('.project-subnav')
@@ -1567,7 +1567,8 @@ Kanleaf keeps **structured work** beside durable notes.
     .click();
   await expect(importDialog).not.toBeVisible();
   await expect(workspaceSelect).toContainText('Studio Workspace');
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await page.getByText('Complete the v0.1 workflow', { exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Architecture' }),
@@ -1607,7 +1608,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
     .fill('playwright-password');
   await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${account.workspaceIdentifier}/my-work$`),
+    new RegExp(`/w/${account.workspaceIdentifier}$`),
   );
   await page.getByRole('button', { name: 'All tasks' }).click();
   await expect(page).toHaveURL(
@@ -1885,7 +1886,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
     name: 'Workspace navigation',
   });
   await expect(navigationDrawer).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Home' })).toHaveCount(1);
   await expect(
     navigationDrawer.getByRole('button', { name: 'Switch account' }),
   ).toBeVisible();
@@ -2245,10 +2246,10 @@ test('keeps project navigation available through the rail and narrow drawer', as
     .fill('playwright-password');
   await page.locator('button[type="submit"]', { hasText: 'Sign in' }).click();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${account.workspaceIdentifier}/my-work$`),
+    new RegExp(`/w/${account.workspaceIdentifier}$`),
   );
   await expect(
-    page.getByRole('button', { name: 'Rail Project' }),
+    page.getByRole('button', { name: 'Rail Project', exact: true }),
   ).toBeVisible();
   await page.waitForLoadState('networkidle');
 
@@ -2327,7 +2328,7 @@ test('keeps project navigation available through the rail and narrow drawer', as
   expect(localWorkspaceRequests).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(railWorkspaceSwitcher).toBeFocused();
-  for (const destination of ['Inbox', 'My Work', 'All tasks', 'Library']) {
+  for (const destination of ['Home', 'My Work', 'All tasks', 'Library']) {
     await expect(
       desktopRail.getByRole('button', { name: destination }),
     ).toBeVisible();
@@ -2393,7 +2394,7 @@ test('keeps project navigation available through the rail and narrow drawer', as
   await expect(
     drawer.getByRole('button', { name: 'Switch account' }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Home' })).toHaveCount(1);
   await drawerWorkspaceSwitcher.click();
   await expect(workspacePopover).toBeVisible();
   await expect(drawer).toBeVisible();
@@ -2407,13 +2408,13 @@ test('keeps project navigation available through the rail and narrow drawer', as
   await page.getByRole('button', { name: 'Back to Workspace' }).click();
   await narrowRail.getByRole('button', { name: 'Open navigation' }).click();
   await expect(drawer).toBeVisible();
-  await drawer.getByRole('button', { name: 'Inbox' }).click();
+  await drawer.getByRole('button', { name: 'Home' }).click();
   await expect(drawer).not.toBeVisible();
   await expect(page).toHaveURL(
-    new RegExp(`/w/${account.workspaceIdentifier}/inbox$`),
+    new RegExp(`/w/${account.workspaceIdentifier}$`),
   );
   await expect(
-    narrowRail.getByRole('button', { name: 'Inbox' }),
+    narrowRail.getByRole('button', { name: 'Home' }),
   ).toHaveAttribute('aria-current', 'page');
   expect(
     await page.evaluate(
@@ -2450,7 +2451,8 @@ test('switches retained accounts without crossing account data', async ({
     'First account Workspace',
     `switch-first-${suffix}`,
   );
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await page.getByRole('button', { name: 'New task' }).click();
   const taskTitleInput = page.getByLabel('Task title');
   await taskTitleInput.fill(firstTask);
@@ -2473,19 +2475,22 @@ test('switches retained accounts without crossing account data', async ({
 
   const accountTrigger = page.getByRole('button', { name: 'Switch account' });
   await expect(accountTrigger).toContainText(secondEmail);
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
 
   await accountTrigger.click();
   await page.getByRole('button', { name: new RegExp(firstEmail) }).click();
   await expect(accountTrigger).toContainText(firstEmail);
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await page.getByText(firstTask, { exact: true }).click();
   await expect(source).toContainText('Saved while switching accounts.');
 
   await page.reload();
   await expect(accountTrigger).toContainText(firstEmail);
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await expect(
     page
       .getByRole('listbox', { name: 'Inbox tasks' })
@@ -2495,7 +2500,8 @@ test('switches retained accounts without crossing account data', async ({
   await accountTrigger.click();
   await page.getByRole('button', { name: new RegExp(secondEmail) }).click();
   await expect(accountTrigger).toContainText(secondEmail);
-  await page.getByRole('button', { name: 'Inbox' }).click();
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Review inbox' }).click();
   await expect(page.getByText(firstTask, { exact: true })).not.toBeVisible();
 });
 
