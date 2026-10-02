@@ -1,6 +1,11 @@
 import { apiRequest } from '../../lib/api/client';
 import type { ApiContext } from '../workspace/api';
-import type { TaskConfiguration, TaskLabel } from '../workspace/types';
+import type {
+  DateDefault,
+  TaskConfiguration,
+  TaskLabel,
+  TaskPriority,
+} from '../workspace/types';
 
 export function getTaskConfiguration(context: ApiContext, workspaceId: string) {
   return apiRequest<TaskConfiguration>(
@@ -15,6 +20,10 @@ export function updateTaskConfiguration(
   workspaceId: string,
   patch: {
     state_id?: string;
+    default_priority?: TaskPriority;
+    default_start_date?: DateDefault | null;
+    default_due_date?: DateDefault | null;
+    default_label_ids?: string[];
     state_property_description?: string;
     label_property_description?: string;
   },

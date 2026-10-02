@@ -22,11 +22,23 @@ export const PINNED_PROPERTY_KEYS = [
 ] as const satisfies ReadonlyArray<PinnedPropertyKey>;
 
 export const TASK_PRIORITY_OPTIONS = [
-  { value: 'none', label: 'No priority' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
+  { value: 'none', label: 'No priority', description: 'No priority assigned.' },
+  {
+    value: 'low',
+    label: 'Low',
+    description: 'Can wait until higher priorities are complete.',
+  },
+  {
+    value: 'medium',
+    label: 'Medium',
+    description: 'Part of the regular workload.',
+  },
+  { value: 'high', label: 'High', description: 'Needs attention soon.' },
+  {
+    value: 'critical',
+    label: 'Critical',
+    description: 'Needs immediate attention.',
+  },
 ] as const;
 
 export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [

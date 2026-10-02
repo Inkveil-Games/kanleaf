@@ -195,6 +195,7 @@ pub(crate) async fn apply_default_values(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     task_id: Uuid,
+    reference_date: chrono::NaiveDate,
 ) -> Result<(), AppError> {
     sqlx::query(
         r#"
@@ -221,6 +222,30 @@ pub(crate) async fn apply_default_values(
     .bind(task_id)
     .execute(&mut **transaction)
     .await?;
+    sqlx::query(r#"
+        INSERT INTO task_custom_property_values (workspace_id, task_id, property_id, value)
+        SELECT definitions.workspace_id, $2, definitions.id,
+               jsonb_agg(options.id::text ORDER BY options.position, options.id)
+        FROM custom_property_definitions AS definitions
+        JOIN custom_property_default_options AS defaults ON defaults.workspace_id = definitions.workspace_id AND defaults.property_id = definitions.id
+        JOIN custom_property_options AS options ON options.workspace_id = defaults.workspace_id AND options.property_id = defaults.property_id AND options.id = defaults.option_id
+        WHERE definitions.workspace_id = $1 AND definitions.property_type = 'multi_select'
+          AND definitions.archived_at IS NULL AND options.archived_at IS NULL
+        GROUP BY definitions.workspace_id, definitions.id
+        ON CONFLICT (task_id, property_id) DO NOTHING
+    "#).bind(workspace_id).bind(task_id).execute(&mut **transaction).await?;
+    let dates: Vec<(Uuid, sqlx::types::Json<crate::domain::DateDefault>)> = sqlx::query_as(
+        "SELECT id, default_date FROM custom_property_definitions WHERE workspace_id = $1 AND property_type = 'date' AND archived_at IS NULL AND default_date IS NOT NULL"
+    ).bind(workspace_id).fetch_all(&mut **transaction).await?;
+    for (property_id, default) in dates {
+        let date = default
+            .resolve(reference_date)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
+        sqlx::query("INSERT INTO task_custom_property_values (workspace_id, task_id, property_id, value) VALUES ($1, $2, $3, $4) ON CONFLICT (task_id, property_id) DO NOTHING")
+            .bind(workspace_id).bind(task_id).bind(property_id).bind(serde_json::json!(date))
+            .execute(&mut **transaction).await?;
+    }
+
     Ok(())
 }
 

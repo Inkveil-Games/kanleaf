@@ -566,8 +566,9 @@ async fn insert_workspace(
         INSERT INTO workspaces (
             id, name, identifier, accent, default_inbox_state_id,
             state_property_description, label_property_description,
-            next_task_number, next_document_number, vault_layout_version
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2)
+            next_task_number, next_document_number, vault_layout_version,
+            default_priority, default_start_date, default_due_date
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2, $10, $11, $12)
         "#,
     )
     .bind(workspace_id)
@@ -582,6 +583,21 @@ async fn insert_workspace(
     .bind(&validated.workspace.label_property_description)
     .bind(max_task_number + 1)
     .bind(max_document_number + 1)
+    .bind(validated.task_config.default_priority.as_str())
+    .bind(
+        validated
+            .task_config
+            .default_start_date
+            .as_ref()
+            .map(sqlx::types::Json),
+    )
+    .bind(
+        validated
+            .task_config
+            .default_due_date
+            .as_ref()
+            .map(sqlx::types::Json),
+    )
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
@@ -691,15 +707,24 @@ async fn insert_task_configuration(
         .execute(&mut **transaction)
         .await?;
     }
+    for id in &validated.task_config.default_label_ids {
+        sqlx::query(
+            "INSERT INTO workspace_default_labels (workspace_id, label_id) VALUES ($1, $2)",
+        )
+        .bind(workspace_id)
+        .bind(mapped(&maps.labels, *id)?)
+        .execute(&mut **transaction)
+        .await?;
+    }
     for property in &validated.task_config.properties {
         let property_id = mapped(&maps.properties, property.id)?;
         sqlx::query(
             r#"
             INSERT INTO custom_property_definitions (
                 id, workspace_id, name, property_type, description, position,
-                configuration, default_option_id, archived_at
+                configuration, default_option_id, archived_at, default_date
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9 THEN now() END
+                $1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $9 THEN now() END, $10
             )
             "#,
         )
@@ -717,6 +742,7 @@ async fn insert_task_configuration(
                 .transpose()?,
         )
         .bind(property.archived)
+        .bind(property.default_date.as_ref().map(sqlx::types::Json))
         .execute(&mut **transaction)
         .await?;
         for option in &property.options {
@@ -741,6 +767,10 @@ async fn insert_task_configuration(
             .bind(option.archived)
             .execute(&mut **transaction)
             .await?;
+        }
+        for id in &property.default_option_ids {
+            sqlx::query("INSERT INTO custom_property_default_options (workspace_id, property_id, option_id) VALUES ($1, $2, $3)")
+                .bind(workspace_id).bind(property_id).bind(mapped(&maps.property_options, *id)?).execute(&mut **transaction).await?;
         }
     }
     Ok(())

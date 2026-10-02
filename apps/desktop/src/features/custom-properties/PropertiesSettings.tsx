@@ -1,6 +1,20 @@
-import { Archive, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  CalendarDays,
+  Hash,
+  Link2,
+  ListFilter,
+  Pencil,
+  Plus,
+  RotateCcw,
+  SquareCheck,
+  Tags,
+  Trash2,
+  Type,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { ApiError } from '../../lib/api/client';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
 import { Tooltip } from '../../components/ui/Tooltip';
@@ -13,6 +27,7 @@ import {
   SettingsEmptyState,
   SettingsList,
   SettingsListCell,
+  SettingsListRow,
 } from '../settings/SettingsList';
 import {
   SettingsSortableProvider,
@@ -36,6 +51,10 @@ import {
   updateProperty,
 } from './api';
 import { PropertyEditorPanel } from './PropertyEditor';
+import { BuiltInPropertyDetails } from './BuiltInPropertyDetails';
+import { BUILT_IN_PROPERTIES } from './builtInProperties';
+
+type PropertyType = CustomPropertyDefinition['type'];
 
 export function PropertiesSettings({
   context,
@@ -63,6 +82,9 @@ export function PropertiesSettings({
   const routedDefineName =
     canManage && (!detail || detail === 'new') ? definePropertyName : undefined;
   const editorRequested = Boolean(detail || routedDefineName);
+  const builtInProperty = BUILT_IN_PROPERTIES.find(({ key }) => key === detail);
+  const configurationRequested =
+    !editorRequested || detail === 'labels' || Boolean(builtInProperty);
   const query = useQuery({
     queryKey: ['custom-properties', workspace.id],
     queryFn: () => listProperties(context, workspace.id),
@@ -70,7 +92,7 @@ export function PropertiesSettings({
   const configurationQuery = useQuery({
     queryKey: ['task-configuration', workspace.id],
     queryFn: () => getTaskConfiguration(context, workspace.id),
-    enabled: !editorRequested,
+    enabled: configurationRequested,
   });
   const undefinedQuery = useQuery({
     queryKey: ['undefined-properties', workspace.id],
@@ -121,12 +143,15 @@ export function PropertiesSettings({
     }
   }
 
-  if (query.isPending || (!editorRequested && configurationQuery.isPending)) {
+  if (
+    query.isPending ||
+    (configurationRequested && configurationQuery.isPending)
+  ) {
     return (
       <SettingsArticle
         eyebrow="Workspace"
         title="Properties"
-        description="Loading custom task properties…"
+        description="Loading task properties…"
       >
         <div className="configuration-skeleton" aria-label="Loading settings">
           <span />
@@ -136,12 +161,27 @@ export function PropertiesSettings({
       </SettingsArticle>
     );
   }
-  if (query.error || (!editorRequested && configurationQuery.error)) {
+  const propertiesAccessDenied =
+    query.error instanceof ApiError &&
+    [401, 403, 404, 422].includes(query.error.status);
+  const propertiesUnavailable =
+    query.error && (!builtInProperty || !query.data || propertiesAccessDenied);
+  const configurationAccessDenied =
+    configurationQuery.error instanceof ApiError &&
+    [401, 403, 404, 422].includes(configurationQuery.error.status);
+  const configurationUnavailable =
+    configurationQuery.error &&
+    (!builtInProperty || !configurationQuery.data || configurationAccessDenied);
+  if (
+    !query.data ||
+    propertiesUnavailable ||
+    (configurationRequested && configurationUnavailable)
+  ) {
     return (
       <SettingsArticle
         eyebrow="Workspace"
         title="Properties"
-        description="Add custom fields for structured task information."
+        description="Manage the fields used across your Workspace."
       >
         <LoadError
           error={query.error ?? configurationQuery.error}
@@ -160,6 +200,39 @@ export function PropertiesSettings({
     detail && detail !== 'new'
       ? query.data.find(({ id }) => id === detail)
       : undefined;
+
+  if (detail === 'labels' && configurationQuery.data) {
+    return (
+      <LabelSettings
+        key={labelEditorKey(configurationQuery.data)}
+        context={context}
+        workspace={workspace}
+        configuration={configurationQuery.data}
+        onChanged={refreshConfiguration}
+        onBack={() => onDetailChange(undefined, { history: 'back' })}
+      />
+    );
+  }
+
+  if (builtInProperty && configurationQuery.data) {
+    return (
+      <BuiltInPropertyDetails
+        key={builtInProperty.key}
+        context={context}
+        workspace={workspace}
+        onChanged={refreshConfiguration}
+        refreshError={query.error ?? configurationQuery.error}
+        onRetryConfiguration={() => {
+          void query.refetch();
+          void configurationQuery.refetch();
+        }}
+        property={builtInProperty}
+        typeLabel={propertyTypeLabel(builtInProperty.type)}
+        configuration={configurationQuery.data}
+        onBack={() => onDetailChange(undefined, { history: 'back' })}
+      />
+    );
+  }
 
   if (editorRequested) {
     if (!canManage || (detail !== 'new' && !routedDefineName && !editing)) {
@@ -206,10 +279,10 @@ export function PropertiesSettings({
 
   return (
     <SettingsArticle
-      className="configuration-settings"
+      className="configuration-settings properties-settings"
       eyebrow="Workspace"
       title="Properties"
-      description="Add custom fields for structured task information."
+      description="Manage the fields used across your Workspace."
       action={
         canManage ? (
           <Button
@@ -227,27 +300,12 @@ export function PropertiesSettings({
           {error}
         </p>
       ) : null}
-      {configurationQuery.data ? (
-        <LabelSettings
-          key={labelEditorKey(configurationQuery.data)}
-          context={context}
-          workspace={workspace}
-          configuration={configurationQuery.data}
-          onChanged={refreshConfiguration}
-        />
-      ) : null}
       <section
         className="custom-properties-section"
-        aria-labelledby="custom-properties-heading"
+        aria-label="Property lists"
       >
-        <header className="embedded-settings-header">
-          <div>
-            <h2 id="custom-properties-heading">Custom properties</h2>
-            <p>Add structured fields beyond the fixed State and Priority.</p>
-          </div>
-        </header>
         <div
-          className="settings-segmented-tabs"
+          className="settings-segmented-tabs property-settings-tabs"
           role="tablist"
           aria-label="Property lists"
         >
@@ -259,7 +317,7 @@ export function PropertiesSettings({
             onClick={() => setTab('defined')}
           >
             Defined
-            <span>{query.data.length}</span>
+            <span>{query.data.length + BUILT_IN_PROPERTIES.length + 1}</span>
           </button>
           {canManage ? (
             <button
@@ -276,7 +334,7 @@ export function PropertiesSettings({
         </div>
         {tab === 'defined' ? (
           <SettingsList
-            ariaLabel="Custom properties"
+            ariaLabel="Workspace properties"
             className="property-settings-grid"
             header={
               <>
@@ -285,19 +343,80 @@ export function PropertiesSettings({
                 </SettingsListCell>
                 <SettingsListCell>Name</SettingsListCell>
                 <SettingsListCell>Type</SettingsListCell>
-                <SettingsListCell>Status</SettingsListCell>
                 <SettingsListCell>
                   <span className="sr-only">Actions</span>
                 </SettingsListCell>
               </>
             }
           >
-            {active.length === 0 ? (
-              <SettingsEmptyState
-                title="No custom properties yet"
-                description="Create a property to add structured metadata to Tasks."
-              />
+            {configurationQuery.data ? (
+              <SettingsListRow>
+                <SettingsListCell />
+                <SettingsListCell primary>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    type="button"
+                    title={
+                      configurationQuery.data.label_property_description ||
+                      'Labels'
+                    }
+                    onClick={() =>
+                      onDetailChange('labels', { history: 'push' })
+                    }
+                  >
+                    Labels
+                  </Button>
+                  {configurationQuery.data.label_property_description ? (
+                    <small>
+                      {configurationQuery.data.label_property_description}
+                    </small>
+                  ) : null}
+                </SettingsListCell>
+                <SettingsListCell>
+                  <PropertyTypeLabel type="multi_select" />
+                </SettingsListCell>
+                <SettingsListCell className="settings-list-actions-cell">
+                  {canManage ? (
+                    <SettingsActionsMenu label="Actions for Labels">
+                      <SettingsAction
+                        icon={<Pencil aria-hidden="true" size={14} />}
+                        onClick={() =>
+                          onDetailChange('labels', { history: 'push' })
+                        }
+                      >
+                        Edit
+                      </SettingsAction>
+                    </SettingsActionsMenu>
+                  ) : null}
+                </SettingsListCell>
+              </SettingsListRow>
             ) : null}
+            {BUILT_IN_PROPERTIES.map((property) => (
+              <SettingsListRow key={property.name}>
+                <SettingsListCell />
+                <SettingsListCell primary>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    type="button"
+                    title={property.description}
+                    onClick={() =>
+                      onDetailChange(property.key, { history: 'push' })
+                    }
+                  >
+                    {property.name}
+                  </Button>
+                  <small title={property.description}>
+                    {property.description}
+                  </small>
+                </SettingsListCell>
+                <SettingsListCell>
+                  <PropertyTypeLabel type={property.type} />
+                </SettingsListCell>
+                <SettingsListCell />
+              </SettingsListRow>
+            ))}
             <SettingsSortableProvider
               ids={active.map(({ id }) => id)}
               disabled={!canManage}
@@ -342,12 +461,7 @@ export function PropertiesSettings({
                     ) : null}
                   </SettingsListCell>
                   <SettingsListCell>
-                    {propertyTypeLabel(property.type)}
-                  </SettingsListCell>
-                  <SettingsListCell className="settings-status-text">
-                    {property.usage_count === 0
-                      ? 'Unused'
-                      : `${property.usage_count} ${property.usage_count === 1 ? 'Task' : 'Tasks'}`}
+                    <PropertyTypeLabel type={property.type} />
                   </SettingsListCell>
                   <SettingsListCell className="settings-list-actions-cell">
                     {canManage ? (
@@ -585,15 +699,36 @@ function UndefinedPropertiesList({
   );
 }
 
-function propertyTypeLabel(type: CustomPropertyDefinition['type']) {
+function propertyTypeLabel(type: PropertyType) {
   if (type === 'single_select') return 'Single select';
   if (type === 'multi_select') return 'Multi select';
   return type === 'url' ? 'URL' : `${type[0].toUpperCase()}${type.slice(1)}`;
 }
 
+const PROPERTY_TYPE_ICONS = {
+  text: Type,
+  number: Hash,
+  date: CalendarDays,
+  single_select: ListFilter,
+  multi_select: Tags,
+  checkbox: SquareCheck,
+  url: Link2,
+};
+
+function PropertyTypeLabel({ type }: { type: PropertyType }) {
+  const Icon = PROPERTY_TYPE_ICONS[type];
+  return (
+    <span className="property-type-label">
+      <Icon aria-hidden="true" size={14} />
+      {propertyTypeLabel(type)}
+    </span>
+  );
+}
+
 function labelEditorKey(configuration: TaskConfiguration) {
   return JSON.stringify([
     configuration.label_property_description,
+    configuration.default_label_ids,
     configuration.labels.map((label) => [
       label.id,
       label.updated_at,

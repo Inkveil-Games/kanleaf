@@ -73,34 +73,35 @@ describe('WorkspaceSettings', () => {
     expect(screen.getByLabelText('Workspace ID')).toHaveAttribute('readonly');
   });
 
-  it('renders custom Properties as a shared structured settings list', async () => {
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = input.toString();
-        if (url.endsWith('/task-configuration')) {
-          return jsonResponse(taskConfiguration);
-        }
-        if (url.endsWith('/labels/label-docs') && init?.method === 'PATCH') {
-          return jsonResponse(taskConfiguration.labels[0]);
-        }
-        return jsonResponse([
-          {
-            id: 'property-1',
-            workspace_id: workspace.id,
-            name: 'Impact',
-            type: 'single_select',
-            description: 'Expected customer impact',
-            position: 0,
-            configuration: {},
-            options: [],
-            usage_count: 0,
-            archived_at: null,
-            created_at: '2026-09-03T01:00:00Z',
-            updated_at: '2026-09-03T01:00:00Z',
-          },
-        ]);
-      },
-    );
+  it('lists Labels alongside custom properties without opening its editor', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/task-configuration')) {
+        return jsonResponse(taskConfiguration);
+      }
+      if (url.endsWith('/properties/undefined')) {
+        return jsonResponse([]);
+      }
+      return jsonResponse([
+        {
+          id: 'property-1',
+          workspace_id: workspace.id,
+          name: 'Impact',
+          type: 'single_select',
+          description: 'Expected customer impact',
+          position: 0,
+          configuration: {},
+          default_date: null,
+          default_option_id: null,
+          default_option_ids: [],
+          options: [],
+          usage_count: 0,
+          archived_at: null,
+          created_at: '2026-09-03T01:00:00Z',
+          updated_at: '2026-09-03T01:00:00Z',
+        },
+      ]);
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const { onDetailChange } = renderSettings(
@@ -112,9 +113,760 @@ describe('WorkspaceSettings', () => {
     expect(
       await screen.findByRole('heading', { name: 'Properties' }),
     ).toBeInTheDocument();
+    const list = await screen.findByRole('list', {
+      name: 'Workspace properties',
+    });
+    expect(within(list).getByRole('button', { name: 'Labels' })).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Impact' })).toBeVisible();
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(6);
     expect(
-      await screen.findByRole('heading', { name: 'Labels' }),
+      within(rows[0]).getByRole('button', { name: 'Labels' }),
     ).toBeVisible();
+    expect(
+      within(rows[5]).getByRole('button', { name: 'Impact' }),
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Defined' })).toHaveTextContent(
+      'Defined6',
+    );
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Custom properties' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Add structured fields beyond the fixed State and Priority.',
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(list).getByRole('button', { name: 'Labels' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', 'labels', {
+      history: 'push',
+    });
+    fireEvent.click(within(list).getByRole('button', { name: 'Impact' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', 'property-1', {
+      history: 'push',
+    });
+  });
+
+  it.each(['owner', 'member'] as const)(
+    'shows only the requested built-ins with detail links for a %s',
+    async (role) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) =>
+          jsonResponse(
+            input.toString().endsWith('/task-configuration')
+              ? taskConfiguration
+              : [],
+          ),
+        ),
+      );
+      const { onDetailChange } = renderSettings(
+        { ...workspace, role },
+        'properties',
+        role === 'owner' ? owner.user_id : member.user_id,
+      );
+
+      const list = await screen.findByRole('list', {
+        name: 'Workspace properties',
+      });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(5);
+      expect(screen.getByRole('tab', { name: 'Defined' })).toHaveTextContent(
+        'Defined5',
+      );
+      for (const [name, detail] of [
+        ['State', 'state'],
+        ['Priority', 'priority'],
+        ['Start date', 'start-date'],
+        ['Due date', 'due-date'],
+      ]) {
+        fireEvent.click(within(list).getByRole('button', { name }));
+        expect(onDetailChange).toHaveBeenLastCalledWith('properties', detail, {
+          history: 'push',
+        });
+        expect(
+          within(list).queryByRole('button', { name: `Actions for ${name}` }),
+        ).toBeNull();
+        expect(
+          within(list).queryByRole('button', { name: `Reorder ${name}` }),
+        ).toBeNull();
+      }
+      for (const name of [
+        'Title',
+        'Assignees',
+        'Project',
+        'Cycle',
+        'Modules',
+        'Reference',
+        'Kanleaf ID',
+        'Created',
+        'Updated',
+        'Parent',
+        'Estimate',
+      ]) {
+        expect(within(list).queryByText(name, { exact: true })).toBeNull();
+      }
+      expect(screen.queryByText('No custom properties yet')).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: 'Reorder Labels' }),
+      ).toBeNull();
+      fireEvent.click(within(list).getByRole('button', { name: 'Labels' }));
+      expect(onDetailChange).toHaveBeenCalledWith('properties', 'labels', {
+        history: 'push',
+      });
+      if (role === 'owner') {
+        fireEvent.click(screen.getByRole('tab', { name: 'Undefined' }));
+        expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+      } else {
+        expect(
+          screen.queryByRole('button', { name: 'Actions for Labels' }),
+        ).toBeNull();
+      }
+    },
+  );
+
+  describe.each(['owner', 'member'] as const)(
+    'built-in detail for a %s',
+    (role) => {
+      it.each([
+        ['state', 'State', 'Single select'],
+        ['priority', 'Priority', 'Single select'],
+        ['start-date', 'Start date', 'Date'],
+        ['due-date', 'Due date', 'Date'],
+      ])(
+        'opens %s from its URL with fixed identity and role-appropriate defaults',
+        async (detail, name, type) => {
+          const configuration = {
+            ...taskConfiguration,
+            states: [
+              {
+                id: 'state-todo',
+                workspace_id: workspace.id,
+                name: 'Todo',
+                color: '#64748B',
+                description: 'Ready to start.',
+                system_role: 'todo',
+                position: 0,
+                archived_at: null,
+                created_at: '2026-09-03T01:00:00Z',
+                updated_at: '2026-09-03T01:00:00Z',
+              },
+            ],
+          } satisfies TaskConfiguration;
+          const fetchMock = vi.fn<typeof fetch>(async (input) =>
+            jsonResponse(
+              input.toString().endsWith('/task-configuration')
+                ? configuration
+                : [],
+            ),
+          );
+          vi.stubGlobal('fetch', fetchMock);
+          const { onDetailChange } = renderSettings(
+            { ...workspace, role },
+            'properties',
+            role === 'owner' ? owner.user_id : member.user_id,
+            undefined,
+            undefined,
+            detail,
+          );
+          await screen.findByRole('heading', { name });
+          expect(screen.getByLabelText('Name')).toHaveValue(name);
+          expect(screen.getByLabelText('Name')).toHaveAttribute('readonly');
+          expect(
+            screen.getByRole('textbox', { name: 'Property type' }),
+          ).toHaveValue(type);
+          expect(
+            screen.getByRole('textbox', { name: 'Property type' }),
+          ).toHaveAttribute('readonly');
+          expect(
+            screen.queryByRole('button', {
+              name: /add|edit|delete|reorder/i,
+            }),
+          ).toBeNull();
+          if (detail === 'state') {
+            const values = screen.getByRole('list', {
+              name: 'Property values',
+            });
+            expect(within(values).getByText('Todo')).toBeVisible();
+            expect(within(values).getByText('Ready to start.')).toBeVisible();
+            expect(
+              within(values).getByRole('radio', {
+                name: 'Use Todo as default',
+              }),
+            ).toBeChecked();
+            expect(
+              screen.getByRole('textbox', { name: 'Property description' }),
+            ).toHaveValue(configuration.state_property_description);
+          }
+          if (detail === 'priority') {
+            const values = screen.getByRole('list', {
+              name: 'Property values',
+            });
+            for (const value of [
+              'No priority',
+              'Low',
+              'Medium',
+              'High',
+              'Critical',
+            ]) {
+              expect(within(values).getByText(value)).toBeVisible();
+            }
+          }
+          expect(
+            fetchMock.mock.calls.some(([input]) =>
+              input.toString().endsWith('/task-configuration'),
+            ),
+          ).toBe(true);
+          if (role === 'owner') {
+            expect(
+              screen.getByRole('button', { name: 'Save changes' }),
+            ).toBeEnabled();
+          } else {
+            expect(
+              screen.queryByRole('button', { name: 'Save changes' }),
+            ).toBeNull();
+          }
+          for (const control of [
+            ...screen.queryAllByRole('radio'),
+            ...screen.queryAllByRole('combobox'),
+          ]) {
+            if (role === 'owner') expect(control).toBeEnabled();
+            else expect(control).toBeDisabled();
+          }
+          fireEvent.click(
+            screen.getByRole('button', { name: 'Back to Properties' }),
+          );
+          expect(onDetailChange).toHaveBeenLastCalledWith(
+            'properties',
+            undefined,
+            { history: 'back' },
+          );
+          expect(
+            fetchMock.mock.calls.every(
+              ([, init]) => !init?.method || init.method === 'GET',
+            ),
+          ).toBe(true);
+        },
+      );
+    },
+  );
+
+  it('preserves an unsaved built-in default through a transient background failure and retry', async () => {
+    let failConfiguration = false;
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().endsWith('/task-configuration')) {
+          if (init?.method === 'PATCH') {
+            patches.push(JSON.parse(String(init.body)));
+            return jsonResponse({
+              ...taskConfiguration,
+              default_priority: 'high',
+            });
+          }
+          if (failConfiguration)
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: 'internal',
+                  message: 'Temporary refresh failure',
+                },
+              }),
+              { status: 500, headers: { 'content-type': 'application/json' } },
+            );
+          return jsonResponse(taskConfiguration);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    const { queryClient } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'priority',
+    );
+    const high = await screen.findByRole('radio', {
+      name: 'Use High as default',
+    });
+    fireEvent.click(high);
+    failConfiguration = true;
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['task-configuration', workspace.id],
+      });
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Temporary refresh failure',
+    );
+    expect(
+      screen.getByRole('radio', { name: 'Use High as default' }),
+    ).toBeChecked();
+    failConfiguration = false;
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry configuration' }),
+    );
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(
+      screen.getByRole('radio', { name: 'Use High as default' }),
+    ).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(patches).toEqual([{ default_priority: 'high' }]),
+    );
+  });
+
+  it('preserves the successful built-in write baseline when its routed refresh fails', async () => {
+    let failConfiguration = false;
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().endsWith('/task-configuration')) {
+          if (init?.method === 'PATCH') {
+            patches.push(JSON.parse(String(init.body)));
+            failConfiguration = true;
+            return jsonResponse({
+              ...taskConfiguration,
+              default_priority: 'high',
+            });
+          }
+          if (failConfiguration)
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: 'internal',
+                  message: 'Temporary refresh failure',
+                },
+              }),
+              { status: 500, headers: { 'content-type': 'application/json' } },
+            );
+          return jsonResponse({
+            ...taskConfiguration,
+            default_priority: patches.length ? 'high' : 'none',
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+    renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'priority',
+    );
+    fireEvent.click(
+      await screen.findByRole('radio', { name: 'Use High as default' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Temporary refresh failure',
+    );
+    expect(
+      screen.getByRole('radio', { name: 'Use High as default' }),
+    ).toBeChecked();
+    failConfiguration = false;
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save changes' }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(patches).toEqual([{ default_priority: 'high' }]);
+  });
+
+  it.each([401, 403, 404, 422])(
+    'hides cached built-in defaults after authoritative configuration failure (%s)',
+    async (status) => {
+      let failed = false;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (input.toString().endsWith('/task-configuration')) {
+            if (failed)
+              return new Response(
+                JSON.stringify({
+                  error: {
+                    code: 'unavailable',
+                    message: 'Configuration unavailable',
+                  },
+                }),
+                { status, headers: { 'content-type': 'application/json' } },
+              );
+            return jsonResponse(taskConfiguration);
+          }
+          return jsonResponse([]);
+        }),
+      );
+      const { queryClient } = renderSettings(
+        workspace,
+        'properties',
+        owner.user_id,
+        undefined,
+        undefined,
+        'priority',
+      );
+      expect(
+        await screen.findByRole('radio', { name: 'Use High as default' }),
+      ).toBeVisible();
+      failed = true;
+      await act(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ['task-configuration', workspace.id],
+        });
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Configuration unavailable',
+      );
+      expect(
+        screen.queryByRole('radio', { name: 'Use High as default' }),
+      ).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    },
+  );
+
+  it('shows initial built-in configuration failures without exposing the default editor', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        input.toString().endsWith('/task-configuration')
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: 'internal',
+                  message: 'Could not open configuration',
+                },
+              }),
+              { status: 500, headers: { 'content-type': 'application/json' } },
+            )
+          : jsonResponse([]),
+      ),
+    );
+    renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'priority',
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not open configuration',
+    );
+    expect(
+      screen.queryByRole('radio', { name: 'Use High as default' }),
+    ).toBeNull();
+  });
+
+  it.each(['priority', 'due-date'])(
+    'preserves an unsaved %s default when the sibling properties query fails and retries',
+    async (detail) => {
+      let failProperties = false;
+      const patches: unknown[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input.toString();
+          if (url.endsWith('/task-configuration')) {
+            if (init?.method === 'PATCH')
+              patches.push(JSON.parse(String(init.body)));
+            return jsonResponse(taskConfiguration);
+          }
+          if (url.endsWith('/properties') && failProperties)
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: 'internal',
+                  message: 'Temporary property refresh failure',
+                },
+              }),
+              { status: 500, headers: { 'content-type': 'application/json' } },
+            );
+          return jsonResponse([]);
+        }),
+      );
+      const { queryClient } = renderSettings(
+        workspace,
+        'properties',
+        owner.user_id,
+        undefined,
+        undefined,
+        detail,
+      );
+      await screen.findByRole('heading', {
+        name: detail === 'priority' ? 'Priority' : 'Due date',
+      });
+      if (detail === 'priority')
+        fireEvent.click(
+          screen.getByRole('radio', { name: 'Use High as default' }),
+        );
+      else {
+        fireEvent.click(screen.getByRole('button', { name: 'Dynamic' }));
+        fireEvent.change(
+          screen.getByRole('spinbutton', { name: 'Offset amount' }),
+          { target: { value: '2' } },
+        );
+        await chooseSelectOption('Offset', 'Weeks after');
+      }
+      failProperties = true;
+      await act(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ['custom-properties', workspace.id],
+        });
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Temporary property refresh failure',
+      );
+      if (detail === 'priority')
+        expect(
+          screen.getByRole('radio', { name: 'Use High as default' }),
+        ).toBeChecked();
+      else
+        expect(
+          screen.getByRole('spinbutton', { name: 'Offset amount' }),
+        ).toHaveValue(2);
+      failProperties = false;
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Retry configuration' }),
+      );
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+      fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+      await waitFor(() =>
+        expect(patches).toEqual([
+          detail === 'priority'
+            ? { default_priority: 'high' }
+            : {
+                default_due_date: {
+                  mode: 'dynamic',
+                  amount: 2,
+                  unit: 'week',
+                  direction: 'after',
+                },
+              },
+        ]),
+      );
+    },
+  );
+
+  it('preserves a successful built-in write baseline through a sibling properties refresh failure', async () => {
+    let failProperties = false;
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/task-configuration')) {
+          if (init?.method === 'PATCH') {
+            patches.push(JSON.parse(String(init.body)));
+            return jsonResponse({
+              ...taskConfiguration,
+              default_priority: 'high',
+            });
+          }
+          return jsonResponse({
+            ...taskConfiguration,
+            default_priority: patches.length ? 'high' : 'none',
+          });
+        }
+        if (url.endsWith('/properties') && failProperties)
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: 'internal',
+                message: 'Temporary property refresh failure',
+              },
+            }),
+            { status: 500, headers: { 'content-type': 'application/json' } },
+          );
+        return jsonResponse([]);
+      }),
+    );
+    const { queryClient } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'priority',
+    );
+    fireEvent.click(
+      await screen.findByRole('radio', { name: 'Use High as default' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save changes' }),
+      ).toBeEnabled(),
+    );
+    failProperties = true;
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['custom-properties', workspace.id],
+      });
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Temporary property refresh failure',
+    );
+    expect(
+      screen.getByRole('radio', { name: 'Use High as default' }),
+    ).toBeChecked();
+    failProperties = false;
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry configuration' }),
+    );
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(
+      screen.getByRole('radio', { name: 'Use High as default' }),
+    ).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Save changes' }),
+      ).toBeEnabled(),
+    );
+    expect(patches).toEqual([{ default_priority: 'high' }]);
+  });
+
+  it.each([401, 403, 404, 422])(
+    'hides cached built-in defaults after authoritative sibling properties failure (%s)',
+    async (status) => {
+      let failed = false;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = input.toString();
+          if (url.endsWith('/task-configuration'))
+            return jsonResponse(taskConfiguration);
+          if (url.endsWith('/properties') && failed)
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: 'unavailable',
+                  message: 'Properties unavailable',
+                },
+              }),
+              { status, headers: { 'content-type': 'application/json' } },
+            );
+          return jsonResponse([]);
+        }),
+      );
+      const { queryClient } = renderSettings(
+        workspace,
+        'properties',
+        owner.user_id,
+        undefined,
+        undefined,
+        'priority',
+      );
+      expect(
+        await screen.findByRole('radio', { name: 'Use High as default' }),
+      ).toBeVisible();
+      failed = true;
+      await act(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ['custom-properties', workspace.id],
+        });
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Properties unavailable',
+      );
+      expect(
+        screen.queryByRole('radio', { name: 'Use High as default' }),
+      ).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    },
+  );
+
+  it('hides built-in defaults after an initial sibling properties failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.endsWith('/task-configuration'))
+          return jsonResponse(taskConfiguration);
+        if (url.endsWith('/properties'))
+          return new Response(
+            JSON.stringify({
+              error: { code: 'internal', message: 'Could not open properties' },
+            }),
+            { status: 500, headers: { 'content-type': 'application/json' } },
+          );
+        return jsonResponse([]);
+      }),
+    );
+    renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'priority',
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not open properties',
+    );
+    expect(
+      screen.queryByRole('radio', { name: 'Use High as default' }),
+    ).toBeNull();
+  });
+
+  it('keeps the Labels detail read-only for members', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        jsonResponse(
+          input.toString().endsWith('/task-configuration')
+            ? taskConfiguration
+            : [],
+        ),
+      ),
+    );
+    renderSettings(
+      { ...workspace, role: 'member' },
+      'properties',
+      member.user_id,
+      undefined,
+      undefined,
+      'labels',
+    );
+
+    await screen.findByRole('heading', { name: 'Labels' });
+    expect(screen.getByLabelText('Property description')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add label' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Back to Properties' }),
+    ).toBeEnabled();
+  });
+
+  it('edits Labels on its detail route and returns to the property list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/task-configuration')) {
+        return jsonResponse(taskConfiguration);
+      }
+      if (url.endsWith('/labels/label-docs')) {
+        return jsonResponse(taskConfiguration.labels[0]);
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { onDetailChange } = renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'labels',
+    );
+
+    await screen.findByRole('heading', { name: 'Labels' });
     expect(screen.getByLabelText('Name')).toHaveValue('Labels');
     expect(screen.getByText('Documentation')).toBeVisible();
     expect(screen.queryByText('Icon')).toBeNull();
@@ -140,14 +892,9 @@ describe('WorkspaceSettings', () => {
         }),
       ),
     );
-    expect(await screen.findByText('Impact')).toBeInTheDocument();
-    expect(screen.getByText('Single select')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'New property' }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Impact' }));
-    expect(onDetailChange).toHaveBeenCalledWith('properties', 'property-1', {
-      history: 'push',
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Properties' }));
+    expect(onDetailChange).toHaveBeenCalledWith('properties', undefined, {
+      history: 'back',
     });
   });
 
@@ -191,7 +938,14 @@ describe('WorkspaceSettings', () => {
       }),
     );
 
-    renderSettings(workspace, 'properties', owner.user_id);
+    renderSettings(
+      workspace,
+      'properties',
+      owner.user_id,
+      undefined,
+      undefined,
+      'labels',
+    );
 
     await screen.findByRole('heading', { name: 'Labels' });
     fireEvent.click(screen.getByRole('button', { name: 'Add label' }));
@@ -247,7 +1001,9 @@ describe('WorkspaceSettings', () => {
       description: '',
       position: 0,
       configuration: {},
+      default_date: null,
       default_option_id: null,
+      default_option_ids: [],
       options: [
         {
           id: 'web-option',
@@ -323,6 +1079,7 @@ describe('WorkspaceSettings', () => {
             name: 'Platforms',
             description: '',
             default_option_id: null,
+            default_option_ids: [],
             options: [
               {
                 id: 'desktop-option',
@@ -355,6 +1112,9 @@ describe('WorkspaceSettings', () => {
       description: '',
       position: 0,
       configuration: {},
+      default_date: null,
+      default_option_id: null,
+      default_option_ids: [],
       options: [],
       usage_count: 0,
       archived_at: null,
@@ -1000,7 +1760,11 @@ const taskConfiguration = {
     },
   ],
   default_state_id: 'state-todo',
+  default_priority: 'none' as const,
+  default_start_date: null,
+  default_due_date: null,
   state_property_description: 'The current step of work.',
+  default_label_ids: [],
   label_property_description: 'Shared tags used to organize work.',
 };
 
@@ -1036,7 +1800,7 @@ function renderSettings(
       />
     </QueryClientProvider>,
   );
-  return { onDetailChange };
+  return { onDetailChange, queryClient };
 }
 
 function jsonResponse(payload: unknown) {

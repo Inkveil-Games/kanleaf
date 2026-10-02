@@ -1055,7 +1055,9 @@ fn normalize_legacy_configuration(
             description: property.description,
             position: property.position,
             configuration: property.configuration,
+            default_date: None,
             default_option_id: None,
+            default_option_ids: Vec::new(),
             archived: property.archived,
             options: property
                 .options
@@ -1127,7 +1129,9 @@ fn normalize_legacy_configuration(
             description: "The kind of work this task represents.".to_owned(),
             position,
             configuration: serde_json::json!({}),
+            default_date: None,
             default_option_id: Some(workspace.default_task_type_id),
+            default_option_ids: Vec::new(),
             archived: false,
             options,
         });
@@ -1146,9 +1150,13 @@ fn normalize_legacy_configuration(
             quick_links: Vec::new(),
         },
         TaskConfig {
+            default_priority: crate::domain::TaskPriority::None,
+            default_start_date: None,
+            default_due_date: None,
             format_version: 3,
             states,
             labels,
+            default_label_ids: Vec::new(),
             properties,
         },
         active_type_ids,
@@ -1324,11 +1332,44 @@ fn validate_task_config(
             return Err(ImportArchiveError::InvalidMetadata);
         }
     }
+    for default in [&config.default_start_date, &config.default_due_date]
+        .into_iter()
+        .flatten()
+    {
+        default
+            .validate()
+            .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+    }
+    unique_ids(config.default_label_ids.iter().copied())?;
+    if config.default_label_ids.iter().any(|id| {
+        !config
+            .labels
+            .iter()
+            .any(|label| label.id == *id && !label.archived)
+    }) {
+        return Err(ImportArchiveError::InvalidMetadata);
+    }
     unique_ids(config.properties.iter().map(|property| property.id))?;
     let mut property_names = HashSet::new();
     let mut property_positions = HashSet::new();
     let mut option_ids = HashSet::new();
     for property in &config.properties {
+        if let Some(default) = &property.default_date
+            && (property.property_type != "date" || default.validate().is_err())
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
+        unique_ids(property.default_option_ids.iter().copied())?;
+        if (!property.default_option_ids.is_empty() && property.property_type != "multi_select")
+            || property.default_option_ids.iter().any(|id| {
+                !property
+                    .options
+                    .iter()
+                    .any(|option| option.id == *id && !option.archived)
+            })
+        {
+            return Err(ImportArchiveError::InvalidMetadata);
+        }
         if ResourceName::new(&property.name).is_err()
             || is_reserved_property_name(&property.name)
             || !property_names.insert(property.name.trim().to_lowercase())

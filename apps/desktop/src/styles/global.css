@@ -7531,12 +7531,6 @@ html[data-input-modality='keyboard']
   gap: var(--space-4);
 }
 
-.custom-properties-section {
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--color-border);
-}
-
 .configuration-skeleton {
   display: grid;
   gap: var(--space-2);
@@ -7695,8 +7689,33 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 }
 
 .property-settings-grid {
-  --settings-list-columns: 28px minmax(160px, 1.2fr) minmax(110px, 0.55fr)
-    minmax(120px, 0.65fr) 32px;
+  --settings-list-columns: 20px minmax(140px, 1fr) 128px 28px;
+
+  border-top: 0;
+}
+
+.property-settings-grid .settings-list-header {
+  min-height: 40px;
+  font-weight: 500;
+}
+
+.property-settings-grid .settings-list-row {
+  min-height: 72px;
+  padding-block: var(--space-3);
+}
+
+.property-type-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.property-type-label svg {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
 }
 
 .undefined-property-settings-grid {
@@ -7738,16 +7757,97 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   font-size: 0.65rem;
 }
 
+.properties-settings {
+  padding: var(--space-8) clamp(28px, 4vw, 48px) 80px;
+}
+
+.properties-settings > .settings-header {
+  align-items: center;
+  margin-bottom: var(--space-6);
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.properties-settings .pane-eyebrow {
+  display: none;
+}
+
+.properties-settings .custom-properties-section {
+  gap: 0;
+}
+
+.property-settings-tabs {
+  width: 100%;
+  gap: var(--space-5);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.property-settings-tabs button {
+  min-height: 44px;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-weight: 500;
+}
+
+.property-settings-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.property-settings-tabs button span {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: var(--space-1);
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-settings-tabs button[aria-selected='true'] span {
+  color: var(--color-accent-strong);
+  background: var(--color-selection);
+}
+
 .property-settings-grid .settings-list-cell-primary {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+.property-settings-grid .settings-list-cell-primary .ui-button {
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  padding: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.property-settings-grid .settings-list-cell-primary .ui-button:hover {
+  color: var(--color-accent-strong);
+  text-decoration: none;
 }
 
 .property-settings-grid .settings-list-cell-primary small {
   overflow: hidden;
+  max-width: 100%;
   color: var(--color-text-muted);
-  font-size: 0.66rem;
-  font-weight: 450;
+  font-size: 0.75rem;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -7808,39 +7908,34 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   min-width: 0;
 }
 
-.select-property-identity,
-.select-property-description,
-.select-property-values {
-  padding: 0 0 var(--space-4);
+.select-property-metadata {
+  display: grid;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--color-border);
 }
 
 .select-property-values {
+  container: select-property-values / inline-size;
   overflow-x: auto;
 }
 
 .select-property-identity {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  align-items: start;
   gap: var(--space-4);
 }
 
-.select-property-description,
 .select-property-values {
   display: grid;
   gap: var(--space-3);
-  padding-top: var(--space-4);
-}
-
-.select-property-description h2 {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 640;
+  padding-block: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .select-property-description .ui-textarea {
-  min-height: 84px;
+  min-height: calc(var(--control-height) * 2);
 }
 
 .select-property-error {
@@ -7854,33 +7949,31 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 .property-editor-fields {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  align-items: start;
   gap: var(--space-4);
 }
 
 .select-value-editor {
-  --select-value-columns: 28px 38px minmax(120px, 0.72fr) minmax(170px, 1fr)
-    32px;
+  --select-value-columns: 28px minmax(144px, 0.8fr) minmax(170px, 1fr) 32px;
 
   position: relative;
   display: grid;
-  min-width: 600px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-.select-value-editor legend {
+.select-value-editor-toolbar {
+  display: flex;
   min-height: 32px;
-  padding: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
   color: var(--color-text);
   font-size: var(--font-size-sm);
   font-weight: 650;
-}
-
-.select-value-add-popover.context-menu {
-  position: absolute;
-  top: -5px;
-  right: 0;
 }
 
 .select-value-add-popover.context-menu > .context-menu-trigger {
@@ -7917,10 +8010,12 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   gap: var(--space-2);
 }
 
-.select-value-editor-header.has-default,
-.select-value-editor-row.has-default {
-  --select-value-columns: 28px 38px minmax(120px, 0.72fr) minmax(170px, 1fr)
-    58px 32px;
+.select-value-editor.has-default {
+  --select-value-columns: 28px minmax(144px, 0.8fr) minmax(170px, 1fr) 58px 32px;
+}
+
+.select-value-editor.is-fixed-vocabulary {
+  --select-value-columns: minmax(144px, 0.8fr) minmax(170px, 1fr) 58px;
 }
 
 .select-value-editor-header {
@@ -7962,6 +8057,19 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   box-shadow: var(--shadow-popover);
 }
 
+.select-value-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.select-value-identity > .select-value-color,
+.select-value-identity > .select-value-visual {
+  flex: 0 0 18px;
+  margin: 0;
+}
+
 .select-value-color {
   width: 18px;
   height: 18px;
@@ -7987,6 +8095,10 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 
 .select-value-description {
   color: var(--color-text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  padding-block: var(--space-2);
 }
 
 .select-value-default {
@@ -9473,9 +9585,8 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
     overflow-x: auto;
   }
 
-  .property-settings-grid > .settings-list-header,
-  .property-settings-grid > .settings-list-body > .settings-list-row {
-    min-width: 640px;
+  .property-settings-grid {
+    --settings-list-columns: 20px minmax(140px, 1fr) 100px 28px;
   }
 
   .relation-form {
@@ -9524,47 +9635,34 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   }
 }
 
-@media (max-width: 760px) {
-  .property-editor-fields,
-  .select-property-identity {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .select-value-editor {
-    min-width: 0;
-  }
-
+@container select-property-values (max-width: 600px) {
   .select-value-editor-header {
     display: none;
   }
 
   .select-value-editor-row,
   .select-value-editor-row.has-default {
-    --select-value-columns: 28px 36px minmax(0, 1fr) 44px 28px;
+    --select-value-columns: 28px minmax(0, 1fr) 44px 28px;
 
     grid-template-areas:
-      'drag color name default-control actions'
-      '. . description description .';
+      'drag value default-control actions'
+      '. description description .';
   }
 
   .select-value-editor-row:not(.has-default) {
-    --select-value-columns: 28px 36px minmax(0, 1fr) 28px;
+    --select-value-columns: 28px minmax(0, 1fr) 28px;
 
     grid-template-areas:
-      'drag color name actions'
-      '. . description description';
+      'drag value actions'
+      '. description .';
   }
 
   .select-value-editor-row > .settings-drag-handle {
     grid-area: drag;
   }
 
-  .select-value-editor-row > .select-value-color {
-    grid-area: color;
-  }
-
-  .select-value-editor-row > .select-value-name {
-    grid-area: name;
+  .select-value-editor-row > .select-value-identity {
+    grid-area: value;
   }
 
   .select-value-editor-row > .select-value-description {
@@ -9577,6 +9675,13 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 
   .select-value-editor-row > .select-value-edit-popover {
     grid-area: actions;
+  }
+}
+
+@media (max-width: 760px) {
+  .property-editor-fields,
+  .select-property-identity {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workspace-invite-fields,
@@ -9995,4 +10100,60 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
 
 .navigation-pane-rail .developer-workspace-return {
   padding: var(--space-1) 0;
+}
+
+.date-default-editor {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.date-default-mode {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.date-default-fixed {
+  max-width: 220px;
+}
+
+.date-default-offset {
+  display: grid;
+  grid-template-columns: minmax(112px, 120px) minmax(0, 1fr);
+  align-items: end;
+  max-width: 320px;
+  gap: var(--space-3);
+}
+
+.date-default-help {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.date-default-help > .ui-icon-button {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.date-default-hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.select-value-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@container select-property-values (max-width: 600px) {
+  .is-fixed-vocabulary .select-value-editor-row.has-default {
+    --select-value-columns: minmax(0, 1fr) 44px;
+
+    grid-template-areas:
+      'value default-control'
+      'description description';
+  }
 }

@@ -3,6 +3,9 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { PropertyTypeInput } from '../settings/PropertyTypeInput';
+import { DateDefaultEditor } from '../settings/DateDefaultEditor';
+import { isDateDefaultComplete } from '../settings/dateDefault';
 import { Textarea } from '../../components/ui/Textarea';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { SelectPropertyEditor } from '../settings/SelectPropertyEditor';
@@ -15,6 +18,7 @@ import type { ApiContext } from '../workspace/api';
 import type {
   CustomPropertyDefinition,
   CustomPropertyType,
+  DateDefault,
 } from '../workspace/types';
 import { createProperty, defineProperty, updateProperty } from './api';
 
@@ -87,13 +91,24 @@ export function PropertyEditorForm({
   const [defaultOptionId, setDefaultOptionId] = useState<string | null>(
     property?.default_option_id ?? null,
   );
+  const [defaultOptionIds, setDefaultOptionIds] = useState<string[]>(
+    property?.default_option_ids ?? [],
+  );
+  const [defaultDate, setDefaultDate] = useState<DateDefault | null>(
+    property?.default_date ?? null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectType = type === 'single_select' || type === 'multi_select';
-  const showDefault = type === 'single_select';
+  const singleSelect = type === 'single_select';
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving || !name.trim()) return;
+    if (
+      saving ||
+      !name.trim() ||
+      (type === 'date' && !isDateDefaultComplete(defaultDate))
+    )
+      return;
     const undefinedName = undefinedNames.find(
       (candidate) =>
         candidate.localeCompare(name.trim(), undefined, {
@@ -110,14 +125,19 @@ export function PropertyEditorForm({
       if (!property) {
         const create = defineExisting ? defineProperty : createProperty;
         await create(context, workspaceId, {
+          default_date: type === 'date' ? defaultDate : undefined,
           name: name.trim(),
           type,
           description: description.trim(),
           default_option_id: selectType
-            ? showDefault
+            ? singleSelect
               ? persistedOptionId(defaultOptionId)
               : null
             : undefined,
+          default_option_ids:
+            type === 'multi_select'
+              ? defaultOptionIds.map((id) => persistedOptionId(id) ?? id)
+              : undefined,
           options: selectType
             ? options.map((option) => ({
                 id: persistedOptionId(option.id ?? option.key) ?? undefined,
@@ -129,13 +149,18 @@ export function PropertyEditorForm({
         });
       } else {
         await updateProperty(context, workspaceId, property.id, {
+          default_date: type === 'date' ? defaultDate : undefined,
           name: name.trim(),
           description: description.trim(),
           default_option_id: selectType
-            ? showDefault
+            ? singleSelect
               ? persistedOptionId(defaultOptionId)
               : null
             : undefined,
+          default_option_ids:
+            type === 'multi_select'
+              ? defaultOptionIds.map((id) => persistedOptionId(id) ?? id)
+              : undefined,
           options: selectType
             ? options.map((option) => ({
                 id: persistedOptionId(option.id ?? option.key) ?? undefined,
@@ -155,16 +180,23 @@ export function PropertyEditorForm({
     }
   }
 
-  const typeControl = (
+  const typeControl = property ? (
+    <PropertyTypeInput
+      value={PROPERTY_TYPES.find(({ value }) => value === type)?.label ?? type}
+    />
+  ) : (
     <Select
       ariaLabel="Property type"
-      disabled={saving || Boolean(property)}
+      disabled={saving}
+      triggerTooltip="Type cannot be changed after creation."
       value={type}
       options={PROPERTY_TYPES}
       onValueChange={(value) => {
         const nextType = value as CustomPropertyType;
         setType(nextType);
         if (nextType !== 'single_select') setDefaultOptionId(null);
+        if (nextType !== 'multi_select') setDefaultOptionIds([]);
+        if (nextType !== 'date') setDefaultDate(null);
       }}
     />
   );
@@ -186,6 +218,7 @@ export function PropertyEditorForm({
         disabled={
           saving ||
           !name.trim() ||
+          (type === 'date' && !isDateDefaultComplete(defaultDate)) ||
           (selectType && options.some((option) => !option.name.trim()))
         }
       >
@@ -203,7 +236,7 @@ export function PropertyEditorForm({
       className="property-editor-form"
       onSubmit={(event) => void submit(event)}
     >
-      {selectType ? (
+      {selectType || type === 'date' ? (
         <SelectPropertyEditor
           name={name}
           nameAutoFocus
@@ -212,24 +245,31 @@ export function PropertyEditorForm({
             PROPERTY_TYPES.find(({ value }) => value === type)?.label ?? type
           }
           typeControl={typeControl}
-          typeHint={
-            property ? 'Type cannot be changed after creation.' : undefined
-          }
           description={description}
           onDescriptionChange={setDescription}
           disabled={saving}
           error={error}
           values={
-            <SelectValueEditor
-              disabled={saving}
-              values={options}
-              showDefault={showDefault}
-              defaultValueId={defaultOptionId}
-              onDefaultChange={setDefaultOptionId}
-              onChange={setOptions}
-              itemLabel="option"
-              addLabel="Add option"
-            />
+            type === 'date' ? (
+              <DateDefaultEditor
+                value={defaultDate}
+                onChange={setDefaultDate}
+                disabled={saving}
+              />
+            ) : (
+              <SelectValueEditor
+                disabled={saving}
+                values={options}
+                showDefault
+                defaultValueIds={singleSelect ? undefined : defaultOptionIds}
+                onDefaultsChange={setDefaultOptionIds}
+                defaultValueId={defaultOptionId}
+                onDefaultChange={setDefaultOptionId}
+                onChange={setOptions}
+                itemLabel="option"
+                addLabel="Add option"
+              />
+            )
           }
           footer={footer}
         />
@@ -246,14 +286,7 @@ export function PropertyEditorForm({
                 onChange={(event) => setName(event.target.value)}
               />
             </FormField>
-            <FormField
-              label="Type"
-              hint={
-                property ? 'Type cannot be changed after creation.' : undefined
-              }
-            >
-              {typeControl}
-            </FormField>
+            <FormField label="Type">{typeControl}</FormField>
           </div>
           <FormField label="Description">
             <Textarea

@@ -86,14 +86,34 @@ User ──< Session
   edited, reordered, archived, or deleted. Projects select only their default
   State. Labels remain an ordered editable Workspace vocabulary with stable
   UUIDs, colors, and descriptions, but property values do not store icons.
+  Workspace configuration can designate multiple default Labels. Task creation
+  uses them when `label_ids` is omitted; an explicit array, including an empty
+  one, takes precedence.
 - Custom property definitions and select options use stable UUIDs and remain
   Workspace-scoped. Task values reference those identities and are validated
   against the definition type and option ownership at the server boundary.
-  Single-select definitions may designate one active option as their default;
-  Task creation applies it in the owning transaction. Select options retain
+  Single-select definitions may designate one active `default_option_id`;
+  multi-select definitions may designate multiple `default_option_ids`. Task
+  creation applies active defaults in the owning transaction. Multi-select and
+  Label defaults use Workspace-scoped option/label references; archiving or
+  deleting a choice removes it from defaults. Changing defaults leaves existing
+  Task values unchanged. Select options retain
   colors, descriptions, and explicit order, but no icon field. Active and
   archived definitions reserve names case-insensitively; permanent deletion
   removes values and releases the name for reuse.
+- Date definitions may set a nullable `default_date`, either a fixed calendar
+  date or a dynamic amount/unit/direction. Start date and Due date use the same
+  format through Workspace `default_start_date` and `default_due_date`.
+  Dynamic defaults resolve once when creating a Task, using the creator's
+  account timezone. Day/week offsets count calendar days; month/year offsets
+  clamp to the last valid day of the target month. Stored Task dates remain
+  explicit dates after creation. Omitted creation dates use defaults, while
+  explicit null dates stay empty. The resulting start/due schedule is validated
+  before creating the Task.
+- Workspace configuration selects the Inbox default State and default Priority.
+  Project Tasks retain their Project's default State; explicit creation values
+  take precedence. Omitted Priority uses `default_priority`, whose initial
+  value is `none`; an explicit `none` remains authoritative.
 - The schema migration promotes the former special Task Type vocabulary into
   an ordinary single-select custom property named `Type`, preserves option and
   Task-value identities, and carries the former Workspace default into
@@ -334,6 +354,13 @@ UUIDs into the new Workspace. Formats 1 and 2 remain importable with an empty
 Quick links list. The projected file is a portable snapshot, not a live
 configuration-editing API.
 
+Task configuration snapshots include `default_label_ids` and custom multi-select
+`default_option_ids`. Import validates active choice ownership and remaps these
+IDs into the new Workspace. Older snapshots that omit the arrays import with
+empty defaults. Snapshots also carry custom Date defaults and Workspace
+Priority/Start/Due defaults. Import validates their typed configuration and
+keeps imported Task values unchanged; missing legacy fields use none/null.
+
 Workspace export is an actor-scoped, expiring server operation available to
 current Owner/Admin roles. It drains Task and config projections, inventories
 only database-known Markdown and JSON paths, hashes each payload, writes a ZIP
@@ -485,8 +512,13 @@ The desktop app is feature-oriented:
 - `features/command` composes authorized Task queries, cached Library metadata,
   Project titles, and navigation actions into the global command palette;
 - `features/task-config` owns editable Workspace Labels and the fixed task
-  configuration read model; Workspace Properties Settings composes its Label
-  editor with custom property definitions;
+  configuration read model; Workspace Properties Settings lists Labels and
+  State, Priority, Start date, and Due date before custom property definitions.
+  Owner/Admin can edit their defaults through the shared property forms, while
+  built-in names/types and State/Priority choices remain fixed. Labels and custom
+  multi-select values share checkbox controls for defaults, while single-select
+  defaults retain one-choice selection. Date defaults share None/Fixed/Dynamic
+  controls, and immutable property Types explain their constraint in a tooltip;
 - `features/task` owns keyboard-selectable collection rows, bulk actions, My
   Work, structured detail editing, and the fixed State/Priority icon
   presentation;

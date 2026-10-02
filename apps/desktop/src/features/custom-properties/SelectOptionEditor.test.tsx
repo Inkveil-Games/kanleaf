@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SelectValueEditor,
@@ -130,5 +130,100 @@ describe('custom property SelectValueEditor', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Delete option' }));
     expect(onChange).toHaveBeenCalledWith([]);
+  });
+});
+
+function MultiDefaultEditor({ disabled = false }: { disabled?: boolean }) {
+  const [values, setValues] = useState([
+    option,
+    { ...option, key: 'option-low', id: 'option-low', name: 'Low' },
+  ]);
+  const [defaults, setDefaults] = useState(['option-high', 'option-low']);
+  return (
+    <SelectValueEditor
+      disabled={disabled}
+      values={values}
+      onChange={setValues}
+      showDefault
+      defaultValueIds={defaults}
+      onDefaultsChange={setDefaults}
+    />
+  );
+}
+
+describe('multiple default values', () => {
+  it('toggles independently from rows and the edit popover', async () => {
+    const user = userEvent.setup();
+    render(<MultiDefaultEditor />);
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Use High as default' }),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Use Low as default' }),
+    ).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Edit Low' }));
+    const editor = screen.getByRole('dialog', { name: 'Edit Low' });
+    expect(
+      within(editor).getByRole('checkbox', { name: 'Set as default' }),
+    ).toBeChecked();
+    await user.click(
+      within(editor).getByRole('checkbox', { name: 'Set as default' }),
+    );
+    await user.click(
+      within(editor).getByRole('button', { name: 'Save value' }),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Use Low as default' }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: 'Use High as default' }),
+    ).not.toBeChecked();
+  });
+
+  it('clears archived defaults and does not restore their selection', async () => {
+    const user = userEvent.setup();
+    render(<MultiDefaultEditor />);
+    await user.click(screen.getByRole('button', { name: 'Edit High' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Edit High' })).getByRole(
+        'button',
+        { name: 'Archive' },
+      ),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Use Low as default' }),
+    ).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for High' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Restore' }));
+    expect(
+      screen.getByRole('checkbox', { name: 'Use High as default' }),
+    ).not.toBeChecked();
+  });
+
+  it('clears deleted defaults while preserving other choices', async () => {
+    const user = userEvent.setup();
+    render(<MultiDefaultEditor />);
+    await user.click(screen.getByRole('button', { name: 'Edit High' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Edit High' })).getByRole(
+        'button',
+        { name: 'Delete permanently' },
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete value' }));
+    expect(
+      screen.queryByRole('checkbox', { name: 'Use High as default' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('checkbox', { name: 'Use Low as default' }),
+    ).toBeChecked();
+  });
+
+  it('disables defaults and editing for read-only users', () => {
+    render(<MultiDefaultEditor disabled />);
+    expect(
+      screen.getByRole('checkbox', { name: 'Use High as default' }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit High' })).toBeDisabled();
   });
 });

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::AuthenticatedUser,
-    domain::{ConfigurationDescription, SystemStateRole},
+    domain::{ConfigurationDescription, DateDefault, SystemStateRole, TaskPriority},
     error::AppError,
     workspace::{require_workspace_admin, require_workspace_member},
 };
@@ -50,6 +50,10 @@ pub struct TaskLabelResponse {
 struct TaskConfigurationResponse {
     states: Vec<TaskStateResponse>,
     labels: Vec<TaskLabelResponse>,
+    default_label_ids: Vec<Uuid>,
+    default_priority: String,
+    default_start_date: Option<DateDefault>,
+    default_due_date: Option<DateDefault>,
     default_state_id: Uuid,
     state_property_description: String,
     label_property_description: String,
@@ -57,8 +61,16 @@ struct TaskConfigurationResponse {
 
 #[derive(Deserialize)]
 struct UpdateTaskConfigurationRequest {
+    #[serde(default, deserialize_with = "crate::task::deserialize_present")]
+    default_priority: Option<TaskPriority>,
+    #[serde(default, deserialize_with = "crate::task::deserialize_nullable")]
+    default_start_date: Option<Option<DateDefault>>,
+    #[serde(default, deserialize_with = "crate::task::deserialize_nullable")]
+    default_due_date: Option<Option<DateDefault>>,
     #[serde(default)]
     state_id: Option<Uuid>,
+    #[serde(default)]
+    default_label_ids: Option<Vec<Uuid>>,
     #[serde(default)]
     state_property_description: Option<String>,
     #[serde(default)]
@@ -67,6 +79,11 @@ struct UpdateTaskConfigurationRequest {
 
 #[derive(FromRow)]
 struct WorkspaceTaskConfiguration {
+    default_priority: String,
+    #[sqlx(json(nullable))]
+    default_start_date: Option<DateDefault>,
+    #[sqlx(json(nullable))]
+    default_due_date: Option<DateDefault>,
     default_state_id: Uuid,
     state_property_description: String,
     label_property_description: String,
@@ -182,6 +199,11 @@ async fn list(
     Ok(Json(TaskConfigurationResponse {
         states,
         labels,
+        default_label_ids: sqlx::query_scalar("SELECT defaults.label_id FROM workspace_default_labels AS defaults JOIN task_labels AS labels ON labels.workspace_id = defaults.workspace_id AND labels.id = defaults.label_id WHERE defaults.workspace_id = $1 ORDER BY labels.position, labels.id")
+            .bind(workspace_id).fetch_all(&state.pool).await?,
+        default_priority: configuration.default_priority,
+        default_start_date: configuration.default_start_date,
+        default_due_date: configuration.default_due_date,
         default_state_id: configuration.default_state_id,
         state_property_description: configuration.state_property_description,
         label_property_description: configuration.label_property_description,
@@ -199,10 +221,23 @@ async fn update_configuration(
     if request.state_id.is_none()
         && request.state_property_description.is_none()
         && request.label_property_description.is_none()
+        && request.default_label_ids.is_none()
+        && request.default_priority.is_none()
+        && request.default_start_date.is_none()
+        && request.default_due_date.is_none()
     {
         return Err(AppError::Validation(
             "Provide at least one Task property setting".to_owned(),
         ));
+    }
+    for default in [&request.default_start_date, &request.default_due_date]
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        default
+            .validate()
+            .map_err(|error| AppError::Validation(error.to_string()))?;
     }
     let state_description = request
         .state_property_description
@@ -226,8 +261,55 @@ async fn update_configuration(
     if found.is_none() {
         return Err(AppError::NotFound("Workspace not found".to_owned()));
     }
+    if request.default_start_date.is_some() || request.default_due_date.is_some() {
+        let reference_date =
+            crate::domain::local_reference_date(jiff::Timestamp::now(), &auth.user.timezone)
+                .map_err(|error| AppError::Validation(error.to_string()))?;
+        let current = resolve_builtin_defaults(&mut transaction, workspace_id).await?;
+        let start = request
+            .default_start_date
+            .as_ref()
+            .unwrap_or(&current.start_date);
+        let due = request
+            .default_due_date
+            .as_ref()
+            .unwrap_or(&current.due_date);
+        let resolve = |default: &Option<DateDefault>| -> Result<_, AppError> {
+            default
+                .as_ref()
+                .map(|default| default.resolve(reference_date))
+                .transpose()
+                .map_err(|error| AppError::Validation(error.to_string()))
+        };
+        crate::task::validate_schedule(resolve(start)?, resolve(due)?, None)?;
+    }
     if let Some(state_id) = request.state_id {
         validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
+    }
+    if let Some(ids) = &request.default_label_ids {
+        if ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != ids.len()
+        {
+            return Err(AppError::Validation(
+                "Default labels cannot contain duplicates".to_owned(),
+            ));
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM task_labels WHERE workspace_id = $1 AND id = ANY($2) AND archived_at IS NULL")
+            .bind(workspace_id).bind(ids).fetch_one(&mut *transaction).await?;
+        if count as usize != ids.len() {
+            return Err(AppError::Validation(
+                "Default labels must be active labels in this Workspace".to_owned(),
+            ));
+        }
+        sqlx::query("DELETE FROM workspace_default_labels WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("INSERT INTO workspace_default_labels (workspace_id, label_id) SELECT $1, unnest($2::uuid[])").bind(workspace_id).bind(ids).execute(&mut *transaction).await?;
     }
     sqlx::query(
         r#"
@@ -235,6 +317,9 @@ async fn update_configuration(
         SET default_inbox_state_id = COALESCE($1, default_inbox_state_id),
             state_property_description = COALESCE($2, state_property_description),
             label_property_description = COALESCE($3, label_property_description),
+            default_priority = COALESCE($5, default_priority),
+            default_start_date = CASE WHEN $6 THEN $7 ELSE default_start_date END,
+            default_due_date = CASE WHEN $8 THEN $9 ELSE default_due_date END,
             updated_at = now()
         WHERE id = $4
         "#,
@@ -251,6 +336,23 @@ async fn update_configuration(
             .map(ConfigurationDescription::as_str),
     )
     .bind(workspace_id)
+    .bind(request.default_priority.map(TaskPriority::as_str))
+    .bind(request.default_start_date.is_some())
+    .bind(
+        request
+            .default_start_date
+            .as_ref()
+            .and_then(Option::as_ref)
+            .map(sqlx::types::Json),
+    )
+    .bind(request.default_due_date.is_some())
+    .bind(
+        request
+            .default_due_date
+            .as_ref()
+            .and_then(Option::as_ref)
+            .map(sqlx::types::Json),
+    )
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
@@ -265,7 +367,7 @@ async fn load_configuration(
         r#"
         SELECT default_inbox_state_id AS default_state_id,
                state_property_description,
-               label_property_description
+               label_property_description, default_priority, default_start_date, default_due_date
         FROM workspaces
         WHERE id = $1
         "#,
@@ -340,4 +442,29 @@ pub(crate) async fn lock_workspace_for_assignment(
     found
         .map(|_| ())
         .ok_or_else(|| AppError::NotFound("Workspace not found".to_owned()))
+}
+
+pub(crate) async fn resolve_default_labels(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+) -> Result<Vec<Uuid>, AppError> {
+    Ok(sqlx::query_scalar("SELECT defaults.label_id FROM workspace_default_labels AS defaults JOIN task_labels AS labels ON labels.workspace_id = defaults.workspace_id AND labels.id = defaults.label_id WHERE defaults.workspace_id = $1 AND labels.archived_at IS NULL ORDER BY labels.position, labels.id")
+        .bind(workspace_id).fetch_all(&mut **transaction).await?)
+}
+
+#[derive(FromRow)]
+pub(crate) struct BuiltinTaskDefaults {
+    pub priority: String,
+    #[sqlx(json(nullable))]
+    pub start_date: Option<DateDefault>,
+    #[sqlx(json(nullable))]
+    pub due_date: Option<DateDefault>,
+}
+
+pub(crate) async fn resolve_builtin_defaults(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+) -> Result<BuiltinTaskDefaults, AppError> {
+    Ok(sqlx::query_as("SELECT default_priority AS priority, default_start_date AS start_date, default_due_date AS due_date FROM workspaces WHERE id = $1")
+        .bind(workspace_id).fetch_one(&mut **transaction).await?)
 }

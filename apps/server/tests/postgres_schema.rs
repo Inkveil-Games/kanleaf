@@ -108,7 +108,7 @@ async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool)
                 "Existing workspace".into(),
                 identifier.clone(),
                 *state_id,
-                version + 1
+                version + 3
             )
         );
         let job: (i64, i32, Option<String>, bool) = sqlx::query_as(
@@ -118,7 +118,7 @@ async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool)
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(job, (version + 1, 0, None, true));
+        assert_eq!(job, (version + 3, 0, None, true));
     }
 
     let state = AppState::new(
@@ -144,7 +144,7 @@ async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(projected, version + 1);
+        assert_eq!(projected, version + 3);
     }
     let remaining: i64 =
         sqlx::query_scalar("SELECT count(*) FROM workspace_config_projection_jobs")
@@ -2273,4 +2273,95 @@ async fn password_reset_tokens_enforce_hash_shape_indexes_and_user_cascade(pool:
         .await
         .unwrap();
     assert_eq!(remaining, 0);
+}
+
+#[sqlx::test(migrations = false)]
+async fn date_default_migration_preserves_existing_tasks_and_requeues_configuration(pool: PgPool) {
+    let all_migrations = sqlx::migrate!();
+    Migrator {
+        migrations: Cow::Owned(
+            all_migrations
+                .iter()
+                .filter(|migration| migration.version <= 30)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    }
+    .run(&pool)
+    .await
+    .unwrap();
+    let workspace_id = Uuid::new_v4();
+    let state_id = Uuid::new_v4();
+    let task_id = Uuid::new_v4();
+    let identifier = format!("workspace-{}", workspace_id.simple());
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_identifier_registry (identifier, workspace_id) VALUES ($1, $2)",
+    )
+    .bind(&identifier)
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO workspaces (id, name, identifier, default_inbox_state_id) VALUES ($1, 'Existing dates', $2, $3)")
+        .bind(workspace_id).bind(&identifier).bind(state_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query("INSERT INTO task_states (id, workspace_id, name, color, description, system_role, position) VALUES ($1, $2, 'Todo', '#7A4DD1', 'Ready to be worked on.', 'todo', 1)")
+        .bind(state_id).bind(workspace_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query("INSERT INTO tasks (id, workspace_id, task_number, title, storage_name, state_id, priority, start_date, due_date, position) VALUES ($1, $2, 1, 'Preserved dates', $3, $4, 'low', '2024-02-28', '2024-02-29', 1024)")
+        .bind(task_id).bind(workspace_id).bind(VaultStorageName::from_initial_name("Preserved dates", task_id).as_str()).bind(state_id)
+        .execute(&mut *transaction).await.unwrap();
+    transaction.commit().await.unwrap();
+    let version: i64 = sqlx::query_scalar("SELECT config_version FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM workspace_config_projection_jobs WHERE workspace_id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    run_database_migrations(&pool).await.unwrap();
+    let config: (String, Option<Value>, Option<Value>, i64) = sqlx::query_as("SELECT default_priority, default_start_date, default_due_date, config_version FROM workspaces WHERE id = $1")
+        .bind(workspace_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(config, ("none".to_owned(), None, None, version + 1));
+    let projected: i64 = sqlx::query_scalar(
+        "SELECT config_version FROM workspace_config_projection_jobs WHERE workspace_id = $1",
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(projected, config.3);
+    let task: (String, chrono::NaiveDate, chrono::NaiveDate) =
+        sqlx::query_as("SELECT priority, start_date, due_date FROM tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        task,
+        (
+            "low".to_owned(),
+            "2024-02-28".parse().unwrap(),
+            "2024-02-29".parse().unwrap()
+        )
+    );
+    sqlx::query(
+        "UPDATE workspaces SET default_priority = 'high', default_start_date = $1 WHERE id = $2",
+    )
+    .bind(json!({"mode":"dynamic","amount":0,"unit":"day","direction":"after"}))
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let updated: i64 = sqlx::query_scalar(
+        "SELECT config_version FROM workspace_config_projection_jobs WHERE workspace_id = $1",
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(updated, version + 2);
 }

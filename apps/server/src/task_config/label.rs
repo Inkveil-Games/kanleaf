@@ -213,6 +213,15 @@ pub(super) async fn update(
         }
         Err(error) => return Err(error.into()),
     };
+    if request.archived == Some(true) {
+        sqlx::query(
+            "DELETE FROM workspace_default_labels WHERE workspace_id = $1 AND label_id = $2",
+        )
+        .bind(workspace_id)
+        .bind(label_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
     let task_ids = if name.is_some() {
         assigned_task_ids(&mut transaction, workspace_id, label_id).await?
     } else {

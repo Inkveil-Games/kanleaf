@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    domain::{DateDefault, TaskPriority},
     quick_link::QuickLinkConfig,
     vault::{PortableConfigSnapshot, VaultError},
 };
@@ -61,9 +62,17 @@ pub(super) struct MemberReference {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TaskConfig {
+    #[serde(default)]
+    pub default_priority: TaskPriority,
+    #[serde(default)]
+    pub default_start_date: Option<DateDefault>,
+    #[serde(default)]
+    pub default_due_date: Option<DateDefault>,
     pub format_version: u16,
     pub states: Vec<TaskStateConfig>,
     pub labels: Vec<TaskLabelConfig>,
+    #[serde(default)]
+    pub default_label_ids: Vec<Uuid>,
     #[serde(default)]
     pub properties: Vec<CustomPropertyConfig>,
 }
@@ -148,7 +157,12 @@ pub(super) struct CustomPropertyConfig {
     pub description: String,
     pub position: i32,
     pub configuration: Value,
+    #[serde(default)]
+    #[sqlx(json(nullable))]
+    pub default_date: Option<DateDefault>,
     pub default_option_id: Option<Uuid>,
+    #[serde(default)]
+    pub default_option_ids: Vec<Uuid>,
     pub archived: bool,
     #[sqlx(skip)]
     pub options: Vec<CustomPropertyOptionConfig>,
@@ -378,6 +392,11 @@ struct WorkspaceRow {
     name: String,
     accent: String,
     default_inbox_state_id: Uuid,
+    default_priority: String,
+    #[sqlx(json(nullable))]
+    default_start_date: Option<DateDefault>,
+    #[sqlx(json(nullable))]
+    default_due_date: Option<DateDefault>,
     state_property_description: String,
     label_property_description: String,
     vault_layout_version: i16,
@@ -471,7 +490,7 @@ async fn build_snapshot(
 ) -> Result<Option<(WorkspaceRow, PortableConfigSnapshot)>, ConfigProjectionFailure> {
     let workspace = sqlx::query_as::<_, WorkspaceRow>(
         r#"
-        SELECT id, name, accent, default_inbox_state_id,
+        SELECT id, name, accent, default_inbox_state_id, default_priority, default_start_date, default_due_date,
                state_property_description, label_property_description,
                vault_layout_version, config_version
         FROM workspaces WHERE id = $1 FOR UPDATE
@@ -536,7 +555,13 @@ async fn build_snapshot(
     let mut properties = sqlx::query_as::<_, CustomPropertyConfig>(
         r#"
         SELECT id, name, property_type, description, position, configuration,
-               default_option_id,
+               default_option_id, default_date,
+               ARRAY(SELECT defaults.option_id FROM custom_property_default_options AS defaults
+                     JOIN custom_property_options AS options ON options.workspace_id = defaults.workspace_id
+                       AND options.property_id = defaults.property_id AND options.id = defaults.option_id
+                     WHERE defaults.workspace_id = custom_property_definitions.workspace_id
+                       AND defaults.property_id = custom_property_definitions.id
+                     ORDER BY options.position, options.id) AS default_option_ids,
                archived_at IS NOT NULL AS archived
         FROM custom_property_definitions
         WHERE workspace_id = $1
@@ -566,9 +591,14 @@ async fn build_snapshot(
             .collect();
     }
     let task_config = TaskConfig {
+        default_priority: serde_json::from_value(Value::String(workspace.default_priority.clone()))?,
+        default_start_date: workspace.default_start_date.clone(),
+        default_due_date: workspace.default_due_date.clone(),
         format_version: TASK_CONFIG_FORMAT_VERSION,
         states,
         labels,
+        default_label_ids: sqlx::query_scalar("SELECT defaults.label_id FROM workspace_default_labels AS defaults JOIN task_labels AS labels ON labels.workspace_id = defaults.workspace_id AND labels.id = defaults.label_id WHERE defaults.workspace_id = $1 ORDER BY labels.position, labels.id")
+            .bind(workspace_id).fetch_all(&mut **transaction).await?,
         properties,
     };
 

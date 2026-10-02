@@ -67,16 +67,16 @@ pub(crate) struct CreateTaskRequest {
     project_id: Option<Uuid>,
     #[serde(default)]
     state_id: Option<Uuid>,
-    #[serde(default)]
-    priority: TaskPriority,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    priority: Option<TaskPriority>,
     #[serde(default)]
     assignee_ids: Option<Vec<Uuid>>,
     #[serde(default)]
-    label_ids: Vec<Uuid>,
-    #[serde(default)]
-    start_date: Option<NaiveDate>,
-    #[serde(default)]
-    due_date: Option<NaiveDate>,
+    label_ids: Option<Vec<Uuid>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    start_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    due_date: Option<Option<NaiveDate>>,
     #[serde(default)]
     estimate: Option<i32>,
     #[serde(default)]
@@ -318,8 +318,7 @@ pub(crate) async fn create(
     let Json(request) = payload.map_err(AppError::from)?;
     let title =
         TaskTitle::new(&request.title).map_err(|error| AppError::Validation(error.to_string()))?;
-    validate_schedule(request.start_date, request.due_date, request.estimate)?;
-    let label_ids = unique_ids(&request.label_ids, "Task labels cannot contain duplicates")?;
+
     let module_ids = unique_ids(
         &request.module_ids,
         "Task Modules cannot contain duplicates",
@@ -334,10 +333,37 @@ pub(crate) async fn create(
     .await?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
+    let reference_date =
+        crate::domain::local_reference_date(jiff::Timestamp::now(), &auth.user.timezone)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
+    let defaults =
+        crate::task_config::resolve_builtin_defaults(&mut transaction, workspace_id).await?;
+    let priority = request
+        .priority
+        .map(TaskPriority::as_str)
+        .unwrap_or(&defaults.priority);
+    let resolve_date = |explicit: Option<Option<NaiveDate>>,
+                        default: Option<&crate::domain::DateDefault>|
+     -> Result<Option<NaiveDate>, AppError> {
+        match explicit {
+            Some(date) => Ok(date),
+            None => default
+                .map(|default| default.resolve(reference_date))
+                .transpose()
+                .map_err(|error| AppError::Validation(error.to_string())),
+        }
+    };
+    let start_date = resolve_date(request.start_date, defaults.start_date.as_ref())?;
+    let due_date = resolve_date(request.due_date, defaults.due_date.as_ref())?;
+    validate_schedule(start_date, due_date, request.estimate)?;
     let default_state_id =
         resolve_task_default(&mut transaction, workspace_id, request.project_id).await?;
     let state_id = request.state_id.unwrap_or(default_state_id);
     validate_state_assignment(&mut transaction, workspace_id, state_id).await?;
+    let label_ids = match request.label_ids {
+        Some(ids) => unique_ids(&ids, "Task labels cannot contain duplicates")?,
+        None => crate::task_config::resolve_default_labels(&mut transaction, workspace_id).await?,
+    };
     let assignee_ids = match request.assignee_ids {
         Some(ids) => unique_ids(&ids, "Task assignees cannot contain duplicates")?,
         None => default_assignees(&mut transaction, workspace_id, request.project_id).await?,
@@ -396,15 +422,15 @@ pub(crate) async fn create(
     .bind(title.as_str())
     .bind(storage_name.as_str())
     .bind(state_id)
-    .bind(request.priority.as_str())
-    .bind(request.start_date)
-    .bind(request.due_date)
+    .bind(priority)
+    .bind(start_date)
+    .bind(due_date)
     .bind(request.estimate)
     .bind(request.parent_id)
     .bind(task_number * 1024)
     .execute(&mut *transaction)
     .await?;
-    apply_default_values(&mut transaction, workspace_id, task_id).await?;
+    apply_default_values(&mut transaction, workspace_id, task_id, reference_date).await?;
     initialize_projection(&mut transaction, workspace_id, task_id).await?;
     replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
     replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
@@ -1953,7 +1979,7 @@ fn select_task_query()
     )
 }
 
-fn validate_schedule(
+pub(crate) fn validate_schedule(
     start_date: Option<NaiveDate>,
     due_date: Option<NaiveDate>,
     estimate: Option<i32>,
@@ -2351,6 +2377,12 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
+}
+
+pub(crate) fn deserialize_present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]

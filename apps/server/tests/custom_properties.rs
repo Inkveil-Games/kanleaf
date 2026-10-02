@@ -1125,3 +1125,916 @@ async fn select_option_metadata_and_single_select_defaults_round_trip(pool: PgPo
         .unwrap();
     assert_eq!(invalid_default.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn multi_select_defaults_apply_only_to_new_tasks_and_validate_atomically(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "multi-defaults@example.com").await;
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    let response = app.clone().oneshot(request("POST", &format!("/api/workspaces/{workspace_id}/properties"), Some(json!({
+        "name": "Platforms", "type": "multi_select",
+        "options": [{"id": first, "name": "Web", "color": "#EF4444"}, {"id": second, "name": "Desktop", "color": "#EF4444"}],
+        "default_option_ids": [second, first]
+    })), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let property = response_json(response).await;
+    assert_eq!(property["default_option_ids"], json!([first, second]));
+    assert!(property["default_option_id"].is_null());
+    let property_id = property["id"].as_str().unwrap();
+    let property_uri = format!("/api/workspaces/{workspace_id}/properties/{property_id}");
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            Some(json!({"title": "Defaulted task"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let task = response_json(response).await;
+    assert_eq!(
+        task["custom_properties"][0]["value"],
+        json!([first, second])
+    );
+    let task_id = task["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+    let source = fs::read_to_string(data_dir.path().join(format!(
+        "vaults/{workspace_id}/Todo/{}.md",
+        task["storage_name"].as_str().unwrap()
+    )))
+    .unwrap();
+    assert!(source.contains("Web") && source.contains("Desktop"));
+
+    for invalid in [json!([first, first]), json!([Uuid::new_v4()])] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "PATCH",
+                &property_uri,
+                Some(json!({"name": "Must roll back", "default_option_ids": invalid})),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"description": "Preserve defaults"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    let unchanged = response_json(response).await;
+    assert_eq!(unchanged["name"], "Platforms");
+    assert_eq!(unchanged["default_option_ids"], json!([first, second]));
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("{property_uri}/options/{first}"),
+            Some(json!({"archived": true})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"default_option_ids": [first]})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"description": "Archive clears only its default"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_option_ids"],
+        json!([second])
+    );
+    let existing: Value = sqlx::query_scalar(
+        "SELECT value FROM task_custom_property_values WHERE task_id = $1 AND property_id = $2",
+    )
+    .bind(task_id)
+    .bind(property_id.parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(existing, json!([first, second]));
+    let third = Uuid::new_v4();
+    let response = app.clone().oneshot(request("PATCH", &property_uri, Some(json!({
+        "options": [{"id": third, "name": "Mobile", "color": "#EF4444"}], "default_option_ids": [third]
+    })), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(response).await["default_option_ids"],
+        json!([third])
+    );
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"default_option_ids": []})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_option_ids"],
+        json!([])
+    );
+    let text = create_property(&app, &token, workspace_id, "Summary", "text").await;
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!(
+                "/api/workspaces/{workspace_id}/properties/{}",
+                text["id"].as_str().unwrap()
+            ),
+            Some(json!({"default_option_ids": [third]})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn label_defaults_distinguish_omitted_empty_and_explicit_labels(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "label-defaults@example.com").await;
+    let mut labels = Vec::new();
+    for name in ["Bug", "Review"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!("/api/workspaces/{workspace_id}/labels"),
+                Some(json!({"name": name, "color": "#EF4444"})),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        labels.push(response_json(response).await["id"].clone());
+    }
+    let config_uri = format!("/api/workspaces/{workspace_id}/task-configuration");
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({"default_label_ids": labels})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(response).await["default_label_ids"],
+        json!(labels)
+    );
+    for (body, expected) in [
+        (json!({"title": "Omitted"}), 2),
+        (json!({"title": "Empty", "label_ids": []}), 0),
+        (json!({"title": "Explicit", "label_ids": [labels[1]]}), 1),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!("/api/workspaces/{workspace_id}/tasks"),
+                Some(body),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(
+            response_json(response).await["labels"]
+                .as_array()
+                .unwrap()
+                .len(),
+            expected
+        );
+    }
+    let (foreign_token, _, foreign_workspace) =
+        register(&app, "foreign-label-defaults@example.com").await;
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{foreign_workspace}/labels"),
+            Some(json!({"name": "Foreign", "color": "#EF4444"})),
+            &foreign_token,
+        ))
+        .await
+        .unwrap();
+    let foreign_label = response_json(response).await["id"].clone();
+    for invalid in [
+        json!([labels[0], labels[0]]),
+        json!([Uuid::new_v4()]),
+        json!([foreign_label]),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "PATCH",
+                &config_uri,
+                Some(json!({"default_label_ids": invalid})),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!(
+                "/api/workspaces/{workspace_id}/labels/{}",
+                labels[0].as_str().unwrap()
+            ),
+            Some(json!({"archived": true})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({"default_label_ids": [labels[0]]})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request("GET", &config_uri, None, &token))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_label_ids"],
+        json!([labels[1]])
+    );
+    let assignments: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_label_assignments WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assignments, 3);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({"label_property_description": "Keep default selection"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_label_ids"],
+        json!([labels[1]])
+    );
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({"default_label_ids": []})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_label_ids"],
+        json!([])
+    );
+    let assignments_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_label_assignments WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assignments_after, assignments);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({"default_label_ids": [labels[1]]})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!(
+                "/api/workspaces/{workspace_id}/labels/{}",
+                labels[1].as_str().unwrap()
+            ),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let response = app
+        .clone()
+        .oneshot(request("GET", &config_uri, None, &token))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(response).await["default_label_ids"],
+        json!([])
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn multi_defaults_define_preserves_imported_values_and_rejects_foreign_options(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "multi-define@example.com").await;
+    let (other_token, _, other_workspace) = register(&app, "multi-foreign@example.com").await;
+    let web = Uuid::new_v4();
+    let desktop = Uuid::new_v4();
+    let task = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks"),
+            Some(json!({"title": "Imported value"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    let task = response_json(task).await;
+    let task_id = task["id"].as_str().unwrap();
+    let path = data_dir.path().join(format!(
+        "vaults/{workspace_id}/Todo/{}.md",
+        task["storage_name"].as_str().unwrap()
+    ));
+    let markdown =
+        fs::read_to_string(&path)
+            .unwrap()
+            .replacen("\n---\n", "\nPlatforms:\n  - Web\n---\n", 1);
+    fs::write(&path, markdown).unwrap();
+    let response = app.clone().oneshot(request("POST", &format!("/api/workspaces/{workspace_id}/properties/define"), Some(json!({
+        "name": "Platforms", "type": "multi_select", "default_option_ids": [desktop],
+        "options": [{"id": web, "name": "Web", "color": "#EF4444"}, {"id": desktop, "name": "Desktop", "color": "#EF4444"}]
+    })), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let property = response_json(response).await;
+    assert_eq!(property["default_option_ids"], json!([desktop]));
+    let property_id = property["id"].as_str().unwrap();
+    let property_uri = format!("/api/workspaces/{workspace_id}/properties/{property_id}");
+    let stored: Value = sqlx::query_scalar(
+        "SELECT value FROM task_custom_property_values WHERE task_id = $1 AND property_id = $2",
+    )
+    .bind(task_id.parse::<Uuid>().unwrap())
+    .bind(property_id.parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, json!([web]));
+    let response = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}/properties/{property_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"default_option_ids": [web, desktop]})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{task_id}"),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert!(
+        response_json(response).await["custom_properties"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let foreign_id = Uuid::new_v4();
+    let response = app.clone().oneshot(request("POST", &format!("/api/workspaces/{other_workspace}/properties"), Some(json!({"name": "Foreign", "type": "multi_select", "options": [{"id": foreign_id, "name": "Foreign", "color": "#EF4444"}]})), &other_token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    for body in [
+        json!({"default_option_ids": [foreign_id]}),
+        json!({"options": [{"id": foreign_id, "name": "Hijack", "color": "#EF4444"}], "default_option_ids": [foreign_id]}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("PATCH", &property_uri, Some(body), &token))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"default_option_ids": []})),
+            &other_token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Composite keys enforce the same tenant and property even outside the HTTP boundary.
+    let result = sqlx::query("INSERT INTO custom_property_default_options (workspace_id, property_id, option_id) VALUES ($1, $2, $3)").bind(workspace_id).bind(property_id.parse::<Uuid>().unwrap()).bind(foreign_id).execute(&pool).await;
+    assert_eq!(
+        result
+            .unwrap_err()
+            .as_database_error()
+            .unwrap()
+            .code()
+            .as_deref(),
+        Some("23503")
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn date_and_builtin_defaults_resolve_only_on_creation(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, user_id, workspace_id) = register(&app, "dates@example.com").await;
+    sqlx::query("UPDATE users SET timezone = 'Pacific/Kiritimati' WHERE id = $1")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let property_uri = format!("/api/workspaces/{workspace_id}/properties");
+    let config_uri = format!("/api/workspaces/{workspace_id}/task-configuration");
+    let task_uri = format!("/api/workspaces/{workspace_id}/tasks");
+    let dynamic = json!({"mode":"dynamic","amount":0,"unit":"day","direction":"after"});
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &property_uri,
+            Some(json!({
+                "name":"Review day","type":"date","default_date":dynamic
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let property = response_json(response).await;
+    assert_eq!(property["default_date"], dynamic);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config_uri,
+            Some(json!({
+                "default_priority":"high", "default_start_date":dynamic,
+                "default_due_date":{"mode":"fixed","date":"2099-12-31"}
+            })),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_json(response).await["default_priority"], "high");
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &task_uri,
+            Some(json!({"title":"Inherited"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let task = response_json(response).await;
+    let path = data_dir.path().join(format!(
+        "vaults/{workspace_id}/Todo/{}.md",
+        task["storage_name"].as_str().unwrap()
+    ));
+    let markdown = fs::read_to_string(path).unwrap();
+    assert!(markdown.contains("2099-12-31"));
+    assert!(!markdown.contains("default_start_date"));
+    let local = jiff::Timestamp::now()
+        .in_tz("Pacific/Kiritimati")
+        .unwrap()
+        .date()
+        .to_string();
+    assert_eq!(task["priority"], "high");
+    assert_eq!(task["start_date"], local);
+    assert_eq!(task["due_date"], "2099-12-31");
+    let custom: Value = sqlx::query_scalar(
+        "SELECT value FROM task_custom_property_values WHERE task_id = $1 AND property_id = $2",
+    )
+    .bind(task["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .bind(property["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(custom, local);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &task_uri,
+            Some(json!({"title":"Explicit", "priority":"none", "start_date":null,"due_date":null})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let explicit = response_json(response).await;
+    assert_eq!(explicit["priority"], "none");
+    assert!(explicit["start_date"].is_null());
+    assert!(explicit["due_date"].is_null());
+    let response = app.clone().oneshot(request("PATCH", &config_uri, Some(json!({"default_start_date":null,"default_due_date":null,"default_priority":"none"})), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("{task_uri}/{}", task["id"].as_str().unwrap()),
+            None,
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["start_date"], local);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("{property_uri}/{}", property["id"].as_str().unwrap()),
+            Some(json!({"default_date":null})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response_json(response).await["default_date"].is_null());
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn date_defaults_validate_types_schedules_permissions_and_archive_state(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "date-owner@example.com").await;
+    let (member, member_id, foreign_workspace) = register(&app, "date-member@example.com").await;
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(member_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let properties = format!("/api/workspaces/{workspace_id}/properties");
+    let config = format!("/api/workspaces/{workspace_id}/task-configuration");
+    let tasks = format!("/api/workspaces/{workspace_id}/tasks");
+    let fixed = json!({"mode":"fixed","date":"2026-02-28"});
+    for settings in [
+        json!({"mode":"fixed","date":"2026-02-29"}),
+        json!({"mode":"dynamic","amount":-1,"unit":"day","direction":"after"}),
+        json!({"mode":"dynamic","amount":1.5,"unit":"month","direction":"before"}),
+        json!({"mode":"dynamic","amount":4294967295_u64,"unit":"year","direction":"after"}),
+        json!({"mode":"dynamic","amount":9000,"unit":"year","direction":"after"}),
+    ] {
+        for (method, uri, body) in [
+            (
+                "POST",
+                &properties,
+                json!({"name":"Invalid","type":"date","default_date":settings}),
+            ),
+            ("PATCH", &config, json!({"default_due_date":settings})),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(request(method, uri, Some(body), &token))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &properties,
+            Some(json!({"name":"Wrong type","type":"text","default_date":fixed})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    for (method, uri, body) in [
+        (
+            "POST",
+            &properties,
+            json!({"name":"Denied","type":"date","default_date":fixed}),
+        ),
+        (
+            "PATCH",
+            &config,
+            json!({"default_priority":"high","default_due_date":fixed}),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(method, uri, Some(body), &member))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let foreign_state: Uuid =
+        sqlx::query_scalar("SELECT default_inbox_state_id FROM workspaces WHERE id = $1")
+            .bind(foreign_workspace)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config,
+            Some(json!({"state_id":foreign_state})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &properties,
+            Some(json!({"name":"Review day","type":"date","default_date":fixed})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let property = response_json(response).await;
+    let property_uri = format!("{properties}/{}", property["id"].as_str().unwrap());
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"description":"Preserve default"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["default_date"], fixed);
+    let response = app.clone().oneshot(request("PATCH", &property_uri, Some(json!({"default_date":{"mode":"dynamic","amount":9000,"unit":"year","direction":"after"}})), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"description":"Still unchanged"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["default_date"], fixed);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &property_uri,
+            Some(json!({"archived":true})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &tasks,
+            Some(json!({"title":"No archived default"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(
+        response_json(response).await["custom_properties"],
+        json!([])
+    );
+    let response = app.clone().oneshot(request("PATCH", &config, Some(json!({"default_start_date":{"mode":"fixed","date":"2026-03-01"}, "default_due_date":fixed})), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app.clone().oneshot(request("PATCH", &config, Some(json!({"default_start_date":{"mode":"fixed","date":"2026-02-01"}, "default_due_date":fixed})), &token)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &config,
+            Some(json!({"default_start_date":{"mode":"fixed","date":"2026-03-01"}})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request("GET", &config, None, &token))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let saved = response_json(response).await;
+    assert_eq!(
+        saved["default_start_date"],
+        json!({"mode":"fixed","date":"2026-02-01"})
+    );
+    assert_eq!(saved["default_due_date"], fixed);
+    for fields in [
+        json!({"title":"Invalid explicit due", "due_date":"2026-01-01"}),
+        json!({"title":"Invalid explicit start", "start_date":"2026-04-01"}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("POST", &tasks, Some(fields), &token))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tasks WHERE workspace_id = $1")
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    sqlx::query("UPDATE workspaces SET default_start_date = $1 WHERE id = $2")
+        .bind(json!({"mode":"fixed","date":"2026-03-01"}))
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &tasks,
+            Some(json!({"title":"Invalid effective defaults"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &tasks,
+            Some(json!({"title":"Invalid explicit priority", "priority":null})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &tasks,
+            Some(json!({"title":"Explicit valid override", "start_date":null})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let task = response_json(response).await;
+    assert!(task["start_date"].is_null());
+    assert_eq!(task["due_date"], "2026-02-28");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn defining_date_default_preserves_explicit_markdown_values(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "define-date@example.com").await;
+    let base = format!("/api/workspaces/{workspace_id}");
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("{base}/tasks"),
+            Some(json!({"title":"Existing Markdown date"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    let task = response_json(response).await;
+    let path = data_dir.path().join(format!(
+        "vaults/{workspace_id}/Todo/{}.md",
+        task["storage_name"].as_str().unwrap()
+    ));
+    let markdown = fs::read_to_string(&path).unwrap().replacen(
+        "\n---\n",
+        "\nReview day: '2024-02-29'\n---\n",
+        1,
+    );
+    fs::write(&path, markdown).unwrap();
+    let fixed = json!({"mode":"fixed","date":"2026-02-28"});
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("{base}/properties/define"),
+            Some(json!({"name":"Review day","type":"date","default_date":fixed})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let property = response_json(response).await;
+    assert_eq!(property["default_date"], fixed);
+    let stored: Value = sqlx::query_scalar(
+        "SELECT value FROM task_custom_property_values WHERE task_id = $1 AND property_id = $2",
+    )
+    .bind(task["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .bind(property["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, "2024-02-29");
+    assert!(fs::read_to_string(&path).unwrap().contains("2024-02-29"));
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("{base}/tasks"),
+            Some(json!({"title":"New date default"})),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let new_task = response_json(response).await;
+    assert_eq!(new_task["custom_properties"][0]["value"], "2026-02-28");
+    let new_path = data_dir.path().join(format!(
+        "vaults/{workspace_id}/Todo/{}.md",
+        new_task["storage_name"].as_str().unwrap()
+    ));
+    let markdown = fs::read_to_string(&new_path).unwrap();
+    assert!(markdown.contains("Review day:"));
+    assert!(markdown.contains("2026-02-28"));
+    assert!(!markdown.contains("default_date"));
+}

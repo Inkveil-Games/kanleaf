@@ -200,10 +200,23 @@ export interface TaskLabel {
   updated_at: string;
 }
 
+export type DateDefault =
+  | { mode: 'fixed'; date: string }
+  | {
+      mode: 'dynamic';
+      amount: number;
+      unit: 'day' | 'week' | 'month' | 'year';
+      direction: 'before' | 'after';
+    };
+
 export interface TaskConfiguration {
   states: TaskState[];
   labels: TaskLabel[];
   default_state_id: string;
+  default_priority: TaskPriority;
+  default_start_date: DateDefault | null;
+  default_due_date: DateDefault | null;
+  default_label_ids: string[];
   state_property_description: string;
   label_property_description: string;
 }
@@ -239,6 +252,8 @@ export interface CustomPropertyDefinition {
   position: number;
   configuration: Record<string, never>;
   default_option_id: string | null;
+  default_option_ids: string[];
+  default_date: DateDefault | null;
   options: CustomPropertyOption[];
   usage_count: number;
   archived_at: string | null;

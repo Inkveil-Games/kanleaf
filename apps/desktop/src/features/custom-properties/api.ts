@@ -3,6 +3,7 @@ import type { ApiContext } from '../workspace/api';
 import type {
   CustomPropertyDefinition,
   CustomPropertyType,
+  DateDefault,
   TaskCustomPropertyValue,
   UndefinedPropertySummary,
   UndefinedTaskProperty,
@@ -25,6 +26,8 @@ export interface PropertyCreateInput {
   type: CustomPropertyType;
   description: string;
   default_option_id?: string | null;
+  default_option_ids?: string[];
+  default_date?: DateDefault | null;
   options?: PropertyOptionCreateInput[];
 }
 
@@ -76,6 +79,8 @@ export function updateProperty(
     name?: string;
     description?: string;
     default_option_id?: string | null;
+    default_option_ids?: string[];
+    default_date?: DateDefault | null;
     archived?: boolean;
     options?: PropertyOptionSaveInput[];
   },

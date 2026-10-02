@@ -44,7 +44,11 @@ const configuration: TaskConfiguration = {
   states: [],
   labels: [],
   default_state_id: 'state-todo',
+  default_priority: 'none',
+  default_start_date: null,
+  default_due_date: null,
   state_property_description: '',
+  default_label_ids: [],
   label_property_description: '',
 };
 

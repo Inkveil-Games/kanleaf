@@ -1,5 +1,10 @@
 import { Archive, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
-import { useState, type CSSProperties, type RefCallback } from 'react';
+import {
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefCallback,
+} from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
 import { ColorSwatchPicker } from '../../components/ui/ColorSwatchPicker';
@@ -34,8 +39,12 @@ interface SelectValueEditorProps {
   values: SelectValueDraft[];
   onChange: (values: SelectValueDraft[]) => void;
   showDefault?: boolean;
+  fixedVocabulary?: boolean;
+  renderVisual?: (value: SelectValueDraft) => ReactNode;
   defaultValueId?: string | null;
   onDefaultChange?: (id: string | null) => void;
+  defaultValueIds?: string[];
+  onDefaultsChange?: (ids: string[]) => void;
   onDeleteRequest?: (value: SelectValueDraft) => void;
   itemLabel?: string;
   addLabel?: string;
@@ -47,8 +56,12 @@ export function SelectValueEditor({
   values,
   onChange,
   showDefault = false,
+  fixedVocabulary = false,
+  renderVisual,
   defaultValueId = null,
   onDefaultChange,
+  defaultValueIds,
+  onDefaultsChange,
   onDeleteRequest,
   itemLabel = 'value',
   addLabel = 'Add value',
@@ -68,14 +81,37 @@ export function SelectValueEditor({
     );
   }
 
+  function isDefault(value: SelectValueDraft) {
+    return defaultValueIds
+      ? defaultValueIds.includes(valueIdentity(value))
+      : defaultValueId === valueIdentity(value);
+  }
+
+  function toggleDefault(id: string, selected: boolean) {
+    if (fixedVocabulary && !selected) return;
+    if (defaultValueIds) {
+      onDefaultsChange?.(
+        selected
+          ? [...defaultValueIds.filter((valueId) => valueId !== id), id]
+          : defaultValueIds.filter((valueId) => valueId !== id),
+      );
+    } else {
+      onDefaultChange?.(selected ? id : null);
+    }
+  }
+
+  function clearDefault(value: SelectValueDraft) {
+    if (isDefault(value)) toggleDefault(valueIdentity(value), false);
+  }
+
   function remove(value: SelectValueDraft) {
     onChange(values.filter(({ key }) => key !== value.key));
-    if (defaultValueId === valueIdentity(value)) onDefaultChange?.(null);
+    clearDefault(value);
   }
 
   function archive(value: SelectValueDraft) {
     update(value.key, { archived: true });
-    if (defaultValueId === valueIdentity(value)) onDefaultChange?.(null);
+    clearDefault(value);
   }
 
   function requestDelete(value: SelectValueDraft) {
@@ -94,105 +130,149 @@ export function SelectValueEditor({
     );
   }
 
+  function renderValueRow(
+    value: SelectValueDraft,
+    sorting?: {
+      ref: RefCallback<HTMLElement>;
+      handleRef: RefCallback<HTMLElement>;
+      isDragging: boolean;
+      sortingDisabled: boolean;
+    },
+  ) {
+    const {
+      ref,
+      handleRef,
+      isDragging = false,
+      sortingDisabled = disabled,
+    } = sorting ?? {};
+    return (
+      <div
+        key={value.key}
+        ref={ref as RefCallback<HTMLDivElement>}
+        className={`select-value-editor-row${showDefault ? ' has-default' : ''}${isDragging ? ' is-dragging' : ''}`}
+        role="listitem"
+      >
+        {!fixedVocabulary ? (
+          <SettingsDragHandle
+            ref={handleRef}
+            label={value.name || itemLabel}
+            disabled={sortingDisabled}
+          />
+        ) : null}
+        <span className="select-value-identity">
+          {renderVisual ? (
+            <span className="select-value-visual" aria-hidden="true">
+              {renderVisual(value)}
+            </span>
+          ) : (
+            <span
+              className="select-value-color"
+              style={{ '--value-color': value.color } as CSSProperties}
+              aria-hidden="true"
+            />
+          )}
+          <strong className="select-value-name">{value.name}</strong>
+        </span>
+        <span className="select-value-description">
+          {value.description || '—'}
+        </span>
+        {showDefault ? (
+          <label className="select-value-default">
+            <Tooltip
+              label={`Use ${value.name || itemLabel} as default`}
+              disabled={disabled}
+              trigger={
+                <input
+                  type={defaultValueIds ? 'checkbox' : 'radio'}
+                  name="select-value-default"
+                  aria-label={`Use ${value.name || itemLabel} as default`}
+                  checked={isDefault(value)}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    toggleDefault(valueIdentity(value), event.target.checked)
+                  }
+                />
+              }
+            />
+          </label>
+        ) : null}
+        {!fixedVocabulary ? (
+          <ValueEditorPopover
+            addLabel={addLabel}
+            disabled={disabled}
+            itemLabel={itemLabel}
+            value={value}
+            showDefault={showDefault}
+            isDefault={isDefault(value)}
+            onSave={saveValue}
+            onDefaultToggle={toggleDefault}
+            onArchive={!value.id ? undefined : () => archive(value)}
+            onDelete={() => (value.id ? requestDelete(value) : remove(value))}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <fieldset className="select-value-editor" disabled={disabled}>
-      <legend>Property values</legend>
-      <ValueEditorPopover
-        addLabel={addLabel}
-        disabled={disabled}
-        itemLabel={itemLabel}
-        showDefault={showDefault}
-        isDefault={false}
-        onSave={saveValue}
-        onDefaultChange={onDefaultChange}
-      />
+    <fieldset
+      className={`select-value-editor${showDefault ? ' has-default' : ''}${fixedVocabulary ? ' is-fixed-vocabulary' : ''}`}
+      disabled={disabled}
+    >
+      <legend className="sr-only">Property values</legend>
+      <div className="select-value-editor-toolbar">
+        <span aria-hidden="true">Property values</span>
+        {!fixedVocabulary ? (
+          <ValueEditorPopover
+            addLabel={addLabel}
+            disabled={disabled}
+            itemLabel={itemLabel}
+            showDefault={showDefault}
+            isDefault={false}
+            onSave={saveValue}
+            onDefaultToggle={toggleDefault}
+          />
+        ) : null}
+      </div>
       <div
         className={`select-value-editor-header${showDefault ? ' has-default' : ''}`}
         aria-hidden="true"
       >
-        <span />
-        <span>Color</span>
-        <span>Name</span>
+        {!fixedVocabulary ? <span /> : null}
+        <span>Value</span>
         <span>Description</span>
         {showDefault ? <span>Default</span> : null}
-        <span />
+        {!fixedVocabulary ? <span /> : null}
       </div>
-      <div className="select-value-editor-list" role="list">
+      <div
+        className="select-value-editor-list"
+        role="list"
+        aria-label="Property values"
+      >
         {activeValues.length === 0 ? (
           <p>{emptyMessage}</p>
         ) : (
           <SettingsSortableProvider
             ids={activeValues.map(({ key }) => key)}
-            disabled={disabled}
+            disabled={disabled || fixedVocabulary}
             onReorder={(ids) =>
               onChange([...valuesInOrder(activeValues, ids), ...archivedValues])
             }
           >
-            {activeValues.map((value, index) => (
-              <SettingsSortableItem
-                key={value.key}
-                id={value.key}
-                index={index}
-                disabled={disabled}
-              >
-                {({ ref, handleRef, isDragging, sortingDisabled }) => (
-                  <div
-                    ref={ref as RefCallback<HTMLDivElement>}
-                    className={`select-value-editor-row${showDefault ? ' has-default' : ''}${isDragging ? ' is-dragging' : ''}`}
-                    role="listitem"
-                  >
-                    <SettingsDragHandle
-                      ref={handleRef}
-                      label={value.name || itemLabel}
-                      disabled={sortingDisabled}
-                    />
-                    <span
-                      className="select-value-color"
-                      style={{ '--value-color': value.color } as CSSProperties}
-                      aria-hidden="true"
-                    />
-                    <strong className="select-value-name">{value.name}</strong>
-                    <span className="select-value-description">
-                      {value.description || '—'}
-                    </span>
-                    {showDefault ? (
-                      <label className="select-value-default">
-                        <Tooltip
-                          label={`Use ${value.name || itemLabel} as default`}
-                          disabled={disabled}
-                          trigger={
-                            <input
-                              type="radio"
-                              name="select-value-default"
-                              aria-label={`Use ${value.name || itemLabel} as default`}
-                              checked={defaultValueId === valueIdentity(value)}
-                              disabled={disabled}
-                              onChange={() =>
-                                onDefaultChange?.(valueIdentity(value))
-                              }
-                            />
-                          }
-                        />
-                      </label>
-                    ) : null}
-                    <ValueEditorPopover
-                      addLabel={addLabel}
-                      disabled={disabled}
-                      itemLabel={itemLabel}
-                      value={value}
-                      showDefault={showDefault}
-                      isDefault={defaultValueId === valueIdentity(value)}
-                      onSave={saveValue}
-                      onDefaultChange={onDefaultChange}
-                      onArchive={!value.id ? undefined : () => archive(value)}
-                      onDelete={() =>
-                        value.id ? requestDelete(value) : remove(value)
-                      }
-                    />
-                  </div>
-                )}
-              </SettingsSortableItem>
-            ))}
+            {activeValues.map((value, index) =>
+              fixedVocabulary ? (
+                renderValueRow(value)
+              ) : (
+                <SettingsSortableItem
+                  key={value.key}
+                  id={value.key}
+                  index={index}
+                  disabled={disabled || fixedVocabulary}
+                >
+                  {(sorting) => renderValueRow(value, sorting)}
+                </SettingsSortableItem>
+              ),
+            )}
           </SettingsSortableProvider>
         )}
       </div>
@@ -208,25 +288,27 @@ export function SelectValueEditor({
               />
               <span>{value.name}</span>
               <span>{value.description}</span>
-              <SettingsActionsMenu
-                label={`Actions for ${value.name || itemLabel}`}
-                disabled={disabled}
-              >
-                <SettingsAction
-                  icon={<RotateCcw aria-hidden="true" size={14} />}
-                  onClick={() => update(value.key, { archived: false })}
+              {!fixedVocabulary ? (
+                <SettingsActionsMenu
+                  label={`Actions for ${value.name || itemLabel}`}
+                  disabled={disabled}
                 >
-                  Restore
-                </SettingsAction>
-                <SettingsActionSeparator />
-                <SettingsAction
-                  destructive
-                  icon={<Trash2 aria-hidden="true" size={14} />}
-                  onClick={() => requestDelete(value)}
-                >
-                  Delete permanently
-                </SettingsAction>
-              </SettingsActionsMenu>
+                  <SettingsAction
+                    icon={<RotateCcw aria-hidden="true" size={14} />}
+                    onClick={() => update(value.key, { archived: false })}
+                  >
+                    Restore
+                  </SettingsAction>
+                  <SettingsActionSeparator />
+                  <SettingsAction
+                    destructive
+                    icon={<Trash2 aria-hidden="true" size={14} />}
+                    onClick={() => requestDelete(value)}
+                  >
+                    Delete permanently
+                  </SettingsAction>
+                </SettingsActionsMenu>
+              ) : null}
             </div>
           ))}
         </div>
@@ -257,7 +339,7 @@ function ValueEditorPopover({
   showDefault,
   isDefault,
   onSave,
-  onDefaultChange,
+  onDefaultToggle,
   onArchive,
   onDelete,
 }: {
@@ -268,7 +350,7 @@ function ValueEditorPopover({
   showDefault: boolean;
   isDefault: boolean;
   onSave: (value: SelectValueDraft) => void;
-  onDefaultChange?: (id: string | null) => void;
+  onDefaultToggle: (id: string, selected: boolean) => void;
   onArchive?: () => void;
   onDelete?: () => void;
 }) {
@@ -288,7 +370,7 @@ function ValueEditorPopover({
     if (!draft.name.trim()) return;
     onSave(draft);
     if (showDefault && setAsDefault !== isDefault) {
-      onDefaultChange?.(setAsDefault ? valueIdentity(draft) : null);
+      onDefaultToggle(valueIdentity(draft), setAsDefault);
     }
     setOpen(false);
   }

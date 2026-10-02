@@ -1603,6 +1603,14 @@ fn rewrite_archive_with_checksums(
 }
 
 fn legacy_task_config(config: &mut Value, type_property_id: Option<&str>, types: Value) {
+    for field in [
+        "default_label_ids",
+        "default_priority",
+        "default_start_date",
+        "default_due_date",
+    ] {
+        config.as_object_mut().unwrap().remove(field);
+    }
     for state in config["states"].as_array_mut().unwrap() {
         let state = state.as_object_mut().unwrap();
         let group = state
@@ -1632,6 +1640,8 @@ fn legacy_task_config(config: &mut Value, type_property_id: Option<&str>, types:
     for property in properties {
         let property = property.as_object_mut().unwrap();
         property.remove("default_option_id");
+        property.remove("default_option_ids");
+        property.remove("default_date");
         for option in property["options"].as_array_mut().unwrap() {
             let option = option.as_object_mut().unwrap();
             option.remove("icon");
@@ -1672,4 +1682,238 @@ fn write_archive(entries: Vec<(String, Vec<u8>)>) -> Vec<u8> {
         archive.write_all(&content).unwrap();
     }
     archive.finish().unwrap().into_inner()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn multi_select_and_label_defaults_round_trip_and_old_archives_remain_readable(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "multi-default-portable@example.com").await;
+    let base = format!("/api/workspaces/{workspace_id}");
+    let ids = [Uuid::new_v4(), Uuid::new_v4()];
+    let property = create(&app, &token, &format!("{base}/properties"), json!({"name": "Platforms", "type": "multi_select", "default_option_ids": ids,
+        "options": [{"id": ids[0], "name": "Web", "color": "#EF4444"}, {"id": ids[1], "name": "Desktop", "color": "#EF4444"}]})).await;
+    let label = create(
+        &app,
+        &token,
+        &format!("{base}/labels"),
+        json!({"name": "Review", "color": "#EF4444"}),
+    )
+    .await;
+    let response = send_json(
+        &app,
+        "PATCH",
+        &format!("{base}/task-configuration"),
+        Some(json!({"default_label_ids": [label["id"]]})),
+        &token,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let archive = export_workspace(&app, &token, workspace_id).await;
+    let config = archive_entry_json(&archive, ".kanleaf/task-config.json");
+    assert_eq!(config["properties"][0]["default_option_ids"], json!(ids));
+    assert_eq!(config["default_label_ids"], json!([label["id"]]));
+    let (importer, _, _) = register(&app, "multi-default-importer@example.com").await;
+    let preview = preview_import(&app, &importer, &archive).await;
+    let imported = apply_import(&app, &importer, &preview).await;
+    let imported_workspace_id = imported["workspace_id"].as_str().unwrap();
+    let imported_base = format!("/api/workspaces/{imported_workspace_id}");
+    let definitions = get_json(&app, &importer, &format!("{imported_base}/properties")).await;
+    assert_ne!(definitions[0]["id"], property["id"]);
+    assert_ne!(definitions[0]["default_option_ids"], json!(ids));
+    assert_eq!(
+        definitions[0]["default_option_ids"],
+        json!([
+            definitions[0]["options"][0]["id"],
+            definitions[0]["options"][1]["id"]
+        ])
+    );
+    let imported_config = get_json(
+        &app,
+        &importer,
+        &format!("{imported_base}/task-configuration"),
+    )
+    .await;
+    assert_eq!(
+        imported_config["default_label_ids"],
+        json!([imported_config["labels"][0]["id"]])
+    );
+    assert_ne!(imported_config["default_label_ids"], json!([label["id"]]));
+    let task = create(
+        &app,
+        &importer,
+        &format!("{imported_base}/tasks"),
+        json!({"title": "Imported defaults"}),
+    )
+    .await;
+    assert_eq!(
+        task["custom_properties"][0]["value"],
+        definitions[0]["default_option_ids"]
+    );
+    assert_eq!(task["labels"].as_array().unwrap().len(), 1);
+    for mutation in [
+        "duplicate_default",
+        "unknown_option",
+        "archived_option",
+        "wrong_type",
+        "unknown_label",
+        "duplicate_label",
+        "archived_label",
+    ] {
+        let broken = rewrite_archive_with_checksums(&archive, |path, content| {
+            if path != ".kanleaf/task-config.json" {
+                return content;
+            }
+            let mut config: Value = serde_json::from_slice(&content).unwrap();
+            match mutation {
+                "duplicate_default" => {
+                    config["properties"][0]["default_option_ids"] = json!([ids[0], ids[0]])
+                }
+                "unknown_option" => {
+                    config["properties"][0]["default_option_ids"] = json!([Uuid::new_v4()])
+                }
+                "archived_option" => {
+                    config["properties"][0]["options"][0]["archived"] = json!(true)
+                }
+                "wrong_type" => config["properties"][0]["type"] = json!("single_select"),
+                "unknown_label" => config["default_label_ids"] = json!([Uuid::new_v4()]),
+                "duplicate_label" => {
+                    config["default_label_ids"] = json!([label["id"], label["id"]])
+                }
+                "archived_label" => config["labels"][0]["archived"] = json!(true),
+                _ => unreachable!(),
+            }
+            serde_json::to_vec(&config).unwrap()
+        });
+        let rejected = preview_import(&app, &importer, &broken).await;
+        assert_eq!(rejected["state"], "failed", "{mutation}: {rejected:#}");
+        assert_eq!(rejected["error"]["code"], "invalid_metadata");
+    }
+    let legacy = rewrite_archive_with_checksums(&archive, |path, content| {
+        if path != ".kanleaf/task-config.json" {
+            return content;
+        }
+        let mut config: Value = serde_json::from_slice(&content).unwrap();
+        config.as_object_mut().unwrap().remove("default_label_ids");
+        for property in config["properties"].as_array_mut().unwrap() {
+            property
+                .as_object_mut()
+                .unwrap()
+                .remove("default_option_ids");
+        }
+        serde_json::to_vec(&config).unwrap()
+    });
+    let preview = preview_import(&app, &importer, &legacy).await;
+    let old = apply_import(&app, &importer, &preview).await;
+    let old_base = format!("/api/workspaces/{}", old["workspace_id"].as_str().unwrap());
+    let old_config = get_json(&app, &importer, &format!("{old_base}/task-configuration")).await;
+    assert_eq!(old_config["default_label_ids"], json!([]));
+    let old_properties = get_json(&app, &importer, &format!("{old_base}/properties")).await;
+    assert_eq!(old_properties[0]["default_option_ids"], json!([]));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn date_and_builtin_defaults_round_trip_and_missing_fields_use_empty_defaults(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "date-default-portable@example.com").await;
+    let base = format!("/api/workspaces/{workspace_id}");
+    let fixed = json!({"mode":"fixed", "date":"2026-02-28"});
+    let dynamic = json!({"mode":"dynamic","amount":1,"unit":"month","direction":"after"});
+    let property = create(
+        &app,
+        &token,
+        &format!("{base}/properties"),
+        json!({"name":"Review day","type":"date","default_date":fixed}),
+    )
+    .await;
+    let response = send_json(&app, "PATCH", &format!("{base}/task-configuration"), Some(json!({"default_priority":"critical","default_start_date":dynamic,"default_due_date":{"mode":"fixed","date":"2099-12-31"}})), &token).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let archive = export_workspace(&app, &token, workspace_id).await;
+    let config = archive_entry_json(&archive, ".kanleaf/task-config.json");
+    assert_eq!(config["default_priority"], "critical");
+    assert_eq!(config["default_start_date"], dynamic);
+    assert_eq!(config["properties"][0]["default_date"], fixed);
+    let (importer, _, _) = register(&app, "date-default-importer@example.com").await;
+    let preview = preview_import(&app, &importer, &archive).await;
+    let imported = apply_import(&app, &importer, &preview).await;
+    let imported_base = format!(
+        "/api/workspaces/{}",
+        imported["workspace_id"].as_str().unwrap()
+    );
+    let definitions = get_json(&app, &importer, &format!("{imported_base}/properties")).await;
+    assert_ne!(definitions[0]["id"], property["id"]);
+    assert_eq!(definitions[0]["default_date"], fixed);
+    let configuration = get_json(
+        &app,
+        &importer,
+        &format!("{imported_base}/task-configuration"),
+    )
+    .await;
+    assert_eq!(configuration["default_start_date"], dynamic);
+    assert_eq!(configuration["default_priority"], "critical");
+    let task = create(
+        &app,
+        &importer,
+        &format!("{imported_base}/tasks"),
+        json!({"title":"Portable defaults"}),
+    )
+    .await;
+    assert_eq!(task["priority"], "critical");
+    assert_eq!(task["custom_properties"][0]["value"], "2026-02-28");
+    assert_eq!(task["due_date"], "2099-12-31");
+    for mutation in [
+        "wrong_type",
+        "invalid_date",
+        "negative_amount",
+        "overflow",
+        "unknown_priority",
+    ] {
+        let broken = rewrite_archive_with_checksums(&archive, |path, content| {
+            if path != ".kanleaf/task-config.json" {
+                return content;
+            }
+            let mut config: Value = serde_json::from_slice(&content).unwrap();
+            match mutation {
+                "wrong_type" => config["properties"][0]["type"] = json!("text"),
+                "invalid_date" => {
+                    config["properties"][0]["default_date"] =
+                        json!({"mode":"fixed","date":"2026-02-29"})
+                }
+                "negative_amount" => config["default_start_date"]["amount"] = json!(-1),
+                "overflow" => config["default_start_date"]["amount"] = json!(4294967295_u64),
+                "unknown_priority" => config["default_priority"] = json!("urgent"),
+                _ => unreachable!(),
+            }
+            serde_json::to_vec(&config).unwrap()
+        });
+        let rejected = preview_import(&app, &importer, &broken).await;
+        assert_eq!(rejected["state"], "failed", "{mutation}: {rejected:#}");
+        assert_eq!(rejected["error"]["code"], "invalid_metadata");
+    }
+    let old = rewrite_archive_with_checksums(&archive, |path, content| {
+        if path != ".kanleaf/task-config.json" {
+            return content;
+        }
+        let mut config: Value = serde_json::from_slice(&content).unwrap();
+        for field in ["default_priority", "default_start_date", "default_due_date"] {
+            config.as_object_mut().unwrap().remove(field);
+        }
+        for property in config["properties"].as_array_mut().unwrap() {
+            property.as_object_mut().unwrap().remove("default_date");
+        }
+        serde_json::to_vec(&config).unwrap()
+    });
+    let preview = preview_import(&app, &importer, &old).await;
+    let imported = apply_import(&app, &importer, &preview).await;
+    let old_base = format!(
+        "/api/workspaces/{}",
+        imported["workspace_id"].as_str().unwrap()
+    );
+    let config = get_json(&app, &importer, &format!("{old_base}/task-configuration")).await;
+    assert_eq!(config["default_priority"], "none");
+    assert!(config["default_start_date"].is_null());
+    assert!(config["default_due_date"].is_null());
+    let properties = get_json(&app, &importer, &format!("{old_base}/properties")).await;
+    assert!(properties[0]["default_date"].is_null());
 }

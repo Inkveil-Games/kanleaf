@@ -389,6 +389,16 @@ test('manages structured work and durable Markdown across reloads', async ({
   await expect(
     workspaceSettingsNavigation.getByRole('button', { name: 'Labels' }),
   ).toHaveCount(0);
+  const propertyList = page.getByRole('list', { name: 'Workspace properties' });
+  await expect(
+    propertyList.getByRole('button', { name: 'Labels', exact: true }),
+  ).toBeVisible();
+  await propertyList
+    .getByRole('button', { name: 'Labels', exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties/labels$`),
+  );
   await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible();
   await expect(
     page.getByRole('group', { name: 'Property values' }),
@@ -421,21 +431,34 @@ test('manages structured work and durable Markdown across reloads', async ({
   ).toBeVisible();
   await page.setViewportSize({ width: 740, height: 800 });
   const labelValueRow = page
-    .locator('.select-value-editor-row:not(.has-default)')
+    .locator('.select-value-editor-row.has-default')
     .first();
   await expect(labelValueRow).toBeVisible();
   expect(await selectValueRowGrid(labelValueRow)).toEqual({
-    templateAreas: '"drag color name actions" ". . description description"',
-    childAreas: ['drag', 'color', 'name', 'description', 'actions'],
+    templateAreas:
+      '"drag color name default-control actions" ". . description description ."',
+    childAreas: [
+      'drag',
+      'color',
+      'name',
+      'description',
+      'default-control',
+      'actions',
+    ],
     childClassNames: [
       'settings-drag-handle',
       'select-value-color',
       'select-value-name',
       'select-value-description',
+      'select-value-default',
       'context-menu context-menu-down select-value-popover select-value-edit-popover',
     ],
   });
   await page.setViewportSize({ width: 800, height: 640 });
+  await page.getByRole('button', { name: 'Back to Properties' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
+  );
   const propertiesGeometry = await settingsPageGeometry(page);
   await expectSameSettingsGeometry(page, propertiesGeometry);
 
@@ -475,14 +498,14 @@ test('manages structured work and durable Markdown across reloads', async ({
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
   await expect(
-    page.getByRole('list', { name: 'Custom properties' }),
+    page.getByRole('list', { name: 'Workspace properties' }),
   ).toContainText('Type');
   await page.goBack();
   await expect(page).toHaveURL(
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
   await expect(
-    page.getByRole('list', { name: 'Custom properties' }),
+    page.getByRole('list', { name: 'Workspace properties' }),
   ).toContainText('Type');
   await propertiesArticle
     .getByRole('button', { name: 'Type', exact: true })
@@ -528,7 +551,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     new RegExp(`/${workspaceIdentifier}/settings/workspace/properties$`),
   );
   await expect(
-    page.getByRole('list', { name: 'Custom properties' }),
+    page.getByRole('list', { name: 'Workspace properties' }),
   ).toContainText('Story points');
   await page.goBack();
   await expect(page).toHaveURL(

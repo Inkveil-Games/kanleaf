@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { SettingsArticle } from '../settings/SettingsArticle';
 import { SelectPropertyEditor } from '../settings/SelectPropertyEditor';
 import {
   SelectValueEditor,
@@ -25,6 +26,7 @@ interface LabelSettingsProps {
   workspace: Workspace;
   configuration: TaskConfiguration;
   onChanged: () => Promise<void>;
+  onBack?: () => void;
 }
 
 export function LabelSettings(props: LabelSettingsProps) {
@@ -36,6 +38,11 @@ export function LabelSettings(props: LabelSettingsProps) {
   const [description, setDescription] = useState(
     props.configuration.label_property_description ?? '',
   );
+  const [defaultLabelIds, setDefaultLabelIds] = useState<string[]>(
+    props.configuration.default_label_ids ?? [],
+  );
+  // Successful writes survive a later failure and must remain the retry baseline.
+  const persisted = useRef(props.configuration);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +56,9 @@ export function LabelSettings(props: LabelSettingsProps) {
     setSaving(true);
     setError(null);
     try {
+      const originalActiveIds = persisted.current.labels
+        .filter((label) => !label.archived_at)
+        .map((label) => label.id);
       const ids = new Map<string, string>();
       for (const value of values) {
         if (value.id) {
@@ -66,30 +76,60 @@ export function LabelSettings(props: LabelSettingsProps) {
           },
         );
         ids.set(value.key, created.id);
+        persisted.current = {
+          ...persisted.current,
+          labels: [...persisted.current.labels, created],
+        };
+        setValues((current) =>
+          current.map((draft) =>
+            draft.key === value.key ? { ...draft, id: created.id } : draft,
+          ),
+        );
+        setDefaultLabelIds((current) =>
+          current.map((id) => (id === value.key ? created.id : id)),
+        );
       }
 
-      const currentIds = new Set(
-        values.flatMap((value) => (value.id ? [value.id] : [])),
-      );
-      for (const label of props.configuration.labels) {
+      const currentIds = new Set(ids.values());
+      for (const label of persisted.current.labels) {
         if (!currentIds.has(label.id)) {
           await deleteTaskLabel(props.context, props.workspace.id, label.id);
+          persisted.current = {
+            ...persisted.current,
+            labels: persisted.current.labels.filter(
+              ({ id }) => id !== label.id,
+            ),
+            default_label_ids: persisted.current.default_label_ids.filter(
+              (id) => id !== label.id,
+            ),
+          };
         }
       }
 
       const original = new Map(
-        props.configuration.labels.map((label) => [label.id, label]),
+        persisted.current.labels.map((label) => [label.id, label]),
       );
       for (const value of values) {
         if (!value.id) continue;
         const label = original.get(value.id);
         if (!label || !labelChanged(label, value)) continue;
-        await updateTaskLabel(
+        const updated = await updateTaskLabel(
           props.context,
           props.workspace.id,
           value.id,
           labelPatch(label, value),
         );
+        persisted.current = {
+          ...persisted.current,
+          labels: persisted.current.labels.map((label) =>
+            label.id === updated.id ? updated : label,
+          ),
+          default_label_ids: updated.archived_at
+            ? persisted.current.default_label_ids.filter(
+                (id) => id !== updated.id,
+              )
+            : persisted.current.default_label_ids,
+        };
       }
 
       const activeIds = values
@@ -98,20 +138,44 @@ export function LabelSettings(props: LabelSettingsProps) {
           const id = ids.get(value.key);
           return id ? [id] : [];
         });
-      const originalActiveIds = props.configuration.labels
-        .filter((label) => !label.archived_at)
-        .map((label) => label.id);
       if (!sameOrder(activeIds, originalActiveIds)) {
         await reorderTaskLabels(props.context, props.workspace.id, activeIds);
+        persisted.current = {
+          ...persisted.current,
+          labels: persisted.current.labels
+            .map((label) => {
+              const position = activeIds.indexOf(label.id);
+              return position < 0 ? label : { ...label, position };
+            })
+            .sort((left, right) => left.position - right.position),
+        };
       }
 
+      const defaults = values
+        .filter(
+          (value) =>
+            !value.archived && defaultLabelIds.includes(value.id ?? value.key),
+        )
+        .flatMap((value) => {
+          const id = ids.get(value.key);
+          return id ? [id] : [];
+        });
+      const patch: Parameters<typeof updateTaskConfiguration>[2] = {};
       if (
         description.trim() !==
-        (props.configuration.label_property_description ?? '')
+        (persisted.current.label_property_description ?? '')
       ) {
-        await updateTaskConfiguration(props.context, props.workspace.id, {
-          label_property_description: description.trim(),
-        });
+        patch.label_property_description = description.trim();
+      }
+      if (!sameOrder(defaults, persisted.current.default_label_ids ?? [])) {
+        patch.default_label_ids = defaults;
+      }
+      if (Object.keys(patch).length > 0) {
+        persisted.current = await updateTaskConfiguration(
+          props.context,
+          props.workspace.id,
+          patch,
+        );
       }
       await props.onChanged();
     } catch (caught) {
@@ -122,16 +186,20 @@ export function LabelSettings(props: LabelSettingsProps) {
   }
 
   return (
-    <section
+    <SettingsArticle
       className="configuration-settings unified-property-settings"
-      aria-labelledby="label-settings-heading"
+      eyebrow="Workspace"
+      title="Labels"
+      description="Create a shared vocabulary for organizing work."
+      backAction={
+        props.onBack
+          ? {
+              label: 'Back to Properties',
+              onClick: props.onBack,
+            }
+          : undefined
+      }
     >
-      <header className="embedded-settings-header">
-        <div>
-          <h2 id="label-settings-heading">Labels</h2>
-          <p>Create a shared vocabulary for organizing work.</p>
-        </div>
-      </header>
       <SelectPropertyEditor
         name="Labels"
         nameReadOnly
@@ -144,6 +212,9 @@ export function LabelSettings(props: LabelSettingsProps) {
           <SelectValueEditor
             disabled={!canManage || saving}
             values={values}
+            showDefault
+            defaultValueIds={defaultLabelIds}
+            onDefaultsChange={setDefaultLabelIds}
             onChange={setValues}
             itemLabel="value"
             addLabel="Add label"
@@ -173,7 +244,7 @@ export function LabelSettings(props: LabelSettingsProps) {
           Only Workspace Owners and Admins can change labels.
         </p>
       ) : null}
-    </section>
+    </SettingsArticle>
   );
 }
 
