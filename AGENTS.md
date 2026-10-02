@@ -99,6 +99,14 @@ owning feature instead of scattering it through unrelated handlers.
   out of normal feature code unless a real native capability is required.
 - Reuse existing components, tokens, interaction patterns, and explicit
   loading/error/empty states. Preserve keyboard access, focus, and ARIA names.
+- Product panes and independently scrolling lists use the shared
+  `components/ui/ScrollArea`, including height-capped nested lists. Put sizing
+  on its root and scroll behavior, refs, and accessible names on its viewport.
+  For library-owned scroll elements (Base UI popups/dialogs, CodeMirror),
+  native textareas, semantic Markdown/table overflow, and existing fallback
+  surfaces, use the shared `ui-native-scrollbar` styling and reveal behavior. Do not add
+  feature-specific scrollbar styles. Verify wheel/touch, keyboard focus,
+  nested scroll containment, and narrow layouts when changing scroll ownership.
 - Workspace Settings structured lists use the shared SettingsArticle/List,
   action-menu, sortable-row, ColorSwatchPicker, and IconPicker primitives. A
   page defines its semantic CSS grid once; its header, create state, and data

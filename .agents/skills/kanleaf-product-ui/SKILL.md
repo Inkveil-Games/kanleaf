@@ -144,6 +144,26 @@ another icon family or draw text-like symbols when an established icon exists.
 - Preserve CodeMirror and Markdown syntax tokens. Raw HTML stays disabled in
   rendered Markdown.
 
+## Scrolling
+
+- Use `components/ui/ScrollArea` for product panes and independently scrolling
+  lists, including nested lists that grow up to a height limit. Choose the
+  scrolling axis explicitly. Keep short lists content-sized; constrain both
+  root and viewport for capped lists so overflow actually reaches the viewport.
+- The root owns layout; `viewportProps` owns the scroll viewport's accessible
+  name, role, and scroll behavior. The forwarded ref points to the viewport.
+  Keep list/table semantics inside the content wrapper and recheck any CSS
+  direct-child selectors after inserting it.
+- Base UI popups/dialogs and CodeMirror own their scroll elements. Preserve
+  those owners and apply the shared `ui-native-scrollbar` class. Use the same
+  fallback for native textareas, semantic Markdown/table overflow, and existing
+  native surfaces. The shared CSS and `lib/nativeScrollbarReveal.ts` own its
+  appearance/reveal.
+- Do not create local scrollbar width/color or WebKit scrollbar rules. Audit
+  `overflow: auto/scroll` additions for shared ScrollArea or native fallback
+  coverage. Test few/many items, wheel/touch, keyboard reachability, nested
+  containment, both themes, and narrow layouts without duplicate scrollbars.
+
 ## Interaction states
 
 Cover each applicable state for the surface:

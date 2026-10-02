@@ -130,6 +130,11 @@ unless the user also asked for a change.
 - Reuse existing primitives and feature patterns before creating a component.
   Keep reusable controls in `components/ui`; keep domain interaction in the
   owning feature.
+- Use shared `ScrollArea` for panes and scrolling lists. Its forwarded ref and
+  `viewportProps` target the scroll viewport; keep scroll listeners, accessible
+  names, focus, and scroll restoration on that element. Follow the product UI
+  skill's scrolling rules for capped nested lists and the shared
+  `ui-native-scrollbar` fallback on library-owned/native scroll elements.
 - Prefer controlled props at a route boundary so the URL remains authoritative.
   Keep components internally controlled only for truly transient state.
 - Keep strict types across DTO, adapter, and component boundaries. Avoid `any`,
