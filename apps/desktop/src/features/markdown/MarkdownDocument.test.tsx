@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentSaveCoordinator } from './DocumentSaveCoordinator';
@@ -64,7 +70,10 @@ function renderDocument(
 }
 
 describe('MarkdownDocument', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('uses the shared load error and retries without opening a stale document', async () => {
     const fetchMock = vi
@@ -238,6 +247,34 @@ describe('MarkdownDocument', () => {
     expect(screen.queryByLabelText('Visual Markdown editor')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Editor' })).toBeNull();
     expect(screen.getByRole('checkbox')).toBeDisabled();
+  });
+
+  it('cancels the pending autosave when a manual save fails and allows explicit retry', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response())
+      .mockRejectedValueOnce(new Error('Server unavailable'))
+      .mockImplementation(() => Promise.resolve(response('# Pending draft')));
+    renderDocument(fetchMock);
+    const visual = await screen.findByLabelText('Visual Markdown editor');
+    vi.useFakeTimers();
+
+    fireEvent.change(visual, { target: { value: '# Pending draft' } });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    });
+    expect(screen.getByText('Save failed')).toBeVisible();
+
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Save failed')).toBeVisible();
+    expect(visual).toHaveValue('# Pending draft');
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 's', metaKey: true });
+    });
+    expect(screen.getByText('Saved')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('keeps the local draft open on a revision conflict', async () => {

@@ -1162,8 +1162,9 @@ async fn multi_select_defaults_apply_only_to_new_tasks_and_validate_atomically(p
     );
     let task_id = task["id"].as_str().unwrap().parse::<Uuid>().unwrap();
     let source = fs::read_to_string(data_dir.path().join(format!(
-        "vaults/{workspace_id}/Todo/{}.md",
-        task["storage_name"].as_str().unwrap()
+        "vaults/workspace-{}/tasks/{}.md",
+        workspace_id.simple(),
+        task["task_number"].as_i64().unwrap()
     )))
     .unwrap();
     assert!(source.contains("Web") && source.contains("Desktop"));
@@ -1502,8 +1503,9 @@ async fn multi_defaults_define_preserves_imported_values_and_rejects_foreign_opt
     let task = response_json(task).await;
     let task_id = task["id"].as_str().unwrap();
     let path = data_dir.path().join(format!(
-        "vaults/{workspace_id}/Todo/{}.md",
-        task["storage_name"].as_str().unwrap()
+        "vaults/workspace-{}/tasks/{}.md",
+        workspace_id.simple(),
+        task["task_number"].as_i64().unwrap()
     ));
     let markdown =
         fs::read_to_string(&path)
@@ -1661,8 +1663,9 @@ async fn date_and_builtin_defaults_resolve_only_on_creation(pool: PgPool) {
     assert_eq!(response.status(), StatusCode::CREATED);
     let task = response_json(response).await;
     let path = data_dir.path().join(format!(
-        "vaults/{workspace_id}/Todo/{}.md",
-        task["storage_name"].as_str().unwrap()
+        "vaults/workspace-{}/tasks/{}.md",
+        workspace_id.simple(),
+        task["task_number"].as_i64().unwrap()
     ));
     let markdown = fs::read_to_string(path).unwrap();
     assert!(markdown.contains("2099-12-31"));
@@ -1983,8 +1986,9 @@ async fn defining_date_default_preserves_explicit_markdown_values(pool: PgPool) 
         .unwrap();
     let task = response_json(response).await;
     let path = data_dir.path().join(format!(
-        "vaults/{workspace_id}/Todo/{}.md",
-        task["storage_name"].as_str().unwrap()
+        "vaults/workspace-{}/tasks/{}.md",
+        workspace_id.simple(),
+        task["task_number"].as_i64().unwrap()
     ));
     let markdown = fs::read_to_string(&path).unwrap().replacen(
         "\n---\n",
@@ -2030,8 +2034,9 @@ async fn defining_date_default_preserves_explicit_markdown_values(pool: PgPool) 
     let new_task = response_json(response).await;
     assert_eq!(new_task["custom_properties"][0]["value"], "2026-02-28");
     let new_path = data_dir.path().join(format!(
-        "vaults/{workspace_id}/Todo/{}.md",
-        new_task["storage_name"].as_str().unwrap()
+        "vaults/workspace-{}/tasks/{}.md",
+        workspace_id.simple(),
+        new_task["task_number"].as_i64().unwrap()
     ));
     let markdown = fs::read_to_string(&new_path).unwrap();
     assert!(markdown.contains("Review day:"));

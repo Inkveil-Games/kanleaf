@@ -3030,6 +3030,7 @@ test('switches retained accounts without crossing account data', async ({
   const taskTitleInput = page.getByLabel('Task title');
   await taskTitleInput.fill(firstTask);
   await taskTitleInput.press('Enter');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   const source = page.locator('.cm-content[contenteditable="true"]');
   await source.fill('# Account one\n\nSaved while switching accounts.');
 
@@ -3058,6 +3059,7 @@ test('switches retained accounts without crossing account data', async ({
   await page.getByRole('button', { name: 'Home' }).click();
   await page.getByRole('link', { name: 'Review inbox' }).click();
   await page.getByText(firstTask, { exact: true }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(source).toContainText('Saved while switching accounts.');
 
   await page.reload();

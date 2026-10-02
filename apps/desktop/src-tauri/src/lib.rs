@@ -12,4 +12,10 @@ mod tests {
         let config = include_str!("../tauri.conf.json");
         assert!(config.contains("connect-src http: https: ws: wss:;"));
     }
+
+    #[test]
+    fn desktop_policy_allows_authenticated_markdown_image_blobs() {
+        let config = include_str!("../tauri.conf.json");
+        assert!(config.contains("img-src 'self' data: blob:;"));
+    }
 }

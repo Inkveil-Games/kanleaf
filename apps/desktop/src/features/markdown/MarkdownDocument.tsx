@@ -137,6 +137,7 @@ function LoadedMarkdownDocument({
   const revisionRef = useRef(initialRevision);
   const conflictRef = useRef(false);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const autosaveTimeoutRef = useRef<number | undefined>(undefined);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const [viewport, setViewport] = useState<MarkdownViewport | null>(null);
   function switchTab(next: EditingTab) {
@@ -164,6 +165,8 @@ function LoadedMarkdownDocument({
 
   const persist = useCallback(
     async (nextContent: string) => {
+      window.clearTimeout(autosaveTimeoutRef.current);
+      autosaveTimeoutRef.current = undefined;
       if (readOnly) return true;
       if (conflictRef.current) return false;
       if (nextContent === savedRef.current) {
@@ -221,7 +224,13 @@ function LoadedMarkdownDocument({
       () => void persist(draft),
       AUTOSAVE_DELAY_MS,
     );
-    return () => window.clearTimeout(timeout);
+    autosaveTimeoutRef.current = timeout;
+    return () => {
+      window.clearTimeout(timeout);
+      if (autosaveTimeoutRef.current === timeout) {
+        autosaveTimeoutRef.current = undefined;
+      }
+    };
   }, [draft, persist, readOnly]);
 
   useEffect(() => {

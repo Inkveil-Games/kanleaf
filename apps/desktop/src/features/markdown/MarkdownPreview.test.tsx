@@ -164,9 +164,12 @@ const ready = true;
   });
 
   it('resolves portable Kanleaf asset references in Reading mode', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(new Blob(['image']), { status: 200 }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('image', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    );
     const createObjectUrl = vi
       .spyOn(URL, 'createObjectURL')
       .mockReturnValue('blob:kanleaf-image');
@@ -196,5 +199,8 @@ const ready = true;
       }),
     );
     expect(createObjectUrl).toHaveBeenCalledOnce();
+    expect(createObjectUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'image/png', size: 5 }),
+    );
   });
 });
