@@ -3,18 +3,31 @@ import {
   cloneElement,
   createContext,
   isValidElement,
+  useEffect,
   useContext,
+  useState,
   type ChangeEvent,
   type ComponentProps,
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
-import ReactMarkdown, { type ExtraProps } from 'react-markdown';
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type ExtraProps,
+} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { mathOptions } from './markdownExtensions';
+import { remarkSmartPunctuation } from './smartPunctuation';
+import { MermaidDiagram } from './MermaidDiagram';
+import { readMarkdownAsset, type DocumentContext } from './api';
 
 interface MarkdownPreviewProps {
   content: string;
   onTaskToggle?: (content: string) => void;
+  assetContext?: DocumentContext;
 }
 
 interface TaskMarker {
@@ -30,10 +43,12 @@ interface MarkdownTaskContextValue {
 const MarkdownTaskContext = createContext<MarkdownTaskContextValue | null>(
   null,
 );
+const MarkdownAssetContext = createContext<DocumentContext | null>(null);
 
 export function MarkdownPreview({
   content,
   onTaskToggle,
+  assetContext,
 }: MarkdownPreviewProps) {
   if (!content.trim()) {
     return (
@@ -45,33 +60,109 @@ export function MarkdownPreview({
 
   return (
     <article className="markdown-preview">
-      <MarkdownTaskContext.Provider value={{ content, onTaskToggle }}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          skipHtml
-          components={{
-            a: ({ children, ...props }) => (
-              <a {...props} target="_blank" rel="noreferrer noopener">
-                {children}
-              </a>
-            ),
-            pre: ({ className, ...props }) => (
-              <pre {...props} className={nativeScrollbarClassName(className)} />
-            ),
-            table: ({ className, ...props }) => (
-              <table
-                {...props}
-                className={nativeScrollbarClassName(className)}
-              />
-            ),
-            li: MarkdownListItem,
-          }}
-        >
-          {content}
-        </ReactMarkdown>
-      </MarkdownTaskContext.Provider>
+      <MarkdownAssetContext.Provider value={assetContext ?? null}>
+        <MarkdownTaskContext.Provider value={{ content, onTaskToggle }}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath, remarkSmartPunctuation]}
+            rehypePlugins={[[rehypeKatex, mathOptions]]}
+            skipHtml
+            urlTransform={(url, key) =>
+              key === 'src' &&
+              /^kanleaf-asset:\/\/images\/[0-9a-f-]+\.(?:png|jpg|gif|webp)$/.test(
+                url,
+              )
+                ? url
+                : defaultUrlTransform(url)
+            }
+            components={{
+              a: ({ children, ...props }) => (
+                <a {...props} target="_blank" rel="noreferrer noopener">
+                  {children}
+                </a>
+              ),
+              pre: ({ className, children, ...props }) => {
+                const child = Children.toArray(children)[0];
+                if (
+                  isValidElement<{ className?: string; children?: ReactNode }>(
+                    child,
+                  ) &&
+                  child.props.className === 'language-mermaid'
+                ) {
+                  return (
+                    <MermaidDiagram
+                      source={String(child.props.children ?? '').replace(
+                        /\n$/,
+                        '',
+                      )}
+                    />
+                  );
+                }
+                return (
+                  <pre
+                    {...props}
+                    className={nativeScrollbarClassName(className)}
+                  >
+                    {children}
+                  </pre>
+                );
+              },
+              table: ({ className, ...props }) => (
+                <table
+                  {...props}
+                  className={nativeScrollbarClassName(className)}
+                />
+              ),
+              li: MarkdownListItem,
+              img: MarkdownImage,
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </MarkdownTaskContext.Provider>
+      </MarkdownAssetContext.Provider>
     </article>
   );
+}
+
+function MarkdownImage({
+  node,
+  src,
+  alt,
+  ...props
+}: ComponentProps<'img'> & ExtraProps) {
+  void node;
+  const context = useContext(MarkdownAssetContext);
+  const [resolved, setResolved] = useState<{
+    source: string;
+    objectUrl: string;
+  } | null>(null);
+  const isManaged = src?.startsWith('kanleaf-asset://') ?? false;
+
+  useEffect(() => {
+    if (!isManaged || !src || !context) return;
+    let active = true;
+    let objectUrl: string | null = null;
+    void readMarkdownAsset(context, src)
+      .then((next) => {
+        objectUrl = next;
+        if (active) setResolved({ source: src, objectUrl: next });
+        else URL.revokeObjectURL(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [context, isManaged, src]);
+
+  const resolvedSource =
+    resolved && resolved.source === src ? resolved.objectUrl : null;
+  if (isManaged && !resolvedSource) {
+    return (
+      <span className="markdown-image-loading">{alt || 'Loading image…'}</span>
+    );
+  }
+  return <img {...props} src={resolvedSource ?? src} alt={alt ?? ''} />;
 }
 
 function nativeScrollbarClassName(className: string | undefined) {

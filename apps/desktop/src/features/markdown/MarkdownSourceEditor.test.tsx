@@ -1,180 +1,49 @@
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MarkdownSourceEditor } from './MarkdownSourceEditor';
 
-const source = `# Live Preview
-
-A **durable** note.
-
-- [x] Durable source
-
-| Layer | Store |
-| --- | --- |
-| Task | PostgreSQL |
-
-\`\`\`rust
-let faithful = true;
-\`\`\`
-
-<script>window.unsafeLivePreview = true</script>
-`;
-
-const themedSource = `# Calm source
-
-> A **strong** [reference](https://kanleaf.example.com) with \`inline code\`.
-
-\`\`\`typescript
-const ready: boolean = true;
-\`\`\`
-`;
-
-function bounds(x: number, y: number, width: number, height: number): DOMRect {
-  return {
-    x,
-    y,
-    width,
-    height,
-    top: y,
-    right: x + width,
-    bottom: y + height,
-    left: x,
-    toJSON: () => ({}),
-  };
-}
+vi.mock('@uiw/react-codemirror', () => ({
+  default: (props: {
+    value: string;
+    onChange: (value: string) => void;
+    editable?: boolean;
+    className?: string;
+    'aria-label'?: string;
+  }) => (
+    <textarea
+      aria-label={props['aria-label']}
+      className={props.className}
+      value={props.value}
+      readOnly={props.editable === false}
+      onChange={(event) => props.onChange(event.currentTarget.value)}
+    />
+  ),
+}));
 
 describe('MarkdownSourceEditor', () => {
-  it('highlights Markdown and fenced code with the Kanleaf syntax theme', async () => {
-    const { container } = render(
-      <MarkdownSourceEditor value={themedSource} onChange={vi.fn()} />,
-    );
-    const highlightedText = (className: string) =>
-      Array.from(container.querySelectorAll(className))
-        .map((element) => element.textContent)
-        .join('');
-
-    expect(highlightedText('.cm-syntax-heading')).toContain('Calm source');
-    expect(highlightedText('.cm-syntax-link')).toContain('reference');
-    expect(highlightedText('.cm-syntax-strong')).toContain('strong');
-    expect(highlightedText('.cm-syntax-code')).toContain('inline code');
-    await waitFor(() =>
-      expect(highlightedText('.cm-syntax-keyword')).toContain('const'),
-    );
-    expect(highlightedText('.cm-syntax-type')).toContain('boolean');
-  });
-
-  it('renders inactive blocks and reveals their exact source on pointer entry', async () => {
-    const { container } = render(
-      <MarkdownSourceEditor value={source} onChange={vi.fn()} livePreview />,
-    );
-
-    const table = await waitFor(() => {
-      const rendered = container.querySelector('.cm-live-block-widget table');
-      expect(rendered).toBeInTheDocument();
-      return rendered!;
-    });
-    expect(
-      container.querySelector('.cm-live-block-widget pre'),
-    ).toHaveTextContent('let faithful = true;');
-    expect(container.querySelector('script')).not.toBeInTheDocument();
-    expect(container).not.toHaveTextContent('unsafeLivePreview');
-    const activeHeading = container.querySelector('.cm-live-source-line');
-    expect(activeHeading).toHaveTextContent('# Live Preview');
-    expect(activeHeading).toHaveClass(
-      'cm-live-heading-line',
-      'cm-live-heading-1',
-    );
-    expect(container.querySelector('.cm-live-paragraph-start')).toBeVisible();
-    expect(container.querySelector('.cm-live-list-outer-start')).toBeVisible();
-    expect(table.closest('.cm-live-source-line')).toBeNull();
-
-    fireEvent.mouseDown(table);
-    await waitFor(() =>
-      expect(
-        container.querySelector('.cm-live-block-widget table'),
-      ).not.toBeInTheDocument(),
-    );
-    expect(container.querySelector('.cm-content')).toHaveTextContent(
-      '| Layer | Store |',
-    );
-    expect(container.querySelector('.cm-live-source-line')).toHaveTextContent(
-      '| Layer | Store |',
-    );
-    expect(container.querySelector('.cm-live-heading-1')?.textContent).toBe(
-      'Live Preview',
-    );
-  });
-
-  it('toggles task markers by editing the Markdown source', async () => {
+  it('edits raw Markdown without a second visual-preview mode', () => {
     const onChange = vi.fn();
-    const { container } = render(
-      <MarkdownSourceEditor value={source} onChange={onChange} livePreview />,
-    );
+    render(<MarkdownSourceEditor value="# Source" onChange={onChange} />);
 
-    const checkbox = await waitFor(() => {
-      const rendered = container.querySelector<HTMLInputElement>(
-        '.cm-live-task-marker',
-      );
-      expect(rendered).toBeInTheDocument();
-      return rendered!;
+    fireEvent.change(screen.getByLabelText('Markdown source'), {
+      target: { value: '# Updated source' },
     });
-    fireEvent.click(checkbox);
-
-    await waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith(
-        expect.stringContaining('- [ ] Durable source'),
-        expect.anything(),
-      ),
-    );
-
-    fireEvent.keyDown(container.querySelector('.cm-content')!, {
-      key: 'z',
-      ctrlKey: true,
-    });
-    await waitFor(() =>
-      expect(onChange.mock.calls.at(-1)?.[0]).toContain('- [x] Durable source'),
+    expect(onChange).toHaveBeenCalledWith('# Updated source');
+    expect(screen.getByLabelText('Markdown source')).toHaveClass(
+      'markdown-source-editor',
     );
   });
 
-  it('opens one editable line when trailing Live whitespace is clicked', async () => {
-    const onChange = vi.fn();
-    const { container } = render(
+  it('supports read-only source rendering', () => {
+    render(
       <MarkdownSourceEditor
-        value="One durable line"
-        onChange={onChange}
-        livePreview
+        value="Durable Markdown"
+        onChange={vi.fn()}
+        readOnly
       />,
     );
-    const scroller = container.querySelector<HTMLElement>('.cm-scroller')!;
-    expect(scroller).toHaveClass('ui-native-scrollbar');
-    const content = container.querySelector<HTMLElement>('.cm-content')!;
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-      function (this: HTMLElement) {
-        if (this.classList.contains('cm-scroller')) {
-          return bounds(0, 0, 320, 200);
-        }
-        if (
-          this.classList.contains('cm-line') ||
-          this.classList.contains('cm-live-block-widget')
-        ) {
-          return bounds(20, 10, 280, 24);
-        }
-        return bounds(0, 0, 0, 0);
-      },
+    expect(screen.getByLabelText('Markdown source')).toHaveAttribute(
+      'readonly',
     );
-
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 24 });
-    expect(onChange).not.toHaveBeenCalled();
-
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 100 });
-    await waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith(
-        'One durable line\n',
-        expect.anything(),
-      ),
-    );
-    expect(content).toHaveFocus();
-
-    fireEvent.mouseDown(scroller, { button: 0, clientX: 40, clientY: 120 });
-    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

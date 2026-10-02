@@ -199,8 +199,8 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     .await;
     let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
     assert_eq!(child["document_number"], 2);
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+    let project_identifier: String =
+        sqlx::query_scalar("SELECT identifier FROM projects WHERE id = $1")
             .bind(project_id)
             .fetch_one(&pool)
             .await
@@ -208,27 +208,27 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     assert_eq!(root["storage_name"], "architecture");
     assert_eq!(
         root["library_path"],
-        format!("Projects/{project_storage_name}/Wiki/architecture.md")
+        format!("projects/{project_identifier}/library/architecture.md")
     );
     assert_eq!(child["storage_name"], "vault");
     assert_eq!(
         child["library_path"],
-        format!("Projects/{project_storage_name}/Wiki/architecture/vault.md")
+        format!("projects/{project_identifier}/library/architecture/vault.md")
     );
     let project_root_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Projects")
-        .join(&project_storage_name)
-        .join("Wiki")
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("projects")
+        .join(&project_identifier)
+        .join("library")
         .join("architecture.md");
     assert_eq!(fs::read_to_string(&project_root_path).unwrap(), "");
     let root_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki")
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library")
         .join("architecture.md");
     let child_path = root_path
         .parent()
@@ -293,7 +293,7 @@ async fn document_tree_and_markdown_follow_the_complete_lifecycle(pool: PgPool) 
     assert_eq!(moved["title"], "System architecture");
     assert_eq!(moved["document_number"], 1);
     assert_eq!(moved["storage_name"], "architecture");
-    assert_eq!(moved["library_path"], "Wiki/architecture.md");
+    assert_eq!(moved["library_path"], "library/architecture.md");
     assert!(root_path.exists());
     assert!(!project_root_path.exists());
     let child_project: Option<Uuid> =
@@ -423,8 +423,8 @@ async fn reparenting_moves_the_portable_markdown_subtree(pool: PgPool) {
     let vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
     let old_child = vault.join("source/install_guide.md");
     let old_grandchild = vault.join("source/install_guide/linux.md");
     fs::write(&old_child, "# Install\n\nKeep this source.\n").unwrap();
@@ -446,10 +446,13 @@ async fn reparenting_moves_the_portable_markdown_subtree(pool: PgPool) {
     assert_eq!(moved.status(), StatusCode::OK);
     let moved = body(moved).await;
     assert_eq!(moved["storage_name"], "install_guide");
-    assert_eq!(moved["library_path"], "Wiki/destination/install_guide.md");
+    assert_eq!(
+        moved["library_path"],
+        "library/destination/install_guide.md"
+    );
     assert_eq!(
         grandchild["library_path"],
-        "Wiki/source/install_guide/linux.md"
+        "library/source/install_guide/linux.md"
     );
     let new_child = vault.join("destination/install_guide.md");
     let new_grandchild = vault.join("destination/install_guide/linux.md");
@@ -475,7 +478,7 @@ async fn reparenting_moves_the_portable_markdown_subtree(pool: PgPool) {
     assert_eq!(detail.status(), StatusCode::OK);
     assert_eq!(
         body(detail).await["library_path"],
-        "Wiki/destination/install_guide.md"
+        "library/destination/install_guide.md"
     );
 
     let archived = app
@@ -589,12 +592,12 @@ async fn atomic_move_reorders_reparents_unnests_and_rejects_invalid_destinations
         .unwrap();
     assert_eq!(moved["parent_id"], a_id.to_string());
     assert_eq!(moved["position"], 1);
-    assert_eq!(moved["library_path"], "Wiki/a/b1.md");
+    assert_eq!(moved["library_path"], "library/a/b1.md");
     let vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
     assert!(!vault.join("b/b1.md").exists());
     assert!(vault.join("a/b1.md").exists());
 
@@ -716,8 +719,8 @@ async fn move_commit_failure_restores_database_and_markdown_tree(pool: PgPool) {
     let vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
 
     sqlx::query(
         r#"
@@ -795,8 +798,8 @@ async fn direct_permanent_delete_removes_the_exact_subtree_but_archive_keeps_mar
     let vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
 
     let deleted = app
         .clone()
@@ -892,8 +895,8 @@ async fn delete_commit_failure_restores_database_and_markdown_subtree(pool: PgPo
     let vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
 
     sqlx::query(
         r#"
@@ -937,9 +940,15 @@ async fn delete_commit_failure_restores_database_and_markdown_subtree(pool: PgPo
     assert!(vault.join("root.md").exists());
     assert!(vault.join("root/child.md").exists());
     assert_eq!(
-        fs::read_dir(data_dir.path().join("vaults/.trash/library"))
-            .unwrap()
-            .count(),
+        fs::read_dir(
+            data_dir
+                .path()
+                .join("vaults")
+                .join(format!("workspace-{}", workspace_id.simple()))
+                .join(".trash/library"),
+        )
+        .unwrap()
+        .count(),
         0
     );
     assert_eq!(
@@ -972,6 +981,7 @@ async fn startup_retires_superseded_library_moves_without_touching_current_markd
         &stale,
         serde_json::to_vec(&json!({
             "operation": "move",
+            "layout_version": 3,
             "workspace_id": workspace_id,
             "document_id": document_id,
             "source": ["a"],
@@ -986,8 +996,8 @@ async fn startup_retires_superseded_library_moves_without_touching_current_markd
     let wiki = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("library");
     assert!(!stale.exists());
     assert!(wiki.join("current.md").exists());
 
@@ -1003,6 +1013,7 @@ async fn startup_retires_superseded_library_moves_without_touching_current_markd
         &missing,
         serde_json::to_vec(&json!({
             "operation": "move",
+            "layout_version": 3,
             "workspace_id": workspace_id,
             "document_id": document_id,
             "source": ["b"],
@@ -1049,8 +1060,8 @@ async fn legacy_uuid_pages_migrate_to_deterministic_library_paths(pool: PgPool) 
     let workspace_vault = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string());
-    let library = workspace_vault.join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()));
+    let library = workspace_vault.join("library");
     let legacy = workspace_vault.join("Pages");
     fs::create_dir_all(&legacy).unwrap();
     for (id, path, content) in [
@@ -1152,19 +1163,19 @@ async fn archiving_a_project_preserves_its_project_pages_in_place(pool: PgPool) 
     )
     .await;
     let child_id: Uuid = child["id"].as_str().unwrap().parse().unwrap();
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+    let project_identifier: String =
+        sqlx::query_scalar("SELECT identifier FROM projects WHERE id = $1")
             .bind(project_id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    let project_wiki = data_dir
+    let project_library = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Projects")
-        .join(project_storage_name)
-        .join("Wiki");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("projects")
+        .join(project_identifier)
+        .join("library");
 
     let archived = app
         .oneshot(request(
@@ -1191,8 +1202,8 @@ async fn archiving_a_project_preserves_its_project_pages_in_place(pool: PgPool) 
         rows.iter().find(|(id, _, _)| *id == child_id).unwrap().2,
         Some(root_id)
     );
-    assert!(project_wiki.join("decision_log.md").exists());
-    assert!(project_wiki.join("decision_log/adr_001.md").exists());
+    assert!(project_library.join("decision_log.md").exists());
+    assert!(project_library.join("decision_log/adr_001.md").exists());
 }
 
 #[sqlx::test(migrations = "./migrations")]

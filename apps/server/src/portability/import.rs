@@ -23,6 +23,7 @@ use crate::{
     domain::{TaskPriority, WorkspaceIdentifier},
     error::AppError,
     task::{IdFilter, TaskProperties, TaskQuery, TaskQueryScope, remap_task_identity_with_cleanup},
+    vault::{LibraryPath, ProjectPath, WorkspacePath},
     workspace::{require_account_details, reserve_workspace_identifier},
 };
 
@@ -470,16 +471,22 @@ async fn apply_validated(
     insert_documents(&mut transaction, workspace_id, &validated, &maps).await?;
     insert_quick_links(&mut transaction, workspace_id, &validated, &maps).await?;
     insert_views(&mut transaction, actor_id, workspace_id, &validated, &maps).await?;
+    canonicalize_imported_layout(state, staging_key, &validated).await?;
     rewrite_task_files(state, staging_key, &validated, &maps).await?;
     state.vault.remove_imported_config(staging_key).await?;
+    let workspace_path = WorkspacePath::parse(
+        workspace_id,
+        WorkspaceIdentifier::from_workspace_id(workspace_id).as_str(),
+    )?;
     let activation = state
         .vault
-        .activate_imported_workspace(staging_key, workspace_id)
+        .activate_imported_workspace(staging_key, &workspace_path)
         .await?;
     if let Err(error) = transaction.commit().await {
         state.vault.rollback_import_activation(&activation).await?;
         return Err(error.into());
     }
+    state.vault.register_workspace_path(&workspace_path);
     if let Err(error) = state.vault.finish_import_activation(staging_key).await {
         warn!(%workspace_id, %error, "failed to remove completed Workspace import staging");
     }
@@ -568,7 +575,7 @@ async fn insert_workspace(
             state_property_description, label_property_description,
             next_task_number, next_document_number, vault_layout_version,
             default_priority, default_start_date, default_due_date
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 2, $10, $11, $12)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 3, $10, $11, $12)
         "#,
     )
     .bind(workspace_id)
@@ -1244,6 +1251,76 @@ async fn rewrite_task_files(
             .write_imported_task(staging_key, &task.path, &patched)
             .await?;
     }
+    Ok(())
+}
+
+async fn canonicalize_imported_layout(
+    state: &AppState,
+    staging_key: Uuid,
+    validated: &ValidatedImport,
+) -> anyhow::Result<()> {
+    let project_paths = validated
+        .projects
+        .iter()
+        .map(|project| ProjectPath::parse(&project.identifier))
+        .collect::<Result<Vec<_>, _>>()?;
+    state
+        .vault
+        .prepare_imported_canonical_directories(staging_key, &project_paths)
+        .await?;
+    for task in validated.tasks.values() {
+        state
+            .vault
+            .relocate_imported_task(staging_key, &task.source_path, &task.path)
+            .await?;
+    }
+
+    let documents = validated
+        .manifest
+        .source
+        .documents
+        .iter()
+        .map(|document| (document.id, document))
+        .collect::<HashMap<_, _>>();
+    let projects = validated
+        .projects
+        .iter()
+        .map(|project| (project.id, project))
+        .collect::<HashMap<_, _>>();
+    for document in &validated.manifest.source.documents {
+        let mut current = document;
+        let mut segments = vec![document.storage_name.as_str()];
+        while let Some(parent_id) = current.parent_id {
+            current = documents
+                .get(&parent_id)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("Validated Library parent is missing"))?;
+            segments.push(current.storage_name.as_str());
+        }
+        segments.reverse();
+        let project_identifier = document
+            .project_id
+            .map(|project_id| {
+                projects
+                    .get(&project_id)
+                    .map(|project| project.identifier.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Validated Library Project is missing"))
+            })
+            .transpose()?;
+        let destination = LibraryPath::parse_scoped(project_identifier, segments)?;
+        let source = validated
+            .document_source_paths
+            .get(&document.id)
+            .ok_or_else(|| anyhow::anyhow!("Validated Library source path is missing"))?;
+        state
+            .vault
+            .relocate_imported_library(staging_key, source, &destination)
+            .await?;
+    }
+    state
+        .vault
+        .remove_imported_legacy_roots(staging_key)
+        .await?;
     Ok(())
 }
 

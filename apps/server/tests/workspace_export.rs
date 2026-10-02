@@ -231,7 +231,13 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     let workspace_root = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string());
+        .join(format!("workspace-{}", workspace_id.simple()));
+    let asset_name = format!("{}.png", Uuid::new_v4());
+    fs::write(
+        workspace_root.join("assets/images").join(&asset_name),
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
+    )
+    .unwrap();
     fs::write(workspace_root.join("notes.txt"), "do not export").unwrap();
     fs::create_dir_all(workspace_root.join(".obsidian")).unwrap();
     fs::write(workspace_root.join(".obsidian/workspace.json"), "secret").unwrap();
@@ -287,6 +293,10 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     assert!(entries.contains_key(".kanleaf/task-config.json"));
     assert!(entries.contains_key(".kanleaf/views.json"));
     assert!(entries.contains_key(&format!(".kanleaf/projects/{project_id}.json")));
+    assert_eq!(
+        entries[&format!("assets/images/{asset_name}")],
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
+    );
     let workspace_config: Value =
         serde_json::from_slice(&entries[".kanleaf/workspace.json"]).unwrap();
     assert_eq!(workspace_config["format_version"], 3);
@@ -349,14 +359,10 @@ async fn exports_managed_markdown_config_and_verified_manifest(pool: PgPool) {
     assert_eq!(project_config["format_version"], 3);
     assert!(project_config.get("default_task_type_id").is_none());
     assert!(project_config.get("enabled_task_type_ids").is_none());
-    let task_path = format!(
-        "Projects/{}/Todo/{}.md",
-        project["storage_name"].as_str().unwrap(),
-        task["storage_name"].as_str().unwrap()
-    );
+    let task_path = format!("tasks/{}.md", task["task_number"].as_i64().unwrap());
     let wiki_path = format!(
-        "Projects/{}/Wiki/architecture.md",
-        project["storage_name"].as_str().unwrap()
+        "projects/{}/library/architecture.md",
+        project["identifier"].as_str().unwrap()
     );
     assert!(String::from_utf8_lossy(&entries[&task_path]).contains("[[Architecture]]"));
     assert_eq!(

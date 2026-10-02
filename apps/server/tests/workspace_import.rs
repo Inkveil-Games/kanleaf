@@ -499,14 +499,9 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(source_workspace_id.to_string())
-        .join("Projects")
-        .join(project["storage_name"].as_str().unwrap())
-        .join("Todo")
-        .join(format!(
-            "{}.md",
-            root_task["storage_name"].as_str().unwrap()
-        ));
+        .join(format!("workspace-{}", source_workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", root_task["task_number"].as_i64().unwrap()));
     let task_source = fs::read_to_string(&task_path).unwrap();
     let task_source = task_source.replacen(
         "\n---\n\n# Durable body",
@@ -570,6 +565,16 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         }),
     )
     .await;
+
+    let asset_name = format!("{}.png", Uuid::new_v4());
+    let source_asset = data_dir
+        .path()
+        .join("vaults")
+        .join(format!("workspace-{}", source_workspace_id.simple()))
+        .join("assets/images")
+        .join(&asset_name);
+    fs::create_dir_all(source_asset.parent().unwrap()).unwrap();
+    fs::write(&source_asset, b"\x89PNG\r\n\x1a\nportable-image").unwrap();
 
     let archive = export_workspace(&app, &source_token, source_workspace_id).await;
     let legacy_backlog_id = Uuid::new_v4();
@@ -685,6 +690,18 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
         imported_identifier,
         format!("workspace-{}", imported_workspace_id.simple())
     );
+    assert_eq!(
+        fs::read(
+            data_dir
+                .path()
+                .join("vaults")
+                .join(&imported_identifier)
+                .join("assets/images")
+                .join(&asset_name)
+        )
+        .unwrap(),
+        b"\x89PNG\r\n\x1a\nportable-image"
+    );
     let member: (Uuid, String) =
         sqlx::query_as("SELECT user_id, role FROM workspace_memberships WHERE workspace_id = $1")
             .bind(imported_workspace_id)
@@ -719,8 +736,8 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     .unwrap();
     assert_eq!(workspace_default_role, "todo");
 
-    let imported_project: (Uuid, String) =
-        sqlx::query_as("SELECT id, storage_name FROM projects WHERE workspace_id = $1")
+    let imported_project: (Uuid, String, String) =
+        sqlx::query_as("SELECT id, storage_name, identifier FROM projects WHERE workspace_id = $1")
             .bind(imported_workspace_id)
             .fetch_one(&pool)
             .await
@@ -735,8 +752,8 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     .await
     .unwrap();
     assert_eq!(project_default_role, "todo");
-    let imported_tasks: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, title, storage_name FROM tasks WHERE workspace_id = $1 ORDER BY task_number",
+    let imported_tasks: Vec<(Uuid, String, String, i64)> = sqlx::query_as(
+        "SELECT id, title, storage_name, task_number FROM tasks WHERE workspace_id = $1 ORDER BY task_number",
     )
     .bind(imported_workspace_id)
     .fetch_all(&pool)
@@ -747,11 +764,9 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
     let imported_task_path = data_dir
         .path()
         .join("vaults")
-        .join(imported_workspace_id.to_string())
-        .join("Projects")
-        .join(&imported_project.1)
-        .join("Todo")
-        .join(format!("{}.md", imported_tasks[0].2));
+        .join(&imported_identifier)
+        .join("tasks")
+        .join(format!("{}.md", imported_tasks[0].3));
     let imported_source = fs::read_to_string(imported_task_path).unwrap();
     assert!(imported_source.contains("Custom property: keep me"));
     assert!(imported_source.contains("Impact: High"));
@@ -1038,18 +1053,12 @@ async fn legacy_task_types_normalize_to_one_custom_type_property(pool: PgPool) {
             value["format_version"] = json!(2);
             value["default_task_type_id"] = json!(bug_id);
             value["enabled_task_type_ids"] = json!([task_type_id, bug_id, feature_id]);
-        } else if path.ends_with(&format!(
-            "{}.md",
-            bug_task["storage_name"].as_str().unwrap()
-        )) {
+        } else if path == format!("tasks/{}.md", bug_task["task_number"].as_i64().unwrap()) {
             return String::from_utf8(content)
                 .unwrap()
                 .replace("Type: Bug", "Type:\n  - Bug")
                 .into_bytes();
-        } else if path.ends_with(&format!(
-            "{}.md",
-            feature_task["storage_name"].as_str().unwrap()
-        )) {
+        } else if path == format!("tasks/{}.md", feature_task["task_number"].as_i64().unwrap()) {
             return String::from_utf8(content)
                 .unwrap()
                 .replace("Type: Feature", "Type:\n  - Feature")

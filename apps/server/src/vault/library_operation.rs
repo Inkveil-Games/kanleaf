@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::domain::VaultStorageName;
+
 use super::workspace_deletion::{
     ensure_regular_directory, remove_regular_directory_if_present, sync_directory,
 };
@@ -65,16 +67,94 @@ enum LibraryOperationLayout {
 #[derive(Clone, Debug)]
 pub enum PendingLibraryOperationKind {
     Move {
-        source: LibraryPath,
-        destination: LibraryPath,
+        source: LibraryOperationPath,
+        destination: LibraryOperationPath,
     },
     Delete {
-        path: LibraryPath,
+        path: LibraryOperationPath,
         trash_id: Uuid,
+        workspace_local: bool,
     },
     Legacy {
-        destination: LibraryPath,
+        destination: LibraryOperationPath,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum LibraryOperationPath {
+    Canonical(LibraryPath),
+    Legacy {
+        project_storage_name: Option<VaultStorageName>,
+        path: LibraryPath,
+    },
+}
+
+impl LibraryOperationPath {
+    pub fn matches_database_location(
+        &self,
+        current: &LibraryPath,
+        legacy_project_storage_name: Option<&str>,
+    ) -> bool {
+        match self {
+            Self::Canonical(path) => path == current,
+            Self::Legacy {
+                project_storage_name,
+                path,
+            } => {
+                project_storage_name.as_ref().map(VaultStorageName::as_str)
+                    == legacy_project_storage_name
+                    && path.storage_segments() == current.storage_segments()
+            }
+        }
+    }
+
+    fn relative_file(&self) -> PathBuf {
+        match self {
+            Self::Canonical(path) => path.relative_file(),
+            Self::Legacy {
+                project_storage_name,
+                path,
+            } => path.relative_file_under(legacy_library_root(project_storage_name.as_ref())),
+        }
+    }
+
+    fn relative_companion_directory(&self) -> PathBuf {
+        match self {
+            Self::Canonical(path) => path.relative_companion_directory(),
+            Self::Legacy {
+                project_storage_name,
+                path,
+            } => {
+                let mut directory = legacy_library_root(project_storage_name.as_ref());
+                for segment in path.storage_segments() {
+                    directory.push(segment);
+                }
+                directory
+            }
+        }
+    }
+
+    fn workspace_directory(&self, vault: &Vault, workspace_id: Uuid) -> PathBuf {
+        match self {
+            Self::Canonical(_) => vault.workspace_directory(workspace_id),
+            Self::Legacy { .. } => vault.legacy_workspace_directory(workspace_id),
+        }
+    }
+}
+
+fn legacy_library_root(project: Option<&VaultStorageName>) -> PathBuf {
+    project.map_or_else(
+        || PathBuf::from("Wiki"),
+        |project| {
+            PathBuf::from("Projects")
+                .join(project.as_str())
+                .join("Wiki")
+        },
+    )
+}
+
+fn legacy_layout_version() -> i16 {
+    2
 }
 
 #[derive(Deserialize, Serialize)]
@@ -83,6 +163,8 @@ enum LibraryOperationManifest {
     Move {
         workspace_id: Uuid,
         document_id: Uuid,
+        #[serde(default = "legacy_layout_version")]
+        layout_version: i16,
         #[serde(default)]
         source_project: Option<String>,
         source: Vec<String>,
@@ -93,14 +175,20 @@ enum LibraryOperationManifest {
     Delete {
         workspace_id: Uuid,
         document_id: Uuid,
+        #[serde(default = "legacy_layout_version")]
+        layout_version: i16,
         #[serde(default)]
         project: Option<String>,
         path: Vec<String>,
         trash_id: Uuid,
+        #[serde(default)]
+        workspace_local: bool,
     },
     Legacy {
         workspace_id: Uuid,
         document_id: Uuid,
+        #[serde(default = "legacy_layout_version")]
+        layout_version: i16,
         destination: Vec<String>,
     },
 }
@@ -155,9 +243,10 @@ impl Vault {
             .write_operation_manifest(&LibraryOperationManifest::Move {
                 workspace_id,
                 document_id,
-                source_project: source.project_storage_name().map(str::to_owned),
+                layout_version: 3,
+                source_project: source.project_identifier().map(str::to_owned),
                 source: source.storage_segments(),
-                destination_project: destination.project_storage_name().map(str::to_owned),
+                destination_project: destination.project_identifier().map(str::to_owned),
                 destination: destination.storage_segments(),
             })
             .await?;
@@ -246,26 +335,32 @@ impl Vault {
 
         let trash_id = Uuid::new_v4();
         let trash_root = self
-            .library_trash_directory()
-            .join(format!("{workspace_id}.{trash_id}"));
-        self.ensure_library_operation_directories().await?;
+            .workspace_library_trash_directory(workspace_id)
+            .join(trash_id.to_string());
+        self.ensure_library_operation_directories(workspace_id)
+            .await?;
         ensure_absent(&trash_root).await?;
         ensure_regular_directory(&trash_root).await?;
-        sync_directory(&self.library_trash_directory()).await?;
+        sync_directory(&self.workspace_library_trash_directory(workspace_id)).await?;
         sync_directory(&trash_root).await?;
         let manifest = self
             .write_operation_manifest(&LibraryOperationManifest::Delete {
                 workspace_id,
                 document_id,
-                project: path.project_storage_name().map(str::to_owned),
+                layout_version: 3,
+                project: path.project_identifier().map(str::to_owned),
                 path: path.storage_segments(),
                 trash_id,
+                workspace_local: true,
             })
             .await;
         let manifest = match manifest {
             Ok(manifest) => manifest,
             Err(error) => {
-                return match self.remove_library_trash_root(&trash_root).await {
+                return match self
+                    .remove_library_trash_root(workspace_id, &trash_root)
+                    .await
+                {
                     Ok(()) => Err(error),
                     Err(rollback_error) => Err(compensation_error(
                         "failed to write the Library deletion manifest",
@@ -360,6 +455,7 @@ impl Vault {
             .write_operation_manifest(&LibraryOperationManifest::Legacy {
                 workspace_id,
                 document_id,
+                layout_version: 3,
                 destination: destination.storage_segments(),
             })
             .await?;
@@ -432,8 +528,11 @@ impl Vault {
     }
 
     pub async fn restore_library_trash(&self, trash: &LibraryTrash) -> Result<(), VaultError> {
-        self.validate_library_trash_directory(LibraryOperationLayout::PersistedVault)
-            .await?;
+        self.validate_library_trash_directory(
+            LibraryOperationLayout::PersistedVault,
+            Some(trash.workspace_id),
+        )
+        .await?;
         ensure_optional_regular_directory(&trash.trash_root).await?;
         self.ensure_safe_library_parent(trash.workspace_id, &trash.original_file)
             .await?;
@@ -454,16 +553,21 @@ impl Vault {
             &trash.trash_root.join("document.md"),
         )
         .await?;
-        self.remove_library_trash_root(&trash.trash_root).await?;
+        self.remove_library_trash_root(trash.workspace_id, &trash.trash_root)
+            .await?;
         self.remove_operation_manifest(&trash.manifest).await?;
         Ok(())
     }
 
     pub async fn purge_library_trash(&self, trash: &LibraryTrash) -> Result<(), VaultError> {
-        self.validate_library_trash_directory(LibraryOperationLayout::PersistedVault)
-            .await?;
+        self.validate_library_trash_directory(
+            LibraryOperationLayout::PersistedVault,
+            Some(trash.workspace_id),
+        )
+        .await?;
         ensure_optional_regular_directory(&trash.trash_root).await?;
-        self.remove_library_trash_root(&trash.trash_root).await?;
+        self.remove_library_trash_root(trash.workspace_id, &trash.trash_root)
+            .await?;
         self.remove_operation_manifest(&trash.manifest).await?;
         remove_empty_ancestors(trash.original_file.parent(), &trash.library_root).await?;
         Ok(())
@@ -545,11 +649,22 @@ impl Vault {
         else {
             return Err(VaultError::InvalidLibraryPath);
         };
-        let source_file = self.library_file(operation.workspace_id, source);
-        let destination_file = self.library_file(operation.workspace_id, destination);
-        let source_directory = self.library_companion_directory(operation.workspace_id, source);
+        let source_file = self.operation_library_file(operation.workspace_id, source);
+        let destination_file = self.operation_library_file(operation.workspace_id, destination);
+        let source_directory =
+            self.operation_library_companion_directory(operation.workspace_id, source);
         let destination_directory =
-            self.library_companion_directory(operation.workspace_id, destination);
+            self.operation_library_companion_directory(operation.workspace_id, destination);
+
+        for (path, kind) in [
+            (&source_file, ManagedEntryKind::File),
+            (&destination_file, ManagedEntryKind::File),
+            (&source_directory, ManagedEntryKind::Directory),
+            (&destination_directory, ManagedEntryKind::Directory),
+        ] {
+            self.managed_library_entry_exists(operation.workspace_id, path, kind)
+                .await?;
+        }
 
         if keep_destination {
             self.ensure_safe_library_parent(operation.workspace_id, &destination_file)
@@ -580,18 +695,32 @@ impl Vault {
         operation: &PendingLibraryOperation,
         document_exists: bool,
     ) -> Result<(), VaultError> {
-        let PendingLibraryOperationKind::Delete { path, trash_id } = &operation.kind else {
+        let PendingLibraryOperationKind::Delete {
+            path,
+            trash_id,
+            workspace_local,
+        } = &operation.kind
+        else {
             return Err(VaultError::InvalidLibraryPath);
         };
-        let original_file = self.library_file(operation.workspace_id, path);
-        let original_directory = self.library_companion_directory(operation.workspace_id, path);
-        self.validate_library_trash_directory(operation.layout)
-            .await?;
-        let trash_root = match operation.layout {
-            LibraryOperationLayout::PersistedVault => self.library_trash_directory(),
-            LibraryOperationLayout::LegacyDataRoot => self.data_dir.join("trash/library"),
-        }
-        .join(format!("{}.{}", operation.workspace_id, trash_id));
+        let original_file = self.operation_library_file(operation.workspace_id, path);
+        let original_directory =
+            self.operation_library_companion_directory(operation.workspace_id, path);
+        self.validate_library_trash_directory(
+            operation.layout,
+            workspace_local.then_some(operation.workspace_id),
+        )
+        .await?;
+        let trash_root = if *workspace_local {
+            self.workspace_library_trash_directory(operation.workspace_id)
+                .join(trash_id.to_string())
+        } else {
+            match operation.layout {
+                LibraryOperationLayout::PersistedVault => self.library_trash_directory(),
+                LibraryOperationLayout::LegacyDataRoot => self.data_dir.join("trash/library"),
+            }
+            .join(format!("{}.{}", operation.workspace_id, trash_id))
+        };
         ensure_optional_regular_directory(&trash_root).await?;
 
         if document_exists {
@@ -618,9 +747,11 @@ impl Vault {
             }
             self.sync_library_rename_parents(&original_file, &trash_root.join("document.md"))
                 .await?;
-            self.remove_library_trash_root(&trash_root).await?;
+            self.remove_library_trash_root(operation.workspace_id, &trash_root)
+                .await?;
         } else {
-            self.remove_library_trash_root(&trash_root).await?;
+            self.remove_library_trash_root(operation.workspace_id, &trash_root)
+                .await?;
             let library_root = self.workspace_directory(operation.workspace_id);
             remove_empty_ancestors(original_file.parent(), &library_root).await?;
         }
@@ -639,7 +770,7 @@ impl Vault {
             .workspace_directory(operation.workspace_id)
             .join("Pages")
             .join(format!("{}.md", operation.document_id));
-        let destination_file = self.library_file(operation.workspace_id, destination);
+        let destination_file = self.operation_library_file(operation.workspace_id, destination);
         self.ensure_safe_library_parent(operation.workspace_id, &destination_file)
             .await?;
         reconcile_required_file(&source_file, &destination_file, true).await?;
@@ -659,19 +790,19 @@ impl Vault {
                 destination,
             } => vec![
                 (
-                    self.library_file(operation.workspace_id, source),
+                    self.operation_library_file(operation.workspace_id, source),
                     ManagedEntryKind::File,
                 ),
                 (
-                    self.library_companion_directory(operation.workspace_id, source),
+                    self.operation_library_companion_directory(operation.workspace_id, source),
                     ManagedEntryKind::Directory,
                 ),
                 (
-                    self.library_file(operation.workspace_id, destination),
+                    self.operation_library_file(operation.workspace_id, destination),
                     ManagedEntryKind::File,
                 ),
                 (
-                    self.library_companion_directory(operation.workspace_id, destination),
+                    self.operation_library_companion_directory(operation.workspace_id, destination),
                     ManagedEntryKind::Directory,
                 ),
             ],
@@ -683,7 +814,7 @@ impl Vault {
                     ManagedEntryKind::File,
                 ),
                 (
-                    self.library_file(operation.workspace_id, destination),
+                    self.operation_library_file(operation.workspace_id, destination),
                     ManagedEntryKind::File,
                 ),
             ],
@@ -707,8 +838,9 @@ impl Vault {
         &self,
         operation: &LibraryOperationManifest,
     ) -> Result<PathBuf, VaultError> {
-        self.ensure_library_operation_directories().await?;
         let (workspace_id, document_id) = operation.identity();
+        self.ensure_library_operation_directories(workspace_id)
+            .await?;
         if self
             .pending_library_operations()
             .await?
@@ -754,18 +886,29 @@ impl Vault {
         Ok(path)
     }
 
-    async fn ensure_library_operation_directories(&self) -> Result<(), VaultError> {
+    async fn ensure_library_operation_directories(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<(), VaultError> {
         let vaults = self.data_dir.join("vaults");
         let trash = vaults.join(".trash");
+        let workspace_trash = self.workspace_directory(workspace_id).join(".trash");
         ensure_regular_directory(&vaults).await?;
         ensure_regular_directory(&trash).await?;
-        ensure_regular_directory(&trash.join("library")).await?;
         ensure_regular_directory(&trash.join("library-operations")).await?;
+        ensure_regular_directory(&workspace_trash).await?;
+        ensure_regular_directory(&workspace_trash.join("library")).await?;
         sync_directory(self.data_dir.as_path()).await?;
         sync_directory(&vaults).await?;
         sync_directory(&trash).await?;
-        sync_directory(&trash.join("library")).await?;
+        sync_directory(&workspace_trash).await?;
+        sync_directory(&workspace_trash.join("library")).await?;
         sync_directory(&trash.join("library-operations")).await
+    }
+
+    fn workspace_library_trash_directory(&self, workspace_id: Uuid) -> PathBuf {
+        self.workspace_directory(workspace_id)
+            .join(".trash/library")
     }
 
     fn library_trash_directory(&self) -> PathBuf {
@@ -794,16 +937,24 @@ impl Vault {
 
     async fn remove_library_trash_root(
         &self,
+        workspace_id: Uuid,
         trash_root: &std::path::Path,
     ) -> Result<(), VaultError> {
         let parent = trash_root.parent().map(std::path::Path::to_path_buf);
         match parent.as_deref() {
+            Some(parent) if parent == self.workspace_library_trash_directory(workspace_id) => {
+                self.validate_library_trash_directory(
+                    LibraryOperationLayout::PersistedVault,
+                    Some(workspace_id),
+                )
+                .await?;
+            }
             Some(parent) if parent == self.library_trash_directory() => {
-                self.validate_library_trash_directory(LibraryOperationLayout::PersistedVault)
+                self.validate_library_trash_directory(LibraryOperationLayout::PersistedVault, None)
                     .await?;
             }
             Some(parent) if parent == self.data_dir.join("trash/library") => {
-                self.validate_library_trash_directory(LibraryOperationLayout::LegacyDataRoot)
+                self.validate_library_trash_directory(LibraryOperationLayout::LegacyDataRoot, None)
                     .await?;
             }
             _ => return Err(VaultError::InvalidManagedPath),
@@ -862,7 +1013,16 @@ impl Vault {
     async fn validate_library_trash_directory(
         &self,
         layout: LibraryOperationLayout,
+        workspace_id: Option<Uuid>,
     ) -> Result<bool, VaultError> {
+        if let Some(workspace_id) = workspace_id {
+            return validate_optional_directory_chain(&[
+                self.workspace_directory(workspace_id),
+                self.workspace_directory(workspace_id).join(".trash"),
+                self.workspace_library_trash_directory(workspace_id),
+            ])
+            .await;
+        }
         match layout {
             LibraryOperationLayout::PersistedVault => {
                 validate_optional_directory_chain(&[
@@ -892,8 +1052,9 @@ impl Vault {
         let relative = path
             .strip_prefix(&workspace)
             .map_err(|_| VaultError::InvalidManagedPath)?;
-        let components = Path::new("vaults")
-            .join(workspace_id.to_string())
+        let components = workspace
+            .strip_prefix(self.data_dir.as_path())
+            .map_err(|_| VaultError::InvalidManagedPath)?
             .join(relative)
             .components()
             .map(|component| component.as_os_str().to_owned())
@@ -923,6 +1084,20 @@ impl Vault {
         }
         Err(VaultError::InvalidManagedPath)
     }
+
+    fn operation_library_file(&self, workspace_id: Uuid, path: &LibraryOperationPath) -> PathBuf {
+        path.workspace_directory(self, workspace_id)
+            .join(path.relative_file())
+    }
+
+    fn operation_library_companion_directory(
+        &self,
+        workspace_id: Uuid,
+        path: &LibraryOperationPath,
+    ) -> PathBuf {
+        path.workspace_directory(self, workspace_id)
+            .join(path.relative_companion_directory())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -941,6 +1116,7 @@ impl PendingLibraryOperation {
             LibraryOperationManifest::Move {
                 workspace_id,
                 document_id,
+                layout_version,
                 source_project,
                 source,
                 destination_project,
@@ -949,33 +1125,41 @@ impl PendingLibraryOperation {
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Move {
-                    source: parse_segments(source_project.as_deref(), &source)?,
-                    destination: parse_segments(destination_project.as_deref(), &destination)?,
+                    source: parse_segments(source_project.as_deref(), &source, layout_version)?,
+                    destination: parse_segments(
+                        destination_project.as_deref(),
+                        &destination,
+                        layout_version,
+                    )?,
                 },
             ),
             LibraryOperationManifest::Delete {
                 workspace_id,
                 document_id,
+                layout_version,
                 project,
                 path,
                 trash_id,
+                workspace_local,
             } => (
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Delete {
-                    path: parse_segments(project.as_deref(), &path)?,
+                    path: parse_segments(project.as_deref(), &path, layout_version)?,
                     trash_id,
+                    workspace_local,
                 },
             ),
             LibraryOperationManifest::Legacy {
                 workspace_id,
                 document_id,
+                layout_version,
                 destination,
             } => (
                 workspace_id,
                 document_id,
                 PendingLibraryOperationKind::Legacy {
-                    destination: parse_segments(None, &destination)?,
+                    destination: parse_segments(None, &destination, layout_version)?,
                 },
             ),
         };
@@ -1003,8 +1187,22 @@ fn compensation_error(
 fn parse_segments(
     project_storage_name: Option<&str>,
     segments: &[String],
-) -> Result<LibraryPath, VaultError> {
-    LibraryPath::parse_scoped(project_storage_name, segments.iter().map(String::as_str))
+    layout_version: i16,
+) -> Result<LibraryOperationPath, VaultError> {
+    match layout_version {
+        2 => Ok(LibraryOperationPath::Legacy {
+            project_storage_name: project_storage_name
+                .map(VaultStorageName::parse)
+                .transpose()
+                .map_err(|_| VaultError::InvalidManagedPath)?,
+            path: LibraryPath::parse(segments.iter().map(String::as_str))?,
+        }),
+        3 => Ok(LibraryOperationPath::Canonical(LibraryPath::parse_scoped(
+            project_storage_name,
+            segments.iter().map(String::as_str),
+        )?)),
+        _ => Err(VaultError::InvalidManagedPath),
+    }
 }
 
 async fn ensure_absent(path: &std::path::Path) -> Result<(), VaultError> {
@@ -1438,6 +1636,219 @@ async fn remove_empty_ancestors(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    use super::super::{LibraryPath, Vault, WorkspacePath};
+
+    #[tokio::test]
+    async fn legacy_project_library_move_restores_wiki_file_and_companion_tree() {
+        let data_dir = TempDir::new().unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_id = Uuid::new_v4();
+        let workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        let source = workspace.join("Projects/astro--abcdef/Wiki/design.md");
+        let destination = workspace.join("Projects/other--123456/Wiki/design.md");
+        fs::create_dir_all(destination.with_extension("")).unwrap();
+        fs::write(&destination, "legacy parent").unwrap();
+        fs::write(
+            destination.with_extension("").join("child.md"),
+            "legacy child",
+        )
+        .unwrap();
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        fs::write(
+            operations.join("move.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "move", "workspace_id": workspace_id, "document_id": Uuid::new_v4(),
+                "source_project": "astro--abcdef", "source": ["design"],
+                "destination_project": "other--123456", "destination": ["design"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let operation = vault.pending_library_operations().await.unwrap().remove(0);
+        let super::PendingLibraryOperationKind::Move {
+            source: source_path,
+            ..
+        } = &operation.kind
+        else {
+            panic!("expected a Library move");
+        };
+        let current = LibraryPath::parse_scoped(Some("astro-clash"), ["design"]).unwrap();
+        assert!(source_path.matches_database_location(&current, Some("astro--abcdef")));
+        assert!(!source_path.matches_database_location(&current, Some("other--123456")));
+        vault.recover_library_move(&operation, false).await.unwrap();
+        assert_eq!(fs::read_to_string(&source).unwrap(), "legacy parent");
+        assert_eq!(
+            fs::read_to_string(source.with_extension("").join("child.md")).unwrap(),
+            "legacy child"
+        );
+        assert!(!destination.exists());
+        assert!(vault.pending_library_operations().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_workspace_library_delete_restores_wiki_scope() {
+        let data_dir = TempDir::new().unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_id = Uuid::new_v4();
+        let trash_id = Uuid::new_v4();
+        let workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        let trash = data_dir
+            .path()
+            .join("trash/library")
+            .join(format!("{workspace_id}.{trash_id}"));
+        fs::create_dir_all(trash.join("children")).unwrap();
+        fs::write(trash.join("document.md"), "legacy parent").unwrap();
+        fs::write(trash.join("children/child.md"), "legacy child").unwrap();
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        fs::write(
+            operations.join("delete.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "delete", "workspace_id": workspace_id, "document_id": Uuid::new_v4(),
+                "path": ["parent"], "trash_id": trash_id
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let operation = vault.pending_library_operations().await.unwrap().remove(0);
+        vault
+            .recover_library_delete(&operation, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(workspace.join("Wiki/parent.md")).unwrap(),
+            "legacy parent"
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.join("Wiki/parent/child.md")).unwrap(),
+            "legacy child"
+        );
+        assert!(!workspace.join("library").exists());
+        assert!(vault.pending_library_operations().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn canonical_move_with_live_files_is_not_retired_as_superseded() {
+        let data_dir = TempDir::new().unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_id = Uuid::new_v4();
+        vault.register_workspace_path(&WorkspacePath::parse(workspace_id, "kanleaf").unwrap());
+        let source = LibraryPath::parse(["source"]).unwrap();
+        let destination = LibraryPath::parse(["destination"]).unwrap();
+        vault
+            .create_page_document(workspace_id, &source)
+            .await
+            .unwrap();
+        vault
+            .move_library_tree(workspace_id, Uuid::new_v4(), &source, &destination)
+            .await
+            .unwrap();
+        let operation = vault.pending_library_operations().await.unwrap().remove(0);
+        assert!(
+            !vault
+                .retire_superseded_library_operation(&operation)
+                .await
+                .unwrap()
+        );
+        assert_eq!(vault.pending_library_operations().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_uuid_page_manifest_recovers_into_wiki() {
+        let data_dir = TempDir::new().unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_id = Uuid::new_v4();
+        let document_id = Uuid::new_v4();
+        let workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        fs::create_dir_all(workspace.join("Pages")).unwrap();
+        fs::write(
+            workspace.join("Pages").join(format!("{document_id}.md")),
+            "legacy page",
+        )
+        .unwrap();
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        fs::write(
+            operations.join("legacy.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "legacy", "workspace_id": workspace_id, "document_id": document_id,
+                "destination": ["parent", "child"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let operation = vault.pending_library_operations().await.unwrap().remove(0);
+        vault.recover_legacy_library_move(&operation).await.unwrap();
+        assert_eq!(
+            fs::read_to_string(workspace.join("Wiki/parent/child.md")).unwrap(),
+            "legacy page"
+        );
+        assert!(!workspace.join("library").exists());
+        assert!(vault.pending_library_operations().await.unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_project_library_recovery_rejects_symlinked_ancestors() {
+        let data_dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_id = Uuid::new_v4();
+        let workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        fs::create_dir_all(workspace.join("Projects")).unwrap();
+        fs::create_dir_all(outside.path().join("Wiki")).unwrap();
+        fs::write(outside.path().join("Wiki/design.md"), "outside content").unwrap();
+        std::os::unix::fs::symlink(outside.path(), workspace.join("Projects/astro--abcdef"))
+            .unwrap();
+        let operations = data_dir.path().join("operations");
+        fs::create_dir_all(&operations).unwrap();
+        fs::write(
+            operations.join("move.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "operation": "move", "workspace_id": workspace_id, "document_id": Uuid::new_v4(),
+                "source_project": "astro--abcdef", "source": ["design"],
+                "destination_project": null, "destination": ["design"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let operation = vault.pending_library_operations().await.unwrap().remove(0);
+        assert!(matches!(
+            vault.recover_library_move(&operation, false).await,
+            Err(super::VaultError::InvalidManagedPath)
+        ));
+        assert!(matches!(
+            vault.recover_library_move(&operation, true).await,
+            Err(super::VaultError::InvalidManagedPath)
+        ));
+        assert_eq!(
+            fs::read_to_string(outside.path().join("Wiki/design.md")).unwrap(),
+            "outside content"
+        );
+        assert_eq!(vault.pending_library_operations().await.unwrap().len(), 1);
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

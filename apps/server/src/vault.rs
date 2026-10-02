@@ -1,9 +1,9 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Write as _,
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use sha2::{Digest, Sha256};
@@ -21,9 +21,9 @@ mod project_deletion;
 mod task_operation;
 mod workspace_deletion;
 
-pub use layout::{LibraryPath, ProjectPath, TaskPath};
+pub use layout::{AssetPath, LibraryPath, ProjectPath, TaskPath, WorkspacePath};
 pub use library_operation::{
-    LegacyLibraryMove, LibraryMove, LibraryTrash, PendingLibraryOperation,
+    LegacyLibraryMove, LibraryMove, LibraryOperationPath, LibraryTrash, PendingLibraryOperation,
     PendingLibraryOperationKind,
 };
 pub use migration::{
@@ -41,6 +41,7 @@ const MAX_EXPORT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 #[derive(Clone)]
 pub struct Vault {
     data_dir: Arc<PathBuf>,
+    workspace_identifiers: Arc<RwLock<HashMap<Uuid, String>>>,
 }
 
 pub struct TaskTrash {
@@ -133,7 +134,22 @@ impl Vault {
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             data_dir: Arc::new(data_dir),
+            workspace_identifiers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn register_workspace_path(&self, workspace: &WorkspacePath) {
+        self.workspace_identifiers
+            .write()
+            .expect("Workspace path registry lock poisoned")
+            .insert(workspace.workspace_id(), workspace.identifier().to_owned());
+    }
+
+    pub fn unregister_workspace_path(&self, workspace_id: Uuid) {
+        self.workspace_identifiers
+            .write()
+            .expect("Workspace path registry lock poisoned")
+            .remove(&workspace_id);
     }
 
     pub async fn create_task_document(
@@ -207,45 +223,51 @@ impl Vault {
         write_document(&destination, content, base_revision).await
     }
 
+    pub async fn create_image_asset(
+        &self,
+        workspace_id: Uuid,
+        path: &AssetPath,
+        content: &[u8],
+    ) -> Result<(), VaultError> {
+        let destination = self
+            .workspace_directory(workspace_id)
+            .join(path.relative_file());
+        self.ensure_safe_managed_parent(workspace_id, &destination)
+            .await?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination)
+            .await?;
+        file.write_all(content).await?;
+        file.flush().await?;
+        file.sync_all().await?;
+        Ok(())
+    }
+
+    pub async fn read_image_asset(
+        &self,
+        workspace_id: Uuid,
+        path: &AssetPath,
+    ) -> Result<Vec<u8>, VaultError> {
+        let source = self
+            .workspace_directory(workspace_id)
+            .join(path.relative_file());
+        self.ensure_regular_managed_file(workspace_id, &source)
+            .await?;
+        Ok(fs::read(source).await?)
+    }
+
     pub async fn scan_task_documents(
         &self,
         workspace_id: Uuid,
-        project_storage_names: &[String],
+        _project_identifiers: &[String],
     ) -> Result<TaskVaultScan, VaultError> {
         let mut scan = TaskVaultScan {
             files: Vec::new(),
             issues: Vec::new(),
         };
-        self.scan_task_directory(workspace_id, None, &mut scan)
-            .await?;
-
-        let known_projects = project_storage_names.iter().collect::<HashSet<_>>();
-        let projects_directory = self.workspace_directory(workspace_id).join("Projects");
-        let mut entries = match safe_read_directory(&projects_directory).await? {
-            Some(entries) => entries,
-            None => return Ok(scan),
-        };
-        while let Some(entry) = entries.next_entry().await? {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let relative_path = format!("Projects/{name}");
-            let metadata = fs::symlink_metadata(entry.path()).await?;
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                scan.issues.push(TaskVaultScanIssue {
-                    relative_path,
-                    kind: TaskVaultScanIssueKind::InvalidEntry,
-                });
-                continue;
-            }
-            if !known_projects.contains(&name) {
-                scan.issues.push(TaskVaultScanIssue {
-                    relative_path,
-                    kind: TaskVaultScanIssueKind::UnknownProject,
-                });
-                continue;
-            }
-            self.scan_task_directory(workspace_id, Some(&name), &mut scan)
-                .await?;
-        }
+        self.scan_task_directory(workspace_id, &mut scan).await?;
         Ok(scan)
     }
 
@@ -349,7 +371,10 @@ impl Vault {
                 if relative_path == ".kanleaf/manifest.json" {
                     continue;
                 }
-                if !expected_paths.contains(&relative_path) {
+                let managed_asset = relative_path
+                    .strip_prefix("assets/images/")
+                    .is_some_and(|file_name| AssetPath::parse_image(file_name).is_ok());
+                if !expected_paths.contains(&relative_path) && !managed_asset {
                     exclusions.push(ExportExclusion {
                         relative_path,
                         reason: "unmanaged_file",
@@ -369,7 +394,9 @@ impl Vault {
                     size: metadata.len(),
                     sha256: file_revision(&entry.path()).await?,
                 });
-                found.insert(relative_path);
+                if expected_paths.contains(&relative_path) {
+                    found.insert(relative_path);
+                }
             }
         }
         files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
@@ -586,6 +613,88 @@ impl Vault {
         replace_managed_file(&destination, content).await
     }
 
+    pub(crate) async fn relocate_imported_task(
+        &self,
+        staging_key: Uuid,
+        source_relative: &str,
+        destination: &TaskPath,
+    ) -> Result<(), VaultError> {
+        self.relocate_imported_file(staging_key, source_relative, &destination.relative_file())
+            .await
+    }
+
+    pub(crate) async fn relocate_imported_library(
+        &self,
+        staging_key: Uuid,
+        source_relative: &str,
+        destination: &LibraryPath,
+    ) -> Result<(), VaultError> {
+        self.relocate_imported_file(staging_key, source_relative, &destination.relative_file())
+            .await
+    }
+
+    pub(crate) async fn prepare_imported_canonical_directories(
+        &self,
+        staging_key: Uuid,
+        projects: &[ProjectPath],
+    ) -> Result<(), VaultError> {
+        let vault = self.import_staging_vault(staging_key).await?;
+        migration::create_canonical_directories(&vault, projects).await
+    }
+
+    pub(crate) async fn remove_imported_legacy_roots(
+        &self,
+        staging_key: Uuid,
+    ) -> Result<(), VaultError> {
+        let vault = self.import_staging_vault(staging_key).await?;
+        for root in ["Todo", "Wiki", "Projects"] {
+            let path = vault.join(root);
+            match fs::symlink_metadata(&path).await {
+                Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                    fs::remove_dir_all(path).await?;
+                }
+                Ok(_) => return Err(VaultError::InvalidManagedPath),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    async fn relocate_imported_file(
+        &self,
+        staging_key: Uuid,
+        source_relative: &str,
+        destination_relative: &Path,
+    ) -> Result<(), VaultError> {
+        let vault = self.import_staging_vault(staging_key).await?;
+        let source_relative = Path::new(source_relative);
+        if source_relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        let source = vault.join(source_relative);
+        let destination = vault.join(destination_relative);
+        if source == destination {
+            return Ok(());
+        }
+        let metadata = fs::symlink_metadata(&source).await?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(VaultError::InvalidManagedPath);
+        }
+        match fs::symlink_metadata(&destination).await {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Ok(_) => return Err(VaultError::ExistingDocument),
+            Err(error) => return Err(error.into()),
+        }
+        let parent = destination.parent().ok_or(VaultError::InvalidManagedPath)?;
+        fs::create_dir_all(parent).await?;
+        fs::rename(source, destination).await?;
+        Ok(())
+    }
+
     pub(crate) async fn remove_imported_config(&self, staging_key: Uuid) -> Result<(), VaultError> {
         let vault = self.import_staging_vault(staging_key).await?;
         let config = vault.join(".kanleaf");
@@ -600,10 +709,10 @@ impl Vault {
     pub(crate) async fn activate_imported_workspace(
         &self,
         staging_key: Uuid,
-        workspace_id: Uuid,
+        workspace: &WorkspacePath,
     ) -> Result<ImportActivation, VaultError> {
         let staging = self.import_staging_vault(staging_key).await?;
-        let destination = self.workspace_directory(workspace_id);
+        let destination = self.workspace_directory_path(workspace);
         match fs::symlink_metadata(&destination).await {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Ok(_) => return Err(VaultError::ExistingDocument),
@@ -670,27 +779,15 @@ impl Vault {
     async fn scan_task_directory(
         &self,
         workspace_id: Uuid,
-        project_storage_name: Option<&str>,
         scan: &mut TaskVaultScan,
     ) -> Result<(), VaultError> {
-        let directory = project_storage_name.map_or_else(
-            || self.workspace_directory(workspace_id).join("Todo"),
-            |project| {
-                self.workspace_directory(workspace_id)
-                    .join("Projects")
-                    .join(project)
-                    .join("Todo")
-            },
-        );
+        let directory = self.workspace_directory(workspace_id).join("tasks");
         let Some(mut entries) = safe_read_directory(&directory).await? else {
             return Ok(());
         };
         while let Some(entry) = entries.next_entry().await? {
             let file_name = entry.file_name().to_string_lossy().into_owned();
-            let relative_path = project_storage_name.map_or_else(
-                || format!("Todo/{file_name}"),
-                |project| format!("Projects/{project}/Todo/{file_name}"),
-            );
+            let relative_path = format!("tasks/{file_name}");
             let metadata = fs::symlink_metadata(entry.path()).await?;
             if metadata.file_type().is_symlink() || !metadata.is_file() {
                 scan.issues.push(TaskVaultScanIssue {
@@ -713,9 +810,13 @@ impl Vault {
                 });
                 continue;
             };
-            let path = match TaskPath::parse(project_storage_name, storage_name) {
-                Ok(path) => path,
-                Err(_) => {
+            let path = match storage_name
+                .parse::<i64>()
+                .ok()
+                .and_then(|number| TaskPath::parse(number).ok())
+            {
+                Some(path) => path,
+                None => {
                     scan.issues.push(TaskVaultScanIssue {
                         relative_path,
                         kind: TaskVaultScanIssueKind::InvalidEntry,
@@ -746,13 +847,13 @@ impl Vault {
             Err(error) => return Err(error.into()),
         }
 
-        let vaults = self.data_dir.join("vaults");
-        let trash = vaults.join(".trash");
-        let directory = self.task_trash_directory();
-        workspace_deletion::ensure_regular_directory(&vaults).await?;
+        let workspace = self.workspace_directory(workspace_id);
+        let trash = workspace.join(".trash");
+        let directory = self.task_trash_directory(workspace_id);
+        workspace_deletion::ensure_regular_directory(&workspace).await?;
         workspace_deletion::ensure_regular_directory(&trash).await?;
         workspace_deletion::ensure_regular_directory(&directory).await?;
-        let trashed = directory.join(format!("{workspace_id}.{task_id}.{}", Uuid::new_v4()));
+        let trashed = directory.join(format!("{task_id}.{}.md", Uuid::new_v4()));
         fs::rename(&original, &trashed).await?;
         Ok(Some(TaskTrash { original, trashed }))
     }
@@ -802,12 +903,29 @@ impl Vault {
             .join(path.relative_file())
     }
 
-    fn task_trash_directory(&self) -> PathBuf {
-        self.data_dir.join("vaults/.trash/tasks")
+    fn task_trash_directory(&self, workspace_id: Uuid) -> PathBuf {
+        self.workspace_directory(workspace_id).join(".trash/tasks")
     }
 
     fn workspace_directory(&self, workspace_id: Uuid) -> PathBuf {
+        let directory = self
+            .workspace_identifiers
+            .read()
+            .expect("Workspace path registry lock poisoned")
+            .get(&workspace_id)
+            .cloned()
+            .unwrap_or_else(|| workspace_id.to_string());
+        self.data_dir.join("vaults").join(directory)
+    }
+
+    fn legacy_workspace_directory(&self, workspace_id: Uuid) -> PathBuf {
         self.data_dir.join("vaults").join(workspace_id.to_string())
+    }
+
+    fn workspace_directory_path(&self, workspace: &WorkspacePath) -> PathBuf {
+        self.data_dir
+            .join("vaults")
+            .join(workspace.relative_directory())
     }
 
     fn library_file(&self, workspace_id: Uuid, path: &LibraryPath) -> PathBuf {
@@ -868,15 +986,25 @@ impl Vault {
     ) -> Result<(), VaultError> {
         let workspace = self.workspace_directory(workspace_id);
         let parent = destination.parent().ok_or(VaultError::InvalidManagedPath)?;
-        let relative = parent
+        parent
             .strip_prefix(&workspace)
             .map_err(|_| VaultError::InvalidManagedPath)?;
+        self.verify_directory_ancestors(parent, create).await
+    }
+
+    async fn verify_directory_ancestors(
+        &self,
+        directory: &Path,
+        create: bool,
+    ) -> Result<(), VaultError> {
+        let relative = directory
+            .strip_prefix(self.data_dir.as_path())
+            .map_err(|_| VaultError::InvalidManagedPath)?;
         let mut current = self.data_dir.as_ref().clone();
-        for component in Path::new("vaults")
-            .join(workspace_id.to_string())
-            .join(relative)
-            .components()
-        {
+        for component in relative.components() {
+            if !matches!(component, std::path::Component::Normal(_)) {
+                return Err(VaultError::InvalidManagedPath);
+            }
             current.push(component);
             match fs::symlink_metadata(&current).await {
                 Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
@@ -1066,17 +1194,20 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use crate::domain::VaultStorageName;
-
-    use super::{LibraryPath, TaskPath, Vault, VaultError};
+    use super::{
+        LibraryPath, ProjectPath, TaskMigrationFile, TaskPath, Vault, VaultError,
+        WikiMigrationFile, WorkspacePath,
+    };
 
     fn library_path(segments: &[&str]) -> LibraryPath {
         LibraryPath::parse(segments.iter().copied()).unwrap()
     }
 
     fn task_path(task_id: Uuid) -> TaskPath {
-        let name = VaultStorageName::from_initial_name("Task", task_id);
-        TaskPath::inbox(name.as_str()).unwrap()
+        let mut bytes = [0_u8; 8];
+        bytes.copy_from_slice(&task_id.as_bytes()[..8]);
+        let number = (u64::from_be_bytes(bytes) % i64::MAX as u64) as i64 + 1;
+        TaskPath::parse(number).unwrap()
     }
 
     #[tokio::test]
@@ -1116,11 +1247,8 @@ mod tests {
                     .path()
                     .join("vaults")
                     .join(workspace_id.to_string())
-                    .join("Todo")
-                    .join(format!(
-                        "{}.md",
-                        VaultStorageName::from_initial_name("Task", task_id).as_str()
-                    ))
+                    .join("tasks")
+                    .join(format!("{}.md", task_path.number()))
             )
             .unwrap(),
             markdown
@@ -1185,7 +1313,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             trashed.trashed.parent(),
-            Some(data_dir.path().join("vaults/.trash/tasks").as_path())
+            Some(
+                data_dir
+                    .path()
+                    .join("vaults")
+                    .join(workspace_id.to_string())
+                    .join(".trash/tasks")
+                    .as_path()
+            )
         );
         assert!(
             vault
@@ -1242,7 +1377,7 @@ mod tests {
             .path()
             .join("vaults")
             .join(workspace_id.to_string())
-            .join("Wiki")
+            .join("library")
             .join("getting_started")
             .join("installation.md");
         assert_eq!(
@@ -1270,7 +1405,7 @@ mod tests {
             .path()
             .join("vaults")
             .join(workspace_id.to_string())
-            .join("Wiki");
+            .join("library");
         std::fs::write(directory.join("external_edits.md"), "external change").unwrap();
 
         assert!(matches!(
@@ -1310,7 +1445,11 @@ mod tests {
             .trash_library_tree(workspace_id, Uuid::new_v4(), &path)
             .await
             .unwrap();
-        let persisted_trash = data_dir.path().join("vaults/.trash/library");
+        let persisted_trash = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string())
+            .join(".trash/library");
         let persisted_manifests = data_dir.path().join("vaults/.trash/library-operations");
         assert_eq!(std::fs::read_dir(&persisted_trash).unwrap().count(), 1);
         assert_eq!(std::fs::read_dir(&persisted_manifests).unwrap().count(), 1);
@@ -1452,7 +1591,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_library_delete_manifest_recovers_from_the_previous_data_root_layout() {
+    async fn library_delete_recovers_from_the_previous_trash_location() {
         let data_dir = TempDir::new().unwrap();
         let workspace_id = Uuid::new_v4();
         let document_id = Uuid::new_v4();
@@ -1469,18 +1608,18 @@ mod tests {
             .await
             .unwrap();
 
-        let wiki = data_dir
+        let library = data_dir
             .path()
             .join("vaults")
             .join(workspace_id.to_string())
-            .join("Wiki");
+            .join("library");
         let trash = data_dir
             .path()
             .join("trash/library")
             .join(format!("{workspace_id}.{trash_id}"));
         std::fs::create_dir_all(&trash).unwrap();
-        std::fs::rename(wiki.join("legacy_delete.md"), trash.join("document.md")).unwrap();
-        std::fs::rename(wiki.join("legacy_delete"), trash.join("children")).unwrap();
+        std::fs::rename(library.join("legacy_delete.md"), trash.join("document.md")).unwrap();
+        std::fs::rename(library.join("legacy_delete"), trash.join("children")).unwrap();
         let operations = data_dir.path().join("operations");
         std::fs::create_dir_all(&operations).unwrap();
         let manifest = operations.join(format!("{}.json", Uuid::new_v4()));
@@ -1488,6 +1627,7 @@ mod tests {
             &manifest,
             serde_json::to_vec(&serde_json::json!({
                 "operation": "delete",
+                "layout_version": 3,
                 "workspace_id": workspace_id,
                 "document_id": document_id,
                 "path": ["legacy_delete"],
@@ -1533,6 +1673,7 @@ mod tests {
             &manifest,
             serde_json::to_vec(&serde_json::json!({
                 "operation": "delete",
+                "layout_version": 3,
                 "workspace_id": workspace_id,
                 "document_id": document_id,
                 "path": ["already_restored"],
@@ -1574,6 +1715,7 @@ mod tests {
             &manifest,
             serde_json::to_vec(&serde_json::json!({
                 "operation": "delete",
+                "layout_version": 3,
                 "workspace_id": workspace_id,
                 "document_id": document_id,
                 "path": ["unsafe_recovery"],
@@ -1695,16 +1837,7 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let task_id = Uuid::new_v4();
         let source = task_path(task_id);
-        let destination = TaskPath::project(
-            "project--a1b2c3",
-            source
-                .relative_file()
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        )
-        .unwrap();
+        let destination = TaskPath::parse(source.number() + 1).unwrap();
         let vault = Vault::new(data_dir.path().to_owned());
         vault
             .create_task_document(workspace_id, &source, "properties and body")
@@ -1744,43 +1877,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workspace_layout_manifest_recovers_both_sides_of_the_database_commit() {
+    async fn workspace_layout_v3_stages_and_recovers_both_sides_of_the_database_commit() {
         let data_dir = TempDir::new().unwrap();
         let workspace_id = Uuid::new_v4();
-        let workspace = data_dir
+        let legacy_workspace = data_dir
             .path()
             .join("vaults")
             .join(workspace_id.to_string());
-        std::fs::create_dir_all(&workspace).unwrap();
-        std::fs::write(workspace.join("legacy.md"), "legacy").unwrap();
+        std::fs::create_dir_all(legacy_workspace.join("Todo")).unwrap();
+        std::fs::create_dir_all(legacy_workspace.join("Wiki/folder")).unwrap();
+        std::fs::write(legacy_workspace.join("Todo/legacy-task.md"), "task body").unwrap();
+        std::fs::write(legacy_workspace.join("Wiki/folder/dè.md"), "# Tiếng Việt\n").unwrap();
         let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_path = WorkspacePath::parse(workspace_id, "kanleaf").unwrap();
+        let canonical_workspace = data_dir.path().join("vaults/kanleaf");
+        let tasks = [TaskMigrationFile {
+            destination: TaskPath::parse(42).unwrap(),
+            content: "task body".to_owned(),
+        }];
+        let library = [WikiMigrationFile {
+            source_project_storage_name: None,
+            source_segments: vec!["folder".to_owned(), "dè".to_owned()],
+            destination: LibraryPath::parse(["folder", "dè"]).unwrap(),
+        }];
+        let projects = [ProjectPath::parse("astro-clash").unwrap()];
 
         let staged = vault
-            .stage_workspace_layout_v2(workspace_id, &[], &[])
+            .stage_workspace_layout_v3(&workspace_path, 2, &tasks, &library, &projects)
             .await
             .unwrap();
-        let _interrupted = vault.activate_workspace_layout_v2(staged).await.unwrap();
+        let _interrupted = vault.activate_workspace_layout_v3(staged).await.unwrap();
         let pending = vault.pending_workspace_layout_migrations().await.unwrap();
         vault
             .recover_workspace_layout_migration(&pending[0], false)
             .await
             .unwrap();
         assert_eq!(
-            std::fs::read_to_string(workspace.join("legacy.md")).unwrap(),
-            "legacy"
+            std::fs::read_to_string(legacy_workspace.join("Todo/legacy-task.md")).unwrap(),
+            "task body"
         );
+        assert!(!canonical_workspace.exists());
 
         let staged = vault
-            .stage_workspace_layout_v2(workspace_id, &[], &[])
+            .stage_workspace_layout_v3(&workspace_path, 2, &tasks, &library, &projects)
             .await
             .unwrap();
-        let _interrupted = vault.activate_workspace_layout_v2(staged).await.unwrap();
+        let _interrupted = vault.activate_workspace_layout_v3(staged).await.unwrap();
         let pending = vault.pending_workspace_layout_migrations().await.unwrap();
         vault
             .recover_workspace_layout_migration(&pending[0], true)
             .await
             .unwrap();
-        assert!(workspace.is_dir());
+        assert_eq!(
+            std::fs::read_to_string(canonical_workspace.join("tasks/42.md")).unwrap(),
+            "task body"
+        );
+        assert_eq!(
+            std::fs::read_to_string(canonical_workspace.join("library/folder/dè.md")).unwrap(),
+            "# Tiếng Việt\n"
+        );
+        assert!(
+            canonical_workspace
+                .join("projects/astro-clash/library")
+                .is_dir()
+        );
+        assert!(canonical_workspace.join("assets/images").is_dir());
+        assert!(canonical_workspace.join("assets/files").is_dir());
+        assert!(canonical_workspace.join(".trash/tasks").is_dir());
         assert!(
             vault
                 .pending_workspace_layout_migrations()
@@ -1790,21 +1953,92 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn workspace_layout_v3_rejects_collisions_before_activation() {
+        let data_dir = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let legacy_workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        std::fs::create_dir_all(&legacy_workspace).unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_path = WorkspacePath::parse(workspace_id, "kanleaf").unwrap();
+        let tasks = [
+            TaskMigrationFile {
+                destination: TaskPath::parse(42).unwrap(),
+                content: "first".to_owned(),
+            },
+            TaskMigrationFile {
+                destination: TaskPath::parse(42).unwrap(),
+                content: "second".to_owned(),
+            },
+        ];
+
+        assert!(matches!(
+            vault
+                .stage_workspace_layout_v3(&workspace_path, 2, &tasks, &[], &[])
+                .await,
+            Err(VaultError::ExistingDocument)
+        ));
+        assert!(legacy_workspace.is_dir());
+        assert!(!data_dir.path().join("vaults/kanleaf").exists());
+        let staging_entries = std::fs::read_dir(data_dir.path().join("vaults"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains("v3-staging"))
+            .count();
+        assert_eq!(staging_entries, 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_layout_v3_rejects_symlinked_legacy_library_sources() {
+        let data_dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let workspace_id = Uuid::new_v4();
+        let legacy_workspace = data_dir
+            .path()
+            .join("vaults")
+            .join(workspace_id.to_string());
+        std::fs::create_dir_all(&legacy_workspace).unwrap();
+        std::fs::write(outside.path().join("secret.md"), "outside").unwrap();
+        std::os::unix::fs::symlink(outside.path(), legacy_workspace.join("Wiki")).unwrap();
+        let vault = Vault::new(data_dir.path().to_owned());
+        let workspace_path = WorkspacePath::parse(workspace_id, "kanleaf").unwrap();
+        let library = [WikiMigrationFile {
+            source_project_storage_name: None,
+            source_segments: vec!["secret".to_owned()],
+            destination: LibraryPath::parse(["secret"]).unwrap(),
+        }];
+
+        assert!(matches!(
+            vault
+                .stage_workspace_layout_v3(&workspace_path, 2, &[], &library, &[])
+                .await,
+            Err(VaultError::InvalidManagedPath)
+        ));
+        assert_eq!(
+            std::fs::read_to_string(outside.path().join("secret.md")).unwrap(),
+            "outside"
+        );
+        assert!(!data_dir.path().join("vaults/kanleaf").exists());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn task_paths_reject_symlinked_managed_ancestors() {
         let data_dir = TempDir::new().unwrap();
         let outside = TempDir::new().unwrap();
         let workspace_id = Uuid::new_v4();
-        let project = data_dir
+        let tasks = data_dir
             .path()
             .join("vaults")
             .join(workspace_id.to_string())
-            .join("Projects")
-            .join("project--a1b2c3");
-        std::fs::create_dir_all(project.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(outside.path(), project).unwrap();
-        let path = TaskPath::project("project--a1b2c3", "task--d4e5f6").unwrap();
+            .join("tasks");
+        std::fs::create_dir_all(tasks.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(outside.path(), tasks).unwrap();
+        let path = TaskPath::parse(42).unwrap();
         let vault = Vault::new(data_dir.path().to_owned());
 
         assert!(matches!(

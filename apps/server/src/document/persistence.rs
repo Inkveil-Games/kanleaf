@@ -52,8 +52,8 @@ pub(super) async fn find_authorized_document(
                documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
                CASE
-                   WHEN documents.project_id IS NULL THEN 'Wiki/'
-                   ELSE 'Projects/' || projects.storage_name || '/Wiki/'
+                   WHEN documents.project_id IS NULL THEN 'library/'
+                   ELSE 'projects/' || projects.identifier || '/library/'
                END || resolved_path.relative_path || '.md' AS library_path,
                documents.position,
                CASE
@@ -207,7 +207,7 @@ pub(super) async fn library_path(
     workspace_id: Uuid,
     document_id: Uuid,
 ) -> Result<LibraryPath, AppError> {
-    let (segments, project_storage_name): (Vec<String>, Option<String>) = sqlx::query_as(
+    let (segments, project_identifier): (Vec<String>, Option<String>) = sqlx::query_as(
         r#"
         WITH RECURSIVE ancestors AS (
             SELECT id, parent_id, storage_name, ARRAY[storage_name]::text[] AS segments
@@ -220,7 +220,7 @@ pub(super) async fn library_path(
             JOIN ancestors AS child ON child.parent_id = parent.id
             WHERE parent.workspace_id = $1
         )
-        SELECT ancestors.segments, projects.storage_name
+        SELECT ancestors.segments, projects.identifier
         FROM ancestors
         JOIN documents AS target
           ON target.workspace_id = $1 AND target.id = $2
@@ -236,7 +236,7 @@ pub(super) async fn library_path(
     .await?
     .ok_or_else(|| AppError::NotFound("Document not found".to_owned()))?;
     LibraryPath::parse_scoped(
-        project_storage_name.as_deref(),
+        project_identifier.as_deref(),
         segments.iter().map(String::as_str),
     )
     .map_err(|_| {

@@ -146,16 +146,13 @@ async fn host_deletion_requires_both_confirmations_and_removes_every_managed_cop
         .await
         .unwrap();
     assert_eq!(task.status(), StatusCode::CREATED);
-    let storage_name = response_json(task).await["storage_name"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let task_number = response_json(task).await["task_number"].as_i64().unwrap();
     let markdown = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{storage_name}.md"));
+        .join("owner-workspace")
+        .join("tasks")
+        .join(format!("{task_number}.md"));
     assert!(markdown.exists());
 
     let staging_key = Uuid::new_v4();

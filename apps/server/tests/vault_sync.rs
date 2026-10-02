@@ -93,23 +93,15 @@ async fn create(app: &Router, token: &str, uri: &str, body: Value) -> Value {
 fn task_path(
     data_dir: &TempDir,
     workspace_id: Uuid,
-    project_storage: Option<&str>,
-    task_storage: &str,
+    _project_storage: Option<&str>,
+    task_number: i64,
 ) -> PathBuf {
-    let workspace = data_dir
+    data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string());
-    project_storage.map_or_else(
-        || workspace.join("Todo").join(format!("{task_storage}.md")),
-        |project| {
-            workspace
-                .join("Projects")
-                .join(project)
-                .join("Todo")
-                .join(format!("{task_storage}.md"))
-        },
-    )
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{task_number}.md"))
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -158,7 +150,7 @@ async fn external_properties_and_legacy_urgent_priority_apply_canonically(pool: 
         &data_dir,
         workspace_id,
         first["storage_name"].as_str(),
-        task["storage_name"].as_str().unwrap(),
+        task["task_number"].as_i64().unwrap(),
     );
     let source = fs::read_to_string(&source_path)
         .unwrap()
@@ -222,13 +214,14 @@ async fn external_properties_and_legacy_urgent_priority_apply_canonically(pool: 
         task_response["custom_properties"][0]["value"],
         property["options"][1]["id"]
     );
-    assert!(!source_path.exists());
+    assert!(source_path.exists());
     let destination = task_path(
         &data_dir,
         workspace_id,
         second["storage_name"].as_str(),
-        task["storage_name"].as_str().unwrap(),
+        task["task_number"].as_i64().unwrap(),
     );
+    assert_eq!(source_path, destination);
     let projected = fs::read_to_string(destination).unwrap();
     assert!(projected.contains("Project:\n  - Second\n"));
     assert!(projected.contains("Priority:\n  - Critical\n"));
@@ -288,7 +281,7 @@ async fn type_syncs_as_custom_data_and_legacy_cleanup_survives_projection_retry(
         &data_dir,
         typed_workspace_id,
         None,
-        typed_task["storage_name"].as_str().unwrap(),
+        typed_task["task_number"].as_i64().unwrap(),
     );
     let typed_source = fs::read_to_string(&typed_path).unwrap();
     assert_eq!(typed_source.matches("Type:").count(), 1);
@@ -352,7 +345,7 @@ async fn type_syncs_as_custom_data_and_legacy_cleanup_survives_projection_retry(
         &data_dir,
         plain_workspace_id,
         None,
-        plain_task["storage_name"].as_str().unwrap(),
+        plain_task["task_number"].as_i64().unwrap(),
     );
     let legacy_source = fs::read_to_string(&plain_path).unwrap().replacen(
         "---\n\n",
@@ -461,7 +454,7 @@ async fn invalid_custom_property_blocks_the_entire_sync_item(pool: PgPool) {
         &data_dir,
         workspace_id,
         None,
-        task["storage_name"].as_str().unwrap(),
+        task["task_number"].as_i64().unwrap(),
     );
     let source = fs::read_to_string(&path)
         .unwrap()
@@ -532,7 +525,7 @@ async fn property_change_after_preview_does_not_partially_apply_a_task(pool: PgP
         &data_dir,
         workspace_id,
         None,
-        task["storage_name"].as_str().unwrap(),
+        task["task_number"].as_i64().unwrap(),
     );
     let source = fs::read_to_string(&path)
         .unwrap()
@@ -599,13 +592,13 @@ async fn stale_selected_file_prevents_every_selected_change(pool: PgPool) {
         &data_dir,
         workspace_id,
         None,
-        first["storage_name"].as_str().unwrap(),
+        first["task_number"].as_i64().unwrap(),
     );
     let second_path = task_path(
         &data_dir,
         workspace_id,
         None,
-        second["storage_name"].as_str().unwrap(),
+        second["task_number"].as_i64().unwrap(),
     );
     fs::write(
         &first_path,
@@ -743,20 +736,12 @@ async fn sync_is_admin_only_and_operations_are_actor_scoped(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn preview_reports_missing_moved_duplicate_unknown_and_unmanaged_files(pool: PgPool) {
+async fn preview_reports_missing_duplicate_unknown_and_unmanaged_files(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool, &data_dir);
     let (token, _, workspace_id) = register(&app, "scan-owner@example.com").await;
-    let project = create(
-        &app,
-        &token,
-        &format!("/api/workspaces/{workspace_id}/projects"),
-        json!({"name": "Destination"}),
-    )
-    .await;
     let tasks_uri = format!("/api/workspaces/{workspace_id}/tasks");
     let missing = create(&app, &token, &tasks_uri, json!({"title": "Missing"})).await;
-    let moved = create(&app, &token, &tasks_uri, json!({"title": "Moved"})).await;
     let duplicate = create(&app, &token, &tasks_uri, json!({"title": "Duplicate"})).await;
     let invalid = create(
         &app,
@@ -768,41 +753,27 @@ async fn preview_reports_missing_moved_duplicate_unknown_and_unmanaged_files(poo
     let todo = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo");
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks");
     fs::remove_file(task_path(
         &data_dir,
         workspace_id,
         None,
-        missing["storage_name"].as_str().unwrap(),
+        missing["task_number"].as_i64().unwrap(),
     ))
     .unwrap();
-    let moved_source = task_path(
-        &data_dir,
-        workspace_id,
-        None,
-        moved["storage_name"].as_str().unwrap(),
-    );
-    let moved_destination = task_path(
-        &data_dir,
-        workspace_id,
-        project["storage_name"].as_str(),
-        moved["storage_name"].as_str().unwrap(),
-    );
-    fs::create_dir_all(moved_destination.parent().unwrap()).unwrap();
-    fs::rename(moved_source, moved_destination).unwrap();
     let duplicate_source = task_path(
         &data_dir,
         workspace_id,
         None,
-        duplicate["storage_name"].as_str().unwrap(),
+        duplicate["task_number"].as_i64().unwrap(),
     );
-    fs::copy(&duplicate_source, todo.join("duplicate-copy--abcdef.md")).unwrap();
+    fs::copy(&duplicate_source, todo.join("999999.md")).unwrap();
     let invalid_path = task_path(
         &data_dir,
         workspace_id,
         None,
-        invalid["storage_name"].as_str().unwrap(),
+        invalid["task_number"].as_i64().unwrap(),
     );
     fs::write(
         &invalid_path,
@@ -813,7 +784,7 @@ async fn preview_reports_missing_moved_duplicate_unknown_and_unmanaged_files(poo
     .unwrap();
     let unknown_id = Uuid::new_v4();
     fs::write(
-        todo.join("unknown--123456.md"),
+        todo.join("999998.md"),
         fs::read_to_string(&duplicate_source)
             .unwrap()
             .replace(duplicate["id"].as_str().unwrap(), &unknown_id.to_string()),
@@ -843,7 +814,6 @@ async fn preview_reports_missing_moved_duplicate_unknown_and_unmanaged_files(poo
         })
         .collect::<HashMap<_, _>>();
     assert_eq!(statuses[missing["id"].as_str().unwrap()], "missing");
-    assert_eq!(statuses[moved["id"].as_str().unwrap()], "moved");
     assert_eq!(statuses[duplicate["id"].as_str().unwrap()], "duplicate");
     assert_eq!(statuses[invalid["id"].as_str().unwrap()], "invalid");
     let issue_kinds = preview["issues"]

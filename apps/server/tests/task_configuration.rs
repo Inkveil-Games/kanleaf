@@ -383,9 +383,9 @@ async fn labels_keep_edit_reorder_archive_and_projection_behavior(pool: PgPool) 
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     let source = fs::read_to_string(task_path).unwrap();
     assert!(source.contains("State:\n  - Todo\n"));
     assert!(source.contains("Labels:\n  - Server\n"));

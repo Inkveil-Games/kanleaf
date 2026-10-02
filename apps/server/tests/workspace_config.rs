@@ -90,19 +90,27 @@ async fn create(app: &Router, token: &str, uri: &str, body: Value) -> Value {
     response_json(response).await
 }
 
-fn config_path(data_dir: &TempDir, workspace_id: Uuid, name: &str) -> std::path::PathBuf {
+fn config_path(data_dir: &TempDir, workspace_identifier: &str, name: &str) -> std::path::PathBuf {
     data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
+        .join(workspace_identifier)
         .join(".kanleaf")
         .join(name)
+}
+
+async fn workspace_identifier(pool: &PgPool, workspace_id: Uuid) -> String {
+    sqlx::query_scalar("SELECT identifier FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[sqlx::test(migrations = "./migrations")]
 async fn projects_shared_quick_link_changes_into_workspace_config(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
-    let state = test_state(pool, &data_dir);
+    let state = test_state(pool.clone(), &data_dir);
     let app = test_app(state.clone());
     let (token, _, workspace_id) = register(&app, "quick-links-config@example.com").await;
     let uri = format!("/api/workspaces/{workspace_id}/quick-links");
@@ -146,7 +154,8 @@ async fn projects_shared_quick_link_changes_into_workspace_config(pool: PgPool) 
         StatusCode::OK
     );
     recover_config_projection_jobs(&state).await.unwrap();
-    let path = config_path(&data_dir, workspace_id, "workspace.json");
+    let workspace_identifier = workspace_identifier(&pool, workspace_id).await;
+    let path = config_path(&data_dir, &workspace_identifier, "workspace.json");
     let config: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(config["format_version"], 3);
     assert_eq!(config["quick_links"][0]["id"], second["id"]);
@@ -171,6 +180,7 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     let state = test_state(pool.clone(), &data_dir);
     let app = test_app(state.clone());
     let (owner_token, owner_id, workspace_id) = register(&app, "config-owner@example.com").await;
+    let workspace_identifier = workspace_identifier(&pool, workspace_id).await;
     let (_, member_id, _) = register(&app, "config-member@example.com").await;
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
@@ -244,7 +254,12 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     recover_config_projection_jobs(&state).await.unwrap();
 
     let workspace: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "workspace.json")).unwrap(),
+        &fs::read_to_string(config_path(
+            &data_dir,
+            &workspace_identifier,
+            "workspace.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(workspace["format_version"], 3);
@@ -256,7 +271,12 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     assert!(workspace.get("notification_preferences").is_none());
 
     let task_config: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "task-config.json")).unwrap(),
+        &fs::read_to_string(config_path(
+            &data_dir,
+            &workspace_identifier,
+            "task-config.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(task_config["format_version"], 3);
@@ -272,7 +292,7 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     assert_eq!(task_config["labels"][0]["name"], "Docs");
 
     let views: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "views.json")).unwrap(),
+        &fs::read_to_string(config_path(&data_dir, &workspace_identifier, "views.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(views["views"].as_array().unwrap().len(), 1);
@@ -281,7 +301,7 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     let project_config: Value = serde_json::from_str(
         &fs::read_to_string(config_path(
             &data_dir,
-            workspace_id,
+            &workspace_identifier,
             &format!("projects/{project_id}.json"),
         ))
         .unwrap(),
@@ -292,14 +312,19 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
     assert_eq!(project_config["modules"][0]["name"], "Vault");
 
     let first_manifest: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "manifest.json")).unwrap(),
+        &fs::read_to_string(config_path(
+            &data_dir,
+            &workspace_identifier,
+            "manifest.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(first_manifest["tasks"][0]["id"], task["id"]);
     let first_version = first_manifest["config_version"].as_i64().unwrap();
 
     fs::write(
-        config_path(&data_dir, workspace_id, "workspace.json"),
+        config_path(&data_dir, &workspace_identifier, "workspace.json"),
         "{\"format_version\":1,\"externally_changed\":true}\n",
     )
     .unwrap();
@@ -343,11 +368,21 @@ async fn projects_complete_portable_config_and_coalesces_mutations(pool: PgPool)
 
     recover_config_projection_jobs(&state).await.unwrap();
     let updated_workspace: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "workspace.json")).unwrap(),
+        &fs::read_to_string(config_path(
+            &data_dir,
+            &workspace_identifier,
+            "workspace.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     let updated_manifest: Value = serde_json::from_str(
-        &fs::read_to_string(config_path(&data_dir, workspace_id, "manifest.json")).unwrap(),
+        &fs::read_to_string(config_path(
+            &data_dir,
+            &workspace_identifier,
+            "manifest.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(updated_workspace["name"], "Portable renamed");
@@ -430,11 +465,8 @@ async fn projection_rejects_symlinked_machine_config_directory(pool: PgPool) {
     let state = test_state(pool.clone(), &data_dir);
     let app = test_app(state.clone());
     let (_, _, workspace_id) = register(&app, "symlink-config@example.com").await;
-    let workspace_root = data_dir
-        .path()
-        .join("vaults")
-        .join(workspace_id.to_string());
-    fs::create_dir_all(&workspace_root).unwrap();
+    let workspace_identifier = workspace_identifier(&pool, workspace_id).await;
+    let workspace_root = data_dir.path().join("vaults").join(workspace_identifier);
     std::os::unix::fs::symlink(outside.path(), workspace_root.join(".kanleaf")).unwrap();
 
     recover_config_projection_jobs(&state).await.unwrap();

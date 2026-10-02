@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::domain::WorkspaceIdentifier;
+
 use super::{Vault, VaultError};
 
 const WORKSPACE_DELETION_OPERATION: &str = "workspace_delete";
@@ -11,6 +13,7 @@ const WORKSPACE_DELETION_OPERATION: &str = "workspace_delete";
 #[derive(Debug)]
 pub(crate) struct WorkspaceDeletion {
     workspace_id: Uuid,
+    workspace_directory: String,
     trash_id: Uuid,
     vault_present: bool,
     export_staging_keys: Vec<Uuid>,
@@ -21,6 +24,8 @@ pub(crate) struct WorkspaceDeletion {
 struct WorkspaceDeletionManifest {
     operation: String,
     workspace_id: Uuid,
+    #[serde(default)]
+    workspace_directory: Option<String>,
     trash_id: Uuid,
     vault_present: bool,
     export_staging_keys: Vec<Uuid>,
@@ -39,6 +44,11 @@ impl Vault {
         mut export_staging_keys: Vec<Uuid>,
     ) -> Result<WorkspaceDeletion, VaultError> {
         let original = self.workspace_directory(workspace_id);
+        let workspace_directory = original
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or(VaultError::InvalidManagedPath)?
+            .to_owned();
         let vault_present = regular_directory_exists(&original).await?;
         let trash_id = Uuid::new_v4();
         let trash = self.workspace_deletion_trash(workspace_id, trash_id);
@@ -51,6 +61,7 @@ impl Vault {
             .write_workspace_deletion_manifest(&WorkspaceDeletionManifest {
                 operation: WORKSPACE_DELETION_OPERATION.to_owned(),
                 workspace_id,
+                workspace_directory: Some(workspace_directory.clone()),
                 trash_id,
                 vault_present,
                 export_staging_keys: export_staging_keys.clone(),
@@ -59,6 +70,7 @@ impl Vault {
 
         let deletion = WorkspaceDeletion {
             workspace_id,
+            workspace_directory,
             trash_id,
             vault_present,
             export_staging_keys,
@@ -80,7 +92,7 @@ impl Vault {
         deletion: &WorkspaceDeletion,
     ) -> Result<(), VaultError> {
         if deletion.vault_present {
-            let original = self.workspace_directory(deletion.workspace_id);
+            let original = self.workspace_deletion_original(deletion);
             let trash = self.workspace_deletion_trash(deletion.workspace_id, deletion.trash_id);
             match (
                 regular_directory_exists(&original).await?,
@@ -110,14 +122,13 @@ impl Vault {
         &self,
         deletion: &WorkspaceDeletion,
     ) -> Result<(), VaultError> {
-        remove_regular_directory_if_present(&self.workspace_directory(deletion.workspace_id))
-            .await?;
+        // The commit releases the public identifier; another Workspace may now
+        // own the original path. Only purge the UUID-scoped staged payload.
         remove_regular_directory_if_present(
             &self.workspace_deletion_trash(deletion.workspace_id, deletion.trash_id),
         )
         .await?;
-        self.discard_workspace_layout_copies(deletion.workspace_id)
-            .await?;
+        self.discard_workspace_layout_copies(deletion).await?;
         sync_directory(&self.data_dir.join("vaults")).await?;
         sync_directory(&self.data_dir.join("vaults/.trash/workspaces")).await?;
         for staging_key in &deletion.export_staging_keys {
@@ -132,7 +143,9 @@ impl Vault {
         sync_directory_if_present(&self.data_dir.join("operations")).await?;
         sync_directory_if_present(&self.data_dir.join("trash/library")).await?;
         remove_file_if_present(&deletion.manifest).await?;
-        sync_directory(&self.workspace_deletion_manifest_directory()).await
+        sync_directory(&self.workspace_deletion_manifest_directory()).await?;
+        self.unregister_workspace_path(deletion.workspace_id);
+        Ok(())
     }
 
     async fn stage_workspace_vault<F>(
@@ -143,7 +156,7 @@ impl Vault {
     where
         F: Future<Output = Result<(), VaultError>>,
     {
-        let original = self.workspace_directory(deletion.workspace_id);
+        let original = self.workspace_deletion_original(deletion);
         let trash = self.workspace_deletion_trash(deletion.workspace_id, deletion.trash_id);
         if let Err(error) = fs::rename(&original, &trash).await {
             let _ = remove_file_if_present(&deletion.manifest).await;
@@ -166,7 +179,8 @@ impl Vault {
     async fn discard_workspace_task_trash(&self, workspace_id: Uuid) -> Result<(), VaultError> {
         let prefix = format!("{workspace_id}.");
         for directory in [
-            self.task_trash_directory(),
+            self.task_trash_directory(workspace_id),
+            self.data_dir.join("vaults/.trash/tasks"),
             self.data_dir.join("trash/tasks"),
         ] {
             let mut entries = match fs::read_dir(&directory).await {
@@ -187,15 +201,23 @@ impl Vault {
                 }
                 remove_file_if_present(&entry.path()).await?;
             }
-            sync_directory(&directory).await?;
+            sync_directory_if_present(&directory).await?;
         }
         Ok(())
     }
 
-    async fn discard_workspace_layout_copies(&self, workspace_id: Uuid) -> Result<(), VaultError> {
+    async fn discard_workspace_layout_copies(
+        &self,
+        deletion: &WorkspaceDeletion,
+    ) -> Result<(), VaultError> {
         let vaults = self.data_dir.join("vaults");
+        let workspace_id = deletion.workspace_id;
         let legacy_prefix = format!("{workspace_id}.legacy-");
         let staging_prefix = format!(".{workspace_id}.v2-staging.");
+        let canonical_staging_prefix = format!(
+            ".{}.v3-staging.{workspace_id}.",
+            deletion.workspace_directory
+        );
         let mut entries = fs::read_dir(&vaults).await?;
         let mut copies = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
@@ -207,6 +229,9 @@ impl Vault {
                 .is_some_and(|suffix| !suffix.is_empty())
                 || file_name
                     .strip_prefix(&staging_prefix)
+                    .is_some_and(|suffix| !suffix.is_empty())
+                || file_name
+                    .strip_prefix(&canonical_staging_prefix)
                     .is_some_and(|suffix| !suffix.is_empty());
             if !managed {
                 continue;
@@ -253,10 +278,21 @@ impl Vault {
             if manifest.operation != WORKSPACE_DELETION_OPERATION {
                 return Err(VaultError::InvalidManagedPath);
             }
+            let workspace_directory = manifest
+                .workspace_directory
+                .take()
+                .unwrap_or_else(|| manifest.workspace_id.to_string());
+            let valid_identifier = WorkspaceIdentifier::new(&workspace_directory).is_ok();
+            let valid_legacy = Uuid::parse_str(&workspace_directory)
+                .is_ok_and(|value| value == manifest.workspace_id);
+            if !valid_identifier && !valid_legacy {
+                return Err(VaultError::InvalidManagedPath);
+            }
             manifest.export_staging_keys.sort_unstable();
             manifest.export_staging_keys.dedup();
             deletions.push(WorkspaceDeletion {
                 workspace_id: manifest.workspace_id,
+                workspace_directory,
                 trash_id: manifest.trash_id,
                 vault_present: manifest.vault_present,
                 export_staging_keys: manifest.export_staging_keys,
@@ -287,6 +323,12 @@ impl Vault {
             .join(".trash")
             .join("workspaces")
             .join(format!("{workspace_id}.{trash_id}"))
+    }
+
+    fn workspace_deletion_original(&self, deletion: &WorkspaceDeletion) -> PathBuf {
+        self.data_dir
+            .join("vaults")
+            .join(&deletion.workspace_directory)
     }
 
     fn workspace_deletion_manifest_directory(&self) -> PathBuf {
@@ -371,7 +413,7 @@ pub(super) async fn remove_file_if_present(path: &std::path::Path) -> Result<(),
     }
 }
 
-async fn sync_directory_if_present(path: &std::path::Path) -> Result<(), VaultError> {
+pub(super) async fn sync_directory_if_present(path: &std::path::Path) -> Result<(), VaultError> {
     match fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             sync_directory(path).await
@@ -402,6 +444,56 @@ mod tests {
 
     use super::super::{Vault, VaultError};
     use super::{WORKSPACE_DELETION_OPERATION, WorkspaceDeletion, WorkspaceDeletionManifest};
+
+    #[tokio::test]
+    async fn finishing_deletion_preserves_a_workspace_reusing_the_identifier() {
+        for restart in [false, true] {
+            let data = TempDir::new().unwrap();
+            let vault = Vault::new(data.path().to_owned());
+            let old = crate::vault::WorkspacePath::parse(Uuid::new_v4(), "kanleaf").unwrap();
+            vault.initialize_workspace_layout(&old).await.unwrap();
+            vault.register_workspace_path(&old);
+            let deletion = vault
+                .begin_workspace_deletion(old.workspace_id(), Vec::new())
+                .await
+                .unwrap();
+            let new = crate::vault::WorkspacePath::parse(Uuid::new_v4(), "kanleaf").unwrap();
+            vault.initialize_workspace_layout(&new).await.unwrap();
+            vault.register_workspace_path(&new);
+            let file = data.path().join("vaults/kanleaf/library/keep.md");
+            fs::write(&file, "new Workspace content").unwrap();
+            let new_staging = data
+                .path()
+                .join("vaults")
+                .join(format!(".kanleaf.v3-staging.{}.test", new.workspace_id()));
+            fs::create_dir(&new_staging).unwrap();
+            fs::write(new_staging.join("keep.md"), "new staging").unwrap();
+            if restart {
+                let restarted = Vault::new(data.path().to_owned());
+                restarted.register_workspace_path(&new);
+                let pending = restarted.pending_workspace_deletions().await.unwrap();
+                assert_eq!(pending.len(), 1);
+                restarted
+                    .finish_workspace_deletion(&pending[0])
+                    .await
+                    .unwrap();
+            } else {
+                vault.finish_workspace_deletion(&deletion).await.unwrap();
+            }
+            assert_eq!(fs::read_to_string(&file).unwrap(), "new Workspace content");
+            assert_eq!(
+                fs::read_to_string(new_staging.join("keep.md")).unwrap(),
+                "new staging"
+            );
+            assert!(
+                vault
+                    .pending_workspace_deletions()
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
 
     fn workspace_file(data_dir: &TempDir, workspace_id: Uuid) -> std::path::PathBuf {
         data_dir
@@ -561,6 +653,7 @@ mod tests {
             .write_workspace_deletion_manifest(&WorkspaceDeletionManifest {
                 operation: WORKSPACE_DELETION_OPERATION.to_owned(),
                 workspace_id,
+                workspace_directory: Some(workspace_id.to_string()),
                 trash_id,
                 vault_present: true,
                 export_staging_keys: Vec::new(),
@@ -569,6 +662,7 @@ mod tests {
             .unwrap();
         let deletion = WorkspaceDeletion {
             workspace_id,
+            workspace_directory: workspace_id.to_string(),
             trash_id,
             vault_present: true,
             export_staging_keys: Vec::new(),

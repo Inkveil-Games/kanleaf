@@ -206,8 +206,15 @@ pub(crate) struct TaskVaultRow {
 
 impl TaskVaultRow {
     pub(crate) fn path(&self) -> Result<TaskPath, AppError> {
-        TaskPath::parse(self.project_storage_name.as_deref(), &self.storage_name)
-            .map_err(AppError::internal)
+        TaskPath::parse(self.task_number).map_err(AppError::internal)
+    }
+
+    pub(crate) fn legacy_storage_name(&self) -> &str {
+        &self.storage_name
+    }
+
+    pub(crate) fn legacy_project_storage_name(&self) -> Option<&str> {
+        self.project_storage_name.as_deref()
     }
 
     pub(crate) fn properties(&self) -> frontmatter::TaskProperties {

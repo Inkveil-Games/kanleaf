@@ -642,7 +642,7 @@ async fn invitation_mail_runs_after_commit_and_preserves_manual_fallbacks(pool: 
 async fn invitations_can_be_declined_renewed_revoked_and_accepted_by_token(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
-    let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let (owner_token, _owner_id, workspace_id) = register(&app, "owner@example.com").await;
     let first = invite(
         &app,
         &owner_token,
@@ -869,13 +869,12 @@ async fn leaving_removal_and_workspace_deletion_keep_active_workspace_valid(pool
         .await
         .unwrap();
     let task = response_json(task).await;
-    let task_storage_name = task["storage_name"].as_str().unwrap();
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(deleted_workspace.to_string())
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
+        .join(format!("workspace-{}", deleted_workspace.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     assert!(task_path.exists());
 
     let wrong_confirmation = app
@@ -967,7 +966,7 @@ async fn leaving_removal_and_workspace_deletion_keep_active_workspace_valid(pool
 async fn failed_database_deletion_restores_the_workspace_vault(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);
-    let (owner_token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let (owner_token, owner_id, workspace_id) = register(&app, "owner@example.com").await;
     let task = app
         .clone()
         .oneshot(json_request(
@@ -979,13 +978,12 @@ async fn failed_database_deletion_restores_the_workspace_vault(pool: PgPool) {
         .await
         .unwrap();
     let task = response_json(task).await;
-    let task_storage_name = task["storage_name"].as_str().unwrap();
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
+        .join(format!("test-{}", &owner_id.simple().to_string()[..12]))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
 
     sqlx::query(
         r#"

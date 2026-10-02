@@ -307,13 +307,11 @@ async fn cycles_transfer_incomplete_work_and_modules_group_tasks(pool: PgPool) {
         data_dir
             .path()
             .join("vaults")
-            .join(workspace_id.to_string())
-            .join("Projects")
-            .join(project["storage_name"].as_str().unwrap())
-            .join("Todo")
+            .join(format!("workspace-{}", workspace_id.simple()))
+            .join("tasks")
             .join(format!(
                 "{}.md",
-                incomplete["storage_name"].as_str().unwrap()
+                incomplete["task_number"].as_i64().unwrap()
             )),
     )
     .unwrap();

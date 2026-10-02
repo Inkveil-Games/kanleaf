@@ -140,6 +140,13 @@ Each Workspace vault also contains server-projected `.kanleaf` JSON. These
 files are portable snapshots, not deployment configuration and not a second
 write API. External Task YAML changes use the explicit Vault Sync preview;
 external `.kanleaf` edits are restored from PostgreSQL by the next projection.
+The live vault root is `vaults/<workspace identifier>/`; Tasks are flat at
+`tasks/<task number>.md`, Workspace Library Pages use `library/`, and
+Project-owned Pages use `projects/<project identifier>/library/`. Shared image
+uploads use opaque names under `assets/images/` and Markdown stores portable
+`kanleaf-asset://images/...` references. Legacy UUID-rooted
+`Projects`/`Todo`/`Wiki` layouts are staged, verified, and atomically migrated
+at startup rather than rewritten in place.
 Workspace export artifacts are temporary, authorization-gated files under the
 server's internal operation storage and expire automatically.
 Workspace import uploads are staged under the same internal namespace, checked
@@ -205,9 +212,9 @@ starts Axum and Vite itself, uses a temporary vault, and cleans that vault up
 afterward. It migrates and writes the supplied PostgreSQL database without
 removing the created records, so first create a dedicated disposable database
 such as `kanleaf_e2e`; never point these suites at developer or deployment data.
-The suite covers durable Task and Library Markdown, Live Preview block/source
-transitions, portable Library trees, collaboration notifications, read state,
-and cross-workspace Task/activity/document isolation. The self-host suite also
+The suite covers durable Task and Library Markdown, shared Milkdown/CodeMirror
+edit sessions, portable Library trees and assets, collaboration notifications,
+read state, and cross-workspace Task/activity/document isolation. The self-host suite also
 loads Host and nested Workspace deep links through Axum's SPA fallback,
 verifies refresh and browser history, and exercises the complete Restricted
 access lifecycle against the compiled same-origin client.

@@ -16,7 +16,9 @@ use kanleaf_server::{
     router, router_with_web_client,
     task::{recover_projection_jobs, spawn_projection_worker},
     webhook::{spawn_webhook_workers, validate_signing_key},
-    workspace::{migrate_workspace_vaults, recover_workspace_deletions},
+    workspace::{
+        migrate_workspace_vaults, recover_workspace_deletions, register_workspace_vault_paths,
+    },
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::signal;
@@ -48,6 +50,9 @@ async fn main() -> anyhow::Result<()> {
         .with_host_email(config.host_email)
         .with_mailer(mailer)
         .with_webhooks(config.webhook_key, config.webhook_policy);
+    register_workspace_vault_paths(&state)
+        .await
+        .context("failed to register canonical Workspace vault paths")?;
     validate_signing_key(&state)
         .await
         .context("failed to configure webhook signing")?;

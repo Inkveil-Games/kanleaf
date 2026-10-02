@@ -5773,7 +5773,7 @@ html[data-input-modality='keyboard']
 }
 
 .task-document-contextual .document-workspace {
-  --document-content-gutter: var(--space-4);
+  --document-content-gutter: var(--space-8);
 }
 
 .task-document-contextual:has(.document-toolbar-pending) {
@@ -5814,8 +5814,12 @@ html[data-input-modality='keyboard']
   align-items: center;
 }
 
-.document-modes {
+.document-modes.ui-segmented-control {
+  flex-wrap: nowrap;
   gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .document-modes .ui-button[aria-pressed='true'] {
@@ -5847,13 +5851,18 @@ html[data-input-modality='keyboard']
 }
 
 .document-workspace {
-  --document-content-gutter: clamp(18px, 3vw, 32px);
+  --document-content-gutter: var(--space-8);
 
   display: grid;
   min-width: 0;
   min-height: 0;
   height: 500px;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
+}
+
+.document-workspace:has(> .document-source-advisory) {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .document-conflict {
@@ -6319,7 +6328,11 @@ html[data-input-modality='keyboard']
 }
 
 .library-document-editor .document-workspace {
-  height: auto;
+  height: 100%;
+}
+
+.library-document-editor .markdown-editor {
+  height: 100%;
 }
 
 .document-detail-empty {
@@ -6342,14 +6355,6 @@ html[data-input-modality='keyboard']
   font-size: 0.75rem;
 }
 
-.document-split {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.document-split > :first-child {
-  border-right: 1px solid var(--color-border);
-}
-
 .markdown-editor,
 .markdown-preview-scroll-area {
   min-width: 0;
@@ -6357,7 +6362,13 @@ html[data-input-modality='keyboard']
 }
 
 .markdown-editor {
+  height: 500px;
   overflow: hidden;
+}
+
+.markdown-source-editor {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .markdown-editor .cm-editor {
@@ -6406,197 +6417,794 @@ html[data-input-modality='keyboard']
   background: var(--color-selection);
 }
 
-.markdown-editor .cm-syntax-markup,
-.markdown-editor .cm-syntax-quote {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-markup,
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-quote {
   color: var(--color-syntax-markup);
 }
 
-.markdown-editor .cm-syntax-heading {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-heading {
   color: var(--color-syntax-heading);
   font-weight: 650;
   text-decoration: none;
 }
 
-.markdown-editor .cm-syntax-link,
-.markdown-editor .cm-syntax-function {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-link,
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-function {
   color: var(--color-syntax-link);
   text-decoration: none;
 }
 
-.markdown-editor .cm-syntax-code {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-code {
   color: var(--color-syntax-code);
 }
 
-.markdown-editor .cm-syntax-number {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-number {
   color: var(--color-syntax-number);
 }
 
-.markdown-editor .cm-syntax-keyword {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-keyword {
   color: var(--color-syntax-keyword);
 }
 
-.markdown-editor .cm-syntax-type,
-.markdown-editor .cm-syntax-property {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-type,
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-property {
   color: var(--color-syntax-type);
 }
 
-.markdown-editor .cm-syntax-string {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-string {
   color: var(--color-syntax-string);
 }
 
-.markdown-editor .cm-syntax-comment {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-comment {
   color: var(--color-syntax-comment);
   font-style: italic;
 }
 
-.markdown-editor .cm-syntax-operator {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-operator {
   color: var(--color-syntax-operator);
 }
 
-.markdown-editor .cm-syntax-strong {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-strong {
   font-weight: 680;
 }
 
-.markdown-editor .cm-syntax-emphasis {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-emphasis {
   font-style: italic;
 }
 
-.markdown-editor .cm-syntax-strikethrough {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-strikethrough {
   text-decoration: line-through;
 }
 
-.markdown-editor .cm-syntax-invalid {
+:is(.markdown-editor, .milkdown-crepe-editor) .cm-syntax-invalid {
   color: var(--color-danger);
   font-weight: 620;
 }
 
-.document-live .cm-editor,
-.document-live .cm-content {
-  font-family: var(--font-ui);
-  font-size: 0.89rem;
+.document-reading-label {
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 620;
 }
 
-.document-live .cm-scroller {
-  line-height: 1.68;
+.document-source-advisory {
+  margin: var(--space-2) var(--document-content-gutter);
 }
 
-/* Keep CodeMirror's cursor guards without letting them alter preview rhythm. */
-.document-live .cm-line:not(.cm-live-source-line) > .cm-widgetBuffer {
-  position: absolute;
+.editor-upload-status {
+  padding: 7px var(--document-content-gutter);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 0.72rem;
 }
 
-.document-live .cm-line.cm-activeLine {
+.editor-upload-status.is-error {
+  color: var(--color-danger);
+}
+
+.milkdown-editor-shell,
+.markdown-source-shell {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  background: var(--color-surface);
+}
+
+.markdown-source-toolbar {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--document-content-gutter);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.markdown-source-toolbar,
+.markdown-format-toolbar {
+  box-sizing: border-box;
+  height: calc(var(--control-height-sm) + var(--space-2) + 1px);
+  flex: 0 0 auto;
+}
+
+.markdown-format-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 5px var(--space-3);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  white-space: nowrap;
+}
+
+.markdown-format-toolbar > span {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.markdown-format-toolbar .toolbar-group-start {
+  margin-left: var(--space-1);
+  padding-left: var(--space-1);
+  border-left: 1px solid var(--color-border);
+}
+
+.markdown-format-toolbar .select-trigger {
+  min-width: 118px;
+  height: 28px;
+  border: 0;
   background: transparent;
+  font-size: var(--font-size-sm);
 }
 
-.document-live .cm-line:not(.cm-activeLine):has(> br) {
+.markdown-format-toolbar .select-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-input-modality='keyboard']
+  .markdown-format-toolbar
+  .select-trigger:focus-visible {
+  outline: none;
+  background: var(--color-surface-hover);
+}
+
+.markdown-format-toolbar .kanleaf-select {
+  flex: 0 0 auto;
+  width: 130px;
+}
+
+.markdown-format-toolbar .ui-icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.markdown-format-toolbar .ui-icon-button[aria-pressed='true'] {
+  color: var(--color-accent);
+  background: var(--color-selection);
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-block-handle
+  .operation-item[hidden] {
   display: none;
 }
 
-.document-live .cm-line:not(.cm-live-source-line) [class*='cm-syntax-'] {
-  color: inherit;
+.milkdown-editor,
+.milkdown-editor [data-milkdown-root],
+.milkdown-editor .milkdown {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
-.document-live .cm-line.cm-live-paragraph-start,
-.document-live .cm-line.cm-live-list-outer-start {
-  padding-top: 0.85em;
+.milkdown-editor {
+  flex: 1 1 auto;
+  overflow: auto;
 }
 
-.document-live .cm-line.cm-live-list-nested-start {
-  padding-top: 0.25em;
+.milkdown-crepe-editor .milkdown {
+  --crepe-color-background: var(--color-surface);
+  --crepe-color-on-background: var(--color-text);
+  --crepe-color-surface: var(--color-surface);
+  --crepe-color-surface-low: var(--color-surface-muted);
+  --crepe-color-on-surface: var(--color-text);
+  --crepe-color-on-surface-variant: var(--color-text-muted);
+  --crepe-color-outline: var(--color-text-muted);
+  --crepe-color-primary: var(--color-accent);
+  --crepe-color-secondary: var(--color-selection);
+  --crepe-color-on-secondary: var(--color-text);
+  --crepe-color-inverse: var(--color-text);
+  --crepe-color-on-inverse: var(--color-surface);
+  --crepe-color-inline-code: var(--color-syntax-code);
+  --crepe-color-error: var(--color-danger);
+  --crepe-color-hover: var(--color-surface-hover);
+  --crepe-color-selected: var(--color-selection);
+  --crepe-color-inline-area: var(--color-surface-muted);
+  --crepe-base-font-size: 0.89rem;
+  --crepe-font-title: var(--font-ui);
+  --crepe-font-default: var(--font-ui);
+  --crepe-font-code: var(--font-mono);
+  --crepe-shadow-1: var(--shadow-popover);
+  --crepe-shadow-2: var(--shadow-popover);
 }
 
-.cm-live-strong {
-  font-weight: 680;
-}
-
-.cm-live-emphasis {
-  font-style: italic;
-}
-
-.cm-live-strikethrough {
-  text-decoration: line-through;
-}
-
-.document-live .cm-line.cm-live-blockquote {
-  position: relative;
-  padding-left: calc(1em + 3px);
-}
-
-.document-live .cm-line.cm-live-blockquote::before {
-  position: absolute;
-  top: var(--live-quote-border-start, 0);
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: var(--color-border);
-  content: '';
-}
-
-.document-live .cm-line.cm-live-blockquote-start {
-  padding-top: 0.95em;
-  --live-quote-border-start: 0.85em;
-}
-
-.document-live .cm-line.cm-live-blockquote-end {
-  padding-bottom: 0.1em;
-}
-
-.cm-live-list-marker {
-  display: inline-block;
-  min-width: 1.55em;
+.milkdown-crepe-editor .milkdown .ProseMirror {
+  min-height: 100%;
+  padding: var(--space-4) var(--document-content-gutter) var(--space-8);
   color: var(--color-text);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 0.89rem;
+  line-height: 1.68;
+  overflow-wrap: anywhere;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .cm-scroller {
+  padding: 0;
+}
+
+.milkdown-editor .markdown-block-exit {
+  height: var(--space-4);
+  margin-block: calc(-1 * var(--space-2));
+  color: transparent;
+  cursor: text;
+  line-height: var(--space-4);
+  user-select: none;
+}
+
+.milkdown-editor .markdown-block-exit:is(:hover, :focus-visible) {
+  color: var(--color-text-muted);
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-code-block {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-muted);
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-code-block.selected {
+  outline: none;
+}
+
+/* Offscreen Crepe placeholders must not collapse a previously laid-out diagram. */
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block.has-mermaid-preview:has(
+    > .milkdown-code-block-placeholder
+  ) {
+  height: var(--mermaid-block-height);
+  overflow: hidden;
+}
+
+.milkdown-code-block.has-mermaid-preview > .milkdown-code-block-placeholder {
+  visibility: hidden;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .tools {
+  min-height: var(--control-height-sm);
+  margin-bottom: var(--space-2);
+}
+
+/* Balance the header above a diagram when its source editor is hidden. */
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block:has(> .codemirror-host.hidden):has(
+    .markdown-diagram-host
+  ) {
+  padding-bottom: calc(
+    var(--space-3) + var(--control-height-sm) + var(--space-2)
+  );
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-code-block .tools .language-button {
+  margin: 0;
+  padding: 0;
+  opacity: 1;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  background: transparent;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .tools
+  .language-button:hover {
+  background: transparent;
+  font-weight: 650;
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-code-block .language-list-item {
+  font-weight: 500;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .language-list-item:hover {
+  background: transparent;
+  font-weight: 650;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .tools
+  .tools-button-group
+  button {
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2);
+  opacity: 1;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .tools
+  .tools-button-group
+  button:is(:hover, :first-child, :last-child) {
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .tools
+  .tools-button-group
+  button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.milkdown-crepe-editor .milkdown-code-block .tools button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  .tools
+  .tools-button-group
+  button
+  svg {
+  fill: none;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .milkdown-code-block
+  :is(.cm-editor, .cm-gutters) {
+  background: transparent;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .cm-activeLine {
+  background: var(--color-editor-active-line);
+}
+
+.milkdown-crepe-editor
+  .milkdown-code-block
+  .cm-editor:not(.cm-focused)
+  .cm-activeLine {
+  background: transparent;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .cm-content {
+  padding: 0;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .cm-line {
+  padding-inline: 0;
+}
+
+.milkdown-crepe-editor .milkdown-code-block .preview-divider,
+.milkdown-crepe-editor .milkdown-code-block .preview-label {
+  display: none;
+}
+
+/* Keep Mermaid's temporary SVG measurable without affecting page overflow. */
+.markdown-diagram-measure {
+  position: fixed;
+  inset: 0;
+  contain: strict;
+  overflow: clip;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.markdown-diagram {
+  display: block;
+  overflow: auto;
+  padding: var(--space-2) 0;
+  text-align: center;
+  color: var(--color-text);
+}
+
+.markdown-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.markdown-diagram.is-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.milkdown-crepe-editor .smart-punctuation {
+  font-size: 0;
+}
+
+.milkdown-crepe-editor .smart-punctuation::after {
+  content: attr(data-smart-punctuation);
+  font-size: calc(
+    var(--crepe-base-font-size) * var(--smart-punctuation-scale, 1)
+  );
+}
+
+.milkdown-crepe-editor h1 {
+  --smart-punctuation-scale: 1.85;
+}
+.milkdown-crepe-editor h2 {
+  --smart-punctuation-scale: 1.46;
+}
+.milkdown-crepe-editor h3 {
+  --smart-punctuation-scale: 1.21;
+}
+
+.milkdown-crepe-editor .katex-display {
+  margin: var(--space-2) 0;
+  overflow: visible;
+}
+
+.milkdown-crepe-editor .milkdown span[data-type='math_inline'],
+.milkdown-crepe-editor .markdown-math-block,
+.markdown-preview .katex {
+  color: var(--color-text);
+}
+
+.milkdown-crepe-editor .milkdown .markdown-math-block {
+  margin: var(--space-4) 0;
+}
+
+.milkdown-crepe-editor .milkdown .markdown-math-preview {
+  display: block;
+  width: 100%;
+  padding: var(--space-1) 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
   text-align: center;
 }
 
-.cm-live-list-marker-unordered::before {
-  display: inline-block;
-  width: 0.36em;
-  height: 0.36em;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: 0.08em;
-  content: '';
+.milkdown-crepe-editor .milkdown .markdown-math-preview:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
-.cm-live-task-marker {
+.milkdown-crepe-editor .milkdown .markdown-math-source {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  resize: none;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-block-handle .operation-item {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.milkdown-crepe-editor .milkdown-block-handle {
+  z-index: 2;
+}
+
+.milkdown-crepe-editor .milkdown .milkdown-block-handle .operation-item svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+}
+
+.milkdown-crepe-editor
+  :is(.operation-item, .toolbar-item, .milkdown-slash-menu li):focus-visible,
+.milkdown-crepe-editor .label-wrapper:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.milkdown-crepe-editor :is(.milkdown-slash-menu, .milkdown-toolbar) {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.milkdown-crepe-editor .milkdown-slash-menu .tab-group,
+.milkdown-crepe-editor .milkdown-slash-menu .menu-groups {
+  padding-right: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+.milkdown-crepe-editor .milkdown-slash-menu .menu-groups .menu-group li {
+  min-width: 205px;
+  gap: var(--space-3);
+  padding: 9px var(--space-2);
+}
+
+.milkdown-crepe-editor .milkdown-slash-menu .menu-groups .menu-group h6 {
+  padding: 11px var(--space-2) 7px;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.035em;
+}
+
+.milkdown-crepe-editor .milkdown-toolbar .toolbar-item {
+  width: 28px;
+  height: 28px;
+  margin: 3px;
+}
+
+.milkdown-crepe-editor .milkdown-toolbar .toolbar-item svg {
+  width: 18px;
+  height: 18px;
+}
+
+.milkdown-crepe-editor .milkdown-slash-menu .menu-groups .menu-group li {
+  padding-block: 6px;
+  gap: var(--space-2);
+}
+
+.milkdown-crepe-editor .milkdown-table-block :is(th, td) {
+  padding: var(--space-2) var(--space-3);
+}
+
+.milkdown-crepe-editor .milkdown-table-block :is(th, td) p {
+  margin: 0;
+}
+
+.milkdown-editor .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.milkdown-editor .ProseMirror > :last-child {
+  margin-bottom: 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror :is(h1, h2, h3, h4) {
+  margin: 1.5em 0 0.55em;
+  color: var(--color-text);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.018em;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror h1 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 1.65rem;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 1.3rem;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror h3 {
+  font-size: 1.08rem;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0.85em 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.milkdown-editor .ProseMirror :is(ul, ol) {
+  padding-left: 1.55em;
+}
+
+.milkdown-editor .ProseMirror li[data-checked] {
+  list-style: none;
+}
+
+.milkdown-editor .ProseMirror li[data-item-type='task'] {
+  position: relative;
+  list-style: none;
+}
+
+.milkdown-editor .ProseMirror .milkdown-task-checkbox {
+  position: absolute;
+  top: 0.46em;
+  left: -1.45em;
   width: 14px;
   height: 14px;
-  margin: 0 0.5em 0 0.25em;
-  vertical-align: -2px;
+  margin: 0;
   accent-color: var(--color-accent);
 }
 
-.cm-live-block-widget {
-  display: block;
-  padding: 0.85em 0 0;
-  white-space: normal;
-}
-
-.cm-live-block-widget[data-block-kind='HorizontalRule'] {
-  padding: 1.8em 0 0;
-}
-
-.cm-live-block-widget:is(
-  [data-block-kind='SetextHeading1'],
-  [data-block-kind='SetextHeading2']
-) {
-  padding: 1.5em 0 0;
-}
-
-.cm-live-block-widget[data-document-start='true'] {
-  padding-top: 0;
-}
-
-.cm-live-block-widget .markdown-preview {
-  padding: 0;
-  overflow: visible;
-  font-size: inherit;
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  .milkdown-list-item-block
+  > .list-item
+  > .children
+  > .content-dom
+  > p {
+  margin: 0;
+  padding: var(--space-1) 0;
   line-height: inherit;
 }
 
-.cm-live-block-widget .markdown-preview :is(pre, table, hr) {
+.milkdown-crepe-editor .milkdown-list-item-block > .list-item > .label-wrapper {
+  height: calc(1lh + 2 * var(--space-1));
+}
+
+.milkdown-crepe-editor .milkdown-list-item-block .label-wrapper .label {
+  display: flex;
+  height: auto;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.milkdown-crepe-editor .milkdown-list-item-block .markdown-checklist-box svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: var(--color-control-checked-foreground);
+}
+
+.milkdown-crepe-editor .markdown-checklist-box:not([data-checked]) svg {
+  visibility: hidden;
+}
+
+.milkdown-crepe-editor .label-wrapper:hover .markdown-checklist-box {
+  border-color: var(--color-control-border-hover);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror blockquote {
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror blockquote::before {
+  content: none;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror blockquote > p {
   margin: 0;
+  padding: 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror blockquote > p + p {
+  margin-top: var(--space-2);
+}
+
+.milkdown-editor .ProseMirror code {
+  padding: 0.12em 0.35em;
+  border-radius: 3px;
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+.milkdown-editor .ProseMirror pre {
+  padding: var(--space-3) var(--space-4);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+
+.milkdown-editor .ProseMirror pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.milkdown-editor .ProseMirror a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror table {
+  border-spacing: 0;
+  border-collapse: separate;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror :is(th, td) {
+  min-width: 90px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror th {
+  background: var(--color-surface-muted);
+  font-weight: 650;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr > :last-child {
+  border-right: 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr:last-child > :is(th, td) {
+  border-bottom: 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr:first-child > :first-child {
+  border-top-left-radius: var(--radius-md);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr:first-child > :last-child {
+  border-top-right-radius: var(--radius-md);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-md);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-md);
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror :is(th, td) > p {
+  margin: 0;
+  padding: 0;
+}
+
+.milkdown-editor .ProseMirror img,
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.markdown-image-loading {
+  display: inline-flex;
+  min-height: 80px;
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-sm);
 }
 
 .markdown-preview {
@@ -6626,47 +7234,24 @@ html[data-input-modality='keyboard']
   letter-spacing: -0.018em;
 }
 
-.document-live .cm-line.cm-live-heading-line {
-  padding-top: 1.5em;
-  color: var(--color-text);
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: -0.018em;
-}
-
-.markdown-preview h1,
-.document-live .cm-line.cm-live-heading-1 {
+.markdown-preview h1 {
   padding-bottom: 0.3em;
   border-bottom: 1px solid var(--color-border);
   font-size: 1.65rem;
 }
 
-.markdown-preview h2,
-.document-live .cm-line.cm-live-heading-2 {
+.markdown-preview h2 {
   padding-bottom: 0.25em;
   border-bottom: 1px solid var(--color-border);
   font-size: 1.3rem;
 }
 
-.markdown-preview h3,
-.document-live .cm-line.cm-live-heading-3 {
+.markdown-preview h3 {
   font-size: 1.08rem;
 }
 
-.markdown-preview h4,
-.document-live .cm-line.cm-live-heading-4,
-.document-live .cm-line.cm-live-heading-5,
-.document-live .cm-line.cm-live-heading-6 {
+.markdown-preview h4 {
   font-size: 0.95rem;
-}
-
-.document-live .cm-line.cm-live-document-start {
-  padding-top: 0;
-}
-
-.document-live .cm-line.cm-live-document-start.cm-live-blockquote-start {
-  padding-top: 0.1em;
-  --live-quote-border-start: 0;
 }
 
 .markdown-preview p,
@@ -6711,10 +7296,6 @@ html[data-input-modality='keyboard']
   color: var(--color-text-muted);
 }
 
-.document-live .cm-line.cm-live-blockquote {
-  color: var(--color-text-muted);
-}
-
 .markdown-preview blockquote {
   padding: 0.1em 1em;
 }
@@ -6727,8 +7308,7 @@ html[data-input-modality='keyboard']
   margin-bottom: 0;
 }
 
-.markdown-preview code,
-.cm-live-inline-code {
+.markdown-preview code {
   padding: 0.12em 0.35em;
   border-radius: 3px;
   background: var(--color-surface-muted);
@@ -6751,8 +7331,7 @@ html[data-input-modality='keyboard']
   font-size: 0.78rem;
 }
 
-.markdown-preview a,
-.cm-live-link {
+.markdown-preview a {
   color: var(--color-accent);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -9553,16 +10132,6 @@ html[data-input-modality='keyboard'] .settings-drag-handle:focus-visible {
   .detail-scroll {
     padding-right: 32px;
     padding-left: 32px;
-  }
-
-  .library-document-editor .document-split {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-  }
-
-  .library-document-editor .document-split > :first-child {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
   }
 
   .planning-surface {

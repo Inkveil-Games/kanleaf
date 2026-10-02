@@ -93,6 +93,7 @@ pub(super) struct ValidatedImport {
     pub views: ViewsConfig,
     pub projects: Vec<ProjectConfig>,
     pub tasks: HashMap<Uuid, ValidatedTask>,
+    pub document_source_paths: HashMap<Uuid, String>,
     pub summary: ImportSummary,
 }
 
@@ -100,6 +101,7 @@ pub(super) struct ValidatedTask {
     pub identity: TaskIdentity,
     pub properties: TaskProperties,
     pub path: TaskPath,
+    pub source_path: String,
     pub cleanup_property_names: Vec<String>,
 }
 
@@ -414,7 +416,8 @@ pub(super) fn validate_staging(
     let mut excluded_assignees = 0;
     for identity in &manifest.source.tasks {
         let (path, project) = task_path(identity, &project_map)?;
-        let source = std::fs::read_to_string(staging_vault.join(path.display()))
+        let source_path = task_source_path(identity, project, manifest.source.layout_version)?;
+        let source = std::fs::read_to_string(staging_vault.join(&source_path))
             .map_err(|_| ImportArchiveError::InvalidMetadata)?;
         let mut properties =
             read_task_properties(&source).map_err(|_| ImportArchiveError::InvalidMetadata)?;
@@ -468,6 +471,7 @@ pub(super) fn validate_staging(
                 identity: identity.clone(),
                 properties,
                 path,
+                source_path,
                 cleanup_property_names: if legacy_configuration {
                     vec!["Type".to_owned()]
                 } else {
@@ -504,9 +508,13 @@ pub(super) fn validate_staging(
     {
         return Err(ImportArchiveError::InvalidMetadata);
     }
-    let document_paths = document_paths(&manifest.source.documents, &project_map)?;
+    let document_paths = document_paths(
+        &manifest.source.documents,
+        &project_map,
+        manifest.source.layout_version,
+    )?;
     let mut expected_payloads = HashSet::new();
-    expected_payloads.extend(tasks.values().map(|task| task.path.display()));
+    expected_payloads.extend(tasks.values().map(|task| task.source_path.clone()));
     expected_payloads.extend(document_paths.values().cloned());
     expected_payloads.extend([
         ".kanleaf/workspace.json".to_owned(),
@@ -517,6 +525,12 @@ pub(super) fn validate_staging(
         projects
             .iter()
             .map(|project| format!(".kanleaf/projects/{}.json", project.id)),
+    );
+    expected_payloads.extend(
+        inventory
+            .keys()
+            .filter(|path| path.starts_with("assets/images/") || path.starts_with("assets/files/"))
+            .cloned(),
     );
     let inventory_paths = inventory.keys().cloned().collect::<HashSet<_>>();
     if expected_payloads != inventory_paths {
@@ -607,6 +621,7 @@ pub(super) fn validate_staging(
         views,
         projects,
         tasks,
+        document_source_paths: document_paths,
         summary,
     })
 }
@@ -614,7 +629,7 @@ pub(super) fn validate_staging(
 fn validate_manifest_shape(manifest: &ImportManifest) -> Result<(), ImportArchiveError> {
     if manifest.format_version != 1
         || !matches!(manifest.source.format_version, 1 | 2)
-        || manifest.source.layout_version != 2
+        || !matches!(manifest.source.layout_version, 2 | 3)
     {
         return Err(ImportArchiveError::UnsupportedSchema);
     }
@@ -1623,12 +1638,32 @@ fn task_path<'a>(
                 .ok_or(ImportArchiveError::InvalidMetadata)
         })
         .transpose()?;
-    let path = TaskPath::parse(
-        project.map(|project| project.storage_name.as_str()),
-        &task.storage_name,
-    )
-    .map_err(|_| ImportArchiveError::InvalidMetadata)?;
+    let path = TaskPath::parse(task.number).map_err(|_| ImportArchiveError::InvalidMetadata)?;
     Ok((path, project))
+}
+
+fn task_source_path(
+    task: &TaskIdentity,
+    project: Option<&ProjectConfig>,
+    layout_version: i16,
+) -> Result<String, ImportArchiveError> {
+    let path = match layout_version {
+        2 => project.map_or_else(
+            || format!("Todo/{}.md", task.storage_name),
+            |project| {
+                format!(
+                    "Projects/{}/Todo/{}.md",
+                    project.storage_name, task.storage_name
+                )
+            },
+        ),
+        3 => TaskPath::parse(task.number)
+            .map_err(|_| ImportArchiveError::InvalidMetadata)?
+            .display(),
+        _ => return Err(ImportArchiveError::UnsupportedSchema),
+    };
+    validate_path(&path)?;
+    Ok(path)
 }
 
 fn reference_matches(
@@ -1645,6 +1680,7 @@ fn reference_matches(
 fn document_paths(
     documents: &[DocumentIdentity],
     projects: &HashMap<Uuid, &ProjectConfig>,
+    layout_version: i16,
 ) -> Result<HashMap<Uuid, String>, ImportArchiveError> {
     let by_id = documents
         .iter()
@@ -1682,8 +1718,8 @@ fn document_paths(
             current = parent;
         }
         segments.reverse();
-        let relative = match document.project_id {
-            Some(project_id) => {
+        let relative = match (layout_version, document.project_id) {
+            (2, Some(project_id)) => {
                 let project = projects
                     .get(&project_id)
                     .ok_or(ImportArchiveError::InvalidMetadata)?;
@@ -1693,7 +1729,19 @@ fn document_paths(
                     segments.join("/")
                 )
             }
-            None => format!("Wiki/{}.md", segments.join("/")),
+            (2, None) => format!("Wiki/{}.md", segments.join("/")),
+            (3, Some(project_id)) => {
+                let project = projects
+                    .get(&project_id)
+                    .ok_or(ImportArchiveError::InvalidMetadata)?;
+                format!(
+                    "projects/{}/library/{}.md",
+                    project.identifier,
+                    segments.join("/")
+                )
+            }
+            (3, None) => format!("library/{}.md", segments.join("/")),
+            _ => return Err(ImportArchiveError::UnsupportedSchema),
         };
         validate_path(&relative)?;
         paths.insert(document.id, relative);
@@ -1911,15 +1959,26 @@ fn is_managed_payload(path: &str) -> bool {
     {
         return Uuid::parse_str(project).is_ok();
     }
-    path.ends_with(".md")
-        && (path.starts_with("Todo/") || path.starts_with("Wiki/") || path.starts_with("Projects/"))
+    (path.ends_with(".md")
+        && (path.starts_with("Todo/")
+            || path.starts_with("Wiki/")
+            || path.starts_with("Projects/")
+            || path.starts_with("tasks/")
+            || path.starts_with("library/")
+            || path.starts_with("projects/")))
+        || path
+            .strip_prefix("assets/images/")
+            .is_some_and(|file_name| crate::vault::AssetPath::parse_image(file_name).is_ok())
 }
 
 fn media_type(path: &str) -> &'static str {
-    if path.ends_with(".md") {
-        "text/markdown"
-    } else {
-        "application/json"
+    match path.rsplit_once('.').map(|(_, extension)| extension) {
+        Some("md") => "text/markdown",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        _ => "application/json",
     }
 }
 

@@ -34,6 +34,24 @@ use persistence::{
     validate_parent, validate_subtree_scope,
 };
 
+pub(crate) async fn authorize_document_location(
+    state: &AppState,
+    user_id: Uuid,
+    workspace_id: Uuid,
+    document_id: Uuid,
+    edit: bool,
+) -> Result<(), AppError> {
+    let project_id: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT project_id FROM documents WHERE workspace_id = $1 AND id = $2")
+            .bind(workspace_id)
+            .bind(document_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    let project_id =
+        project_id.ok_or_else(|| AppError::NotFound("Document not found".to_owned()))?;
+    authorize_scope(state, user_id, workspace_id, project_id, edit).await
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct DocumentResponse {
     pub id: Uuid,
@@ -161,8 +179,8 @@ async fn list(
                documents.project_id,
                documents.parent_id, documents.title, documents.storage_name,
                CASE
-                   WHEN documents.project_id IS NULL THEN 'Wiki/'
-                   ELSE 'Projects/' || projects.storage_name || '/Wiki/'
+                   WHEN documents.project_id IS NULL THEN 'library/'
+                   ELSE 'projects/' || projects.identifier || '/library/'
                END || document_paths.relative_path || '.md' AS library_path,
                documents.position,
                CASE
@@ -626,8 +644,8 @@ async fn moved_scope_documents(
         )
         SELECT documents.id, documents.parent_id, documents.position,
                CASE
-                   WHEN documents.project_id IS NULL THEN 'Wiki/'
-                   ELSE 'Projects/' || projects.storage_name || '/Wiki/'
+                   WHEN documents.project_id IS NULL THEN 'library/'
+                   ELSE 'projects/' || projects.identifier || '/library/'
                END || document_paths.relative_path || '.md' AS library_path,
                documents.updated_at
         FROM documents

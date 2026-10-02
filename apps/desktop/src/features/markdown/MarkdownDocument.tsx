@@ -1,35 +1,51 @@
 import { useQuery } from '@tanstack/react-query';
-import { Code2, Columns2, Eye, Pencil, Save } from 'lucide-react';
+import { Code2, Pencil, RotateCcw } from 'lucide-react';
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { Button } from '../../components/ui/Button';
+import { CopyButton } from '../../components/ui/CopyButton';
+import { InlineAlert } from '../../components/ui/InlineAlert';
+import { LoadError } from '../../components/ui/LoadError';
+import { ScrollArea } from '../../components/ui/ScrollArea';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { ApiError } from '../../lib/api/client';
 import {
+  readMarkdownAsset,
   readMarkdownDocument,
+  uploadMarkdownImage,
   writeMarkdownDocument,
   type MarkdownTarget,
 } from './api';
-import { MarkdownPreview } from './MarkdownPreview';
-import { ApiError } from '../../lib/api/client';
 import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
-import { Button } from '../../components/ui/Button';
-import { IconButton } from '../../components/ui/IconButton';
-import { ScrollArea } from '../../components/ui/ScrollArea';
-import { Tooltip } from '../../components/ui/Tooltip';
+import { MarkdownPreview } from './MarkdownPreview';
+import { visualEditingSupport } from './visualEditingSupport';
+import type {
+  MarkdownEditorHandle,
+  MarkdownViewport,
+} from './markdownViewport';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
     default: module.MarkdownSourceEditor,
   })),
 );
+const MilkdownEditor = lazy(() =>
+  import('./MilkdownEditor').then((module) => ({
+    default: module.MilkdownEditor,
+  })),
+);
 
-type MarkdownMode = 'live' | 'source' | 'reading' | 'split';
+type EditingTab = 'editor' | 'source';
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'conflict' | 'error';
+const AUTOSAVE_DELAY_MS = 800;
 
 interface MarkdownDocumentProps {
   serverUrl: string;
@@ -39,9 +55,6 @@ interface MarkdownDocumentProps {
   readOnly?: boolean;
   documentContext?: ReactNode;
 }
-
-const MODE_STORAGE_KEY = 'kanleaf.markdown-mode';
-const AUTOSAVE_DELAY_MS = 800;
 
 export function MarkdownDocument(props: MarkdownDocumentProps) {
   const document = useQuery({
@@ -76,17 +89,12 @@ export function MarkdownDocument(props: MarkdownDocumentProps) {
           <span>Markdown</span>
           <span className="save-indicator">Unavailable</span>
         </header>
-        <div className="document-state" role="alert">
-          <p>{errorMessage(document.error)}</p>
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            onClick={() => void document.refetch()}
-          >
-            Try again
-          </Button>
-        </div>
+        <LoadError
+          title="Document unavailable"
+          description={errorMessage(document.error)}
+          onRetry={() => void document.refetch()}
+          retrying={document.isFetching}
+        />
       </DocumentFrame>
     );
   }
@@ -116,54 +124,70 @@ function LoadedMarkdownDocument({
   readOnly = false,
   documentContext,
 }: LoadedMarkdownDocumentProps) {
-  const targetKind = target.kind;
-  const targetId = target.id;
-  const [content, setContent] = useState(initialContent);
-  const [mode, setMode] = useState(readMode);
+  const [draft, setDraft] = useState(initialContent);
+  const [tab, setTab] = useState<EditingTab>(() =>
+    visualEditingSupport(initialContent).supported ? 'editor' : 'source',
+  );
   const [saveState, setSaveState] = useState<SaveState>('saved');
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
-  const contentRef = useRef(content);
-  const lastSavedRef = useRef(initialContent);
+  const [saveError, setSaveError] = useState<string | null>(
+    () => visualEditingSupport(initialContent).reason ?? null,
+  );
+  const draftRef = useRef(draft);
+  const savedRef = useRef(initialContent);
   const revisionRef = useRef(initialRevision);
   const conflictRef = useRef(false);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const editorRef = useRef<MarkdownEditorHandle>(null);
+  const [viewport, setViewport] = useState<MarkdownViewport | null>(null);
+  function switchTab(next: EditingTab) {
+    if (next === tab) return;
+    setViewport(editorRef.current?.captureViewport() ?? null);
+    setTab(next);
+  }
   const { registerDocumentSave } = useDocumentSaveCoordinator();
+  const context = useMemo(
+    () => ({
+      serverUrl,
+      token,
+      workspaceId,
+      target: { kind: target.kind, id: target.id } as MarkdownTarget,
+    }),
+    [serverUrl, target.id, target.kind, token, workspaceId],
+  );
 
-  const queueSave = useCallback(
+  const changeDraft = useCallback((next: string) => {
+    draftRef.current = next;
+    setDraft(next);
+    setSaveError(null);
+    setSaveState(next === savedRef.current ? 'saved' : 'unsaved');
+  }, []);
+
+  const persist = useCallback(
     async (nextContent: string) => {
       if (readOnly) return true;
       if (conflictRef.current) return false;
-      if (nextContent === lastSavedRef.current) {
-        if (contentRef.current === nextContent) setSaveState('saved');
+      if (nextContent === savedRef.current) {
+        setSaveState('saved');
         return true;
       }
       setSaveState('saving');
       setSaveError(null);
-
       const save = saveChainRef.current
         .catch(() => undefined)
         .then(async () => {
-          if (nextContent === lastSavedRef.current) return;
           const saved = await writeMarkdownDocument(
-            {
-              serverUrl,
-              token,
-              workspaceId,
-              target: { kind: targetKind, id: targetId },
-            },
+            context,
             nextContent,
             revisionRef.current,
           );
-          lastSavedRef.current = nextContent;
+          savedRef.current = nextContent;
           revisionRef.current = saved.revision;
         });
       saveChainRef.current = save;
-
       try {
         await save;
         setSaveState(
-          contentRef.current === lastSavedRef.current ? 'saved' : 'unsaved',
+          draftRef.current === savedRef.current ? 'saved' : 'unsaved',
         );
         return true;
       } catch (caught) {
@@ -177,14 +201,14 @@ function LoadedMarkdownDocument({
         return false;
       }
     },
-    [readOnly, serverUrl, targetId, targetKind, token, workspaceId],
+    [context, readOnly],
   );
 
   const flushForTransition = useCallback(async () => {
-    if (!(await queueSave(contentRef.current))) {
-      throw new Error('Resolve unsaved Markdown before switching accounts');
+    if (!(await persist(draftRef.current))) {
+      throw new Error('Resolve unsaved Markdown before leaving this document');
     }
-  }, [queueSave]);
+  }, [persist]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -192,13 +216,13 @@ function LoadedMarkdownDocument({
   }, [flushForTransition, readOnly, registerDocumentSave]);
 
   useEffect(() => {
-    if (readOnly || content === lastSavedRef.current) return;
+    if (readOnly || draft === savedRef.current || conflictRef.current) return;
     const timeout = window.setTimeout(
-      () => void queueSave(content),
+      () => void persist(draft),
       AUTOSAVE_DELAY_MS,
     );
     return () => window.clearTimeout(timeout);
-  }, [content, queueSave, readOnly]);
+  }, [draft, persist, readOnly]);
 
   useEffect(() => {
     function saveShortcut(event: KeyboardEvent) {
@@ -208,103 +232,91 @@ function LoadedMarkdownDocument({
         event.key.toLowerCase() === 's'
       ) {
         event.preventDefault();
-        void queueSave(contentRef.current);
+        void persist(draftRef.current);
       }
     }
     window.addEventListener('keydown', saveShortcut);
     return () => window.removeEventListener('keydown', saveShortcut);
-  }, [queueSave, readOnly]);
+  }, [persist, readOnly]);
 
   useEffect(
     () => () => {
       if (
         !readOnly &&
         !conflictRef.current &&
-        contentRef.current !== lastSavedRef.current
+        draftRef.current !== savedRef.current
       ) {
-        void queueSave(contentRef.current);
+        void persist(draftRef.current);
       }
     },
-    [queueSave, readOnly],
+    [persist, readOnly],
   );
-
-  function changeContent(value: string) {
-    contentRef.current = value;
-    setContent(value);
-    setSaveState(value === lastSavedRef.current ? 'saved' : 'unsaved');
-    setSaveError(null);
-    setCopyState('idle');
-  }
 
   async function reloadRemote() {
     try {
-      const remote = await readMarkdownDocument({
-        serverUrl,
-        token,
-        workspaceId,
-        target: { kind: targetKind, id: targetId },
-      });
-      contentRef.current = remote.content;
-      lastSavedRef.current = remote.content;
+      const remote = await readMarkdownDocument(context);
+      draftRef.current = remote.content;
+      savedRef.current = remote.content;
       revisionRef.current = remote.revision;
       conflictRef.current = false;
-      setContent(remote.content);
+      setDraft(remote.content);
+      setViewport(null);
+      setTab(
+        visualEditingSupport(remote.content).supported ? 'editor' : 'source',
+      );
       setSaveError(null);
       setSaveState('saved');
-      setCopyState('idle');
     } catch (caught) {
       setSaveError(errorMessage(caught));
       setSaveState('error');
     }
   }
 
-  async function copyLocal() {
-    try {
-      await navigator.clipboard.writeText(contentRef.current);
-      setCopyState('copied');
-    } catch {
-      setSaveError('Could not copy the local Markdown source');
-    }
-  }
-
-  function changeMode(nextMode: MarkdownMode) {
-    setMode(nextMode);
-    try {
-      localStorage.setItem(MODE_STORAGE_KEY, nextMode);
-    } catch {
-      // The editor remains usable when local preferences are unavailable.
-    }
-  }
+  const uploadImage = useCallback(
+    async (file: File) => (await uploadMarkdownImage(context, file)).reference,
+    [context],
+  );
+  const resolveAsset = useCallback(
+    (reference: string) => readMarkdownAsset(context, reference),
+    [context],
+  );
 
   return (
     <DocumentFrame contextual={Boolean(documentContext)}>
       <header className="document-toolbar">
-        <div className="document-modes" aria-label="Document view">
-          <ModeButton
-            label="Live"
-            active={mode === 'live'}
-            icon={<Pencil aria-hidden="true" size={14} />}
-            onClick={() => changeMode('live')}
+        {readOnly ? (
+          <span className="document-reading-label">Markdown</span>
+        ) : (
+          <SegmentedControl<EditingTab>
+            className="document-modes"
+            aria-label="Editing mode"
+            value={tab}
+            onValueChange={switchTab}
+            options={[
+              {
+                value: 'editor',
+                label: (
+                  <>
+                    <Pencil aria-hidden="true" size={14} />
+                    Editor
+                  </>
+                ),
+                tooltip: 'Visual Markdown editor',
+                disabled: !visualEditingSupport(draft).supported,
+              },
+              {
+                value: 'source',
+                label: (
+                  <>
+                    <Code2 aria-hidden="true" size={14} />
+                    Source
+                  </>
+                ),
+                tooltip: 'Markdown source editor',
+              },
+            ]}
           />
-          <ModeButton
-            label="Source"
-            active={mode === 'source'}
-            icon={<Code2 aria-hidden="true" size={14} />}
-            onClick={() => changeMode('source')}
-          />
-          <ModeButton
-            label="Reading"
-            active={mode === 'reading'}
-            icon={<Eye aria-hidden="true" size={15} />}
-            onClick={() => changeMode('reading')}
-          />
-          <ModeButton
-            label="Split"
-            active={mode === 'split'}
-            icon={<Columns2 aria-hidden="true" size={15} />}
-            onClick={() => changeMode('split')}
-          />
-        </div>
+        )}
         {readOnly ? (
           <span className="save-indicator" role="status">
             Read only
@@ -318,24 +330,9 @@ function LoadedMarkdownDocument({
                   ? 'alert'
                   : 'status'
               }
-              title={saveError ?? undefined}
             >
               {saveLabel(saveState)}
             </span>
-            <Tooltip
-              label="Save Markdown (Ctrl/Command+S)"
-              trigger={
-                <IconButton
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  aria-label="Save Markdown"
-                  onClick={() => void queueSave(contentRef.current)}
-                >
-                  <Save aria-hidden="true" size={15} />
-                </IconButton>
-              }
-            />
           </div>
         )}
       </header>
@@ -352,18 +349,21 @@ function LoadedMarkdownDocument({
                 ? 'The file changed outside Kanleaf.'
                 : 'Markdown could not be saved.'}
             </strong>
-            <span>
-              Your local Markdown is still open. Resolve this before leaving the
-              account.
-            </span>
+            <span>Your local draft remains open.</span>
           </div>
           <div className="document-conflict-actions">
+            <CopyButton
+              text={draft}
+              label="Copy local"
+              successLabel="Local source copied"
+              errorLabel="Could not copy. Open Source to select and copy your draft."
+            />
             {saveState === 'error' && (
               <Button
                 variant="secondary"
                 size="sm"
                 type="button"
-                onClick={() => void queueSave(contentRef.current)}
+                onClick={() => void persist(draftRef.current)}
               >
                 Try save
               </Button>
@@ -372,79 +372,52 @@ function LoadedMarkdownDocument({
               variant="secondary"
               size="sm"
               type="button"
-              onClick={() => void copyLocal()}
-            >
-              {copyState === 'copied' ? 'Local source copied' : 'Copy local'}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
               onClick={() => void reloadRemote()}
             >
+              <RotateCcw aria-hidden="true" size={14} />
               Discard local
             </Button>
           </div>
         </div>
       )}
 
-      <div className={`document-workspace document-${mode}`}>
-        {mode !== 'reading' && (
+      {readOnly ? (
+        <ScrollArea className="markdown-preview-scroll-area" orientation="both">
+          <MarkdownPreview content={draft} assetContext={context} />
+        </ScrollArea>
+      ) : (
+        <div className={`document-workspace document-${tab}`}>
+          {saveError && saveState === 'saved' && (
+            <InlineAlert className="document-source-advisory">
+              {saveError}
+            </InlineAlert>
+          )}
           <div className="markdown-editor" aria-label="Markdown editor">
             <Suspense
-              fallback={<div className="document-state">Loading source…</div>}
+              fallback={<div className="document-state">Loading editor…</div>}
             >
-              <MarkdownSourceEditor
-                value={content}
-                onChange={changeContent}
-                readOnly={readOnly}
-                livePreview={mode === 'live'}
-              />
+              {tab === 'editor' ? (
+                <MilkdownEditor
+                  ref={editorRef}
+                  initialViewport={viewport}
+                  value={draft}
+                  onChange={changeDraft}
+                  uploadImage={uploadImage}
+                  resolveAsset={resolveAsset}
+                />
+              ) : (
+                <MarkdownSourceEditor
+                  ref={editorRef}
+                  initialViewport={viewport}
+                  value={draft}
+                  onChange={changeDraft}
+                />
+              )}
             </Suspense>
           </div>
-        )}
-        {(mode === 'reading' || mode === 'split') && (
-          <ScrollArea
-            className="markdown-preview-scroll-area"
-            orientation="both"
-          >
-            <MarkdownPreview
-              content={content}
-              onTaskToggle={
-                mode === 'reading' && !readOnly ? changeContent : undefined
-              }
-            />
-          </ScrollArea>
-        )}
-      </div>
+        </div>
+      )}
     </DocumentFrame>
-  );
-}
-
-interface ModeButtonProps {
-  label: string;
-  active: boolean;
-  icon: ReactNode;
-  onClick: () => void;
-}
-
-function ModeButton({ label, active, icon, onClick }: ModeButtonProps) {
-  return (
-    <Tooltip
-      label={`${label} Markdown`}
-      trigger={
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          aria-pressed={active}
-          onClick={onClick}
-        >
-          {icon}
-          <span>{label}</span>
-        </Button>
-      }
-    />
   );
 }
 
@@ -466,24 +439,6 @@ function DocumentFrame({
       {children}
     </section>
   );
-}
-
-function readMode(): MarkdownMode {
-  try {
-    const mode = localStorage.getItem(MODE_STORAGE_KEY);
-    if (
-      mode === 'live' ||
-      mode === 'source' ||
-      mode === 'reading' ||
-      mode === 'split'
-    )
-      return mode;
-    if (mode === 'edit') return 'source';
-    if (mode === 'preview') return 'reading';
-  } catch {
-    return 'live';
-  }
-  return 'live';
 }
 
 function saveLabel(state: SaveState) {

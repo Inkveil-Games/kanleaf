@@ -28,6 +28,7 @@ use crate::{
     error::{AppError, is_unique_violation},
     task::{enqueue_projection, project_many},
     task_config::validate_state_assignment,
+    vault::ProjectPath,
     workspace::{WorkspaceRole, workspace_role},
 };
 
@@ -371,7 +372,22 @@ async fn create(
         .execute(&mut *transaction)
         .await?;
     }
-    transaction.commit().await?;
+    let project_path = ProjectPath::parse(identifier.as_str()).map_err(AppError::internal)?;
+    state
+        .vault
+        .initialize_project_layout(workspace_id, &project_path)
+        .await
+        .map_err(AppError::internal)?;
+    if let Err(error) = transaction.commit().await {
+        if let Err(cleanup_error) = state
+            .vault
+            .remove_unattached_project_layout(workspace_id, &project_path)
+            .await
+        {
+            warn!(%project_id, %cleanup_error, "failed to remove unattached Project vault directory");
+        }
+        return Err(error.into());
+    }
     Ok((
         StatusCode::CREATED,
         Json(select_project(&state.pool, auth.user.id, workspace_id, project_id).await?),
@@ -551,9 +567,9 @@ async fn delete_project(
     let Json(request) = payload.map_err(AppError::from)?;
     let mut transaction = state.pool.begin().await?;
     lock_workspace(&mut transaction, workspace_id).await?;
-    let project: Option<(String, String)> = sqlx::query_as(
+    let project: Option<String> = sqlx::query_scalar(
         r#"
-        SELECT projects.identifier, projects.storage_name
+        SELECT projects.identifier
         FROM projects
         WHERE projects.workspace_id = $1 AND projects.id = $2
         FOR UPDATE OF projects
@@ -563,8 +579,7 @@ async fn delete_project(
     .bind(project_id)
     .fetch_optional(&mut *transaction)
     .await?;
-    let (identifier, storage_name) =
-        project.ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
+    let identifier = project.ok_or_else(|| AppError::NotFound("Project not found".to_owned()))?;
     let workspace_role: Option<String> = sqlx::query_scalar(
         "SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 FOR SHARE",
     )
@@ -617,9 +632,16 @@ async fn delete_project(
                 .to_owned(),
         ));
     }
+    let project_tasks: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT id, task_number FROM tasks WHERE workspace_id = $1 AND project_id = $2 ORDER BY task_number FOR UPDATE",
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_all(&mut *transaction)
+    .await?;
     let deletion = state
         .vault
-        .begin_project_deletion(workspace_id, project_id, &storage_name)
+        .begin_project_deletion(workspace_id, project_id, &identifier, &project_tasks)
         .await
         .map_err(AppError::internal)?;
     let database_result: Result<Vec<Uuid>, AppError> = async {

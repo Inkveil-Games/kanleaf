@@ -45,6 +45,284 @@ async function expectPopupMatchesTrigger(trigger: Locator, popup: Locator) {
   expect(popupBox?.width ?? 0).toBeGreaterThanOrEqual(triggerBox?.width ?? 0);
 }
 
+async function expectChecklistAlignment(editor: Locator) {
+  const checkboxes = editor.getByRole('checkbox', {
+    name: 'Toggle checklist item',
+  });
+  await expect(checkboxes).toHaveCount(3);
+  for (const checkbox of await checkboxes.all()) {
+    await checkbox.scrollIntoViewIfNeeded();
+    const difference = await checkbox.evaluate((label) => {
+      const icon = label.querySelector('svg');
+      const paragraph = label.parentElement?.querySelector('.children p');
+      if (!icon || !paragraph) throw new Error('Checklist content is missing');
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const firstLine = range.getClientRects()[0];
+      if (!firstLine) throw new Error('Checklist text is not laid out');
+      const iconBox = icon.getBoundingClientRect();
+      return Math.abs(
+        iconBox.top +
+          iconBox.height / 2 -
+          (firstLine.top + firstLine.height / 2),
+      );
+    });
+    expect(difference).toBeLessThanOrEqual(2);
+  }
+  const nestedItem = editor
+    .locator('.milkdown-list-item-block')
+    .filter({ hasText: 'Keep nested checklist text aligned when it wraps.' })
+    .last();
+  const lineCount = await nestedItem.locator('p').evaluate((paragraph) => {
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    return range.getClientRects().length;
+  });
+  expect(lineCount).toBeGreaterThan(1);
+}
+
+function mermaidBlock(editor: Locator, kind: string) {
+  // Preview children disappear offscreen; either the placeholder source or the
+  // mounted preview identifies the same durable node-view root.
+  return editor
+    .locator('.milkdown-code-block')
+    .filter({ hasText: kind })
+    .or(
+      editor.locator(
+        `.milkdown-code-block:has(kanleaf-mermaid-preview[data-source^="${kind}"])`,
+      ),
+    )
+    .first();
+}
+
+async function expectDiagramPalette(editor: Locator) {
+  for (const kind of [
+    'pie',
+    'cynefin-beta',
+    'quadrantChart',
+    'requirementDiagram',
+    'usecase-beta',
+  ]) {
+    await mermaidBlock(editor, kind).scrollIntoViewIfNeeded();
+    const preview = editor.locator(
+      `kanleaf-mermaid-preview[data-source^="${kind}"]`,
+    );
+    await preview.scrollIntoViewIfNeeded();
+    await expect(preview).toHaveAttribute('aria-busy', 'false');
+    await expect(preview.locator(':scope > svg')).toBeVisible();
+    const metrics = await preview.evaluate((element, kind) => {
+      const rgb = (color: string) => {
+        const channels = color.match(/\d+(?:\.\d+)?/g)?.map(Number);
+        if (!channels || channels.length < 3)
+          throw new Error(`Invalid diagram color: ${color}`);
+        return channels.slice(0, 3);
+      };
+      const luminance = (channels: number[]) => {
+        const linear = channels.map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045
+            ? value / 12.92
+            : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+      };
+      const contrast = (first: number[], second: number[]) => {
+        const a = luminance(first);
+        const b = luminance(second);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      };
+      const swatch = document.createElement('span');
+      swatch.style.backgroundColor = 'var(--color-surface-muted)';
+      element.append(swatch);
+      const canvas = rgb(getComputedStyle(swatch).backgroundColor);
+      swatch.remove();
+      const fills = [
+        ...element.querySelectorAll(kind === 'pie' ? '.pieCircle' : 'svg rect'),
+      ].map((shape) => getComputedStyle(shape).fill);
+      const badgeContrasts = [
+        ...element.querySelectorAll('.cynefinItemText'),
+      ].map((label) => {
+        const badge = label.parentElement?.querySelector('rect');
+        if (!badge) throw new Error('Cynefin badge is missing');
+        const style = getComputedStyle(badge);
+        const opacity = Number(style.fillOpacity);
+        const background = rgb(style.fill).map(
+          (channel, index) => channel * opacity + canvas[index] * (1 - opacity),
+        );
+        return contrast(rgb(getComputedStyle(label).fill), background);
+      });
+      const edgeContrasts = [
+        ...element.querySelectorAll(
+          'svg path, svg rect, svg ellipse, svg line, svg circle',
+        ),
+      ]
+        .filter(
+          (shape) =>
+            !shape.closest('defs') && getComputedStyle(shape).stroke !== 'none',
+        )
+        .map((shape) => contrast(rgb(getComputedStyle(shape).stroke), canvas));
+      return {
+        fillContrasts: fills.map((fill) => contrast(rgb(fill), canvas)),
+        badgeContrasts,
+        edgeContrasts,
+        distinctFills: new Set(fills).size,
+      };
+    }, kind);
+    if (kind === 'pie') {
+      expect(metrics.distinctFills).toBe(4);
+      for (const contrast of metrics.fillContrasts)
+        expect(contrast).toBeGreaterThan(1.7);
+    }
+    if (kind === 'cynefin-beta') {
+      expect(metrics.badgeContrasts).toHaveLength(5);
+      for (const contrast of metrics.badgeContrasts)
+        expect(contrast).toBeGreaterThanOrEqual(4.5);
+    }
+    if (kind === 'quadrantChart') expect(metrics.distinctFills).toBe(4);
+    if (kind === 'requirementDiagram' || kind === 'usecase-beta') {
+      expect(metrics.edgeContrasts.length).toBeGreaterThan(0);
+      for (const contrast of metrics.edgeContrasts)
+        expect(contrast).toBeGreaterThanOrEqual(3);
+    }
+  }
+}
+
+async function expectFlowchartCentered(page: Page, editor: Locator) {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('Browser viewport is not available');
+  for (const width of [1280, 1067, 480]) {
+    await page.setViewportSize({ ...viewport, width });
+    await mermaidBlock(editor, 'graph LR').scrollIntoViewIfNeeded();
+    const preview = editor.locator(
+      'kanleaf-mermaid-preview[data-source^="graph LR"]',
+    );
+    await preview.scrollIntoViewIfNeeded();
+    await expect(preview).toHaveAttribute('aria-busy', 'false');
+    const offset = await preview.evaluate((host) => {
+      const svg = host.querySelector<SVGSVGElement>(':scope > svg');
+      const group = svg?.querySelector<SVGGElement>(':scope > g');
+      const matrix = group?.getScreenCTM();
+      const block = host.closest('.milkdown-code-block');
+      if (!svg || !group || !matrix || !block)
+        throw new Error('Diagram is not laid out');
+      const box = group.getBBox();
+      const center = new DOMPoint(
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+      ).matrixTransform(matrix);
+      const bounds = block.getBoundingClientRect();
+      return {
+        horizontal: Math.abs(center.x - (bounds.left + bounds.width / 2)),
+        vertical: Math.abs(center.y - (bounds.top + bounds.height / 2)),
+        labels: [...svg.querySelectorAll('g.node')].map((node) => {
+          const shape = node.querySelector('rect.label-container');
+          const label = node.querySelector('foreignObject p');
+          if (!shape || !label) throw new Error('Flowchart label is missing');
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          const text = range.getBoundingClientRect();
+          const box = shape.getBoundingClientRect();
+          return Math.abs(
+            text.top + text.height / 2 - (box.top + box.height / 2),
+          );
+        }),
+      };
+    });
+    expect(offset.horizontal).toBeLessThanOrEqual(1);
+    expect(offset.vertical).toBeLessThanOrEqual(1);
+    expect(offset.labels).toHaveLength(4);
+    for (const label of offset.labels) expect(label).toBeLessThanOrEqual(1);
+  }
+  await page.setViewportSize(viewport);
+}
+
+async function expectDiagramSurvivesScrolling(editor: Locator) {
+  const block = mermaidBlock(editor, 'graph LR');
+  // Keep a handle to the stable node-view root while Crepe replaces its children.
+  const root = await block.elementHandle();
+  if (!root) throw new Error('Flowchart block is missing');
+  await root.scrollIntoViewIfNeeded();
+  const before = await root.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    id: element.querySelector('kanleaf-mermaid-preview > svg')?.id,
+  }));
+  await editor
+    .getByRole('heading', { name: 'Project handbook', exact: true })
+    .click();
+  await expect
+    .poll(
+      () =>
+        root.evaluate((element) =>
+          Boolean(element.querySelector('.milkdown-code-block-placeholder')),
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  expect(
+    Math.abs(
+      (await root.evaluate(
+        (element) => element.getBoundingClientRect().height,
+      )) - before.height,
+    ),
+  ).toBeLessThanOrEqual(1);
+  await root.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() =>
+      root.evaluate(
+        (element) => element.querySelector('kanleaf-mermaid-preview > svg')?.id,
+      ),
+    )
+    .toBe(before.id);
+}
+
+async function writeAfterFinalBlock(page: Page, editor: Locator, text: string) {
+  await editor
+    .getByRole('button', { name: 'Continue after block' })
+    .last()
+    .click();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type(text);
+  await expect(editor.locator('.ProseMirror > p').last()).toHaveText(text);
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+}
+
+async function expectModeViewportSync(page: Page, editor: Locator) {
+  const heading = editor.getByRole('heading', {
+    name: 'Section 1',
+    exact: true,
+  });
+  await heading.scrollIntoViewIfNeeded();
+  const before = await editor.boundingBox();
+  if (!before) throw new Error('Visual viewport is missing');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const scroller = page.locator('.markdown-source-editor .cm-scroller');
+  await expect(scroller).toBeVisible();
+  const after = await scroller.boundingBox();
+  if (!after) throw new Error('Source viewport is missing');
+  expect(after).toEqual(before);
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(
+    page
+      .locator('.markdown-source-editor .cm-line')
+      .filter({ hasText: '# Section 1' }),
+  ).toBeInViewport();
+  // Move in Source, then check the opposite direction with a known Markdown line.
+  const sourceHeading = page
+    .locator('.markdown-source-editor .cm-line')
+    .filter({ hasText: '# Project handbook' });
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(sourceHeading).toBeInViewport();
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
+  await expect(
+    editor.getByRole('heading', { name: 'Project handbook', exact: true }),
+  ).toBeInViewport();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+}
+
 async function addTaskProperty(page: Page, property: string) {
   await page.getByRole('button', { name: 'Add property' }).click();
   await expect(page.getByLabel('Search properties')).toBeVisible();
@@ -91,10 +369,13 @@ async function expectSelectValueRowFits(row: Locator) {
   expect(layout.description.bottom).toBeLessThanOrEqual(layout.row.bottom);
 }
 
-async function readTaskVaultSource(workspaceId: string, taskId: string) {
+async function readTaskVaultSource(
+  workspaceIdentifier: string,
+  taskId: string,
+) {
   const dataDir = process.env.KANLEAF_E2E_DATA_DIR;
   if (!dataDir) throw new Error('KANLEAF_E2E_DATA_DIR is not available');
-  const workspaceRoot = join(dataDir, 'vaults', workspaceId);
+  const workspaceRoot = join(dataDir, 'vaults', workspaceIdentifier);
   const paths = await readdir(workspaceRoot, { recursive: true });
   for (const relativePath of paths) {
     if (!relativePath.endsWith('.md')) continue;
@@ -102,32 +383,6 @@ async function readTaskVaultSource(workspaceId: string, taskId: string) {
     if (source.includes(`Kanleaf ID: ${taskId}`)) return source;
   }
   throw new Error(`Could not find Markdown for Task ${taskId}`);
-}
-
-async function textGeometry(locator: Locator, text: string) {
-  return locator.evaluate((element, expectedText) => {
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node) {
-      const start = node.textContent?.indexOf(expectedText) ?? -1;
-      if (start >= 0) {
-        const range = document.createRange();
-        range.setStart(node, start);
-        range.setEnd(node, start + expectedText.length);
-        const textRect = range.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        return {
-          top: textRect.top,
-          left: textRect.left,
-          height: textRect.height,
-          boxBottom: elementRect.bottom,
-          textBottom: textRect.bottom,
-        };
-      }
-      node = walker.nextNode();
-    }
-    throw new Error(`Could not find text geometry for ${expectedText}`);
-  }, text);
 }
 
 async function settingsPageGeometry(page: Page) {
@@ -240,6 +495,7 @@ async function registerAccountThroughSetup(
 test('manages structured work and durable Markdown across reloads', async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const consoleErrors: string[] = [];
   const failedResponses: string[] = [];
   page.on('console', (message) => {
@@ -779,7 +1035,8 @@ test('manages structured work and durable Markdown across reloads', async ({
 This note is stored as a durable **Markdown file**.
 
 - [x] Define the vault boundary
-- [ ] Ship Live Preview
+- [ ] Ship the visual editor
+    - [ ] ${'Keep nested checklist text aligned when it wraps. '.repeat(8)}
 
 | Layer | Store |
 | --- | --- |
@@ -789,151 +1046,299 @@ This note is stored as a durable **Markdown file**.
 let source_is_markdown = true;
 \`\`\`
 
+$x^2 + y^2$
+
+$$
+x^2 + y^2
+$$
+
+\`\`\`mermaid
+graph LR
+A[Task] --> C[Shared editor]
+B[Library] --> C
+C --> D[Markdown vault]
+\`\`\`
+
+\`\`\`mermaid
+xychart
+title "Editor coverage"
+x-axis [Task, Library]
+y-axis "Checks" 0 --> 5
+bar [5, 5]
+\`\`\`
+
+\`\`\`mermaid
+treeView-beta
+    workspace/
+        tasks/
+            1.md
+\`\`\`
+
+\`\`\`mermaid
+packet
+title Markdown revision
+0-15: "Version"
+16-31: "Revision"
+\`\`\`
+
+\`\`\`mermaid
+pie showData
+title Review coverage
+"Editor" : 40
+"Vault" : 35
+"Assets" : 15
+"Portability" : 10
+\`\`\`
+
+\`\`\`mermaid
+quadrantChart
+quadrant-1 Plan next
+quadrant-2 Fix now
+quadrant-3 Optional polish
+quadrant-4 Reconsider
+Checkbox: [0.2, 0.7]
+\`\`\`
+
+\`\`\`mermaid
+cynefin-beta
+complex
+    "Explore editor UX"
+complicated
+    "Validate migration"
+clear
+    "Run tests"
+chaotic
+    "Recover save"
+confusion
+    "Triage feedback"
+\`\`\`
+
+\`\`\`mermaid
+requirementDiagram
+requirement portable_markdown {
+    id: 1
+    text: Markdown remains canonical
+    risk: high
+    verifymethod: test
+}
+element shared_editor {
+    type: application
+}
+shared_editor - satisfies -> portable_markdown
+\`\`\`
+
+\`\`\`mermaid
+usecase-beta
+actor Author
+systemBoundary Kanleaf
+    Edit("Edit Markdown")
+end
+Author --> Edit
+\`\`\`
+
 # Section 1
 ## Subsection 1
 - Test nha
 > Note
 ### Subsubsection
 2`;
+  const libraryVisualEditor = page.getByLabel('Visual Markdown editor');
+  await expect(libraryVisualEditor).toBeVisible();
+  await libraryVisualEditor.locator('.ProseMirror > p').first().hover();
+  await expect(
+    libraryVisualEditor.locator('.milkdown-block-handle[data-show="true"]'),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      libraryVisualEditor.evaluate((root) => {
+        const paragraph = root.querySelector('.ProseMirror > p');
+        const handle = root.querySelector('.milkdown-block-handle');
+        return Boolean(
+          paragraph &&
+          handle &&
+          handle.getBoundingClientRect().right <=
+            paragraph.getBoundingClientRect().left - 2,
+        );
+      }),
+    )
+    .toBe(true);
+  await expect(page.getByRole('button', { name: 'Add block' })).toHaveCount(0);
+  const formatting = page.getByRole('toolbar', { name: 'Markdown formatting' });
+  await expect(
+    formatting.getByRole('combobox', { name: 'Text style' }),
+  ).toBeVisible();
+  const textStyle = formatting.getByRole('combobox', { name: 'Text style' });
+  await textStyle.hover();
+  await expect(textStyle).toHaveCSS('border-top-width', '0px');
+  await textStyle.click();
+  await expect(textStyle).toHaveCSS('border-top-width', '0px');
+  const chevronOffset = await textStyle.evaluate((trigger) => {
+    const chevron = trigger.querySelector('.select-chevron svg');
+    if (!chevron) throw new Error('Text style chevron is missing');
+    const triggerBox = trigger.getBoundingClientRect();
+    const chevronBox = chevron.getBoundingClientRect();
+    return Math.abs(
+      triggerBox.top +
+        triggerBox.height / 2 -
+        (chevronBox.top + chevronBox.height / 2),
+    );
+  });
+  expect(chevronOffset).toBeLessThanOrEqual(1);
+  await page.keyboard.press('Escape');
+  await expect(textStyle).toBeFocused();
+  await expect(textStyle).toHaveCSS('outline-style', 'none');
+  await expect(
+    formatting.getByRole('button', { name: 'Checklist' }),
+  ).toBeVisible();
+  await expect(
+    formatting.getByRole('button', { name: 'Insert image' }),
+  ).toBeVisible();
+  await expect(
+    formatting.getByRole('button', { name: 'Insert table' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Source' }).click();
   const pageSource = page.locator(
     '.library-document-editor .cm-content[contenteditable="true"]',
   );
   await pageSource.fill(pageMarkdown);
-  await pageSource.press('Control+Home');
-  const liveTodoLine = page
-    .locator('.library-document-editor .cm-line')
-    .filter({ hasText: 'Ship Live Preview' });
-  await liveTodoLine.click();
-  await expect(liveTodoLine).toHaveClass(/cm-live-source-line/);
-  await expect(liveTodoLine).toContainText('- [ ] Ship Live Preview');
-  await pageSource.press('Control+Home');
-  const liveHeading = page
-    .locator('.library-document-editor .cm-live-heading-1')
-    .filter({ hasText: 'Project handbook' });
-  await expect(liveHeading).toContainText('# Project handbook');
-  await expect(liveHeading).toHaveClass(/cm-activeLine/);
-  const liveActiveBackground = await liveHeading.evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  );
-  expect(liveActiveBackground).toBe('rgba(0, 0, 0, 0)');
-  const focusedHeadingHeight = await liveHeading.evaluate(
-    (element) => element.getBoundingClientRect().height,
-  );
-  await page
-    .locator('.library-document-editor .cm-line')
-    .filter({ hasText: 'This note is stored' })
-    .click();
-  await expect(liveHeading).toHaveText('Project handbook');
-  const readingHeadingHeight = await liveHeading.evaluate(
-    (element) => element.getBoundingClientRect().height,
-  );
-  expect(focusedHeadingHeight).toBeCloseTo(readingHeadingHeight, 1);
-  const liveContentLeft = await liveHeading.evaluate(
-    (element) => element.getBoundingClientRect().left,
-  );
-  const liveRhythm = await Promise.all([
-    textGeometry(
-      page
-        .locator('.library-document-editor .cm-live-heading-1')
-        .filter({ hasText: 'Section 1' }),
-      'Section 1',
-    ),
-    textGeometry(
-      page.locator('.library-document-editor .cm-live-heading-2'),
-      'Subsection 1',
-    ),
-    textGeometry(
-      page
-        .locator('.library-document-editor .cm-line')
-        .filter({ hasText: 'Test nha' }),
-      'Test nha',
-    ),
-    textGeometry(
-      page
-        .locator('.library-document-editor .cm-live-blockquote')
-        .filter({ hasText: 'Note' }),
-      'Note',
-    ),
-    textGeometry(
-      page.locator('.library-document-editor .cm-live-heading-3'),
-      'Subsubsection',
-    ),
-    textGeometry(
-      page
-        .locator('.library-document-editor .cm-line')
-        .filter({ hasText: /^2$/ }),
-      '2',
-    ),
-  ]);
-  await page.getByRole('button', { name: 'Source' }).click();
-  const sourceHeading = page
-    .locator('.library-document-editor .cm-line')
-    .first();
-  await expect(sourceHeading).toContainText('# Project handbook');
-  const sourceActiveBackground = await page
-    .locator('.library-document-editor .cm-activeLine')
-    .evaluate((element) => getComputedStyle(element).backgroundColor);
-  expect(sourceActiveBackground).not.toBe(liveActiveBackground);
-  const sourceContentLeft = await sourceHeading.evaluate(
-    (element) => element.getBoundingClientRect().left,
-  );
-  await page.getByRole('button', { name: 'Reading' }).click();
-  const readingHeading = page
-    .getByLabel('Markdown document')
-    .getByRole('heading', { name: 'Project handbook' });
-  const readingContentLeft = await readingHeading.evaluate(
-    (element) => element.getBoundingClientRect().left,
-  );
-  const preview = page
-    .getByLabel('Markdown document')
-    .locator('.markdown-preview');
-  const readingRhythm = await Promise.all([
-    textGeometry(
-      preview.locator('h1').filter({ hasText: 'Section 1' }),
-      'Section 1',
-    ),
-    textGeometry(preview.locator('h2'), 'Subsection 1'),
-    textGeometry(
-      preview.locator('li').filter({ hasText: 'Test nha' }),
-      'Test nha',
-    ),
-    textGeometry(
-      preview.locator('blockquote').filter({ hasText: 'Note' }),
-      'Note',
-    ),
-    textGeometry(preview.locator('h3'), 'Subsubsection'),
-    textGeometry(preview.locator('p').filter({ hasText: /^2$/ }), '2'),
-  ]);
-  for (const [index, liveBlock] of liveRhythm.entries()) {
-    const readingBlock = readingRhythm[index];
-    expect(liveBlock.height).toBeCloseTo(readingBlock.height, 1);
-    expect(liveBlock.top - liveRhythm[0].top).toBeCloseTo(
-      readingBlock.top - readingRhythm[0].top,
-      0,
-    );
-    expect(liveBlock.left).toBeCloseTo(readingBlock.left, 0);
-  }
-  expect(liveRhythm[0].boxBottom - liveRhythm[0].textBottom).toBeCloseTo(
-    readingRhythm[0].boxBottom - readingRhythm[0].textBottom,
-    1,
-  );
-  expect(Math.abs(sourceContentLeft - liveContentLeft)).toBeLessThan(1);
-  expect(Math.abs(sourceContentLeft - readingContentLeft)).toBeLessThan(1);
-  await page.getByRole('button', { name: 'Live' }).click();
-  const liveTable = page.locator(
-    '.library-document-editor .cm-live-block-widget table',
-  );
-  await expect(liveTable).toContainText('NoteVault');
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
   await expect(
-    page.locator('.library-document-editor .cm-live-block-widget pre'),
-  ).toContainText('source_is_markdown');
-  await liveTable.click();
-  await expect(liveTable).not.toBeVisible();
-  await expect(pageSource).toContainText('| Layer | Store |');
+    page.locator('.library-document-editor .ProseMirror'),
+  ).toContainText('Project handbook');
+  await page.getByRole('button', { name: 'Source' }).click();
+  // Source now restores the viewed section; reveal the header/table explicitly
+  // before checking CodeMirror's virtualized DOM for their text.
   await pageSource.press('Control+Home');
-  await expect(liveTable).toBeVisible();
-  await page.getByRole('button', { name: 'Save Markdown' }).click();
+  await expect(pageSource).toContainText('| Layer | Store |');
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
+  await expect(
+    libraryVisualEditor.getByRole('heading', { name: 'Project handbook' }),
+  ).toBeVisible();
+  await expectChecklistAlignment(libraryVisualEditor);
+  await page.setViewportSize({ width: 740, height: 800 });
+  await expectChecklistAlignment(libraryVisualEditor);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(libraryVisualEditor.getByRole('table')).toContainText(
+    'NoteVault',
+  );
+  await expect(
+    libraryVisualEditor
+      .locator('.milkdown-code-block')
+      .filter({ hasText: 'source_is_markdown' }),
+  ).toContainText('source_is_markdown');
+  const rustBlock = libraryVisualEditor
+    .locator('.milkdown-code-block')
+    .filter({ hasText: 'source_is_markdown' });
+  await rustBlock.locator('.cm-content').click();
+  await expect(rustBlock.locator('.cm-editor')).toHaveClass(/cm-focused/);
+  await libraryVisualEditor
+    .getByRole('heading', { name: 'Project handbook', exact: true })
+    .click();
+  await expect(rustBlock.locator('.cm-activeLine')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  );
+  await mermaidBlock(libraryVisualEditor, 'graph LR').scrollIntoViewIfNeeded();
+  await expect(
+    libraryVisualEditor.locator('kanleaf-mermaid-preview > svg').first(),
+  ).toBeVisible();
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await expectDiagramPalette(libraryVisualEditor);
+    for (const kind of ['xychart', 'treeView-beta', 'packet']) {
+      await mermaidBlock(libraryVisualEditor, kind).scrollIntoViewIfNeeded();
+      const diagram = libraryVisualEditor.locator(
+        `kanleaf-mermaid-preview[data-source^="${kind}"]`,
+      );
+      await diagram.scrollIntoViewIfNeeded();
+      await expect(diagram).toHaveAttribute('aria-busy', 'false');
+      await expect(diagram.locator(':scope > svg')).toBeVisible();
+      const contrasts = await diagram.evaluate((preview) => {
+        const luminance = (color: string) => {
+          const channels = color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3);
+          if (!channels || channels.length !== 3)
+            throw new Error(`Unrecognised chart color: ${color}`);
+          const linear = channels.map((channel) => {
+            const value = Number(channel) / 255;
+            return value <= 0.04045
+              ? value / 12.92
+              : ((value + 0.055) / 1.055) ** 2.4;
+          });
+          return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+        };
+        const canvas = preview.querySelector('rect');
+        const swatch = document.createElement('span');
+        swatch.style.backgroundColor = 'var(--color-surface-muted)';
+        preview.append(swatch);
+        const background = luminance(
+          canvas
+            ? getComputedStyle(canvas).fill
+            : getComputedStyle(swatch).backgroundColor,
+        );
+        swatch.remove();
+        return [...preview.querySelectorAll('svg text')].map((text) => {
+          const foreground = luminance(getComputedStyle(text).fill);
+          return (
+            (Math.max(foreground, background) + 0.05) /
+            (Math.min(foreground, background) + 0.05)
+          );
+        });
+      });
+      expect(contrasts.length).toBeGreaterThan(0);
+      for (const contrast of contrasts)
+        expect(contrast).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await expectFlowchartCentered(page, libraryVisualEditor);
+  await expectDiagramSurvivesScrolling(libraryVisualEditor);
+  await expectModeViewportSync(page, libraryVisualEditor);
+  await expect(libraryVisualEditor.locator('.katex')).toHaveCount(2);
+  const formula = libraryVisualEditor.getByRole('button', {
+    name: 'Edit math formula',
+  });
+  await formula.click();
+  const formulaSource = libraryVisualEditor.getByRole('textbox', {
+    name: 'LaTeX formula',
+  });
+  await expect(formulaSource).toBeVisible();
+  const sourceBox = await formulaSource.boundingBox();
+  if (!sourceBox) throw new Error('Formula input is not laid out');
+  await page.mouse.move(sourceBox.x + 14, sourceBox.y + 14);
+  await page.mouse.down();
+  await page.mouse.move(sourceBox.x + 65, sourceBox.y + 14, { steps: 12 });
+  await page.mouse.up();
+  expect(
+    await formulaSource.evaluate(
+      (source: HTMLTextAreaElement) =>
+        source.selectionEnd > source.selectionStart,
+    ),
+  ).toBe(true);
+  await formulaSource.fill(
+    Array.from({ length: 8 }, () => 'x^2 + y^2').join('\n'),
+  );
+  await expect
+    .poll(() =>
+      formulaSource.evaluate(
+        (source) => source.scrollHeight <= source.clientHeight,
+      ),
+    )
+    .toBe(true);
+  await expect(formulaSource).toHaveCSS('overflow-y', 'hidden');
+  await formulaSource.fill('x^2 + z^2');
+  await formulaSource.press('Escape');
+  await expect(formulaSource).toBeHidden();
+  await expect(formula.locator('.katex')).toBeVisible();
+  await expect(formula.locator('.katex-display')).toHaveCSS(
+    'overflow-y',
+    'visible',
+  );
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(pageSource).toContainText('x^2 + z^2');
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
   await page
     .getByRole('button', { name: 'Actions for Project handbook' })
     .click();
@@ -960,35 +1365,25 @@ let source_is_markdown = true;
       name: 'Architecture decisions Library note',
     }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Source' }).click();
   const nestedSource = page.locator(
     '.library-document-editor .cm-content[contenteditable="true"]',
   );
-  await nestedSource.fill('Decision log');
-  const nestedScroller = page.locator('.library-document-editor .cm-scroller');
-  const nestedScrollerBounds = await nestedScroller.boundingBox();
-  const nestedLineBounds = await page
-    .locator('.library-document-editor .cm-line')
-    .last()
-    .boundingBox();
-  expect(nestedScrollerBounds).not.toBeNull();
-  expect(nestedLineBounds).not.toBeNull();
-  expect(
-    nestedScrollerBounds!.y + nestedScrollerBounds!.height,
-  ).toBeGreaterThan(nestedLineBounds!.y + nestedLineBounds!.height + 16);
-  await nestedScroller.click({
-    position: {
-      x: 48,
-      y: nestedScrollerBounds!.height - 16,
-    },
-  });
-  await page.keyboard.type('Recorded from trailing whitespace');
+  await nestedSource.fill('```ts\nconst lastBlock = true;\n```');
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
+  await writeAfterFinalBlock(
+    page,
+    page.getByLabel('Visual Markdown editor'),
+    'After the code block',
+  );
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(nestedSource).toContainText('After the code block');
+  await nestedSource.fill('Decision log\nRecorded in Source mode');
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible();
   const nestedLines = page.locator('.library-document-editor .cm-line');
   await expect(nestedLines).toHaveCount(2);
   await expect(nestedLines.first()).toHaveText('Decision log');
-  await expect(nestedLines.last()).toHaveText(
-    'Recorded from trailing whitespace',
-  );
-  await page.getByRole('button', { name: 'Save Markdown' }).click();
+  await expect(nestedLines.last()).toHaveText('Recorded in Source mode');
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   const nestedDocumentUrl = page.url();
   await page.reload();
@@ -998,7 +1393,7 @@ let source_is_markdown = true;
       name: 'Architecture decisions Library note',
     }),
   ).toBeVisible();
-  await expect(nestedSource).toContainText('Decision log');
+  await expect(page.getByText('Decision log')).toBeVisible();
   await page.setViewportSize({ width: 960, height: 640 });
   await expect(
     page.getByRole('button', { name: 'Back to Library' }),
@@ -1289,27 +1684,48 @@ Kanleaf keeps **structured work** beside durable notes.
 
 - [x] PostgreSQL metadata
 - [x] Filesystem Markdown
+    - [ ] ${'Keep nested checklist text aligned when it wraps. '.repeat(8)}
 
 | Layer | Storage |
 | --- | --- |
 | Task | PostgreSQL |
 | Notes | Vault |`;
+  await expect(page.getByLabel('Visual Markdown editor')).toBeVisible();
+  await page.getByRole('button', { name: 'Source' }).click();
   const source = page.locator('.cm-content[contenteditable="true"]');
   await source.fill(markdown);
-  await page.getByRole('button', { name: 'Reading' }).click();
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Architecture' }),
-  ).toBeVisible();
-  await expect(page.getByRole('table')).toContainText('Notes');
-  await page.getByRole('button', { name: 'Save Markdown' }).click();
+    page.getByLabel('Visual Markdown editor').locator('.ProseMirror'),
+  ).toContainText('Architecture');
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await expectChecklistAlignment(page.getByLabel('Visual Markdown editor'));
+  await expect(
+    page
+      .getByLabel('Visual Markdown editor')
+      .getByRole('heading', { name: 'Architecture', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel('Visual Markdown editor').getByRole('table'),
+  ).toContainText('Notes');
+  await writeAfterFinalBlock(
+    page,
+    page.getByLabel('Visual Markdown editor'),
+    'After the table',
+  );
   const openTaskUrl = page.url();
   await page.reload();
   await expect(page).toHaveURL(openTaskUrl);
   await expect(
-    page.getByRole('heading', { name: 'Architecture' }),
+    page
+      .getByLabel('Visual Markdown editor')
+      .getByRole('heading', { name: 'Architecture' }),
   ).toBeVisible();
   await expect(page.getByText('Filesystem Markdown')).toBeVisible();
+  await expect(
+    page.getByText('After the table', { exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Close task' }).click();
   await expect(page).toHaveURL(new RegExp(`/${workspaceIdentifier}/my-work$`));
   await expect(taskRow).toBeVisible();
@@ -1449,7 +1865,10 @@ Kanleaf keeps **structured work** beside durable notes.
   await expect(reloadedTaskSource).toContainText('Filesystem Markdown');
   await expect
     .poll(async () => {
-      const source = await readTaskVaultSource(workspaceId, createdTask.id);
+      const source = await readTaskVaultSource(
+        workspaceIdentifier,
+        createdTask.id,
+      );
       return (
         source.includes('State:\n  - In Progress\n') &&
         source.includes('Type: Bug\n') &&
@@ -1463,7 +1882,7 @@ Kanleaf keeps **structured work** beside durable notes.
       );
     })
     .toBe(true);
-  await page.getByRole('button', { name: 'Reading' }).click();
+  await page.getByRole('button', { name: 'Editor', exact: true }).click();
 
   await page.getByRole('button', { name: 'Urgent work' }).click();
   await expect(
@@ -1883,6 +2302,7 @@ test('preserves open Task state through overlay and responsive resizing', async 
   await page.getByRole('button', { name: 'Source' }).click();
   const source = page.locator('.cm-content[contenteditable="true"]');
   await source.fill('# Unsaved resize draft');
+  await page.keyboard.press('Control+s');
   await expect(page.getByText('Save failed', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Add comment')).toBeVisible();
   await page.getByLabel('Add comment').fill('Activity draft survives resizing');

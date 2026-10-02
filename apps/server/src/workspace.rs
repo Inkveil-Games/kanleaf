@@ -2,7 +2,7 @@ mod invitation;
 mod membership;
 mod vault_migration;
 
-pub use vault_migration::migrate_workspace_vaults;
+pub use vault_migration::{migrate_workspace_vaults, register_workspace_vault_paths};
 
 use anyhow::anyhow;
 use axum::{
@@ -162,6 +162,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(project::routes())
         .merge(saved_view::routes())
         .merge(document::routes())
+        .merge(crate::asset::routes())
         .route(
             "/api/workspaces/{workspace_id}/tasks",
             get(task::list).post(task::create),
@@ -251,7 +252,7 @@ async fn create(
         INSERT INTO workspaces (
             id, name, identifier, accent, default_inbox_state_id, vault_layout_version
         )
-        VALUES ($1, $2, $3, $4, $5, 2)
+        VALUES ($1, $2, $3, $4, $5, 3)
         RETURNING id, name, identifier, accent, 'owner'::text AS role, created_at, updated_at
         "#,
     )
@@ -288,7 +289,24 @@ async fn create(
     .bind(auth.user.id)
     .execute(&mut *transaction)
     .await?;
-    transaction.commit().await?;
+    let workspace_path = crate::vault::WorkspacePath::parse(workspace_id, &workspace.identifier)
+        .map_err(AppError::internal)?;
+    state
+        .vault
+        .initialize_workspace_layout(&workspace_path)
+        .await
+        .map_err(AppError::internal)?;
+    if let Err(error) = transaction.commit().await {
+        if let Err(cleanup_error) = state
+            .vault
+            .remove_unattached_workspace_layout(&workspace_path)
+            .await
+        {
+            warn!(workspace_id = %workspace_id, %cleanup_error, "failed to clean up unattached Workspace vault");
+        }
+        return Err(error.into());
+    }
+    state.vault.register_workspace_path(&workspace_path);
 
     Ok((StatusCode::CREATED, Json(workspace)))
 }

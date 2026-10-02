@@ -338,15 +338,15 @@ async fn apply(
 
 async fn build_preview(state: &AppState, workspace_id: Uuid) -> Result<StoredSyncResult, AppError> {
     let custom_definitions = load_custom_property_definitions(&state.pool, workspace_id).await?;
-    let project_storage_names: Vec<String> = sqlx::query_scalar(
-        "SELECT storage_name FROM projects WHERE workspace_id = $1 ORDER BY storage_name",
+    let project_identifiers: Vec<String> = sqlx::query_scalar(
+        "SELECT identifier FROM projects WHERE workspace_id = $1 ORDER BY identifier",
     )
     .bind(workspace_id)
     .fetch_all(&state.pool)
     .await?;
     let scan = state
         .vault
-        .scan_task_documents(workspace_id, &project_storage_names)
+        .scan_task_documents(workspace_id, &project_identifiers)
         .await
         .map_err(|_| AppError::VaultUnavailable)?;
     let mut issues = config::detect_drift(state, workspace_id)

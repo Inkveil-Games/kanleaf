@@ -1,23 +1,28 @@
 import { indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
+import { indentUnit } from '@codemirror/language';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
-import { markdownLivePreview } from './livePreview';
 import { kanleafMarkdownTheme } from './markdownEditorTheme';
+import { useImperativeHandle, useRef, type Ref } from 'react';
+import type {
+  MarkdownEditorHandle,
+  MarkdownViewport,
+} from './markdownViewport';
 
 interface MarkdownSourceEditorProps {
+  ref?: Ref<MarkdownEditorHandle>;
+  initialViewport?: MarkdownViewport | null;
   value: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
-  livePreview?: boolean;
 }
 
 const markdownSupport = markdown({
   base: markdownLanguage,
   codeLanguages: languages,
 });
-const livePreviewExtension = markdownLivePreview();
 const nativeScrollbarExtension = ViewPlugin.define((view) => {
   view.scrollDOM.classList.add('ui-native-scrollbar');
   return {
@@ -26,78 +31,13 @@ const nativeScrollbarExtension = ViewPlugin.define((view) => {
     },
   };
 });
-const trailingWhitespaceExtension = ViewPlugin.define((view) => {
-  const handleMouseDown = (event: MouseEvent) => {
-    if (
-      event.button !== 0 ||
-      !view.state.facet(EditorView.editable) ||
-      view.viewport.to < view.state.doc.length
-    ) {
-      return;
-    }
-
-    const scroller = view.scrollDOM.getBoundingClientRect();
-    const scrollerRight =
-      scroller.left + (view.scrollDOM.clientWidth || scroller.width);
-    const scrollerBottom =
-      scroller.top + (view.scrollDOM.clientHeight || scroller.height);
-    if (
-      event.clientX < scroller.left ||
-      event.clientX > scrollerRight ||
-      event.clientY < scroller.top ||
-      event.clientY > scrollerBottom
-    ) {
-      return;
-    }
-
-    const documentBottom = Array.from(
-      view.contentDOM.querySelectorAll<HTMLElement>(
-        '.cm-line, .cm-live-block-widget',
-      ),
-    ).reduce((bottom, element) => {
-      const bounds = element.getBoundingClientRect();
-      return bounds.height > 0 ? Math.max(bottom, bounds.bottom) : bottom;
-    }, Number.NEGATIVE_INFINITY);
-    if (!Number.isFinite(documentBottom) || event.clientY <= documentBottom) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    const end = view.state.doc.length;
-    const needsTrailingLine =
-      end > 0 && view.state.doc.sliceString(end - 1, end) !== '\n';
-    if (needsTrailingLine) {
-      view.dispatch({
-        changes: { from: end, insert: '\n' },
-        selection: { anchor: end + 1 },
-        scrollIntoView: true,
-        userEvent: 'input',
-      });
-    } else {
-      view.dispatch({ selection: { anchor: end }, scrollIntoView: true });
-    }
-    view.focus();
-  };
-
-  view.scrollDOM.addEventListener('mousedown', handleMouseDown, true);
-  return {
-    destroy() {
-      view.scrollDOM.removeEventListener('mousedown', handleMouseDown, true);
-    },
-  };
-});
 const sourceExtensions = [
   markdownSupport,
+  indentUnit.of('    '),
   keymap.of([indentWithTab]),
   EditorView.lineWrapping,
   kanleafMarkdownTheme,
   nativeScrollbarExtension,
-];
-const livePreviewExtensions = [
-  ...sourceExtensions,
-  livePreviewExtension,
-  trailingWhitespaceExtension,
 ];
 const basicSetup = {
   lineNumbers: false,
@@ -107,20 +47,56 @@ const basicSetup = {
 };
 
 export function MarkdownSourceEditor({
+  ref,
+  initialViewport,
   value,
   onChange,
   readOnly = false,
-  livePreview = false,
 }: MarkdownSourceEditorProps) {
+  const viewRef = useRef<EditorView | null>(null);
+  const initialViewportRef = useRef(initialViewport);
+  useImperativeHandle(
+    ref,
+    () => ({
+      captureViewport: () => {
+        const view = viewRef.current;
+        if (!view) return null;
+        const top = view.scrollDOM.getBoundingClientRect().top;
+        const line = view.lineBlockAtHeight(top - view.documentTop);
+        return { offset: line.from, inset: line.top + view.documentTop - top };
+      },
+    }),
+    [],
+  );
   return (
-    <CodeMirror
-      aria-label="Markdown source"
-      value={value}
-      height="100%"
-      editable={!readOnly}
-      extensions={livePreview ? livePreviewExtensions : sourceExtensions}
-      basicSetup={basicSetup}
-      onChange={onChange}
-    />
+    <div className="markdown-source-shell">
+      <div className="markdown-source-toolbar">Markdown source</div>
+      <CodeMirror
+        aria-label="Markdown source"
+        className="markdown-source-editor"
+        value={value}
+        height="100%"
+        editable={!readOnly}
+        extensions={sourceExtensions}
+        basicSetup={basicSetup}
+        onChange={onChange}
+        onCreateEditor={(view) => {
+          viewRef.current = view;
+          const anchor = initialViewportRef.current;
+          if (!anchor) return;
+          view.requestMeasure({
+            read: () =>
+              view.lineBlockAt(Math.min(anchor.offset, view.state.doc.length))
+                .top +
+              view.documentTop -
+              view.scrollDOM.getBoundingClientRect().top -
+              anchor.inset,
+            write: (delta) => {
+              view.scrollDOM.scrollTop += delta;
+            },
+          });
+        }}
+      />
+    </div>
   );
 }

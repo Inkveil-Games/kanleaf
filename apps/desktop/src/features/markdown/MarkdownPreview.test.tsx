@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,22 @@ function EditablePreview({ initialContent }: { initialContent: string }) {
 }
 
 describe('MarkdownPreview', () => {
+  it('renders math and smart punctuation without changing code or link destinations', () => {
+    const { container } = render(
+      <MarkdownPreview
+        content={
+          '"Hello" -- isn\'t ...\n\n$x^2$\n\n$$\nx^2 + y^2\n$$\n\n`"code" --`\n\n["link"](https://example.com/a--b)'
+        }
+      />,
+    );
+    expect(container).toHaveTextContent('“Hello” – isn’t …');
+    expect(container.querySelectorAll('.katex')).toHaveLength(2);
+    expect(container.querySelector('code')).toHaveTextContent('"code" --');
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://example.com/a--b',
+    );
+  });
   it('renders GFM content while discarding raw HTML', () => {
     const { container } = render(
       <MarkdownPreview
@@ -145,5 +161,40 @@ const ready = true;
       'contenteditable',
     );
     expect(screen.getByRole('checkbox')).not.toBeDisabled();
+  });
+
+  it('resolves portable Kanleaf asset references in Reading mode', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(new Blob(['image']), { status: 200 }));
+    const createObjectUrl = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:kanleaf-image');
+
+    render(
+      <MarkdownPreview
+        content="![Architecture](kanleaf-asset://images/550e8400-e29b-41d4-a716-446655440000.png)"
+        assetContext={{
+          serverUrl: 'http://127.0.0.1:3000',
+          token: 'token',
+          workspaceId: 'workspace-id',
+          target: { kind: 'task', id: 'task-id' },
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: 'Architecture' })).toHaveAttribute(
+        'src',
+        'blob:kanleaf-image',
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/assets/images/550e8400-e29b-41d4-a716'),
+      expect.objectContaining({
+        headers: { authorization: 'Bearer token' },
+      }),
+    );
+    expect(createObjectUrl).toHaveBeenCalledOnce();
   });
 });

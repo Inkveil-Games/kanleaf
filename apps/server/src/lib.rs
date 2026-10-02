@@ -1,4 +1,5 @@
 pub mod account;
+pub mod asset;
 pub mod auth;
 pub mod collaboration;
 pub mod config;

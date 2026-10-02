@@ -43,10 +43,11 @@ Markdown document.
   ordered trees, independent collapse controls, keyboard navigation, and
   subtree moves
 - Safe project moves, stable row ordering, archiving, and confirmed deletion
-- Source-faithful Live Preview that reveals Markdown syntax only in the active
-  block, with undo/redo, task-marker editing, and tab indentation
-- Live, Source, Reading, and Split modes with safe GitHub-flavored rendering
-- Debounced autosave plus an explicit Ctrl/Cmd+S save path and visible state
+- One shared Milkdown Crepe visual editor for editable Tasks and Library Pages,
+  with a shared formatting toolbar, block drag handles, and a CodeMirror Source tab
+- Debounced Markdown autosave, Ctrl/Cmd+S flushing, visible dirty and conflict
+  states, and no backend writes merely from switching editing tabs
+- Workspace-scoped image uploads with portable Markdown asset references
 - SHA-256 revision checks that preserve local Markdown when an external editor
   changes the vault file
 - Durable metadata projection jobs that preserve custom YAML and retry after
@@ -93,12 +94,14 @@ metadata         *.md files
 
 The server is the authorization boundary. PostgreSQL stores users, sessions,
 memberships, workspaces, projects, task metadata, and document-tree metadata.
-Workspace Inbox Markdown stays under `Todo/`; each Project has independent
-`Projects/<stable-name>/Todo/` and `Wiki/` roots, while Workspace Library notes
-live under the top-level `Wiki/`. Task files contain Obsidian-compatible YAML
-properties plus source-faithful Markdown bodies. Stable storage names keep Task
-and Project renames from breaking paths; Wiki reparenting moves the note and its
-complete companion subtree.
+Each vault directory uses the Workspace's immutable public URL identifier.
+Task Markdown is flat under `tasks/<workspace task number>.md`, so title changes
+and Project moves never change its physical identity. Workspace Library notes
+live under `library/`; Project-owned notes live under
+`projects/<project identifier>/library/`. Library reparenting moves the note and
+its complete companion subtree. Shared opaque assets live under `assets/`, and
+all structured Task metadata remains canonical in PostgreSQL while readable
+YAML is projected into the Markdown files.
 Workspace Owner/Admin can export this managed vault as a portable backup. The
 archive excludes sessions, credentials, invitations, account preferences,
 notifications, comments/activity, `.obsidian`, and unmanaged files.

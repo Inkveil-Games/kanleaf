@@ -1,464 +1,291 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentSaveCoordinator } from './DocumentSaveCoordinator';
-import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
 import { MarkdownDocument } from './MarkdownDocument';
 
 vi.mock('@uiw/react-codemirror', () => ({
   default: (props: {
     value: string;
     onChange: (value: string) => void;
-    editable?: boolean;
     'aria-label'?: string;
   }) => (
     <textarea
       aria-label={props['aria-label']}
       value={props.value}
-      readOnly={props.editable === false}
-      onChange={(event) => {
-        if (props.editable !== false) props.onChange(event.target.value);
-      }}
+      onChange={(event) => props.onChange(event.currentTarget.value)}
     />
   ),
 }));
 
+vi.mock('./MilkdownEditor', () => ({
+  MilkdownEditor: (props: {
+    value: string;
+    onChange: (value: string) => void;
+  }) => (
+    <textarea
+      aria-label="Visual Markdown editor"
+      value={props.value}
+      onChange={(event) => props.onChange(event.currentTarget.value)}
+    />
+  ),
+}));
+
+function response(content = '# Original', revision = 'a'.repeat(64)) {
+  return new Response(JSON.stringify({ content, revision }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function renderDocument(
   fetchMock: ReturnType<typeof vi.fn>,
-  readOnly = false,
-  documentContext?: ReactNode,
+  options: { readOnly?: boolean; context?: ReactNode; targetId?: string } = {},
 ) {
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  return render(
     <QueryClientProvider client={client}>
       <DocumentSaveCoordinator>
         <MarkdownDocument
           serverUrl="https://kanleaf.example.com"
           token="session-token"
           workspaceId="workspace-1"
-          target={{ kind: 'task', id: 'task-1' }}
-          readOnly={readOnly}
-          documentContext={documentContext}
+          target={{ kind: 'task', id: options.targetId ?? 'task-1' }}
+          readOnly={options.readOnly}
+          documentContext={options.context}
         />
-        <TransitionControl />
       </DocumentSaveCoordinator>
     </QueryClientProvider>,
   );
 }
 
 describe('MarkdownDocument', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+  afterEach(() => vi.unstubAllGlobals());
 
-  it('keeps the view controls above document context and Markdown', async () => {
+  it('uses the shared load error and retries without opening a stale document', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({ content: '# Shell body', revision: 'a'.repeat(64) }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        ),
-      );
-    renderDocument(
-      fetchMock,
-      false,
-      <div aria-label="Task properties">Task properties</div>,
-    );
-
-    const editor = await screen.findByLabelText('Markdown source');
-    const toolbar = screen
-      .getByRole('button', { name: 'Live' })
-      .closest('header');
-    const context = screen.getByLabelText('Task properties');
-
-    expect(toolbar).toAppearBefore(context);
-    expect(context).toAppearBefore(editor);
-  });
-
-  it('previews the current source and saves it explicitly', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((_url: string, options: RequestInit | undefined) =>
-        Promise.resolve(
-          options?.method === 'PUT'
-            ? new Response(
-                JSON.stringify({
-                  content: '# Architecture',
-                  revision: 'b'.repeat(64),
-                }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              )
-            : new Response(
-                JSON.stringify({
-                  content: '# Original',
-                  revision: 'a'.repeat(64),
-                }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              ),
-        ),
-      );
+      .mockRejectedValueOnce(new Error('Server unavailable'))
+      .mockResolvedValueOnce(response('# Recovered'));
     renderDocument(fetchMock);
 
-    const editor = await screen.findByLabelText('Markdown source');
-    expect(screen.getByRole('button', { name: 'Live' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Server unavailable',
     );
-    fireEvent.change(editor, {
-      target: {
-        value:
-          '# Architecture\n\n| Layer | Owner |\n| --- | --- |\n| Vault | Filesystem |',
-      },
+    expect(screen.queryByLabelText('Visual Markdown editor')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByLabelText('Visual Markdown editor')).toHaveValue(
+      '# Recovered',
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('switches editing modes with arrow keys without saving the document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response());
+    renderDocument(fetchMock);
+    await screen.findByLabelText('Visual Markdown editor');
+    const editor = screen.getByRole('button', { name: 'Editor' });
+    editor.focus();
+    fireEvent.keyDown(editor, { key: 'ArrowRight' });
+    expect(await screen.findByLabelText('Markdown source')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Source' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Source' }), {
+      key: 'ArrowLeft',
     });
-    expect(screen.getByText('Unsaved')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
     expect(
-      screen.getByRole('heading', { name: 'Architecture' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('table')).toHaveTextContent('VaultFilesystem');
-    const preview = document.querySelector('.markdown-preview');
-    expect(preview?.closest('.ui-scroll-area')).toHaveAttribute(
-      'data-orientation',
-      'both',
-    );
+      await screen.findByLabelText('Visual Markdown editor'),
+    ).toBeVisible();
     expect(
-      document.querySelectorAll('.document-workspace > .ui-scroll-area'),
-    ).toHaveLength(1);
-
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://kanleaf.example.com/api/workspaces/workspace-1/tasks/task-1/document',
-        expect.objectContaining({
-          method: 'PUT',
-          body: expect.stringContaining('# Architecture'),
-        }),
-      ),
-    );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+      fetchMock.mock.calls.some(([, options]) => options?.method === 'PUT'),
+    ).toBe(false);
   });
 
-  it('keeps an interactive Reading task synchronized with every document mode', async () => {
-    const source = '- [ ] Test task\n- [x] Test task 2';
-    const fetchMock = vi.fn(
-      (_url: string, options: RequestInit | undefined) => {
-        const request = options?.body
-          ? (JSON.parse(String(options.body)) as { content: string })
-          : null;
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              content: request?.content ?? source,
-              revision: (request ? 'b' : 'a').repeat(64),
-            }),
-            {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            },
-          ),
-        );
-      },
-    );
-    renderDocument(fetchMock);
-    await screen.findByLabelText('Markdown source');
+  it('opens editable documents directly in the shared visual editor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response('# Editor'));
+    renderDocument(fetchMock, {
+      context: <div aria-label="Task properties">Properties</div>,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
-    const readingTask = screen.getAllByRole('checkbox')[0]!;
-    expect(readingTask).not.toBeDisabled();
-    fireEvent.click(readingTask);
-    expect(readingTask).toBeChecked();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
-    expect(screen.getByLabelText('Markdown source')).toHaveValue(
-      '- [x] Test task\n- [x] Test task 2',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Live' }));
-    expect(screen.getByLabelText('Markdown source')).toHaveValue(
-      '- [x] Test task\n- [x] Test task 2',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Split' }));
-    expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
-    expect(screen.getAllByRole('checkbox')[0]).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save Markdown' }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://kanleaf.example.com/api/workspaces/workspace-1/tasks/task-1/document',
-        expect.objectContaining({
-          method: 'PUT',
-          body: expect.stringContaining('- [x] Test task'),
-        }),
-      ),
-    );
+    const visual = await screen.findByLabelText('Visual Markdown editor');
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByText('Reading', { selector: 'span' })).toBeNull();
+    expect(screen.getByLabelText('Task properties')).toAppearBefore(visual);
   });
 
-  it('keeps Reading task checkboxes disabled for a read-only document', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          content: '- [ ] Viewer task',
-          revision: 'a'.repeat(64),
-        }),
-        {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        },
-      ),
-    );
-    renderDocument(fetchMock, true);
-    await screen.findByLabelText('Markdown source');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Reading' }));
-    fireEvent.click(screen.getByRole('checkbox'));
-
-    expect(screen.getByRole('checkbox')).toBeDisabled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('debounces autosave after source changes', async () => {
+  it('synchronizes one draft between the visual Editor and Source', async () => {
     const fetchMock = vi
       .fn()
-      .mockImplementation((_url: string, options: RequestInit | undefined) =>
-        Promise.resolve(
-          options?.method === 'PUT'
-            ? new Response(
-                JSON.stringify({
-                  content: '# Autosaved note',
-                  revision: 'b'.repeat(64),
-                }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              )
-            : new Response(
-                JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              ),
-        ),
-      );
+      .mockImplementation(() => Promise.resolve(response()));
     renderDocument(fetchMock);
 
-    fireEvent.change(await screen.findByLabelText('Markdown source'), {
-      target: { value: '# Autosaved note' },
+    const visual = await screen.findByLabelText('Visual Markdown editor');
+    fireEvent.change(visual, { target: { value: '# Shared draft' } });
+    expect(screen.getByText('Unsaved')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(
+      await screen.findByLabelText('Markdown source', undefined, {
+        timeout: 3_000,
+      }),
+    ).toHaveValue('# Shared draft');
+
+    fireEvent.change(screen.getByLabelText('Markdown source'), {
+      target: { value: '# Source draft' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Editor' }));
+    expect(await screen.findByLabelText('Visual Markdown editor')).toHaveValue(
+      '# Source draft',
+    );
+  });
+
+  it('does not persist merely because the editing tab changes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response());
+    renderDocument(fetchMock);
+
+    await screen.findByLabelText('Visual Markdown editor');
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    await screen.findByLabelText('Markdown source', undefined, {
+      timeout: 3_000,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Editor' }));
+    await screen.findByLabelText('Visual Markdown editor');
+
+    expect(
+      fetchMock.mock.calls.some(([, options]) => options?.method === 'PUT'),
+    ).toBe(false);
+  });
+
+  it('autosaves the shared draft after the debounce interval', async () => {
+    const fetchMock = vi.fn((_url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === 'PUT'
+          ? response('# Autosaved draft', 'b'.repeat(64))
+          : response(),
+      ),
+    );
+    renderDocument(fetchMock);
+    fireEvent.change(await screen.findByLabelText('Visual Markdown editor'), {
+      target: { value: '# Autosaved draft' },
     });
 
     await waitFor(
       () =>
-        expect(fetchMock).toHaveBeenCalledWith(
+        expect(fetchMock).toHaveBeenLastCalledWith(
           'https://kanleaf.example.com/api/workspaces/workspace-1/tasks/task-1/document',
-          expect.objectContaining({ method: 'PUT' }),
+          expect.objectContaining({
+            method: 'PUT',
+            body: expect.stringContaining('# Autosaved draft'),
+          }),
         ),
       { timeout: 2_000 },
     );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(screen.getByLabelText('Visual Markdown editor')).toBeInTheDocument();
   });
 
-  it('keeps Viewer documents readable without exposing save behavior', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          content: '# Readable note',
-          revision: 'a'.repeat(64),
-        }),
-        {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        },
+  it('flushes a pending draft when the document closes before the debounce', async () => {
+    const fetchMock = vi.fn((_url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === 'PUT'
+          ? response('# Closing draft', 'b'.repeat(64))
+          : response(),
       ),
     );
-    renderDocument(fetchMock, true);
+    const view = renderDocument(fetchMock);
+    fireEvent.change(await screen.findByLabelText('Visual Markdown editor'), {
+      target: { value: '# Closing draft' },
+    });
 
-    expect(await screen.findByText('Read only')).toBeInTheDocument();
-    expect(screen.getByLabelText('Markdown source')).toHaveAttribute(
-      'readonly',
+    view.unmount();
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://kanleaf.example.com/api/workspaces/workspace-1/tasks/task-1/document',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('# Closing draft'),
+        }),
+      ),
     );
-    expect(
-      screen.queryByRole('button', { name: 'Save Markdown' }),
-    ).not.toBeInTheDocument();
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves local source and reloads explicitly after a revision conflict', async () => {
-    let reads = 0;
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((_url: string, options: RequestInit | undefined) => {
-        if (options?.method === 'PUT') {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                error: {
-                  code: 'conflict',
-                  message: 'The Markdown document changed after it was opened',
-                },
-              }),
-              { status: 409, headers: { 'content-type': 'application/json' } },
-            ),
-          );
-        }
-        reads += 1;
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              content: reads === 1 ? '# Local base' : '# Remote edit',
-              revision: (reads === 1 ? 'a' : 'c').repeat(64),
-            }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-        );
-      });
+  it('handles Ctrl/Cmd+S without leaving the edit session', async () => {
+    const fetchMock = vi.fn((_url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === 'PUT' ? response('# Shortcut') : response(),
+      ),
+    );
+    renderDocument(fetchMock);
+    fireEvent.change(await screen.findByLabelText('Visual Markdown editor'), {
+      target: { value: '# Shortcut' },
+    });
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    expect(screen.getByLabelText('Visual Markdown editor')).toBeInTheDocument();
+  });
+
+  it('keeps read-only documents readable without exposing editor controls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response('- [ ] Viewer'));
+    renderDocument(fetchMock, { readOnly: true });
+
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Visual Markdown editor')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Editor' })).toBeNull();
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+  });
+
+  it('keeps the local draft open on a revision conflict', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
     });
+    const fetchMock = vi.fn((_url: string, options?: RequestInit) =>
+      Promise.resolve(
+        options?.method === 'PUT'
+          ? new Response(
+              JSON.stringify({
+                error: { code: 'conflict', message: 'Changed externally' },
+              }),
+              { status: 409, headers: { 'content-type': 'application/json' } },
+            )
+          : response(),
+      ),
+    );
     renderDocument(fetchMock);
-
-    const editor = await screen.findByLabelText('Markdown source');
-    fireEvent.change(editor, { target: { value: '# Local unsaved edit' } });
+    fireEvent.change(await screen.findByLabelText('Visual Markdown editor'), {
+      target: { value: '# Local draft' },
+    });
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
 
     expect(await screen.findByText('Conflict')).toBeInTheDocument();
-    expect(editor).toHaveValue('# Local unsaved edit');
+    expect(screen.getByLabelText('Visual Markdown editor')).toHaveValue(
+      '# Local draft',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Copy local' }));
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith('# Local unsaved edit'),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Discard local' }));
-    await waitFor(() => expect(editor).toHaveValue('# Remote edit'));
-    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Local source copied')).toBeVisible();
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('# Local draft');
+    expect(screen.getByText('Conflict')).toBeInTheDocument();
   });
 
-  it('flushes pending source before an identity transition', async () => {
+  it('falls back to Source when visual round-trip safety is unknown', async () => {
     const fetchMock = vi
       .fn()
-      .mockImplementation((_url: string, options: RequestInit | undefined) =>
-        Promise.resolve(
-          options?.method === 'PUT'
-            ? new Response(
-                JSON.stringify({
-                  content: '# Before switch',
-                  revision: 'b'.repeat(64),
-                }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              )
-            : new Response(
-                JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
-                {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                },
-              ),
-        ),
-      );
+      .mockResolvedValue(response('<details>Keep</details>'));
     renderDocument(fetchMock);
 
-    fireEvent.change(await screen.findByLabelText('Markdown source'), {
-      target: { value: '# Before switch' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Flush transition' }));
-
-    expect(await screen.findByText('Transition ready')).toBeInTheDocument();
-    expect(screen.getByText('Saved')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/document'),
-      expect.objectContaining({ method: 'PUT' }),
-    );
-  });
-
-  it('blocks transition after a save error and supports retry', async () => {
-    let writes = 0;
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((_url: string, options: RequestInit | undefined) => {
-        if (options?.method === 'PUT') {
-          writes += 1;
-          return Promise.resolve(
-            writes === 1
-              ? new Response(
-                  JSON.stringify({
-                    error: { code: 'internal', message: 'Vault unavailable' },
-                  }),
-                  {
-                    status: 500,
-                    headers: { 'content-type': 'application/json' },
-                  },
-                )
-              : new Response(
-                  JSON.stringify({
-                    content: '# Retry me',
-                    revision: 'b'.repeat(64),
-                  }),
-                  {
-                    status: 200,
-                    headers: { 'content-type': 'application/json' },
-                  },
-                ),
-          );
-        }
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ content: '', revision: 'a'.repeat(64) }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-        );
-      });
-    renderDocument(fetchMock);
-
-    fireEvent.change(await screen.findByLabelText('Markdown source'), {
-      target: { value: '# Retry me' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Flush transition' }));
-
     expect(
-      await screen.findByText(
-        'Resolve unsaved Markdown before switching accounts',
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Markdown could not be saved.'),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Try save' }));
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+      await screen.findByLabelText('Markdown source', undefined, {
+        timeout: 3_000,
+      }),
+    ).toHaveValue('<details>Keep</details>');
+    expect(screen.getByRole('button', { name: 'Editor' })).toBeDisabled();
+    expect(screen.getByText(/Raw HTML is safest/)).toBeInTheDocument();
   });
 });
-
-function TransitionControl() {
-  const { flushDocumentSaves } = useDocumentSaveCoordinator();
-  const [message, setMessage] = useState('');
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => {
-          void flushDocumentSaves()
-            .then(() => setMessage('Transition ready'))
-            .catch((error: Error) => setMessage(error.message));
-        }}
-      >
-        Flush transition
-      </button>
-      <span>{message}</span>
-    </>
-  );
-}

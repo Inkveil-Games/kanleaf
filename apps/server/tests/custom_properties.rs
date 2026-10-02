@@ -426,9 +426,9 @@ async fn select_options_and_task_values_are_typed_and_workspace_scoped(pool: PgP
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     let markdown = fs::read_to_string(task_path).unwrap();
     assert!(markdown.contains("Impact: High\n"));
     assert!(!markdown.contains("Properties:"));
@@ -440,9 +440,9 @@ async fn select_options_and_task_values_are_typed_and_workspace_scoped(pool: PgP
     let task_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     fs::write(&task_path, markdown).unwrap();
 
     let undefined = app

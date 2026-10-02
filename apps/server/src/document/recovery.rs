@@ -2,7 +2,7 @@ use anyhow::{Context, bail};
 
 use crate::{
     AppState,
-    vault::{PendingLibraryOperation, PendingLibraryOperationKind, PendingTaskMove, TaskPath},
+    vault::{PendingLibraryOperation, PendingLibraryOperationKind, PendingTaskMove},
 };
 
 use super::persistence::library_path;
@@ -44,18 +44,17 @@ async fn recover_task_move(state: &AppState, operation: &PendingTaskMove) -> any
     .context("failed to inspect a pending Task move")?;
     let (storage_name, project_storage_name) =
         current.ok_or_else(|| anyhow::anyhow!("pending Task move references a missing Task"))?;
-    let current = TaskPath::parse(project_storage_name.as_deref(), &storage_name)
-        .context("pending Task move contains an invalid database path")?;
-    let keep_destination = if current == operation.destination {
-        true
-    } else if current == operation.source {
-        false
-    } else {
-        bail!(
-            "pending Task move does not match the database path for Task {}",
-            operation.task_id
-        );
-    };
+    let keep_destination =
+        if operation.destination_matches(project_storage_name.as_deref(), &storage_name) {
+            true
+        } else if operation.source_matches(project_storage_name.as_deref(), &storage_name) {
+            false
+        } else {
+            bail!(
+                "pending Task move does not match the database path for Task {}",
+                operation.task_id
+            );
+        };
     state
         .vault
         .recover_task_move(operation, keep_destination)
@@ -103,10 +102,22 @@ async fn recover_operation(
             )
             .await
             .context("failed to resolve the database path for a pending Library move")?;
+            let legacy_project_storage_name: Option<String> = sqlx::query_scalar(
+                "SELECT projects.storage_name FROM documents LEFT JOIN projects ON projects.workspace_id = documents.workspace_id AND projects.id = documents.project_id WHERE documents.workspace_id = $1 AND documents.id = $2",
+            )
+            .bind(operation.workspace_id)
+            .bind(operation.document_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .context("failed to resolve the legacy Project path for a pending Library move")?;
             transaction.commit().await?;
-            let keep_destination = if current == *destination {
+            let keep_destination = if destination
+                .matches_database_location(&current, legacy_project_storage_name.as_deref())
+            {
                 true
-            } else if current == *source {
+            } else if source
+                .matches_database_location(&current, legacy_project_storage_name.as_deref())
+            {
                 false
             } else if state
                 .vault

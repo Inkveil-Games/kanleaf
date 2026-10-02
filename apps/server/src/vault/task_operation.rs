@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::domain::VaultStorageName;
+
 use super::{TaskPath, Vault, VaultError};
 
 pub struct TaskMove {
@@ -15,9 +17,73 @@ pub struct TaskMove {
 pub struct PendingTaskMove {
     pub workspace_id: Uuid,
     pub task_id: Uuid,
-    pub source: TaskPath,
-    pub destination: TaskPath,
+    source: TaskOperationPath,
+    destination: TaskOperationPath,
     manifest: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LegacyTaskPath {
+    project_storage_name: Option<VaultStorageName>,
+    storage_name: VaultStorageName,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TaskOperationPath {
+    Canonical(TaskPath),
+    Legacy(LegacyTaskPath),
+}
+
+impl TaskOperationPath {
+    fn relative_file(&self) -> PathBuf {
+        match self {
+            Self::Canonical(path) => path.relative_file(),
+            Self::Legacy(path) => path.relative_file(),
+        }
+    }
+
+    fn matches(&self, project_storage_name: Option<&str>, storage_name: &str) -> bool {
+        match self {
+            Self::Canonical(_) => false,
+            Self::Legacy(path) => path.matches(project_storage_name, storage_name),
+        }
+    }
+}
+
+impl LegacyTaskPath {
+    fn relative_file(&self) -> PathBuf {
+        self.project_storage_name.as_ref().map_or_else(
+            || PathBuf::from("Todo").join(format!("{}.md", self.storage_name.as_str())),
+            |project| {
+                PathBuf::from("Projects")
+                    .join(project.as_str())
+                    .join("Todo")
+                    .join(format!("{}.md", self.storage_name.as_str()))
+            },
+        )
+    }
+
+    fn matches(&self, project_storage_name: Option<&str>, storage_name: &str) -> bool {
+        self.project_storage_name
+            .as_ref()
+            .map(VaultStorageName::as_str)
+            == project_storage_name
+            && self.storage_name.as_str() == storage_name
+    }
+}
+
+impl PendingTaskMove {
+    pub fn destination_matches(
+        &self,
+        project_storage_name: Option<&str>,
+        storage_name: &str,
+    ) -> bool {
+        self.destination.matches(project_storage_name, storage_name)
+    }
+
+    pub fn source_matches(&self, project_storage_name: Option<&str>, storage_name: &str) -> bool {
+        self.source.matches(project_storage_name, storage_name)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -152,8 +218,9 @@ impl Vault {
         operation: &PendingTaskMove,
         keep_destination: bool,
     ) -> Result<(), VaultError> {
-        let source = self.task_file(operation.workspace_id, &operation.source);
-        let destination = self.task_file(operation.workspace_id, &operation.destination);
+        let workspace = self.workspace_directory(operation.workspace_id);
+        let source = workspace.join(operation.source.relative_file());
+        let destination = workspace.join(operation.destination.relative_file());
         let kept = if keep_destination {
             &destination
         } else {
@@ -207,13 +274,20 @@ impl Vault {
     }
 }
 
-fn parse_relative_task_path(value: &str) -> Result<TaskPath, VaultError> {
+fn parse_relative_task_path(value: &str) -> Result<TaskOperationPath, VaultError> {
     let path = std::path::Path::new(value);
     let components = path
         .components()
         .map(|component| component.as_os_str().to_str())
         .collect::<Option<Vec<_>>>()
         .ok_or(VaultError::InvalidManagedPath)?;
+    if let ["tasks", file] = components.as_slice() {
+        let number = file
+            .strip_suffix(".md")
+            .and_then(|value| value.parse::<i64>().ok())
+            .ok_or(VaultError::InvalidManagedPath)?;
+        return Ok(TaskOperationPath::Canonical(TaskPath::parse(number)?));
+    }
     let (project, file) = match components.as_slice() {
         ["Todo", file] => (None, *file),
         ["Projects", project, "Todo", file] => (Some(*project), *file),
@@ -222,7 +296,14 @@ fn parse_relative_task_path(value: &str) -> Result<TaskPath, VaultError> {
     let storage_name = file
         .strip_suffix(".md")
         .ok_or(VaultError::InvalidManagedPath)?;
-    TaskPath::parse(project, storage_name)
+    Ok(TaskOperationPath::Legacy(LegacyTaskPath {
+        project_storage_name: project
+            .map(VaultStorageName::parse)
+            .transpose()
+            .map_err(|_| VaultError::InvalidManagedPath)?,
+        storage_name: VaultStorageName::parse(storage_name)
+            .map_err(|_| VaultError::InvalidManagedPath)?,
+    }))
 }
 
 async fn reconcile_task_file(

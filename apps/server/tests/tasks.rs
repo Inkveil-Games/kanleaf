@@ -188,21 +188,13 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     assert!(task.get("task_type").is_none());
     assert_eq!(task["priority"], "high");
 
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
-            .bind(project_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let task_storage_name = task["storage_name"].as_str().unwrap();
+    let task_number = task["task_number"].as_i64().unwrap();
     let project_document_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Projects")
-        .join(project_storage_name)
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{task_number}.md"));
     let created_source = fs::read_to_string(&project_document_path).unwrap();
     assert!(created_source.contains(&format!("Kanleaf ID: {task_id}\n")));
     assert!(created_source.contains("Project:\n  - Kanleaf\n"));
@@ -257,11 +249,11 @@ async fn task_metadata_and_markdown_persist_through_the_complete_lifecycle(pool:
     let document_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{task_number}.md"));
     assert!(document_path.exists());
-    assert!(!project_document_path.exists());
+    assert_eq!(document_path, project_document_path);
 
     let inbox_search = app
         .clone()
@@ -397,9 +389,9 @@ async fn conflicting_external_properties_are_preserved_and_retry_after_repair(po
     let path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     let valid_source = fs::read_to_string(&path).unwrap().replacen(
         "---\n\n",
         "Custom property:\n  nested: keep-me\n---\n\n",
@@ -501,9 +493,9 @@ async fn metadata_update_survives_temporary_vault_failure(pool: PgPool) {
     let path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Todo")
-        .join(format!("{}.md", task["storage_name"].as_str().unwrap()));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     let unavailable_path = path.with_extension("md.unavailable");
     fs::rename(&path, &unavailable_path).unwrap();
 
@@ -657,21 +649,12 @@ async fn archiving_a_project_preserves_its_tasks_and_markdown(pool: PgPool) {
         json!({"title": "Keep me", "project_id": project_id}),
     )
     .await;
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
-            .bind(project_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let task_storage_name = task["storage_name"].as_str().unwrap();
     let project_path = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Projects")
-        .join(project_storage_name)
-        .join("Todo")
-        .join(format!("{task_storage_name}.md"));
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
 
     let archived = app
         .clone()
@@ -728,9 +711,15 @@ async fn archiving_a_project_preserves_its_tasks_and_markdown(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn task_creation_rolls_back_when_the_vault_cannot_create_a_document(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
-    fs::write(data_dir.path().join("vaults"), "not a directory").unwrap();
     let app = test_app(pool.clone(), &data_dir);
     let (token, _, workspace_id) = register(&app, "owner@example.com").await;
+    let tasks = data_dir
+        .path()
+        .join("vaults")
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("tasks");
+    fs::remove_dir(&tasks).unwrap();
+    fs::write(&tasks, "not a directory").unwrap();
 
     let response = app
         .oneshot(json_request(
@@ -748,6 +737,198 @@ async fn task_creation_rolls_back_when_the_vault_cannot_create_a_document(pool: 
         .await
         .unwrap();
     assert_eq!(task_count, 0);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn layout_v2_database_identities_migrate_project_and_inbox_tasks_and_library(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let state = AppState::new(
+        pool.clone(),
+        data_dir.path().to_owned(),
+        Duration::from_secs(3600),
+    );
+    let app = router(
+        state.clone(),
+        vec![HeaderValue::from_static("http://127.0.0.1:1420")],
+    );
+    let (token, _, workspace_id) = register(&app, "layout-v2@example.com").await;
+    let project_id = create_project(&app, &token, workspace_id, "Astro Clash").await;
+    sqlx::query("UPDATE workspaces SET next_task_number = 42 WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tasks = Vec::new();
+    for (title, project) in [
+        ("Feature: Home tab", None),
+        ("Thiết kế trò chơi", Some(project_id)),
+    ] {
+        let task = create_task(
+            &app,
+            &token,
+            workspace_id,
+            json!({"title": title, "project_id": project}),
+        )
+        .await;
+        tasks.push(task);
+    }
+    let mut documents: Vec<Value> = Vec::new();
+    for (title, project, parent) in [
+        ("Features need to be added", None, None),
+        ("abc", None, None),
+        ("dè", None, Some(1usize)),
+        ("game design", Some(project_id), None),
+    ] {
+        let parent_id = parent.map(|index| documents[index]["id"].clone());
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                &format!("/api/workspaces/{workspace_id}/documents"),
+                json!({"title": title, "project_id": project, "parent_id": parent_id}),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        documents.push(response_json(response).await);
+    }
+    let workspace_identifier: String =
+        sqlx::query_scalar("SELECT identifier FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let (project_storage, project_identifier): (String, String) =
+        sqlx::query_as("SELECT storage_name, identifier FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let canonical = data_dir.path().join("vaults").join(&workspace_identifier);
+    let legacy = data_dir
+        .path()
+        .join("vaults")
+        .join(workspace_id.to_string());
+    fs::rename(&canonical, &legacy).unwrap();
+    fs::rename(legacy.join("library"), legacy.join("Wiki")).unwrap();
+    fs::rename(legacy.join("projects"), legacy.join("Projects")).unwrap();
+    let legacy_project = legacy.join("Projects").join(&project_storage);
+    fs::rename(
+        legacy.join("Projects").join(&project_identifier),
+        &legacy_project,
+    )
+    .unwrap();
+    fs::rename(legacy_project.join("library"), legacy_project.join("Wiki")).unwrap();
+    fs::create_dir_all(legacy.join("Todo")).unwrap();
+    fs::create_dir_all(legacy_project.join("Todo")).unwrap();
+    let mut expected = Vec::new();
+    for task in &tasks {
+        let id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
+        let storage: String = sqlx::query_scalar("SELECT storage_name FROM tasks WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let number = task["task_number"].as_i64().unwrap();
+        let relative = format!("tasks/{number}.md");
+        let source = format!(
+            "{}\n# Chỉnh sửa bên ngoài\n\nGiữ nguyên **tiếng Việt** và [[links]].\n",
+            fs::read_to_string(legacy.join(&relative)).unwrap(),
+        );
+        let todo = if task["project_id"].is_null() {
+            legacy.join("Todo")
+        } else {
+            legacy_project.join("Todo")
+        };
+        fs::rename(legacy.join(&relative), todo.join(format!("{storage}.md"))).unwrap();
+        fs::write(todo.join(format!("{storage}.md")), &source).unwrap();
+        expected.push((relative, source));
+    }
+    for relative in [
+        "library/features_need_to_be_added.md".to_owned(),
+        "library/abc.md".to_owned(),
+        "library/abc/dè.md".to_owned(),
+        format!("projects/{project_identifier}/library/game_design.md"),
+    ] {
+        let source = format!("# Thiết kế Kanleaf\n\nĐây là nội dung tiếng Việt: {relative}\n");
+        let legacy_relative = relative
+            .replace(
+                &format!("projects/{project_identifier}/library/"),
+                &format!("Projects/{project_storage}/Wiki/"),
+            )
+            .replace("library/", "Wiki/");
+        fs::write(legacy.join(legacy_relative), &source).unwrap();
+        expected.push((relative, source));
+    }
+    sqlx::query("UPDATE workspaces SET vault_layout_version = 2 WHERE id = $1")
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::raw_sql(
+        "CREATE FUNCTION reject_vault_activation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected deferred commit failure'; END $$;
+         CREATE CONSTRAINT TRIGGER reject_vault_activation AFTER UPDATE ON workspaces
+         DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+         WHEN (NEW.vault_layout_version = 3 AND OLD.vault_layout_version = 2)
+         EXECUTE FUNCTION reject_vault_activation();",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(migrate_workspace_vaults(&state).await.is_err());
+    assert!(legacy.exists());
+    assert!(!canonical.exists());
+    assert_eq!(
+        sqlx::query_scalar::<_, i16>("SELECT vault_layout_version FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        2,
+    );
+    sqlx::raw_sql("DROP TRIGGER reject_vault_activation ON workspaces; DROP FUNCTION reject_vault_activation();")
+        .execute(&pool)
+        .await
+        .unwrap();
+    migrate_workspace_vaults(&state).await.unwrap();
+    migrate_workspace_vaults(&state).await.unwrap();
+
+    for (relative, source) in expected {
+        assert_eq!(
+            fs::read_to_string(canonical.join(relative)).unwrap(),
+            source
+        );
+    }
+    for task in tasks {
+        let identity: (Uuid, i64, Option<Uuid>) =
+            sqlx::query_as("SELECT id, task_number, project_id FROM tasks WHERE id = $1")
+                .bind(task["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(identity.1, task["task_number"].as_i64().unwrap());
+        assert_eq!(
+            identity.2,
+            task["project_id"]
+                .as_str()
+                .map(|value| value.parse::<Uuid>().unwrap()),
+        );
+    }
+    assert!(!legacy.exists());
+    assert!(!canonical.join("Todo").exists());
+    assert!(!canonical.join("Projects").exists());
+    assert!(!canonical.join("Wiki").exists());
+    assert!(canonical.join("assets/images").is_dir());
+    assert!(
+        state
+            .vault
+            .pending_workspace_layout_migrations()
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -783,26 +964,34 @@ async fn legacy_workspace_tasks_migrate_to_portable_project_paths(pool: PgPool) 
         .unwrap();
     assert_eq!(document.status(), StatusCode::CREATED);
     let task_id: Uuid = task["id"].as_str().unwrap().parse().unwrap();
-    let project_storage_name: String =
-        sqlx::query_scalar("SELECT storage_name FROM projects WHERE id = $1")
+    let (project_storage_name, project_identifier): (String, String) =
+        sqlx::query_as("SELECT storage_name, identifier FROM projects WHERE id = $1")
             .bind(project_id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    let workspace = data_dir
+    let workspace_identifier: String =
+        sqlx::query_scalar("SELECT identifier FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let canonical_workspace = data_dir.path().join("vaults").join(&workspace_identifier);
+    let legacy_workspace = data_dir
         .path()
         .join("vaults")
         .join(workspace_id.to_string());
-    fs::remove_dir_all(workspace.join("Projects")).unwrap();
-    fs::create_dir_all(workspace.join("Tasks")).unwrap();
+    fs::rename(&canonical_workspace, &legacy_workspace).unwrap();
+    fs::remove_dir_all(legacy_workspace.join("projects")).unwrap();
+    fs::create_dir_all(legacy_workspace.join("Tasks")).unwrap();
     fs::write(
-        workspace.join("Tasks").join(format!("{task_id}.md")),
+        legacy_workspace.join("Tasks").join(format!("{task_id}.md")),
         "# Legacy body\n\nKeep [[links]].\n",
     )
     .unwrap();
-    fs::create_dir_all(workspace.join("Library")).unwrap();
+    fs::create_dir_all(legacy_workspace.join("Library")).unwrap();
     fs::write(
-        workspace.join("Library/architecture.md"),
+        legacy_workspace.join("Library/architecture.md"),
         "# Legacy project Wiki\n",
     )
     .unwrap();
@@ -821,13 +1010,12 @@ async fn legacy_workspace_tasks_migrate_to_portable_project_paths(pool: PgPool) 
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
+    let task_number = task["task_number"].as_i64().unwrap();
     let source = fs::read_to_string(
-        workspace
-            .join("Projects")
-            .join(&project_storage_name)
-            .join("Todo")
-            .join(format!("{}.md", task["storage_name"].as_str().unwrap())),
+        canonical_workspace
+            .join("tasks")
+            .join(format!("{task_number}.md")),
     )
     .unwrap();
     assert!(source.contains(&format!("Kanleaf ID: {task_id}\n")));
@@ -835,10 +1023,10 @@ async fn legacy_workspace_tasks_migrate_to_portable_project_paths(pool: PgPool) 
     assert!(source.ends_with("# Legacy body\n\nKeep [[links]].\n"));
     assert_eq!(
         fs::read_to_string(
-            workspace
-                .join("Projects")
-                .join(&project_storage_name)
-                .join("Wiki/architecture.md")
+            canonical_workspace
+                .join("projects")
+                .join(&project_identifier)
+                .join("library/architecture.md")
         )
         .unwrap(),
         "# Legacy project Wiki\n"
@@ -850,6 +1038,7 @@ async fn legacy_workspace_tasks_migrate_to_portable_project_paths(pool: PgPool) 
             .any(|entry| entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(&format!("{workspace_id}.legacy-")))
+                .starts_with(&format!("{workspace_id}.legacy-v0-")))
     );
+    assert_ne!(project_storage_name, project_identifier);
 }

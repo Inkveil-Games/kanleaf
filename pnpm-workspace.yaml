@@ -3,3 +3,7 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@mermaid-js/parser@2.0.1'
+  - mermaid@12.1.0

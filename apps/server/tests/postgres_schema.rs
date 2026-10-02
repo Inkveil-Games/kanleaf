@@ -4,7 +4,7 @@ use std::{borrow::Cow, fs, time::Duration};
 
 use kanleaf_server::{
     AppState, domain::VaultStorageName, migration::run_database_migrations,
-    portability::recover_config_projection_jobs,
+    portability::recover_config_projection_jobs, workspace::migrate_workspace_vaults,
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, migrate::Migrator};
@@ -126,12 +126,21 @@ async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool)
         data_dir.path().to_owned(),
         Duration::from_secs(3600),
     );
+    migrate_workspace_vaults(&state).await.unwrap();
+    migrate_workspace_vaults(&state).await.unwrap();
     recover_config_projection_jobs(&state).await.unwrap();
-    for (id, state_id, _, version) in workspaces {
+    for (id, state_id, identifier, version) in workspaces {
+        let layout: i16 =
+            sqlx::query_scalar("SELECT vault_layout_version FROM workspaces WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(layout, 3);
         let path = data_dir
             .path()
             .join("vaults")
-            .join(id.to_string())
+            .join(identifier)
             .join(".kanleaf/workspace.json");
         let config: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(config["format_version"], 3);
@@ -144,7 +153,8 @@ async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(projected, version + 3);
+        // Quick links, both defaults migrations, and vault activation each dirty config.
+        assert_eq!(projected, version + 4);
     }
     let remaining: i64 =
         sqlx::query_scalar("SELECT count(*) FROM workspace_config_projection_jobs")

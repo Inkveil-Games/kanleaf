@@ -638,10 +638,7 @@ async fn expected_paths(
 ) -> Result<HashSet<String>, sqlx::Error> {
     let mut paths = sqlx::query_scalar::<_, String>(
         r#"
-        SELECT CASE
-            WHEN tasks.project_id IS NULL THEN 'Todo/' || tasks.storage_name || '.md'
-            ELSE 'Projects/' || projects.storage_name || '/Todo/' || tasks.storage_name || '.md'
-        END
+        SELECT 'tasks/' || tasks.task_number || '.md'
         FROM tasks
         LEFT JOIN projects ON projects.id = tasks.project_id
         WHERE tasks.workspace_id = $1
@@ -667,8 +664,8 @@ async fn expected_paths(
             WHERE children.workspace_id = $1
         )
         SELECT CASE
-            WHEN tree.project_id IS NULL THEN 'Wiki/' || tree.path || '.md'
-            ELSE 'Projects/' || projects.storage_name || '/Wiki/' || tree.path || '.md'
+            WHEN tree.project_id IS NULL THEN 'library/' || tree.path || '.md'
+            ELSE 'projects/' || projects.identifier || '/library/' || tree.path || '.md'
         END
         FROM tree
         LEFT JOIN projects ON projects.id = tree.project_id
@@ -743,10 +740,13 @@ fn exclusion_response(exclusion: &ExportExclusion) -> ExportExclusionResponse {
 }
 
 fn media_type(path: &str) -> &'static str {
-    if path.ends_with(".md") {
-        "text/markdown"
-    } else {
-        "application/json"
+    match path.rsplit_once('.').map(|(_, extension)| extension) {
+        Some("md") => "text/markdown",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        _ => "application/json",
     }
 }
 

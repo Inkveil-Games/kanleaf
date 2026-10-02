@@ -123,7 +123,8 @@ User ──< Session
   State identity guarded by a composite Workspace foreign key.
 - Each task receives a monotonic workspace number under a workspace row lock.
   Human references use that number as `#<number>` without reuse, while the UUID
-  remains the permanent database and vault identity.
+  remains the permanent database identity and the number is the stable vault
+  filename.
 - Assignees must be eligible for the current Inbox or Project, labels remain
   workspace-scoped, and parent Tasks must share the same collection. Canonical
   relation rows prevent duplicate edges and preserve directional blocking.
@@ -156,8 +157,9 @@ User ──< Session
 - Library notes keep stable IDs, titles, portable storage names, hierarchy, and
   ordering in PostgreSQL. A parent must share the same Workspace/Project scope;
   subtree moves validate cycles and move every descendant together. Workspace
-  notes live under `Wiki/`; Project notes live under the owning
-  `Projects/<stable-name>/Wiki/` tree.
+  notes live under `library/`; Project notes live under the owning
+  `projects/<project identifier>/library/` tree. A note's validated storage
+  segments remain its readable route-independent filesystem identity.
 - Task comments store Markdown collaboration records in PostgreSQL, including
   one reply level, structured mentions, immutable prior revisions, and
   tombstone deletion. Activity is a compact product feed, not an event-sourcing
@@ -270,29 +272,61 @@ disclosed without effective access.
 
 ## Markdown vault
 
-Tasks and Library notes have distinct typed file identities:
+Layout version 3 uses the same immutable public identifiers as application
+routing while retaining UUIDs as the database and authorization identities:
 
 ```text
 KANLEAF_DATA_DIR/
 └── vaults/
-    └── <workspace UUID>/
-        ├── Todo/<task storage name>.md
-        ├── Wiki/
-            ├── getting_started.md
-            └── getting_started/
-                └── installation.md
-        └── Projects/
-            └── <project storage name>/
-                ├── Todo/<task storage name>.md
-                └── Wiki/architecture.md
+    └── kanleaf/
+        ├── library/
+        │   ├── architecture/
+        │   │   ├── backend.md
+        │   │   └── frontend.md
+        │   └── notes.md
+        ├── tasks/
+        │   ├── 1.md
+        │   ├── 5.md
+        │   └── 42.md
+        ├── projects/
+        │   └── astro-clash/
+        │       └── library/
+        │           └── game-design.md
+        ├── assets/
+        │   ├── images/
+        │   └── files/
+        ├── .trash/
+        │   ├── library/
+        │   ├── tasks/
+        │   ├── projects/
+        │   └── assets/
+        └── .kanleaf/
 ```
 
-Task and Project paths use immutable, validated storage names derived from their
-initial title plus a short stable-ID suffix. Library paths use validated segments
-resolved from the authorized PostgreSQL tree. These typed identities select the
-Workspace or Project scope internally; the API never accepts an arbitrary path.
-A Wiki note's file and same-stem companion directory represent one tree node.
-Writes use a temporary sibling file followed by rename.
+The root is the Workspace's immutable, globally unique URL identifier; its UUID
+remains in database rows and recovery manifests. Project directories use the
+Project's immutable route identifier. Display-name changes do not rename either
+directory. Tasks use their monotonically allocated, Workspace-unique visible
+number and always remain flat under `tasks/`, so a Task rename or Project move
+does not move its Markdown file. Legacy `storage_name` values remain only for
+layout-v2 migration and archive compatibility.
+
+Library paths use validated stable storage segments resolved from the authorized
+PostgreSQL tree. Project ownership is a real access scope, so Project-owned pages
+live below that Project's `library/`; Workspace pages use the root `library/`.
+A Library Page's file and same-stem companion directory represent one tree node,
+allowing the Page to hold content and children. Writes use a temporary sibling
+file followed by rename. Typed layout values construct every managed path; the
+API never accepts an arbitrary filesystem path.
+
+Images uploaded by either Tasks or Library Pages share `assets/images/` and use
+opaque UUID filenames. Markdown stores `kanleaf-asset://images/<opaque name>`,
+never a deployment URL, signed URL, original filename, or data URI. One shared
+frontend/backend resolver authorizes the current document context and turns that
+portable reference into display bytes. Deleting an image node only removes the
+document reference; physical assets are intentionally retained until a future
+reference index and safe orphan collector exist. `assets/files/` is reserved for
+the same storage boundary without committing to a remote object-store backend.
 
 Task files contain canonical Obsidian-compatible YAML properties followed by the
 user's source-faithful Markdown body. Structured metadata remains canonical in
@@ -325,8 +359,9 @@ projection does not roll back canonical PostgreSQL state or overwrite invalid
 external YAML; the stored health state makes that divergence explicit.
 
 Workspace Owner/Admin can explicitly preview external Task-property changes
-with Vault Sync. The server scans only the Workspace and known Project `Todo`
-roots, rejects symlinked or untyped entries, and matches files by `Kanleaf ID`.
+with Vault Sync. The server scans the canonical flat `tasks/` directory,
+rejects symlinked or untyped entries, and matches files by `Kanleaf ID` and
+Workspace task number.
 The durable preview records both the complete-file SHA-256 revision and Task
 metadata version. Apply first rechecks every selected item, then invokes the
 same Task update use case used by HTTP so Project access, vocabulary,
@@ -394,9 +429,10 @@ operation when both committed data and its vault exist, fails interrupted
 previews, and cleans expired staging. A committed Workspace without its vault
 stops startup instead of silently accepting data loss.
 
-Later Task or Project title edits do not rename files. A Task scope change moves
-its stable basename between `Todo` roots. Wiki reparenting or scope changes move
-both `<name>.md` and `<name>/`, preserving descendants and authored content.
+Later Task, Workspace, or Project title edits do not rename files. A Task scope
+change updates PostgreSQL only; its `tasks/<number>.md` identity remains fixed.
+Library reparenting or scope changes move both `<name>.md` and `<name>/`,
+preserving descendants and authored content.
 Manually authored links are not rewritten during a move; link-aware renames and
 backlinks are a later capability. No `.obsidian` directory is created or
 required.
@@ -409,16 +445,22 @@ both the external file and client source untouched.
 
 Task and Library-note creation coordinate the database transaction with initial
 file creation; the transaction is rolled back if the document cannot be
-created. Task, Wiki, and Project-scope moves use durable manifests plus reverse
-compensation when the SQL transaction fails. Startup also migrates legacy
-`Tasks`/`Library` layouts through a verified sibling staging directory and keeps
-the previous Workspace directory as a timestamped recovery copy. Fully atomic
+created. Library and Project-scope moves use durable manifests plus reverse
+compensation when the SQL transaction fails. Startup migrates layout-v0/v2
+UUID-rooted `Projects`/`Todo`/`Wiki` trees through a complete verified sibling
+staging directory. It maps Tasks to `tasks/<task number>.md`, preserves Library
+hierarchy and Project ownership, validates collisions and symlinks before
+activation, and then atomically swaps the staged identifier-rooted tree into
+place. The migration manifest retains both Workspace UUID and public identifier.
+The previous Workspace directory is kept as a timestamped recovery copy until
+the database decision is known. Startup finishes a committed activation or
+rolls back an uncommitted one; repeated recovery is idempotent. Fully atomic
 transactions across PostgreSQL and a filesystem are not
 possible. Library move, delete, and legacy migration operations therefore write
 recovery manifests under the persisted
-`KANLEAF_DATA_DIR/vaults/.trash/library-operations` directory; Library deletion
-trash lives beside them under `vaults/.trash/library`, so staging renames stay on
-the same filesystem as the live vault. Startup reconciles those manifests
+`KANLEAF_DATA_DIR/vaults/.trash/library-operations` control directory; new
+Library deletion payloads live in the owning Workspace's `.trash/library/`, so
+staging renames stay on the same filesystem as the live vault. Startup reconciles those manifests
 against PostgreSQL before binding the HTTP listener and continues to read the
 previous `KANLEAF_DATA_DIR/operations` plus `trash/library` layout for upgrade
 recovery when those legacy container-local paths were preserved. Restoring a
@@ -438,8 +480,9 @@ purged only after its record becomes unreachable. A purge failure is logged and
 leaves internal trash for operator cleanup instead of encouraging an unsafe
 client retry.
 
-Permanent Project deletion stages the complete Project vault below the persisted
-`vaults/.trash` tree before deleting its relational footprint. It refuses to
+Permanent Project deletion stages the Project Library plus each flat Task file
+below the owning Workspace's `.trash/projects/` before deleting its relational
+footprint. It refuses to
 start while one of the Project's Library documents still has a published
 structural recovery manifest. Startup may retire a superseded move manifest only
 after it proves that neither referenced live path nor staged path remains;
@@ -450,16 +493,19 @@ configuration, and Markdown are removed together. Cross-Project hierarchy
 pointers are cleared and projected before their surviving Task records return to
 a steady state.
 
-Confirmed Workspace deletion first records a durable manifest and renames its
-typed UUID vault beneath `vaults/.trash`, on the same persisted mount. A
+Confirmed Workspace deletion first records a durable manifest containing both
+UUID and canonical directory identifier, then renames the complete Workspace
+vault beneath `vaults/.trash`, on the same persisted mount. A
 database failure or an interrupted pre-commit operation restores that directory;
 a rename-synchronization failure also compensates immediately before the request
-returns. Once committed, startup recovery or the request purges the vault,
+returns. Once committed, startup recovery or the request purges only the staged vault,
 Workspace-scoped migration recovery copies (`<uuid>.legacy-*` and
-`.<uuid>.v2-staging.*`),
+`.<identifier>.v3-staging.<workspace-uuid>.*`),
 Workspace Task trash, structural operation manifests, and known export artifacts;
 a successful commit retires the public identifier and makes all relational data
-unreachable first. The manifest and rename directory entries are synchronized
+unreachable first. Cleanup never deletes a live directory by its public
+identifier: a newly created Workspace or Project may already have reused it.
+The manifest and rename directory entries are synchronized
 before the database commit. An export holds a shared Workspace-row fence through
 artifact publication, while deletion holds the exclusive row lock. Canceling a
 preparing export leaves a hidden durable database marker until its worker, or
@@ -535,8 +581,9 @@ The desktop app is feature-oriented:
   guarded deletion action, and instance access policy surface;
 - `features/document` owns the Workspace Library and Project-filtered Library
   trees, hierarchy, ordering, scope moves, and archive interaction;
-- `features/markdown` owns the shared Task/Library source editor, Live Preview,
-  reading renderer, revision conflict recovery, and persistence state;
+- `features/markdown` owns the one shared Task/Library edit session, lazy
+  Milkdown Crepe visual editor, CodeMirror source editor, read-only renderer,
+  asset pipeline, revision conflict recovery, and autosave state;
 - `lib/api` is the small authenticated JSON transport boundary.
 
 React Router owns durable application location: Host Console sections,
@@ -566,14 +613,58 @@ the page origin at runtime. Local storage contains the bearer-token account
 registry and device preferences, never passwords; the registry is versioned
 and isolated by normalized server URL. Identity transitions first flush
 pending Markdown, validate the selected session, and clear account-scoped query
-data before committing the new identity. CodeMirror is lazy-loaded when a
-document opens.
-Live Preview is a CodeMirror state field over the GFM syntax tree: the active
-logical block stays raw, inactive inline syntax receives decorations, and
-multiline tables, fences, rules, and HTML blocks use atomic replacement
-widgets. Decorations never rewrite the editor state. The same
-`react-markdown` renderer backs replacement blocks and Reading/Split views,
-with raw HTML disabled and safe new-window attributes on external links.
+data before committing the new identity. Editable documents open directly in
+the shared editor with one canonical Markdown draft. Milkdown Crepe is the
+visual `Editor` tab with a shared Kanleaf formatting toolbar, Crepe block drag
+handle, and slash menu (no inline plus button); CodeMirror is the raw `Source`
+tab. Serializing or parsing during a tab switch changes only the local draft and
+does not itself write the backend. Draft changes are persisted after a short
+debounce with the opened revision; Ctrl/Cmd+S flushes immediately, and
+`DocumentSaveCoordinator` flushes or blocks route and identity transitions.
+Conflicts retain the draft for retry or explicit discard.
+Editor/Source transitions carry a document-local Markdown offset and viewport
+inset, not a shared pixel scroll distance. The visual side maps top-level
+Markdown blocks through Milkdown's remark parser; positions inside a long block
+are proportional. Source uses CodeMirror's measured line positions. Late visual
+layout keeps the anchor until user interaction takes over. Both modes reserve
+the same toolbar height and content gutters; switching modes does not persist
+viewport state or change Markdown.
+Clicking empty space after a top-level table or code block places the caret in
+the following paragraph, creating one on demand. Merely opening a document
+does not append Markdown content. The toolbar highlights only the innermost
+list's semantic type, including checklists nested inside other lists.
+Read-only documents still use the lightweight `react-markdown`/GFM renderer with
+raw HTML disabled.
+YAML frontmatter, raw HTML, footnotes, or other syntax outside the guaranteed
+visual round-trip contract opens safely in Source instead of risking a
+destructive Milkdown serialization.
+
+The shared visual editor supports inline `$...$` and block `$$...$$` math
+through Crepe/KaTeX; the read-only renderer uses remark-math/rehype-katex with
+the same bounded, untrusted rendering options. A shared math node view displays
+block formulas directly on the document surface; clicking a formula opens its
+LaTeX input. That input updates the same editor document, not a second saved
+state. Inline formulas inherit the document text color. Crepe normalizes fenced `latex`
+blocks into `$$` math on serialization. Mermaid fences render with a lazy-loaded
+renderer shared by visual and read-only surfaces. Its strict security policy
+disables diagram click actions, keeps rendering configuration protected from
+document overrides, and retains invalid diagram source for correction. A shared
+Kanleaf theme adapter uses semantic light/dark palette tokens for category fills,
+series, text and connectors; it also adapts known renderer defaults that bypass
+Mermaid theme variables. Nodes use restrained tint surfaces without gradients or
+drop shadows. The editor retains one rendered preview per live Mermaid block
+and reserves its measured height during Crepe's offscreen teardown. Returning
+to an unchanged block reuses its SVG; source or theme changes invalidate it.
+These caches are scoped to node-view lifetime, not persisted across documents.
+Temporary SVG measurement runs in an isolated, hidden container so rendering
+does not change the page's scroll bounds. After-block caret targets are view-only
+decorations: clicking or keyboard-activating one focuses a following paragraph,
+creating it on demand without modifying documents merely when opened.
+Diagram SVG and generated math HTML are never persisted. SmartyPants displays smart
+quotes, apostrophes, en/em dashes and ellipses; visual decorations and read-only
+text transforms leave the canonical ASCII Markdown unchanged. Code, math and
+URL destinations are excluded. Literal punctuation is revealed at the editor
+caret for predictable editing. No additional raw HTML support is enabled.
 
 Temporary filters, grouping, sorting, and layout changes stay in React state;
 the Task query parameter identifies only the open detail pane. Saving a View
@@ -672,7 +763,8 @@ one-directory tests do not prove it.
 
 ## Deferred intentionally
 
-Offline caching and sync, automatic conflict merging or version history, attachments,
+Offline caching and sync, automatic conflict merging or version history,
+non-image file insertion, asset reference indexing and orphan collection,
 full-text document indexing, wikilink resolution, backlinks/graph views, explicit
 file renames, plugins, collaborative Markdown editing, presence, mobile clients,
 release signing, and bundled TLS are not current implementation concerns.

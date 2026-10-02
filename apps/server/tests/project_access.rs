@@ -321,10 +321,18 @@ async fn project_archive_restores_data_and_delete_frees_the_identifier(pool: PgP
     let project_directory = data_dir
         .path()
         .join("vaults")
-        .join(workspace_id.to_string())
-        .join("Projects")
-        .join(project["storage_name"].as_str().unwrap());
+        .join(format!("workspace-{}", workspace_id.simple()))
+        .join("projects")
+        .join(project["identifier"].as_str().unwrap());
+    let project_task_file = project_directory
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tasks")
+        .join(format!("{}.md", task["task_number"].as_i64().unwrap()));
     assert!(project_directory.exists());
+    assert!(project_task_file.exists());
 
     let archived = app
         .clone()
@@ -442,6 +450,7 @@ async fn project_archive_restores_data_and_delete_frees_the_identifier(pool: PgP
             .unwrap();
     assert_eq!(project_task_count, 0);
     assert!(!project_directory.exists());
+    assert!(!project_task_file.exists());
 
     let reused = app
         .clone()
@@ -501,11 +510,12 @@ async fn project_delete_is_blocked_by_a_pending_library_operation(pool: PgPool) 
         &manifest,
         serde_json::to_vec(&json!({
             "operation": "move",
+            "layout_version": 3,
             "workspace_id": workspace_id,
             "document_id": document_id,
-            "source_project": project["storage_name"],
+            "source_project": project["identifier"],
             "source": [document["storage_name"].as_str().unwrap()],
-            "destination_project": project["storage_name"],
+            "destination_project": project["identifier"],
             "destination": ["parent", document["storage_name"].as_str().unwrap()]
         }))
         .unwrap(),
