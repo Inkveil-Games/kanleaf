@@ -52,15 +52,43 @@ async function addTaskProperty(page: Page, property: string) {
   await page.getByRole('button', { name: `Add ${property} property` }).click();
 }
 
-async function selectValueRowGrid(row: Locator) {
-  return row.evaluate((element) => ({
-    templateAreas: getComputedStyle(element).gridTemplateAreas,
-    childAreas: Array.from(
-      element.children,
-      (child) => getComputedStyle(child).gridArea,
-    ),
-    childClassNames: Array.from(element.children, (child) => child.className),
-  }));
+async function expectSelectValueRowFits(row: Locator) {
+  const layout = await row.evaluate((element) => {
+    function bounds(target: Element) {
+      const { left, right, top, bottom } = target.getBoundingClientRect();
+      return { left, right, top, bottom };
+    }
+    function childBounds(selector: string) {
+      const child = element.querySelector(selector);
+      if (!child) throw new Error(`Missing value-row control: ${selector}`);
+      return bounds(child);
+    }
+    return {
+      row: bounds(element),
+      drag: childBounds('.settings-drag-handle'),
+      value: childBounds('.select-value-identity'),
+      color: childBounds('.select-value-color'),
+      name: childBounds('.select-value-name'),
+      description: childBounds('.select-value-description'),
+      defaultControl: childBounds('.select-value-default input'),
+      actions: childBounds('.select-value-edit-popover'),
+      overflows: element.scrollWidth > element.clientWidth,
+    };
+  });
+  expect(layout.overflows).toBe(false);
+  expect(layout.value.left).toBeGreaterThanOrEqual(layout.drag.right);
+  expect(layout.color.left).toBeGreaterThanOrEqual(layout.value.left);
+  expect(layout.name.left).toBeGreaterThanOrEqual(layout.color.right);
+  expect(layout.name.right).toBeLessThanOrEqual(layout.value.right);
+  expect(layout.defaultControl.left).toBeGreaterThanOrEqual(layout.value.right);
+  expect(layout.actions.left).toBeGreaterThanOrEqual(
+    layout.defaultControl.right,
+  );
+  expect(layout.actions.right).toBeLessThanOrEqual(layout.row.right);
+  expect(layout.description.top).toBeGreaterThanOrEqual(layout.value.bottom);
+  expect(layout.description.left).toBeGreaterThanOrEqual(layout.value.left);
+  expect(layout.description.right).toBeLessThanOrEqual(layout.actions.left);
+  expect(layout.description.bottom).toBeLessThanOrEqual(layout.row.bottom);
 }
 
 async function readTaskVaultSource(workspaceId: string, taskId: string) {
@@ -434,26 +462,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     .locator('.select-value-editor-row.has-default')
     .first();
   await expect(labelValueRow).toBeVisible();
-  expect(await selectValueRowGrid(labelValueRow)).toEqual({
-    templateAreas:
-      '"drag color name default-control actions" ". . description description ."',
-    childAreas: [
-      'drag',
-      'color',
-      'name',
-      'description',
-      'default-control',
-      'actions',
-    ],
-    childClassNames: [
-      'settings-drag-handle',
-      'select-value-color',
-      'select-value-name',
-      'select-value-description',
-      'select-value-default',
-      'context-menu context-menu-down select-value-popover select-value-edit-popover',
-    ],
-  });
+  await expectSelectValueRowFits(labelValueRow);
   await page.setViewportSize({ width: 800, height: 640 });
   await page.getByRole('button', { name: 'Back to Properties' }).click();
   await expect(page).toHaveURL(
@@ -516,26 +525,7 @@ test('manages structured work and durable Markdown across reloads', async ({
     .locator('.select-value-editor-row.has-default')
     .filter({ hasText: 'Bug' });
   await expect(propertyValueRow).toBeVisible();
-  expect(await selectValueRowGrid(propertyValueRow)).toEqual({
-    templateAreas:
-      '"drag color name default-control actions" ". . description description ."',
-    childAreas: [
-      'drag',
-      'color',
-      'name',
-      'description',
-      'default-control',
-      'actions',
-    ],
-    childClassNames: [
-      'settings-drag-handle',
-      'select-value-color',
-      'select-value-name',
-      'select-value-description',
-      'select-value-default',
-      'context-menu context-menu-down select-value-popover select-value-edit-popover',
-    ],
-  });
+  await expectSelectValueRowFits(propertyValueRow);
   await page.setViewportSize({ width: 800, height: 640 });
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(
