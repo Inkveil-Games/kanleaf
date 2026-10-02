@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { EmptyState } from '../../components/ui/EmptyState';
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -84,11 +85,12 @@ export function SettingsEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="settings-list-empty" role="status">
-      <strong>{title}</strong>
-      <p>{description}</p>
-      {action}
-    </div>
+    <EmptyState
+      className="settings-list-empty"
+      title={title}
+      description={description}
+      action={action}
+    />
   );
 }
 

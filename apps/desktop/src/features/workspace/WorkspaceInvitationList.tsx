@@ -1,11 +1,14 @@
 import type { UseQueryResult } from '@tanstack/react-query';
 import { RefreshCw, Trash2 } from 'lucide-react';
+import { Avatar } from '../../components/ui/Avatar';
+import { Badge } from '../../components/ui/Badge';
+import { EmptyState } from '../../components/ui/EmptyState';
 import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
 import { LoadError } from '../settings/SettingsControls';
-import { formatDateTime, monogram, titleCase } from '../settings/utils';
+import { formatDateTime, titleCase } from '../settings/utils';
 import type { WorkspaceInvitation } from './types';
 
 interface WorkspaceInvitationListProps {
@@ -41,10 +44,11 @@ export function WorkspaceInvitationList({
       ) : query.error ? (
         <LoadError error={query.error} onRetry={() => query.refetch()} />
       ) : pending.length === 0 ? (
-        <div className="settings-empty compact-settings-empty">
-          <strong>No pending invitations</strong>
-          <p>New invitations will stay here until accepted or revoked.</p>
-        </div>
+        <EmptyState
+          className="settings-empty compact-settings-empty"
+          title="No pending invitations"
+          description="New invitations will stay here until accepted or revoked."
+        />
       ) : (
         <div className="settings-rows invitation-rows">
           {pending.map((invitation) => (
@@ -94,9 +98,7 @@ function InvitationRow({
 }) {
   return (
     <div className="settings-row invitation-row">
-      <span className="member-monogram invitation-monogram" aria-hidden="true">
-        {monogram(invitation.email)}
-      </span>
+      <Avatar name={invitation.email} fallback="U" aria-hidden="true" />
       <div className="member-copy">
         <strong>{invitation.email}</strong>
         <small>
@@ -104,9 +106,18 @@ function InvitationRow({
           {formatDateTime(invitation.expires_at)}
         </small>
       </div>
-      <span className={`invitation-status status-${invitation.status}`}>
+      <Badge
+        className="invitation-status"
+        variant={
+          invitation.status === 'pending'
+            ? 'warning'
+            : invitation.status === 'accepted'
+              ? 'success'
+              : 'neutral'
+        }
+      >
         {titleCase(invitation.status)}
-      </span>
+      </Badge>
       {invitation.status !== 'accepted' && (
         <DropdownMenu
           label={`Manage invitation for ${invitation.email}`}

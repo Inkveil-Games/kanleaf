@@ -146,6 +146,35 @@ Workspace import uploads are staged under the same internal namespace, checked
 again at apply time, and removed after completion, failure, cancellation, or
 expiry. Imports create a new Workspace and never replace an existing vault.
 
+## Shared product UI
+
+Reusable controls live under `apps/desktop/src/components/ui`. Keep remote calls,
+permissions and domain error formatting in the owning feature.
+
+| Need                                               | Component                                                |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| Modal operation or confirmation                    | `AppDialog`; use `initialFocus` for a form's first input |
+| Empty collection or failed query                   | `EmptyState` / `LoadError`                               |
+| Persistent contextual feedback                     | `InlineAlert`                                            |
+| Action notification                                | `ToastProvider` / `useToast`                             |
+| Status, role or count label                        | `Badge`                                                  |
+| Person or Workspace initials                       | `Avatar`                                                 |
+| Create/rename a single title                       | `InlineTextForm`                                         |
+| A small set of exclusive modes                     | `SegmentedControl`                                       |
+| Copy with pending/success/manual fallback feedback | `CopyButton`                                             |
+| Controlled search with clear and Escape behavior   | `SearchField`                                            |
+| Hints on hover and keyboard focus                  | `Tooltip`                                                |
+
+`WorkspaceShell` owns its Toast provider. Workspace actions use
+`useWorkspaceNotifications` to clear feedback across account/Workspace changes
+and ignore notifications from an earlier scope's unfinished requests. Success
+and info notifications expire after five seconds; warning and error notifications
+remain until dismissed. Base UI manages hover/focus timer suspension and F6
+navigation. Form errors remain beside their inputs, where drafts can be fixed.
+
+Use shared component props for appearance; feature CSS should size and place
+controls. Keep only domain-specific layout rules when replacing an older control.
+
 ## Verification
 
 Backend unit tests do not require PostgreSQL. `--all-features` enables isolated

@@ -1,0 +1,20 @@
+.ui-copy-button {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.ui-copy-button-feedback {
+  max-width: 28ch;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ui-copy-button-feedback[role='alert'] {
+  color: var(--color-danger);
+}

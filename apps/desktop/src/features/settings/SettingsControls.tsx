@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
+import { LoadError as SharedLoadError } from '../../components/ui/LoadError';
 import { Switch } from '../../components/ui/Switch';
 import { errorMessage } from './utils';
 
@@ -47,18 +48,19 @@ export function ActionMessage({ state }: { state: ActionState }) {
 export function LoadError({
   error,
   onRetry,
+  retrying,
 }: {
   error: unknown;
   onRetry: () => unknown;
+  retrying?: boolean;
 }) {
   return (
-    <div className="settings-empty" role="alert">
-      <strong>Could not load this setting</strong>
-      <p>{errorMessage(error)}</p>
-      <Button variant="secondary" size="sm" onClick={onRetry}>
-        Try again
-      </Button>
-    </div>
+    <SharedLoadError
+      title="Could not load this setting"
+      description={errorMessage(error)}
+      onRetry={onRetry}
+      retrying={retrying}
+    />
   );
 }
 

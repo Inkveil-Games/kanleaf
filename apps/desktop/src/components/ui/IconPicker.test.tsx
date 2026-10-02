@@ -11,6 +11,38 @@ const options: IconPickerOption[] = [
 ];
 
 describe('IconPicker', () => {
+  it('clears the search on Escape before closing the picker', async () => {
+    const user = userEvent.setup();
+    render(
+      <IconPicker
+        ariaLabel="Choose icon"
+        dialogLabel="Available icons"
+        fallbackIcon={Blocks}
+        options={options}
+        value="circle-dot"
+        onChange={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole('button', { name: 'Choose icon' });
+    await user.click(trigger);
+    const search = screen.getByRole('searchbox', { name: 'Search icons' });
+    await user.type(search, 'bug');
+    await user.keyboard('{Escape}');
+    expect(search).toHaveValue('');
+    expect(search).toHaveFocus();
+    expect(
+      screen.getByRole('dialog', { name: 'Available icons' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Star' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Available icons' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
   it('searches and selects a stable icon key', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

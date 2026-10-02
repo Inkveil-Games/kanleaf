@@ -1,0 +1,35 @@
+.ui-inline-text-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.ui-inline-text-form[data-leading] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.ui-inline-text-form-leading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ui-inline-text-form > .ui-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-height-sm);
+  font-size: var(--font-size-sm);
+}
+
+.ui-inline-text-form-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

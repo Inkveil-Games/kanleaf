@@ -1,0 +1,48 @@
+.ui-empty-state {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.ui-empty-state-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface-muted);
+}
+
+.ui-empty-state[data-state='error'] .ui-empty-state-icon {
+  color: var(--color-warning);
+  background: var(--color-warning-muted);
+}
+
+.ui-empty-state .ui-empty-state-title {
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 570;
+  line-height: 1.5;
+}
+
+.ui-empty-state .ui-empty-state-description {
+  max-width: 60ch;
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.65;
+}
+
+.ui-empty-state .ui-load-error-retry {
+  height: 28px;
+  min-height: 28px;
+  padding-inline: var(--space-2);
+  font-size: 0.6875rem;
+}

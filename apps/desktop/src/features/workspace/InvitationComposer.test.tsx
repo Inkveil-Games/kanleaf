@@ -1,9 +1,49 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { InvitationComposer } from './InvitationComposer';
+import {
+  InvitationComposer,
+  IssuedInvitationToken,
+} from './InvitationComposer';
 
 describe('InvitationComposer', () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the issued token selectable and reports clipboard failure as an alert', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) },
+    });
+    render(
+      <IssuedInvitationToken
+        invitation={{
+          id: 'invitation-1',
+          workspace_id: 'workspace-1',
+          workspace_name: 'Kanleaf',
+          workspace_identifier: 'kanleaf',
+          email: 'member@example.com',
+          role: 'member',
+          invited_by_display_name: 'Owner',
+          status: 'pending',
+          token: 'manual-token',
+          delivery: 'sent',
+          invitation_url: null,
+          expires_at: '2026-10-10T00:00:00Z',
+          created_at: '2026-10-03T00:00:00Z',
+          updated_at: '2026-10-03T00:00:00Z',
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy token' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Select and copy the token manually',
+    );
+    const token = screen.getByRole('textbox', {
+      name: 'Issued invitation token',
+    });
+    expect(token).toHaveValue('manual-token');
+    expect(token).toHaveAttribute('readonly');
+    expect(token).not.toBeDisabled();
+  });
 
   it('creates an invitation and reveals its one-time token', async () => {
     const invitation = {

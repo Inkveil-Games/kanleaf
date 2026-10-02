@@ -2,7 +2,32 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FormEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FormActions, SettingsToggleRow } from './SettingsControls';
+import { FormActions, LoadError, SettingsToggleRow } from './SettingsControls';
+
+describe('LoadError', () => {
+  it('keeps the settings error readable while a retry is pending', async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn();
+    const { rerender } = render(
+      <LoadError error={new Error('Server unavailable')} onRetry={retry} />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not load this setting',
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Server unavailable');
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toHaveBeenCalledOnce();
+    rerender(
+      <LoadError
+        error={new Error('Server unavailable')}
+        onRetry={retry}
+        retrying
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Trying again' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Server unavailable');
+  });
+});
 
 describe('FormActions', () => {
   it('submits through the shared primary Button', async () => {

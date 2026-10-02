@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { PasswordField } from '../../components/ui/PasswordField';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { ApiError } from '../../lib/api/client';
 import type { AuthResponse } from '../../lib/api/types';
 import { authenticate as authenticateRequest } from './api';
@@ -70,24 +71,16 @@ export function AuthForm({
 
   return (
     <form className="auth-form" onSubmit={(event) => void authenticate(event)}>
-      <div className="mode-switch" aria-label="Authentication mode">
-        <button
-          type="button"
-          aria-pressed={mode === 'login'}
-          disabled={submitting}
-          onClick={() => changeMode('login')}
-        >
-          Sign in
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === 'register'}
-          disabled={submitting}
-          onClick={() => changeMode('register')}
-        >
-          New account
-        </button>
-      </div>
+      <SegmentedControl
+        aria-label="Authentication mode"
+        value={mode}
+        options={[
+          { value: 'login', label: 'Sign in' },
+          { value: 'register', label: 'New account' },
+        ]}
+        onValueChange={changeMode}
+        disabled={submitting}
+      />
 
       <div className="form-heading">
         <h2 id="auth-title">

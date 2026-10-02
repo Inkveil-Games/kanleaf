@@ -1,7 +1,13 @@
 import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { Dialog } from '@base-ui/react/dialog';
 import { CircleCheck, Info, TriangleAlert } from 'lucide-react';
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { Button } from '../Button';
 import { Input } from '../Input';
 import './AppDialog.css';
@@ -26,6 +32,7 @@ interface AppDialogBaseProps {
   children?: ReactNode;
   loading?: boolean;
   error?: ReactNode;
+  initialFocus?: ComponentProps<typeof Dialog.Popup>['initialFocus'];
 }
 
 interface AppDialogActionLabels {
@@ -184,13 +191,14 @@ export function AppDialog(props: AppDialogProps) {
     };
   const popupClassName = `app-dialog-popup app-dialog-${size} ui-native-scrollbar`;
   const initialFocus =
-    type === 'typed-confirm'
+    props.initialFocus ??
+    (type === 'typed-confirm'
       ? confirmationInputRef
       : type === 'alert'
         ? alertCloseRef
         : type === 'custom' && !props.formId && !props.onConfirm
           ? true
-          : cancelRef;
+          : cancelRef);
 
   if (type === 'custom') {
     return (

@@ -798,5 +798,7 @@ async function saveAccessPolicy(page: Page) {
     .getByRole('button', { name: 'Save access policy' })
     .click();
   expect((await saved).status()).toBe(200);
-  await expect(page.getByRole('status')).toHaveText('Access policy saved');
+  await expect(
+    page.getByRole('status').filter({ hasText: /^Access policy saved$/ }),
+  ).toBeVisible();
 }

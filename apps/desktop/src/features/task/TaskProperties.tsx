@@ -1,10 +1,12 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
+import { InlineAlert } from '../../components/ui/InlineAlert';
 import { Select } from '../../components/ui/Select';
 import type {
   Project,
@@ -438,20 +440,19 @@ export function TaskProperties({
 
         {customPropertiesError || undefinedPropertiesError ? (
           <PropertyRow label="Properties" propertyKey="custom-error">
-            <span className="custom-property-load-error" role="alert">
-              {customPropertiesError ?? undefinedPropertiesError}
-              <Button
-                variant="text"
-                size="sm"
-                type="button"
-                onClick={() => {
+            <InlineAlert
+              variant="danger"
+              action={{
+                label: 'Try again',
+                onClick: () => {
                   if (customPropertiesError) onRetryCustomProperties();
                   if (undefinedPropertiesError) onRetryUndefinedProperties();
-                }}
-              >
-                Try again
-              </Button>
-            </span>
+                },
+                loading: customPropertiesLoading || undefinedPropertiesLoading,
+              }}
+            >
+              {customPropertiesError ?? undefinedPropertiesError}
+            </InlineAlert>
           </PropertyRow>
         ) : null}
 
@@ -467,9 +468,7 @@ export function TaskProperties({
                 {!canEdit || property.archived_at ? (
                   <span className="property-readonly-value">
                     {formatCustomValue(property, value)}
-                    {property.archived_at ? (
-                      <span className="settings-status-badge">Archived</span>
-                    ) : null}
+                    {property.archived_at ? <Badge>Archived</Badge> : null}
                   </span>
                 ) : (
                   <CustomPropertyInput
@@ -507,7 +506,7 @@ export function TaskProperties({
           >
             <div className="undefined-property-value">
               <code>{formatUndefinedValue(property.value)}</code>
-              <span className="settings-status-badge">Undefined</span>
+              <Badge>Undefined</Badge>
               {canEdit && canManageProperties ? (
                 <Button
                   variant="text"
@@ -542,11 +541,11 @@ export function TaskProperties({
       </dl>
       {(editing.error && !isPinnedProperty(editing.error.key)) ||
       customError ? (
-        <p className="detail-error" role="alert">
+        <InlineAlert variant="danger">
           {editing.error && !isPinnedProperty(editing.error.key)
             ? editing.error.message
             : customError}
-        </p>
+        </InlineAlert>
       ) : null}
       <AppDialog
         open={pendingProjectId !== undefined}

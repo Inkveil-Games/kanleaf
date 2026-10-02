@@ -20,6 +20,7 @@ import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { ScrollArea } from '../../components/ui/ScrollArea';
+import { Tooltip } from '../../components/ui/Tooltip';
 
 const MarkdownSourceEditor = lazy(() =>
   import('./MarkdownSourceEditor').then((module) => ({
@@ -321,16 +322,20 @@ function LoadedMarkdownDocument({
             >
               {saveLabel(saveState)}
             </span>
-            <IconButton
-              variant="ghost"
-              size="sm"
-              type="button"
-              aria-label="Save Markdown"
-              title="Save Markdown (Ctrl/Command+S)"
-              onClick={() => void queueSave(contentRef.current)}
-            >
-              <Save aria-hidden="true" size={15} />
-            </IconButton>
+            <Tooltip
+              label="Save Markdown (Ctrl/Command+S)"
+              trigger={
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  aria-label="Save Markdown"
+                  onClick={() => void queueSave(contentRef.current)}
+                >
+                  <Save aria-hidden="true" size={15} />
+                </IconButton>
+              }
+            />
           </div>
         )}
       </header>
@@ -425,17 +430,21 @@ interface ModeButtonProps {
 
 function ModeButton({ label, active, icon, onClick }: ModeButtonProps) {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      title={`${label} Markdown`}
-    >
-      {icon}
-      <span>{label}</span>
-    </Button>
+    <Tooltip
+      label={`${label} Markdown`}
+      trigger={
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          aria-pressed={active}
+          onClick={onClick}
+        >
+          {icon}
+          <span>{label}</span>
+        </Button>
+      }
+    />
   );
 }
 

@@ -69,6 +69,7 @@
   --layer-app-dialog: 401;
   --layer-nested-app-dialog-backdrop: 402;
   --layer-nested-app-dialog: 403;
+  --layer-toast: 450;
   --navigation-rail-width: 44px;
   --radius-sm: 4px;
   --radius-md: 7px;

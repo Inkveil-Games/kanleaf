@@ -1,18 +1,14 @@
-import {
-  CalendarDays,
-  MessageSquare,
-  Pencil,
-  Plus,
-  Search,
-  X,
-} from 'lucide-react';
+import { CalendarDays, MessageSquare, Pencil, Plus } from 'lucide-react';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadError } from '../../components/ui/LoadError';
 import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
-import { IconButton } from '../../components/ui/IconButton';
-import { Input } from '../../components/ui/Input';
+import { SearchField } from '../../components/ui/SearchField';
+import { InlineTextForm } from '../../components/ui/InlineTextForm';
 import { Select } from '../../components/ui/Select';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Tooltip } from '../../components/ui/Tooltip';
@@ -21,7 +17,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import type {
@@ -256,38 +251,18 @@ export function TaskListPane({
     <section className="collection-pane" aria-label={title}>
       <div className="collection-controls">
         <div className="task-search">
-          <div className="task-search-field">
-            <Search aria-hidden="true" size={15} />
-            <label className="sr-only" htmlFor="task-search-input">
-              Search tasks
-            </label>
-            <Input
-              id="task-search-input"
-              ref={searchRef}
-              type="search"
-              aria-keyshortcuts="/"
-              value={query.search ?? ''}
-              placeholder="Search tasks"
-              onChange={(event) =>
-                onQueryChange({
-                  ...query,
-                  search: event.target.value || null,
-                })
-              }
-            />
-            {query.search && (
-              <IconButton
-                variant="ghost"
-                size="sm"
-                type="button"
-                aria-label="Clear search"
-                onClick={() => onQueryChange({ ...query, search: null })}
-              >
-                <X aria-hidden="true" size={14} />
-              </IconButton>
-            )}
-            <kbd aria-hidden="true">/</kbd>
-          </div>
+          <SearchField
+            id="task-search-input"
+            ref={searchRef}
+            aria-label="Search tasks"
+            aria-keyshortcuts="/"
+            value={query.search ?? ''}
+            placeholder="Search tasks"
+            onValueChange={(search) =>
+              onQueryChange({ ...query, search: search || null })
+            }
+            trailing={<kbd aria-hidden="true">/</kbd>}
+          />
           {canCreate && (
             <Tooltip
               label="New task"
@@ -399,32 +374,29 @@ export function TaskListPane({
         )}
         {loading && tasks.length === 0 && <TaskListSkeleton />}
         {error && tasks.length === 0 && (
-          <div className="pane-state" role="alert">
-            <p>{error}</p>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              onClick={onRetry}
-            >
-              Try again
-            </Button>
-          </div>
+          <LoadError
+            title="Could not load tasks"
+            description={error}
+            onRetry={onRetry}
+            retrying={loading}
+          />
         )}
         {!loading && !error && tasks.length === 0 && (
-          <div className="pane-state empty-state">
-            <p>{query.search ? 'No matching tasks.' : 'Nothing here yet.'}</p>
-            {!query.search && canCreate && (
-              <Button
-                variant="text"
-                size="sm"
-                type="button"
-                onClick={() => setComposing(true)}
-              >
-                Create a task <kbd>C</kbd>
-              </Button>
-            )}
-          </div>
+          <EmptyState
+            title={query.search ? 'No matching tasks.' : 'Nothing here yet.'}
+            action={
+              !query.search && canCreate ? (
+                <Button
+                  variant="text"
+                  size="sm"
+                  type="button"
+                  onClick={() => setComposing(true)}
+                >
+                  Create a task <kbd>C</kbd>
+                </Button>
+              ) : undefined
+            }
+          />
         )}
         {tasks.length > 0 && layout === 'list' && (
           <ScrollArea
@@ -591,15 +563,19 @@ function TaskRow({
       data-state-role={task.state.system_role ?? undefined}
     >
       {canEdit ? (
-        <button
-          className="task-status-button"
-          type="button"
-          aria-label={`Move ${task.title} to ${next.name}`}
-          title={`Move to ${next.name}`}
-          onClick={() => void onUpdateState(next.id)}
-        >
-          <StateIcon role={task.state.system_role} size={27} />
-        </button>
+        <Tooltip
+          label={`Move to ${next.name}`}
+          trigger={
+            <button
+              className="task-status-button"
+              type="button"
+              aria-label={`Move ${task.title} to ${next.name}`}
+              onClick={() => void onUpdateState(next.id)}
+            >
+              <StateIcon role={task.state.system_role} size={27} />
+            </button>
+          }
+        />
       ) : (
         <span
           className="task-status-button task-status-readonly"
@@ -675,22 +651,17 @@ function TaskRow({
             aria-label={`${task.assignees.length} assignees`}
           >
             {visibleAssignees.map(({ user_id, display_name }) => (
-              <span
-                aria-hidden="true"
-                className="task-assignee-avatar"
+              <Avatar
+                name={display_name}
+                fallback="U"
+                initials={2}
+                size="sm"
                 key={user_id}
                 title={display_name}
-              >
-                {initials(display_name)}
-              </span>
+              />
             ))}
             {task.assignees.length > visibleAssignees.length && (
-              <span
-                aria-hidden="true"
-                className="task-assignee-avatar is-overflow"
-              >
-                …
-              </span>
+              <Avatar name="" fallback="…" size="sm" aria-hidden="true" />
             )}
           </span>
         )}
@@ -736,52 +707,19 @@ interface QuickTaskFormProps {
 }
 
 function QuickTaskForm({ onCreate, onCancel }: QuickTaskFormProps) {
-  const [title, setTitle] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onCreate(title);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Task creation failed',
-      );
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <form className="quick-task-form" onSubmit={(event) => void submit(event)}>
-      <span className="status-glyph status-todo" aria-hidden="true" />
-      <label>
-        <span className="sr-only">Task title</span>
-        <Input
-          autoFocus
-          required
-          maxLength={300}
-          value={title}
-          placeholder="Task title"
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') onCancel();
-          }}
-        />
-      </label>
-      <Button
-        variant="primary"
-        size="sm"
-        type="submit"
-        loading={submitting}
-        loadingLabel="Adding Task"
-      >
-        Add
-      </Button>
-      {error && <p role="alert">{error}</p>}
-    </form>
+    <InlineTextForm
+      className="quick-task-form"
+      label="Task title"
+      placeholder="Task title"
+      maxLength={300}
+      submitLabel="Add"
+      loadingLabel="Adding Task"
+      errorLabel="Task creation failed"
+      leading={<span className="status-glyph status-todo" aria-hidden="true" />}
+      onSubmit={onCreate}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -823,15 +761,6 @@ function taskDueDate(value: string) {
             day: 'numeric',
           }).format(new Date(`${value}T00:00:00`));
   return { value, label, urgent: dayDifference < 3 };
-}
-
-function initials(displayName: string) {
-  return displayName
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase())
-    .join('');
 }
 
 function stateForGroup(groupId: string, states: TaskState[]) {

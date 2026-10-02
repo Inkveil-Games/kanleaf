@@ -1139,7 +1139,10 @@ let source_is_markdown = true;
   ).toContainText('Bug');
 
   await addTaskProperty(page, 'Story points');
-  const storyPoints = page.getByLabel('Story points');
+  const storyPoints = taskDetail.getByRole('spinbutton', {
+    name: 'Story points',
+    exact: true,
+  });
   await storyPoints.fill('3');
   const propertyUpdated = page.waitForResponse((response) => {
     const path = new URL(response.url()).pathname;

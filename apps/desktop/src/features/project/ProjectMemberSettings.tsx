@@ -2,6 +2,7 @@ import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { UserMinus } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
@@ -12,7 +13,7 @@ import {
   LoadError,
   type ActionState,
 } from '../settings/SettingsControls';
-import { errorMessage, monogram, titleCase } from '../settings/utils';
+import { errorMessage, titleCase } from '../settings/utils';
 import {
   addProjectMember,
   removeProjectMember,
@@ -230,9 +231,12 @@ export function ProjectMemberSettings({
             const canBeAdmin = workspaceMember?.role !== 'guest';
             return (
               <div className="settings-row member-row" key={member.user_id}>
-                <span className="member-monogram" aria-hidden="true">
-                  {monogram(member.display_name)}
-                </span>
+                <Avatar
+                  name={member.display_name}
+                  fallback="U"
+                  initials={2}
+                  aria-hidden="true"
+                />
                 <div className="member-copy">
                   <strong>
                     {member.display_name}

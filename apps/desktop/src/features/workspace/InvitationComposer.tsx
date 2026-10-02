@@ -1,6 +1,6 @@
-import { Copy } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../components/ui/Button';
+import { CopyButton } from '../../components/ui/CopyButton';
 import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -100,21 +100,7 @@ export function IssuedInvitationToken({
 }: {
   invitation: IssuedWorkspaceInvitation;
 }) {
-  const [copyState, setCopyState] = useState<string | null>(null);
   const invitationUrl = invitation.invitation_url;
-
-  async function copy(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyState(`${label} copied`);
-    } catch {
-      setCopyState(`Select and copy the ${label.toLowerCase()} manually`);
-    }
-  }
-
-  async function copyToken() {
-    await copy(invitation.token, 'Token');
-  }
 
   return (
     <section className="issued-token" aria-label="Issued invitation">
@@ -130,13 +116,12 @@ export function IssuedInvitationToken({
       {invitationUrl ? (
         <div className="token-copy-row">
           <Input readOnly value={invitationUrl} aria-label="Invitation link" />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void copy(invitationUrl, 'Invitation link')}
-          >
-            <Copy aria-hidden="true" size={14} /> Copy link
-          </Button>
+          <CopyButton
+            text={invitationUrl}
+            label="Copy link"
+            successLabel="Invitation link copied"
+            errorLabel="Select and copy the invitation link manually"
+          />
         </div>
       ) : null}
       <div className="token-copy-row">
@@ -145,11 +130,13 @@ export function IssuedInvitationToken({
           value={invitation.token}
           aria-label="Issued invitation token"
         />
-        <Button variant="secondary" size="sm" onClick={() => void copyToken()}>
-          <Copy aria-hidden="true" size={14} /> Copy token
-        </Button>
+        <CopyButton
+          text={invitation.token}
+          label="Copy token"
+          successLabel="Token copied"
+          errorLabel="Select and copy the token manually"
+        />
       </div>
-      {copyState ? <small role="status">{copyState}</small> : null}
     </section>
   );
 }

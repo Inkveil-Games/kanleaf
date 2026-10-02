@@ -1,8 +1,29 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthForm } from './AuthForm';
 
 describe('AuthForm password recovery', () => {
+  it('changes account mode with the keyboard and retains the email draft', () => {
+    render(
+      <AuthForm
+        serverUrl="https://kanleaf.example.com"
+        onAuthenticated={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'member@example.com' },
+    });
+    const modes = screen.getByRole('group', { name: 'Authentication mode' });
+    fireEvent.keyDown(within(modes).getByRole('button', { name: 'Sign in' }), {
+      key: 'ArrowRight',
+    });
+    expect(
+      within(modes).getByRole('button', { name: 'New account' }),
+    ).toHaveFocus();
+    expect(screen.getByLabelText('Confirm password')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toHaveValue('member@example.com');
+  });
+
   it('offers password recovery only while signing in', () => {
     render(
       <AuthForm

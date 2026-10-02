@@ -2,6 +2,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { InlineAlert } from '../../components/ui/InlineAlert';
+import { LoadError } from '../../components/ui/LoadError';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
 import { errorMessage, formatDateTime } from '../settings/utils';
 import type { ApiContext } from '../workspace/api';
@@ -77,12 +82,13 @@ export function Notifications({
         <span className="notification-trigger">
           <Bell aria-hidden="true" size={16} />
           {unreadCount > 0 && (
-            <span
+            <Badge
+              variant="accent"
               className="notification-badge"
               aria-label={`${unreadCount} unread`}
             >
               {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
+            </Badge>
           )}
         </span>
       }
@@ -99,49 +105,44 @@ export function Notifications({
           <CheckCheck aria-hidden="true" size={14} /> Mark all read
         </Button>
       </div>
-      <div className="notification-filters" aria-label="Notification filter">
-        <button
-          type="button"
-          aria-pressed={filter === 'all'}
-          onClick={() => setFilter('all')}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          aria-pressed={filter === 'unread'}
-          onClick={() => setFilter('unread')}
-        >
-          Unread {unreadCount > 0 ? unreadCount : ''}
-        </button>
+      <div className="notification-filters">
+        <SegmentedControl
+          aria-label="Notification filter"
+          value={filter}
+          onValueChange={setFilter}
+          options={[
+            { value: 'all', label: 'All' },
+            {
+              value: 'unread',
+              label: `Unread ${unreadCount > 0 ? unreadCount : ''}`.trim(),
+            },
+          ]}
+        />
       </div>
       {notifications.isPending ? (
-        <div className="notification-empty" role="status">
-          <span>Loading notifications…</span>
-        </div>
+        <EmptyState
+          className="notification-empty"
+          title="Loading notifications…"
+        />
       ) : notifications.error ? (
-        <div className="notification-empty" role="alert">
-          <strong>Could not load notifications</strong>
-          <span>{errorMessage(notifications.error)}</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            onClick={() => void notifications.refetch()}
-          >
-            Try again
-          </Button>
-        </div>
+        <LoadError
+          className="notification-empty"
+          title="Could not load notifications"
+          description={errorMessage(notifications.error)}
+          onRetry={() => void notifications.refetch()}
+          retrying={notifications.isFetching}
+        />
       ) : items.length === 0 ? (
-        <div className="notification-empty" role="status">
-          <Bell aria-hidden="true" size={17} />
-          <strong>
-            {filter === 'unread'
+        <EmptyState
+          className="notification-empty"
+          icon={<Bell aria-hidden="true" size={17} />}
+          title={
+            filter === 'unread'
               ? 'You are all caught up'
-              : 'No notifications yet'}
-          </strong>
-          <span>Updates about your work will appear here.</span>
-        </div>
+              : 'No notifications yet'
+          }
+          description="Updates about your work will appear here."
+        />
       ) : (
         <div className="notification-list ui-native-scrollbar">
           {items.map((notification) => (
@@ -163,9 +164,9 @@ export function Notifications({
         </div>
       )}
       {actionError && (
-        <p className="notification-error" role="alert">
+        <InlineAlert className="notification-error" variant="danger">
           {actionError}
-        </p>
+        </InlineAlert>
       )}
     </Popover>
   );

@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Copy } from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
+import { CopyButton } from '../../../components/ui/CopyButton';
 import { FormField } from '../../../components/ui/FormField';
 import { Select } from '../../../components/ui/Select';
-import { errorMessage } from '../../settings/utils';
 import type { WebhookCatalog, WebhookEventType } from './types';
 
 export function WebhookPreview({
@@ -14,19 +12,8 @@ export function WebhookPreview({
   selected: WebhookEventType[];
 }) {
   const [choice, setChoice] = useState<WebhookEventType | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const event = choice && selected.includes(choice) ? choice : selected[0];
   const json = event ? JSON.stringify(catalog.examples[event], null, 2) : '';
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(json);
-      setMessage('JSON copied');
-      setError(null);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
-  }
   return (
     <section
       className="settings-section webhook-preview"
@@ -78,11 +65,12 @@ export function WebhookPreview({
                 ))}
             </code>
           </pre>
-          <Button size="sm" onClick={() => void copy()}>
-            <Copy aria-hidden="true" size={14} /> Copy JSON
-          </Button>
-          {message ? <p role="status">{message}</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
+          <CopyButton
+            text={json}
+            label="Copy JSON"
+            successLabel="JSON copied"
+            errorLabel="Select and copy the JSON request body manually"
+          />
           <details className="webhook-request-headers">
             <summary>Request headers</summary>
             <pre

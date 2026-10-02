@@ -9,6 +9,7 @@ import {
   type RefCallback,
 } from 'react';
 import { reorderSettingsIds } from './settingsSortable';
+import { Tooltip } from '../../components/ui/Tooltip';
 
 const SortableDisabledContext = createContext(false);
 
@@ -123,15 +124,20 @@ export function SettingsDragHandle({
   disabled?: boolean;
 }) {
   return (
-    <button
-      ref={ref as RefCallback<HTMLButtonElement>}
-      className="settings-drag-handle"
-      type="button"
-      aria-label={`Reorder ${label}`}
+    <Tooltip
+      label="Drag or press Space, then use arrow keys"
       disabled={disabled}
-      title="Drag or press Space, then use arrow keys"
-    >
-      <GripVertical aria-hidden="true" size={15} />
-    </button>
+      trigger={
+        <button
+          ref={ref as RefCallback<HTMLButtonElement>}
+          className="settings-drag-handle"
+          type="button"
+          aria-label={`Reorder ${label}`}
+          disabled={disabled}
+        >
+          <GripVertical aria-hidden="true" size={15} />
+        </button>
+      }
+    />
   );
 }

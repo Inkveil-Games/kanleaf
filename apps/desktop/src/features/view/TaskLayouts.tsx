@@ -10,6 +10,7 @@ import { Checkbox } from '../../components/ui/Checkbox';
 import { IconButton } from '../../components/ui/IconButton';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Select } from '../../components/ui/Select';
+import { Tooltip } from '../../components/ui/Tooltip';
 import {
   MultiValuePicker,
   TaskDateControl,
@@ -746,77 +747,90 @@ function TaskTimeline({
                     }
                   >
                     {canEditTask(task) && (
-                      <button
-                        className="timeline-resize-handle timeline-resize-start"
-                        type="button"
-                        draggable
-                        aria-label={`Resize ${task.title} start`}
-                        title="Drag to change the start date; click to extend one day"
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(
-                            'text/kanleaf-task',
-                            task.id,
-                          );
-                          event.dataTransfer.setData(
-                            'text/kanleaf-timeline-mode',
-                            'start',
-                          );
-                        }}
-                        onClick={() => {
-                          const start = parseDate(
-                            task.start_date ?? task.due_date!,
-                          );
-                          void onPatchTask(task.id, {
-                            start_date: toDateInput(addDays(start, -1)),
-                          });
-                        }}
+                      <Tooltip
+                        label="Drag to change the start date; click to extend one day"
+                        trigger={
+                          <button
+                            className="timeline-resize-handle timeline-resize-start"
+                            type="button"
+                            draggable
+                            aria-label={`Resize ${task.title} start`}
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData(
+                                'text/kanleaf-task',
+                                task.id,
+                              );
+                              event.dataTransfer.setData(
+                                'text/kanleaf-timeline-mode',
+                                'start',
+                              );
+                            }}
+                            onClick={() => {
+                              const start = parseDate(
+                                task.start_date ?? task.due_date!,
+                              );
+                              void onPatchTask(task.id, {
+                                start_date: toDateInput(addDays(start, -1)),
+                              });
+                            }}
+                          />
+                        }
                       />
                     )}
-                    <button
-                      className="timeline-bar-main"
-                      type="button"
-                      draggable={canEditTask(task)}
-                      title="Drag to move this schedule"
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData(
-                          'text/kanleaf-task',
-                          task.id,
-                        );
-                        event.dataTransfer.setData(
-                          'text/kanleaf-timeline-mode',
-                          'move',
-                        );
-                        event.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onClick={() => onSelectTask(task.id)}
-                    >
-                      {task.title}
-                    </button>
+                    <Tooltip
+                      label="Drag to move this schedule"
+                      disabled={!canEditTask(task)}
+                      trigger={
+                        <button
+                          className="timeline-bar-main"
+                          type="button"
+                          draggable={canEditTask(task)}
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData(
+                              'text/kanleaf-task',
+                              task.id,
+                            );
+                            event.dataTransfer.setData(
+                              'text/kanleaf-timeline-mode',
+                              'move',
+                            );
+                            event.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onClick={() => onSelectTask(task.id)}
+                        >
+                          {task.title}
+                        </button>
+                      }
+                    />
                     {canEditTask(task) && (
-                      <button
-                        className="timeline-resize-handle timeline-resize-end"
-                        type="button"
-                        draggable
-                        aria-label={`Resize ${task.title} end`}
-                        title="Drag to change the due date; click to extend one day"
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(
-                            'text/kanleaf-task',
-                            task.id,
-                          );
-                          event.dataTransfer.setData(
-                            'text/kanleaf-timeline-mode',
-                            'end',
-                          );
-                        }}
-                        onClick={() => {
-                          const end = parseDate(
-                            task.due_date ?? task.start_date!,
-                          );
-                          void onPatchTask(task.id, {
-                            due_date: toDateInput(addDays(end, 1)),
-                          });
-                        }}
+                      <Tooltip
+                        label="Drag to change the due date; click to extend one day"
+                        trigger={
+                          <button
+                            className="timeline-resize-handle timeline-resize-end"
+                            type="button"
+                            draggable
+                            aria-label={`Resize ${task.title} end`}
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData(
+                                'text/kanleaf-task',
+                                task.id,
+                              );
+                              event.dataTransfer.setData(
+                                'text/kanleaf-timeline-mode',
+                                'end',
+                              );
+                            }}
+                            onClick={() => {
+                              const end = parseDate(
+                                task.due_date ?? task.start_date!,
+                              );
+                              void onPatchTask(task.id, {
+                                due_date: toDateInput(addDays(end, 1)),
+                              });
+                            }}
+                          />
+                        }
                       />
                     )}
                   </div>

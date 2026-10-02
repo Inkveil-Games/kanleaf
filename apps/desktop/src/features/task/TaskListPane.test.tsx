@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -105,6 +106,42 @@ function renderList(
 }
 
 describe('TaskListPane', () => {
+  it('retains a failed quick Task draft and prevents cancellation while creating', async () => {
+    let rejectCreate: (error: Error) => void = () => undefined;
+    const onCreateTask = vi.fn(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectCreate = reject;
+        }),
+    );
+    renderList({ onCreateTask });
+    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const input = screen.getByRole('textbox', { name: 'Task title' });
+    fireEvent.change(input, { target: { value: 'Keep this task draft' } });
+    const form = input.closest('form');
+    if (!form) throw new Error('Expected quick Task form');
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onCreateTask).toHaveBeenCalledExactlyOnceWith(
+      'Keep this task draft',
+    );
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute('readonly');
+    await act(async () =>
+      rejectCreate(new Error('Task creation is unavailable')),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Task creation is unavailable',
+    );
+    expect(input).toHaveValue('Keep this task draft');
+    expect(input).not.toHaveAttribute('readonly');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(
+      screen.queryByRole('textbox', { name: 'Task title' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('uses an accessible collection name without repeating a visible navigation header', () => {
     renderList();
 
@@ -190,7 +227,9 @@ describe('TaskListPane', () => {
     await waitFor(() =>
       expect(props.onCreateTask).toHaveBeenCalledWith('Ship the desktop shell'),
     );
-    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument(),
+    );
   });
 
   it('moves to the next semantic state and supports keyboard row navigation', async () => {

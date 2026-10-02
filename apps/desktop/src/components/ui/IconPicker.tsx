@@ -1,4 +1,4 @@
-import { Search, type LucideIcon } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
 import {
   createElement,
   useMemo,
@@ -7,7 +7,8 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Popover } from './Popover';
-import { Input } from './Input';
+import { SearchField } from './SearchField';
+import { Tooltip } from './Tooltip';
 
 export interface IconPickerOption {
   key: string;
@@ -63,6 +64,14 @@ export function IconPicker<Value extends string | null = string>({
     options.find((option) => option.key === value)?.icon ?? fallbackIcon;
 
   function moveIconFocus(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      setQuery('');
+      triggerRef.current?.focus();
+      return;
+    }
     const buttons = Array.from(
       contentRef.current?.querySelectorAll<HTMLButtonElement>(
         '[data-icon-option]',
@@ -123,25 +132,21 @@ export function IconPicker<Value extends string | null = string>({
       }
     >
       <div className="icon-picker-popover" ref={contentRef}>
-        <label className="icon-picker-search">
-          <Search aria-hidden="true" size={14} />
-          <span className="sr-only">Search icons</span>
-          <Input
-            autoFocus
-            type="search"
-            aria-label="Search icons"
-            placeholder="Search icons"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'ArrowDown') return;
-              event.preventDefault();
-              contentRef.current
-                ?.querySelector<HTMLButtonElement>('[data-icon-option]')
-                ?.focus();
-            }}
-          />
-        </label>
+        <SearchField
+          autoFocus
+          appearance="underline"
+          aria-label="Search icons"
+          placeholder="Search icons"
+          value={query}
+          onValueChange={setQuery}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            contentRef.current
+              ?.querySelector<HTMLButtonElement>('[data-icon-option]')
+              ?.focus();
+          }}
+        />
         <div className="icon-picker-results ui-native-scrollbar">
           {allowNone &&
           (!normalizedQuery ||
@@ -169,21 +174,25 @@ export function IconPicker<Value extends string | null = string>({
                 {matches
                   .filter((option) => option.group === group)
                   .map((option) => (
-                    <button
+                    <Tooltip
                       key={option.key}
-                      type="button"
-                      data-icon-option
-                      aria-label={option.label}
-                      aria-pressed={option.key === value}
-                      title={option.label}
-                      onKeyDown={moveIconFocus}
-                      onClick={() => {
-                        onChange(option.key as Value);
-                        setOpen(false);
-                      }}
-                    >
-                      <option.icon aria-hidden="true" size={18} />
-                    </button>
+                      label={option.label}
+                      trigger={
+                        <button
+                          type="button"
+                          data-icon-option
+                          aria-label={option.label}
+                          aria-pressed={option.key === value}
+                          onKeyDown={moveIconFocus}
+                          onClick={() => {
+                            onChange(option.key as Value);
+                            setOpen(false);
+                          }}
+                        >
+                          <option.icon aria-hidden="true" size={18} />
+                        </button>
+                      }
+                    />
                   ))}
               </div>
             </section>

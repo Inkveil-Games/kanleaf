@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { errorMessage } from '../settings/utils';
 import { createWorkspace, type ApiContext } from '../workspace/api';
 import { InvitationComposer } from '../workspace/InvitationComposer';
@@ -152,25 +153,15 @@ export function WorkspaceSetupStep({
           Workspaces keep projects, Tasks, and Markdown together for one team.
         </p>
       </header>
-      <div
-        className="mode-switch setup-mode-switch"
+      <SegmentedControl
         aria-label="Workspace setup mode"
-      >
-        <button
-          type="button"
-          aria-pressed={mode === 'create'}
-          onClick={() => setMode('create')}
-        >
-          Create a Workspace
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === 'join'}
-          onClick={() => setMode('join')}
-        >
-          Join a Workspace
-        </button>
-      </div>
+        value={mode}
+        options={[
+          { value: 'create', label: 'Create a Workspace' },
+          { value: 'join', label: 'Join a Workspace' },
+        ]}
+        onValueChange={setMode}
+      />
       {mode === 'create' ? (
         <WorkspaceIdentityForm
           submitLabel="Create Workspace"

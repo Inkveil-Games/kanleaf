@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { LoadError } from '../settings/SettingsControls';
 import {
@@ -316,17 +317,21 @@ export function PropertiesSettings({
                 >
                   <SettingsListCell primary>
                     {canManage ? (
-                      <Button
-                        variant="text"
-                        size="sm"
-                        type="button"
-                        title={property.description || property.name}
-                        onClick={() =>
-                          onDetailChange(property.id, { history: 'push' })
+                      <Tooltip
+                        label={property.description || property.name}
+                        trigger={
+                          <Button
+                            variant="text"
+                            size="sm"
+                            type="button"
+                            onClick={() =>
+                              onDetailChange(property.id, { history: 'push' })
+                            }
+                          >
+                            {property.name}
+                          </Button>
                         }
-                      >
-                        {property.name}
-                      </Button>
+                      />
                     ) : (
                       <span title={property.description || property.name}>
                         {property.name}

@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import type { ApiContext } from './api';
@@ -117,9 +118,13 @@ export function WorkspaceCreateDialog({
           {workspace ? (
             <>
               <div className="workspace-created-summary">
-                <span className="workspace-trigger-mark" aria-hidden="true">
-                  {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
-                </span>
+                <Avatar
+                  name={workspace.name}
+                  fallback="W"
+                  size="sm"
+                  shape="square"
+                  aria-hidden="true"
+                />
                 <span>
                   <strong>{workspace.name}</strong>
                   <small>/{workspace.identifier}</small>

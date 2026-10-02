@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SettingsSortableProvider,
@@ -8,6 +9,7 @@ import { reorderSettingsIds } from './settingsSortable';
 
 describe('SettingsSortable', () => {
   it('exposes the library keyboard instructions and stable reorder result', async () => {
+    const user = userEvent.setup();
     const onReorder = vi.fn().mockResolvedValue(undefined);
     render(
       <SettingsSortableProvider ids={['todo', 'doing']} onReorder={onReorder}>
@@ -28,6 +30,16 @@ describe('SettingsSortable', () => {
       handle.getAttribute('aria-describedby') ?? '',
     );
     expect(description).toHaveTextContent(/use the arrow keys/i);
+    await user.tab();
+    expect(handle).toHaveFocus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Drag or press Space, then use arrow keys',
+    );
+    expect(handle.getAttribute('aria-describedby')?.split(' ')).toContain(
+      description?.id,
+    );
+    expect(handle).toHaveAttribute('aria-roledescription', 'draggable');
+    expect(handle).not.toHaveAttribute('title');
     expect(reorderSettingsIds(['todo', 'doing'], 0, 1)).toEqual([
       'doing',
       'todo',

@@ -1,0 +1,45 @@
+.saved-view-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.saved-view-form fieldset {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.saved-view-form legend {
+  margin-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.saved-view-form fieldset label {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.saved-view-form
+  fieldset:not(:disabled)
+  label:not([aria-disabled='true']):hover {
+  background: var(--color-surface-muted);
+}
+
+.saved-view-form fieldset label[aria-disabled='true'] {
+  color: var(--color-text-muted);
+}
+
+.saved-view-form fieldset small {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

@@ -5,13 +5,15 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { Input } from '../../components/ui/Input';
 import { PasswordField } from '../../components/ui/PasswordField';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
   FormActions,
   type ActionState,
 } from '../settings/SettingsControls';
-import { errorMessage, monogram, titleCase } from '../settings/utils';
+import { errorMessage, titleCase } from '../settings/utils';
+import { Avatar } from '../../components/ui/Avatar';
 import {
   deleteWorkspace,
   leaveWorkspace,
@@ -178,12 +180,14 @@ function GeneralSettings({
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
         <div className="profile-summary">
-          <span
+          <Avatar
+            name={name}
+            fallback="K"
+            initials={2}
+            shape="square"
             className={`workspace-monogram accent-${accent}`}
             aria-hidden="true"
-          >
-            {monogram(name)}
-          </span>
+          />
           <div>
             <strong>{name}</strong>
             <small>{titleCase(workspace.role)} access</small>
@@ -208,13 +212,19 @@ function GeneralSettings({
           <legend>Accent</legend>
           <div>
             {ACCENTS.map((value) => (
-              <label key={value} title={titleCase(value)}>
-                <input
-                  type="radio"
-                  name="workspace-accent"
-                  value={value}
-                  checked={accent === value}
-                  onChange={() => setAccent(value)}
+              <label key={value}>
+                <Tooltip
+                  label={titleCase(value)}
+                  disabled={!canManage}
+                  trigger={
+                    <input
+                      type="radio"
+                      name="workspace-accent"
+                      value={value}
+                      checked={accent === value}
+                      onChange={() => setAccent(value)}
+                    />
+                  }
                 />
                 <span className={`accent-swatch accent-${value}`} />
                 <span className="sr-only">{titleCase(value)}</span>

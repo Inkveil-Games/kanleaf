@@ -4,6 +4,39 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceSetupStep } from './WorkspaceSetupStep';
 
 describe('WorkspaceSetupStep', () => {
+  it('changes the setup choice with the keyboard', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => new Promise<Response>(() => undefined)),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceSetupStep
+          context={{
+            serverUrl: 'https://kanleaf.example.com',
+            token: 'session-token',
+          }}
+          isHost={false}
+          onWorkspaceCreated={vi.fn()}
+          onJoined={vi.fn()}
+          onHostContinue={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Create a Workspace' }),
+      { key: 'End' },
+    );
+    expect(
+      screen.getByRole('button', { name: 'Join a Workspace' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      screen.getByRole('button', { name: 'Join a Workspace' }),
+    ).toHaveFocus();
+    expect(screen.queryByLabelText('Workspace name')).not.toBeInTheDocument();
+  });
+
   afterEach(() => vi.unstubAllGlobals());
 
   it('creates the first Workspace with its reviewed public identifier', async () => {

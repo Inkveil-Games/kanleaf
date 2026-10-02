@@ -13,6 +13,32 @@ const todo: SelectValueDraft = {
 };
 
 describe('SelectValueEditor', () => {
+  it('explains the default radio on keyboard focus without changing selection', async () => {
+    const user = userEvent.setup();
+    const onDefaultChange = vi.fn();
+    render(
+      <SelectValueEditor
+        disabled={false}
+        values={[todo]}
+        onChange={vi.fn()}
+        showDefault
+        defaultValueId={null}
+        onDefaultChange={onDefaultChange}
+      />,
+    );
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    const choice = screen.getByRole('radio', { name: 'Use Todo as default' });
+    expect(choice).toHaveFocus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Use Todo as default',
+    );
+    expect(choice).not.toBeChecked();
+    await user.keyboard(' ');
+    expect(onDefaultChange).toHaveBeenCalledWith('todo');
+  });
+
   it('keeps values readable in the list and applies edits from the popover', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

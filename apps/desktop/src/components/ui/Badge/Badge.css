@@ -1,0 +1,64 @@
+.ui-badge {
+  --badge-color: var(--color-text-muted);
+  --badge-muted: var(--color-surface-muted);
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--badge-color);
+  background: var(--badge-muted);
+  font-size: 0.625rem;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ui-badge[data-variant='accent'] {
+  --badge-color: var(--color-accent-strong);
+  --badge-muted: var(--color-selection);
+}
+
+.ui-badge[data-variant='info'] {
+  --badge-color: var(--color-info);
+  --badge-muted: var(--color-info-muted);
+}
+
+.ui-badge[data-variant='success'] {
+  --badge-color: var(--color-success);
+  --badge-muted: var(--color-success-muted);
+}
+
+.ui-badge[data-variant='warning'] {
+  --badge-color: var(--color-warning);
+  --badge-muted: var(--color-warning-muted);
+}
+
+.ui-badge[data-variant='danger'] {
+  --badge-color: var(--color-danger);
+  --badge-muted: var(--color-danger-muted);
+}
+
+.ui-badge[data-size='md'] {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 0.6875rem;
+}
+
+.ui-badge[data-appearance='outline'] {
+  border-color: color-mix(in srgb, var(--badge-color) 38%, var(--color-border));
+  background: transparent;
+}
+
+.ui-badge-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}

@@ -1,0 +1,37 @@
+.ui-avatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--color-accent-strong);
+  background: var(--color-selection);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+.ui-avatar[data-size='xs'] {
+  width: 20px;
+  height: 20px;
+  font-size: 0.5rem;
+}
+
+.ui-avatar[data-shape='square'] {
+  border-radius: var(--radius-sm);
+}
+
+.ui-avatar[data-size='sm'] {
+  width: 24px;
+  height: 24px;
+  font-size: 0.5rem;
+}
+
+.ui-avatar[data-size='lg'] {
+  width: 44px;
+  height: 44px;
+  font-size: 0.8125rem;
+}

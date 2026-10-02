@@ -1,0 +1,96 @@
+.ui-toast-viewport {
+  position: fixed;
+  z-index: var(--layer-toast);
+  right: var(--space-6);
+  bottom: var(--space-6);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-2);
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: none;
+}
+
+.ui-toast {
+  --toast-color: var(--color-info);
+  flex-shrink: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  pointer-events: auto;
+  transform: translate(
+    var(--toast-swipe-movement-x, 0),
+    var(--toast-swipe-movement-y, 0)
+  );
+}
+
+.ui-toast[data-variant='success'] {
+  --toast-color: var(--color-success);
+}
+.ui-toast[data-variant='warning'] {
+  --toast-color: var(--color-warning);
+}
+.ui-toast[data-variant='danger'] {
+  --toast-color: var(--color-danger);
+}
+.ui-toast[data-limited] {
+  display: none;
+}
+.ui-toast[data-ending-style] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ui-toast-content {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.ui-toast-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--toast-color);
+}
+
+.ui-toast-copy {
+  flex: 1;
+  min-width: 0;
+}
+.ui-toast-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.ui-toast-description {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.ui-toast-content > .ui-icon-button {
+  flex-shrink: 0;
+  margin: -4px -4px 0 0;
+}
+.ui-toast-action.ui-button {
+  height: 28px;
+  padding-inline: var(--space-2);
+  margin-top: var(--space-2);
+  margin-inline-start: calc(-1 * var(--space-2));
+  color: var(--toast-color);
+  font-size: 11px;
+}
+
+@media (max-width: 780px) {
+  .ui-toast-viewport {
+    right: var(--space-4);
+    bottom: var(--space-4);
+  }
+}

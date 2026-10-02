@@ -1,5 +1,7 @@
 import { LogIn, UserPlus } from 'lucide-react';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
+import { InlineAlert } from '../../components/ui/InlineAlert';
 import { Wordmark } from '../../components/ui/Wordmark';
 import type { AccountSession } from './accountSessionStore';
 
@@ -34,9 +36,11 @@ export function AccountChooser({
               disabled={transitioning}
               onClick={() => onSelect(account.user_id)}
             >
-              <span className="member-monogram" aria-hidden="true">
-                {initial(account.display_name || account.email)}
-              </span>
+              <Avatar
+                name={account.display_name || account.email}
+                fallback="U"
+                aria-hidden="true"
+              />
               <span>
                 <strong>{account.display_name}</strong>
                 <small>{account.email}</small>
@@ -45,11 +49,7 @@ export function AccountChooser({
             </button>
           ))}
         </div>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <InlineAlert variant="danger">{error}</InlineAlert>}
         <Button
           variant="secondary"
           className="account-chooser-another"
@@ -62,8 +62,4 @@ export function AccountChooser({
       </section>
     </main>
   );
-}
-
-function initial(value: string) {
-  return value.trim().charAt(0).toUpperCase() || 'U';
 }

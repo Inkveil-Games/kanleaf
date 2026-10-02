@@ -5,10 +5,10 @@ import {
   ServerCog,
   Settings,
   UserPlus,
-  X,
 } from 'lucide-react';
+import { Avatar } from '../../components/ui/Avatar';
+import { InlineAlert } from '../../components/ui/InlineAlert';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
-import { IconButton } from '../../components/ui/IconButton';
 import type { AccountSession } from '../auth/accountSessionStore';
 
 interface AccountSwitcherProps {
@@ -51,9 +51,12 @@ export function AccountSwitcher({
       triggerTooltip={compact ? displayName : undefined}
       trigger={
         <>
-          <span className="member-monogram" aria-hidden="true">
-            {initial(displayName)}
-          </span>
+          <Avatar
+            name={displayName}
+            fallback="U"
+            size="sm"
+            aria-hidden="true"
+          />
           {!compact ? (
             <>
               <span className="account-switcher-copy">
@@ -83,9 +86,12 @@ export function AccountSwitcher({
           const isActive = account.user_id === activeUserId;
           const content = (
             <>
-              <span className="member-monogram" aria-hidden="true">
-                {initial(account.display_name || account.email)}
-              </span>
+              <Avatar
+                name={account.display_name || account.email}
+                fallback="U"
+                size="sm"
+                aria-hidden="true"
+              />
               <span className="account-switcher-copy">
                 <strong>{account.display_name || account.email}</strong>
                 <small>{account.email}</small>
@@ -118,18 +124,13 @@ export function AccountSwitcher({
         })}
       </div>
       {error && (
-        <div className="account-switcher-error" role="alert">
-          <span>{error}</span>
-          <IconButton
-            variant="ghost"
-            size="sm"
-            type="button"
-            aria-label="Dismiss account error"
-            onClick={onDismissError}
-          >
-            <X aria-hidden="true" size={13} />
-          </IconButton>
-        </div>
+        <InlineAlert
+          variant="danger"
+          onDismiss={onDismissError}
+          dismissLabel="Dismiss account error"
+        >
+          {error}
+        </InlineAlert>
       )}
       <div className="account-switcher-divider" />
       <PopoverClose onClick={onAddAccount}>
@@ -151,8 +152,4 @@ export function AccountSwitcher({
       </PopoverClose>
     </Popover>
   );
-}
-
-function initial(value: string) {
-  return value.trim().charAt(0).toUpperCase() || 'U';
 }

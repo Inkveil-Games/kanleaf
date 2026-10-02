@@ -8,6 +8,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Avatar } from '../../components/ui/Avatar';
 import { Popover, PopoverClose } from '../../components/ui/Popover';
 import { IconButton } from '../../components/ui/IconButton';
 import type { ApiContext } from './api';
@@ -84,9 +85,13 @@ export function WorkspaceControl({
           triggerTooltip={compact ? workspaceName : undefined}
           trigger={
             <>
-              <span className="workspace-trigger-mark" aria-hidden="true">
-                {initial(workspaceName, 'W')}
-              </span>
+              <Avatar
+                name={workspaceName}
+                fallback="W"
+                size="sm"
+                shape="square"
+                aria-hidden="true"
+              />
               {!compact ? (
                 <>
                   <span className="workspace-trigger-name">
@@ -103,9 +108,12 @@ export function WorkspaceControl({
           }
         >
           <div className="workspace-menu-account" role="presentation">
-            <span className="workspace-menu-avatar" aria-hidden="true">
-              {initial(userEmail, 'U')}
-            </span>
+            <Avatar
+              name={userEmail}
+              fallback="U"
+              size="sm"
+              aria-hidden="true"
+            />
             <span>
               <small>Signed in as</small>
               <strong title={userEmail}>{userEmail}</strong>
@@ -134,12 +142,13 @@ export function WorkspaceControl({
                       void onSwitchWorkspace(candidate.id);
                     }}
                   >
-                    <span
-                      className="workspace-menu-workspace-mark"
+                    <Avatar
+                      name={candidate.name}
+                      fallback="W"
+                      size="sm"
+                      shape="square"
                       aria-hidden="true"
-                    >
-                      {initial(candidate.name, 'W')}
-                    </span>
+                    />
                     <span className="workspace-menu-workspace-copy">
                       <strong>{candidate.name}</strong>
                       <small>
@@ -213,8 +222,4 @@ export function WorkspaceControl({
       ) : null}
     </section>
   );
-}
-
-function initial(value: string | undefined, fallback: string) {
-  return value?.trim().charAt(0).toUpperCase() || fallback;
 }

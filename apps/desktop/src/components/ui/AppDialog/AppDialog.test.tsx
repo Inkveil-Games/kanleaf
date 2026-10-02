@@ -33,6 +33,27 @@ function ConfirmHarness({
 }
 
 describe('AppDialog', () => {
+  it('lets form dialogs focus their primary input', async () => {
+    render(
+      <AppDialog
+        open
+        type="custom"
+        title="Name the View"
+        formId="view-form"
+        initialFocus={() => document.getElementById('view-name')}
+        onOpenChange={vi.fn()}
+      >
+        <form id="view-form">
+          <label htmlFor="view-name">View name</label>
+          <input id="view-name" />
+        </form>
+      </AppDialog>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'View name' })).toHaveFocus(),
+    );
+  });
+
   it('renders a confirm dialog and supports cancel and confirm actions', async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();

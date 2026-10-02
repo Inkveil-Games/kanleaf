@@ -13,9 +13,10 @@ import {
 } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
-import { IconButton } from '../../components/ui/IconButton';
+import { ToastProvider } from '../../components/ui/Toast';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Wordmark } from '../../components/ui/Wordmark';
+import { useWorkspaceNotifications } from './useWorkspaceNotifications';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
 import { WorkspaceSetupStep } from '../onboarding/WorkspaceSetupStep';
@@ -173,7 +174,15 @@ interface WorkspaceIntentResult<T> {
   value: T | undefined;
 }
 
-export function WorkspaceShell({
+export function WorkspaceShell(props: WorkspaceShellProps) {
+  return (
+    <ToastProvider>
+      <WorkspaceShellContent {...props} />
+    </ToastProvider>
+  );
+}
+
+function WorkspaceShellContent({
   serverUrl,
   token,
   user,
@@ -210,8 +219,6 @@ export function WorkspaceShell({
     [queryClient, serverUrl, token],
   );
   const [taskDraft, setTaskDraft] = useState<TaskViewDraft | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const shownRouteActionError = useRef<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [deleteViewTarget, setDeleteViewTarget] = useState<SavedView | null>(
@@ -238,17 +245,6 @@ export function WorkspaceShell({
     paneLayout.narrow,
   );
 
-  useEffect(() => {
-    if (!routeActionError) {
-      shownRouteActionError.current = null;
-      return;
-    }
-    if (shownRouteActionError.current === routeActionError) {
-      return;
-    }
-    shownRouteActionError.current = routeActionError;
-    setActionError(routeActionError);
-  }, [routeActionError]);
   const closeNavigationDrawer = paneLayout.closeNavigationDrawer;
 
   const enqueueWorkspaceIntent = useCallback(
@@ -303,6 +299,12 @@ export function WorkspaceShell({
     user.active_workspace_id ??
     workspaces.data?.[0]?.id ??
     null;
+  const { notify, setActionError } = useWorkspaceNotifications(
+    JSON.stringify([serverUrl, token, workspaceId]),
+  );
+  useEffect(() => {
+    if (routeActionError) setActionError(routeActionError);
+  }, [routeActionError, setActionError]);
   const activeWorkspace = workspaces.data?.find(({ id }) => id === workspaceId);
   const knownActiveWorkspaceId =
     queryClient.getQueryData<SessionResponse>(['session', serverUrl, token])
@@ -641,6 +643,7 @@ export function WorkspaceShell({
     onNavigate,
     reconciliation,
     replacementKey,
+    setActionError,
     user.active_workspace_id,
     workspaces.data,
     workspaces.error,
@@ -704,7 +707,7 @@ export function WorkspaceShell({
       setActionError(errorMessage(caught));
       return false;
     }
-  }, [flushDocumentSaves]);
+  }, [flushDocumentSaves, setActionError]);
 
   const navigateSafely = useCallback(
     async (
@@ -895,6 +898,11 @@ export function WorkspaceShell({
       collection.kind === 'my-work' ? [user.id] : undefined,
     );
     queryClient.setQueryData(['task', workspaceId, created.id], created);
+    notify({
+      title: 'Task created',
+      description: created.title,
+      variant: 'success',
+    });
     await queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] });
     onNavigate({ ...taskLocation, taskId: created.id });
   }
@@ -945,6 +953,7 @@ export function WorkspaceShell({
     try {
       await flushDocumentSaves();
       await archiveTask(context, workspaceId, selectedTaskId);
+      notify({ title: 'Task archived', variant: 'success' });
       queryClient.removeQueries({
         queryKey: ['task', workspaceId, selectedTaskId],
       });
@@ -967,6 +976,7 @@ export function WorkspaceShell({
     }
     await flushDocumentSaves();
     await deleteTask(context, workspaceId, selectedTaskId, reference);
+    notify({ title: 'Task deleted', variant: 'success' });
     queryClient.setQueriesData<Task[]>(
       { queryKey: ['tasks', workspaceId] },
       (cachedTasks) => cachedTasks?.filter(({ id }) => id !== selectedTaskId),
@@ -2268,20 +2278,6 @@ export function WorkspaceShell({
           onOpenAccountSettings={() => openAccountSettings('profile')}
           onOpenWorkspaceSettings={() => openWorkspaceSettings('general')}
         />
-      )}
-      {actionError && (
-        <div className="toast-error" role="alert">
-          <span>{actionError}</span>
-          <IconButton
-            variant="ghost"
-            size="sm"
-            type="button"
-            aria-label="Dismiss error"
-            onClick={() => setActionError(null)}
-          >
-            <span aria-hidden="true">×</span>
-          </IconButton>
-        </div>
       )}
       <AppDialog
         open={deleteViewTarget !== null}

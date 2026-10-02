@@ -1,10 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '../../components/ui/Button';
+import { useId, useRef, useState, type FormEvent } from 'react';
+import { AppDialog } from '../../components/ui/AppDialog';
 import { FormField } from '../../components/ui/FormField';
-import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import type { SavedViewVisibility } from './types';
+import './SavedViewDialog.css';
 
 interface SavedViewDialogProps {
   title: string;
@@ -32,16 +31,15 @@ export function SavedViewDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    function closeWithEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', closeWithEscape);
-    return () => document.removeEventListener('keydown', closeWithEscape);
-  }, [onClose]);
+  const formId = useId();
+  const nameRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef(false);
+  const composingRef = useRef(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (pendingRef.current || composingRef.current || !name.trim()) return;
+    pendingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -49,89 +47,90 @@ export function SavedViewDialog({
       onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'View save failed');
+      pendingRef.current = false;
       setSubmitting(false);
     }
   }
 
   return (
-    <div
-      className="view-dialog-backdrop"
-      role="presentation"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+    <AppDialog
+      type="custom"
+      open
+      title={title}
+      formId={formId}
+      initialFocus={nameRef}
+      loading={submitting}
+      error={error}
+      confirmLabel={submitLabel}
+      loadingLabel="Saving View"
+      onOpenChange={(open) => {
+        if (!open && !pendingRef.current) onClose();
       }}
     >
-      <section className="view-dialog" role="dialog" aria-modal="true">
-        <header>
-          <h2>{title}</h2>
-          <IconButton
-            variant="ghost"
-            size="sm"
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-          >
-            <X aria-hidden="true" size={15} />
-          </IconButton>
-        </header>
-        <form onSubmit={(event) => void submit(event)}>
-          <FormField label="Name" required>
-            <Input
-              autoFocus
-              required
-              maxLength={120}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </FormField>
-          {showVisibility && (
-            <fieldset>
-              <legend>Visibility</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="view-visibility"
-                  value="personal"
-                  checked={visibility === 'personal'}
-                  onChange={() => setVisibility('personal')}
-                />
-                <span>
-                  Personal
-                  <small>Only you can open this View.</small>
-                </span>
-              </label>
-              <label aria-disabled={!canShare}>
-                <input
-                  type="radio"
-                  name="view-visibility"
-                  value="shared"
-                  disabled={!canShare}
-                  checked={visibility === 'shared'}
-                  onChange={() => setVisibility('shared')}
-                />
-                <span>
-                  Shared
-                  <small>Visible to everyone with access to this scope.</small>
-                </span>
-              </label>
-            </fieldset>
-          )}
-          {error && <p role="alert">{error}</p>}
-          <footer>
-            <Button variant="secondary" type="button" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              loading={submitting}
-              loadingLabel="Saving View"
-            >
-              {submitLabel}
-            </Button>
-          </footer>
-        </form>
-      </section>
-    </div>
+      <form
+        id={formId}
+        className="saved-view-form"
+        onSubmit={(event) => void submit(event)}
+      >
+        <FormField label="Name" required>
+          <Input
+            ref={nameRef}
+            required
+            maxLength={120}
+            value={name}
+            readOnly={submitting}
+            onChange={(event) => setName(event.target.value)}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+            }}
+            onKeyDown={(event) => {
+              if (
+                composingRef.current ||
+                event.nativeEvent.isComposing ||
+                event.nativeEvent.keyCode === 229
+              ) {
+                event.stopPropagation();
+                if (event.key === 'Enter') event.preventDefault();
+              }
+            }}
+          />
+        </FormField>
+        {showVisibility && (
+          <fieldset disabled={submitting}>
+            <legend>Visibility</legend>
+            <label>
+              <input
+                type="radio"
+                name="view-visibility"
+                value="personal"
+                checked={visibility === 'personal'}
+                onChange={() => setVisibility('personal')}
+              />
+              <span>
+                Personal
+                <small>Only you can open this View.</small>
+              </span>
+            </label>
+            <label aria-disabled={!canShare}>
+              <input
+                type="radio"
+                name="view-visibility"
+                value="shared"
+                disabled={!canShare}
+                checked={visibility === 'shared'}
+                onChange={() => setVisibility('shared')}
+              />
+              <span>
+                Shared
+                <small>Visible to everyone with access to this scope.</small>
+              </span>
+            </label>
+          </fieldset>
+        )}
+      </form>
+    </AppDialog>
   );
 }

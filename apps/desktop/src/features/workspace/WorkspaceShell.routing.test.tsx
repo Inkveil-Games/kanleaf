@@ -9,6 +9,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
 import {
@@ -201,7 +202,10 @@ vi.mock('../task/TaskListPane', () => ({
     onSelectTask: (taskId: string) => void;
   }) => (
     <div data-testid="task-list">
-      <button type="button" onClick={() => void onCreateTask('New Task')}>
+      <button
+        type="button"
+        onClick={() => void onCreateTask('New Task').catch(() => undefined)}
+      >
         Create Task
       </button>
       <button
@@ -694,6 +698,63 @@ beforeEach(() => {
 });
 
 describe('WorkspaceShell routing integration', () => {
+  it('keeps an initial route error visible through StrictMode effect replay', async () => {
+    renderWorkspaceRoutes({
+      initialEntries: [
+        {
+          pathname: '/w/workspace-1/tasks',
+          state: { routeActionError: 'The requested Task is unavailable' },
+        },
+      ],
+      strictMode: true,
+    });
+    await screen.findByRole('button', { name: 'Create Task' });
+    const notifications = within(
+      screen.getByRole('region', { name: 'Status messages' }),
+    );
+    await waitFor(() =>
+      expect(
+        notifications.getByText('The requested Task is unavailable'),
+      ).toBeVisible(),
+    );
+  });
+
+  it('announces Task creation only after the server succeeds', async () => {
+    const creating = deferred<Task>();
+    mocks.createTask.mockReturnValueOnce(creating.promise);
+    renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/tasks'] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Create Task' }));
+    await waitFor(() => expect(mocks.createTask).toHaveBeenCalledOnce());
+    expect(
+      screen.queryByRole('dialog', { name: 'Task created' }),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      creating.resolve({ ...task, id: 'task-created', title: 'New Task' }),
+    );
+    expect(
+      await screen.findByRole('dialog', { name: 'Task created' }),
+    ).toHaveTextContent('New Task');
+  });
+
+  it('does not announce success when Task creation fails', async () => {
+    mocks.createTask.mockRejectedValueOnce(new Error('Creation failed'));
+    renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/tasks'] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Create Task' }));
+    await waitFor(() => expect(mocks.createTask).toHaveBeenCalledOnce());
+    expect(
+      screen.queryByRole('dialog', { name: 'Task created' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('announces permanent Task deletion after the server succeeds', async () => {
+    renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/tasks?task=1'] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Task' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Task deleted' }),
+    ).toBeVisible();
+    expect(mocks.deleteTask).toHaveBeenCalledOnce();
+  });
+
   it('recovers a zero-Workspace account through the shared identity flow', async () => {
     mocks.listWorkspaces
       .mockReset()
@@ -2763,6 +2824,7 @@ describe('WorkspaceShell routing integration', () => {
 
 function renderWorkspaceRoutes({
   initialEntries,
+  strictMode = false,
   flushDocumentSaves = vi.fn().mockResolvedValue(undefined),
   routeUser = user,
   seededWorkspaces,
@@ -2771,6 +2833,7 @@ function renderWorkspaceRoutes({
   seededDocuments,
 }: {
   initialEntries: InitialEntry[];
+  strictMode?: boolean;
   flushDocumentSaves?: () => Promise<void>;
   routeUser?: User;
   seededWorkspaces?: Workspace[];
@@ -3004,6 +3067,7 @@ function renderWorkspaceRoutes({
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
+    { reactStrictMode: strictMode },
   );
   return { ...result, queryClient };
 }

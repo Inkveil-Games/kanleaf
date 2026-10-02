@@ -1,7 +1,9 @@
 import { ArchiveRestore, FileArchive, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
+import { InlineAlert } from '../../components/ui/InlineAlert';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from './api';
 import {
@@ -153,9 +155,13 @@ export function WorkspaceImportDialog({
           {summary && operation?.state === 'ready' && (
             <section className="workspace-import-preview">
               <div className="workspace-import-name">
-                <span className="workspace-trigger-mark" aria-hidden="true">
-                  {summary.workspace_name.trim().charAt(0).toUpperCase() || 'W'}
-                </span>
+                <Avatar
+                  name={summary.workspace_name}
+                  fallback="W"
+                  size="sm"
+                  shape="square"
+                  aria-hidden="true"
+                />
                 <span>
                   <small>New Workspace</small>
                   <strong>{summary.workspace_name}</strong>
@@ -172,19 +178,15 @@ export function WorkspaceImportDialog({
                 <ImportCount label="Cycles" value={summary.cycles} />
                 <ImportCount label="Modules" value={summary.modules} />
               </dl>
-              <p className="workspace-import-warning">
+              <InlineAlert variant="warning">
                 Access is reset for safety. You become the only Owner;
                 {` ${summary.excluded_member_references} member/Project role reference(s) and ${summary.excluded_assignee_references} Task assignee reference(s) will not be restored.`}
                 {' Comments and activity are not part of the archive.'}
-              </p>
+              </InlineAlert>
             </section>
           )}
 
-          {error && (
-            <p className="settings-error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <InlineAlert variant="danger">{error}</InlineAlert>}
         </div>
         <footer>
           <Button

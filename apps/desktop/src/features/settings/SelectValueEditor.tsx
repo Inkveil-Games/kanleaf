@@ -8,6 +8,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
 import { Popover } from '../../components/ui/Popover';
 import { Textarea } from '../../components/ui/Textarea';
+import { Tooltip } from '../../components/ui/Tooltip';
 import {
   SettingsDragHandle,
   SettingsSortableItem,
@@ -155,18 +156,21 @@ export function SelectValueEditor({
                       {value.description || '—'}
                     </span>
                     {showDefault ? (
-                      <label
-                        className="select-value-default"
-                        title={`Use ${value.name || itemLabel} as default`}
-                      >
-                        <input
-                          type="radio"
-                          name="select-value-default"
-                          aria-label={`Use ${value.name || itemLabel} as default`}
-                          checked={defaultValueId === valueIdentity(value)}
+                      <label className="select-value-default">
+                        <Tooltip
+                          label={`Use ${value.name || itemLabel} as default`}
                           disabled={disabled}
-                          onChange={() =>
-                            onDefaultChange?.(valueIdentity(value))
+                          trigger={
+                            <input
+                              type="radio"
+                              name="select-value-default"
+                              aria-label={`Use ${value.name || itemLabel} as default`}
+                              checked={defaultValueId === valueIdentity(value)}
+                              disabled={disabled}
+                              onChange={() =>
+                                onDefaultChange?.(valueIdentity(value))
+                              }
+                            />
                           }
                         />
                       </label>

@@ -756,6 +756,51 @@ describe('WorkspaceSettings', () => {
     );
     expect(screen.getByText('Workspace Owner')).toBeInTheDocument();
     expect(screen.queryByText('Workspace Member')).toBeNull();
+    fireEvent.change(
+      screen.getByRole('searchbox', { name: 'Search members' }),
+      { target: { value: 'missing@example.com' } },
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No members match these filters',
+    );
+  });
+
+  it('shows invitation lifecycle labels with their shared status treatment', async () => {
+    const statuses = ['pending', 'accepted', 'expired', 'revoked'];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        input.toString().endsWith('/members')
+          ? jsonResponse([owner])
+          : jsonResponse(
+              statuses.map((status) => ({
+                ...invitation,
+                id: `invitation-${status}`,
+                email: `${status}@example.com`,
+                status,
+              })),
+            ),
+      ),
+    );
+    renderSettings(workspace, 'members', owner.user_id);
+
+    expect(await screen.findByText('Pending')).toHaveAttribute(
+      'data-variant',
+      'warning',
+    );
+    fireEvent.click(screen.getByText('Invitation history'));
+    expect(screen.getByText('Accepted')).toHaveAttribute(
+      'data-variant',
+      'success',
+    );
+    expect(screen.getByText('Expired')).toHaveAttribute(
+      'data-variant',
+      'neutral',
+    );
+    expect(screen.getByText('Revoked')).toHaveAttribute(
+      'data-variant',
+      'neutral',
+    );
   });
 
   it('reveals a one-time token after inviting a person from Members', async () => {
@@ -870,6 +915,9 @@ describe('WorkspaceSettings', () => {
     renderSettings(workspace, 'members', owner.user_id);
 
     await screen.findByText('Invitation history');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No pending invitations',
+    );
     expect(
       screen.queryByRole('button', {
         name: 'Manage invitation for accepted@example.com',

@@ -1,26 +1,23 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
+import { EmptyState } from '../../components/ui/EmptyState';
 import {
   DropdownMenu,
   DropdownMenuItem,
 } from '../../components/ui/DropdownMenu';
 import { Select } from '../../components/ui/Select';
-import { Input } from '../../components/ui/Input';
+import { SearchField } from '../../components/ui/SearchField';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
   ActionMessage,
   LoadError,
   type ActionState,
 } from '../settings/SettingsControls';
-import {
-  errorMessage,
-  formatDateTime,
-  monogram,
-  titleCase,
-} from '../settings/utils';
+import { errorMessage, formatDateTime, titleCase } from '../settings/utils';
 import {
   listWorkspaceInvitations,
   listWorkspaceMembers,
@@ -240,16 +237,12 @@ export function WorkspaceMemberSettings({
       <ActionMessage state={actionState} />
 
       <div className="member-filters" role="search">
-        <label className="member-search">
-          <Search aria-hidden="true" size={14} />
-          <Input
-            type="search"
-            aria-label="Search members"
-            placeholder="Search by name or email"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
+        <SearchField
+          aria-label="Search members"
+          placeholder="Search by name or email"
+          value={search}
+          onValueChange={setSearch}
+        />
         <Select
           ariaLabel="Filter members by role"
           value={roleFilter}
@@ -265,10 +258,11 @@ export function WorkspaceMemberSettings({
       ) : members.error ? (
         <LoadError error={members.error} onRetry={() => members.refetch()} />
       ) : filteredMembers.length === 0 ? (
-        <div className="settings-empty">
-          <strong>No members match these filters</strong>
-          <p>Try another name, email address, or role.</p>
-        </div>
+        <EmptyState
+          className="settings-empty"
+          title="No members match these filters"
+          description="Try another name, email address, or role."
+        />
       ) : (
         <div className="settings-rows member-rows">
           {filteredMembers.map((member) => {
@@ -279,9 +273,12 @@ export function WorkspaceMemberSettings({
             const canRemove = mutable && !isCurrent;
             return (
               <div className="settings-row member-row" key={member.user_id}>
-                <span className="member-monogram" aria-hidden="true">
-                  {monogram(member.display_name)}
-                </span>
+                <Avatar
+                  name={member.display_name}
+                  fallback="U"
+                  initials={2}
+                  aria-hidden="true"
+                />
                 <div className="member-copy">
                   <strong>
                     {member.display_name}

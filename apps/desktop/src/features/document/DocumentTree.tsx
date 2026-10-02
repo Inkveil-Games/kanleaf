@@ -8,15 +8,12 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from 'lucide-react';
 import {
   useEffect,
-  useState,
   useLayoutEffect,
   useRef,
   type CSSProperties,
-  type FormEvent,
   type KeyboardEvent,
   type RefObject,
 } from 'react';
@@ -27,8 +24,8 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
-import { IconButton } from '../../components/ui/IconButton';
-import { Input } from '../../components/ui/Input';
+import { InlineTextForm } from '../../components/ui/InlineTextForm';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { DocumentTreeDnd } from './DocumentTreeDnd';
 import type { DocumentSection, TreeDestination, TreeEntry } from './tree';
 import type { WorkspaceDocument } from './types';
@@ -407,16 +404,21 @@ function DocumentTreeRow({
       data-drop-intent={dropIntent ?? undefined}
     >
       {entry.document.can_edit ? (
-        <button
-          ref={handleRef as (element: HTMLButtonElement | null) => void}
-          className="document-tree-drag-handle"
-          type="button"
-          aria-label={`Reorder ${entry.document.title}`}
+        <Tooltip
+          label="Drag or press Space, then use arrow keys"
           disabled={disabled}
-          title="Drag or press Space, then use arrow keys"
-        >
-          <GripVertical aria-hidden="true" size={14} />
-        </button>
+          trigger={
+            <button
+              ref={handleRef as (element: HTMLButtonElement | null) => void}
+              className="document-tree-drag-handle"
+              type="button"
+              aria-label={`Reorder ${entry.document.title}`}
+              disabled={disabled}
+            >
+              <GripVertical aria-hidden="true" size={14} />
+            </button>
+          }
+        />
       ) : (
         <span className="document-tree-drag-spacer" aria-hidden="true" />
       )}
@@ -494,59 +496,19 @@ function DocumentNameForm({
   onSubmit: (title: string) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [title, setTitle] = useState(initialValue);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onSubmit(title);
-    } catch (caught) {
-      setError(errorMessage(caught));
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <form
+    <InlineTextForm
       className="document-name-form"
       style={{ '--tree-depth': depth } as CSSProperties}
-      onSubmit={(event) => void submit(event)}
-    >
-      <Input
-        autoFocus
-        required
-        maxLength={300}
-        aria-label={label}
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onCancel();
-        }}
-      />
-      <IconButton
-        variant="primary"
-        size="sm"
-        type="submit"
-        loading={submitting}
-        aria-label={submitLabel}
-      >
-        <Plus aria-hidden="true" size={14} />
-      </IconButton>
-      <IconButton
-        variant="ghost"
-        size="sm"
-        type="button"
-        aria-label="Cancel"
-        onClick={onCancel}
-      >
-        <X aria-hidden="true" size={14} />
-      </IconButton>
-      {error && <p role="alert">{error}</p>}
-    </form>
+      label={label}
+      initialValue={initialValue}
+      maxLength={300}
+      submitLabel={submitLabel}
+      submitIcon={<Plus aria-hidden="true" size={14} />}
+      errorLabel="Library request failed"
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -562,8 +524,4 @@ function DocumentCollectionState({
       {children}
     </p>
   );
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Library request failed';
 }

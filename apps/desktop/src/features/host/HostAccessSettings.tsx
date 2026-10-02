@@ -2,10 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LockKeyhole, Mail, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
 import { Input } from '../../components/ui/Input';
+import { InlineAlert } from '../../components/ui/InlineAlert';
 import { Switch } from '../../components/ui/Switch';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import {
@@ -41,7 +43,11 @@ export function HostAccessSettings({
       {access.isPending ? (
         <AccessPolicySkeleton />
       ) : access.error ? (
-        <LoadError error={access.error} onRetry={() => access.refetch()} />
+        <LoadError
+          error={access.error}
+          onRetry={() => access.refetch()}
+          retrying={access.isFetching}
+        />
       ) : (
         <AccessPolicyForm
           context={context}
@@ -220,9 +226,7 @@ function AccessPolicyForm({
                 : 'Prepared now, enforced when access becomes Restricted.'}
             </p>
           </div>
-          <span className="host-email-count">
-            {allowedEmails.length} approved
-          </span>
+          <Badge appearance="outline">{allowedEmails.length} approved</Badge>
         </div>
 
         <div className="host-email-add-row">
@@ -269,7 +273,9 @@ function AccessPolicyForm({
               <strong>{hostEmail}</strong>
               <small>Host account</small>
             </span>
-            <span className="host-email-badge">Always allowed</span>
+            <Badge className="host-email-badge" variant="accent">
+              Always allowed
+            </Badge>
             <span className="host-email-lock" aria-hidden="true">
               <LockKeyhole size={13} />
             </span>
@@ -292,7 +298,7 @@ function AccessPolicyForm({
                   <strong>{email}</strong>
                   <small>Approved account</small>
                 </span>
-                <span className="host-email-badge">Approved</span>
+                <Badge className="host-email-badge">Approved</Badge>
                 <IconButton
                   className="host-email-remove"
                   type="button"
@@ -309,16 +315,10 @@ function AccessPolicyForm({
       </section>
 
       {restricted ? (
-        <div className="host-policy-warning">
-          <ShieldCheck aria-hidden="true" size={16} />
-          <span>
-            <strong>Saving can sign people out</strong>
-            <small>
-              Active sessions belonging to accounts outside this list are
-              revoked immediately.
-            </small>
-          </span>
-        </div>
+        <InlineAlert variant="warning" title="Saving can sign people out">
+          Active sessions belonging to accounts outside this list are revoked
+          immediately.
+        </InlineAlert>
       ) : null}
 
       <div className="settings-form-actions host-policy-actions">

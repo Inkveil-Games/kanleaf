@@ -13,7 +13,8 @@ import {
   LoadError,
   type ActionState,
 } from '../settings/SettingsControls';
-import { errorMessage, formatDateTime, monogram } from '../settings/utils';
+import { errorMessage, formatDateTime } from '../settings/utils';
+import { Avatar } from '../../components/ui/Avatar';
 import type { ApiContext } from '../workspace/api';
 import type { Workspace } from '../workspace/types';
 import { WorkspaceJoinPanel } from '../workspace/WorkspaceJoinPanel';
@@ -105,7 +106,12 @@ function ProfileSettings({
     >
       <form className="settings-form" onSubmit={(event) => void submit(event)}>
         <div className="profile-summary" aria-hidden="true">
-          <span>{monogram(displayName)}</span>
+          <Avatar
+            name={displayName}
+            fallback="K"
+            initials={2}
+            aria-hidden="true"
+          />
           <div>
             <strong>{displayName || 'Unnamed account'}</strong>
             <small>{user.email}</small>
