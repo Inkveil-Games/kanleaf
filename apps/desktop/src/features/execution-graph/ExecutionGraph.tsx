@@ -10,7 +10,6 @@ import {
   ReactFlowProvider,
   MarkerType,
   useReactFlow,
-  type Edge,
 } from '@xyflow/react';
 import { Maximize, Minus, Plus, RotateCcw } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
@@ -23,7 +22,10 @@ import {
   ExecutionGraphNode,
   type ExecutionFlowNode,
 } from './ExecutionGraphNode';
-import { ExecutionGraphEdge } from './ExecutionGraphEdge';
+import {
+  ExecutionGraphEdge,
+  type ExecutionFlowEdge,
+} from './ExecutionGraphEdge';
 import { CompletionFrontier } from './CompletionFrontier';
 import { projectExecutionGraph, visibleGraph } from './graphProjection';
 import {
@@ -31,6 +33,7 @@ import {
   GRAPH_NODE_WIDTH,
   graphLayoutKey,
   layoutExecutionGraph,
+  type GraphLayout,
 } from './graphLayout';
 import { executionStateLabels } from './executionState';
 import type { GraphViewSettings } from './types';
@@ -70,56 +73,74 @@ function GraphCanvas({
 }: ExecutionGraphProps) {
   const projection = useMemo(() => projectExecutionGraph(tasks), [tasks]);
   const key = graphLayoutKey(projection);
-  const [positioned, setPositioned] = useState(() => ({
-    key,
-    layout: layoutExecutionGraph(projection),
-  }));
-  if (positioned.key !== key)
-    setPositioned({ key, layout: layoutExecutionGraph(projection) });
+  const [request, setRequest] = useState(() => ({ key, projection }));
+  if (request.key !== key) setRequest({ key, projection });
+  const [positioned, setPositioned] = useState<GraphLayout | null>(null);
+  const [failedRequest, setFailedRequest] = useState<typeof request | null>(
+    null,
+  );
+  useEffect(() => {
+    let obsolete = false;
+    void layoutExecutionGraph(request.projection).then(
+      (layout) => {
+        if (!obsolete) setPositioned(layout);
+      },
+      () => {
+        if (!obsolete) setFailedRequest(request);
+      },
+    );
+    return () => {
+      obsolete = true;
+    };
+  }, [request]);
   const visible = useMemo(
     () => visibleGraph(projection, settings),
     [projection, settings],
   );
   const nodes = useMemo<ExecutionFlowNode[]>(
     () =>
-      visible.nodes.map((node) => ({
-        id: node.id,
-        type: 'execution',
-        data: { node },
-        position: positioned.layout.positions[node.id] ?? { x: 0, y: 0 },
-        width: GRAPH_NODE_WIDTH,
-        height: GRAPH_NODE_HEIGHT,
-        selected: node.id === selectedTaskId,
-        ariaRole: 'button',
-        ariaLabel: `${node.task.reference} ${node.task.title}, ${executionStateLabels[node.executionState]}`,
-        domAttributes: { 'aria-pressed': node.id === selectedTaskId },
-        draggable: false,
-        connectable: false,
-        deletable: false,
-      })),
-    [visible.nodes, positioned.layout, selectedTaskId],
+      visible.nodes
+        .filter((node) => positioned?.positions[node.id])
+        .map((node) => ({
+          id: node.id,
+          type: 'execution',
+          data: { node },
+          position: positioned?.positions[node.id] ?? { x: 0, y: 0 },
+          width: GRAPH_NODE_WIDTH,
+          height: GRAPH_NODE_HEIGHT,
+          selected: node.id === selectedTaskId,
+          ariaRole: 'button',
+          ariaLabel: `${node.task.reference} ${node.task.title}, ${executionStateLabels[node.executionState]}`,
+          domAttributes: { 'aria-pressed': node.id === selectedTaskId },
+          draggable: false,
+          connectable: false,
+          deletable: false,
+        })),
+    [visible.nodes, positioned, selectedTaskId],
   );
-  const edges = useMemo<Edge[]>(
+  const edges = useMemo<ExecutionFlowEdge[]>(
     () =>
-      visible.edges.map((edge) => ({
-        ...edge,
-        data: { kind: edge.kind },
-        type: 'execution',
-        className: `execution-edge-${edge.kind}`,
-        deletable: false,
-        selectable: false,
-        ariaLabel:
-          edge.kind === 'blocks'
-            ? 'Blocking dependency'
-            : 'Parent / child relation',
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: 'var(--color-text-muted)',
-          width: 18,
-          height: 18,
-        },
-      })),
-    [visible.edges],
+      visible.edges
+        .filter((edge) => positioned?.routes[edge.id])
+        .map((edge) => ({
+          ...edge,
+          data: { kind: edge.kind, route: positioned?.routes[edge.id] ?? [] },
+          type: 'execution',
+          className: `execution-edge-${edge.kind}`,
+          deletable: false,
+          selectable: false,
+          ariaLabel:
+            edge.kind === 'blocks'
+              ? 'Blocking dependency'
+              : 'Parent / child relation',
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: 'var(--color-text-muted)',
+            width: 18,
+            height: 18,
+          },
+        })),
+    [visible.edges, positioned],
   );
   const { fitView, zoomIn, zoomOut, getViewport, setViewport } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -203,9 +224,7 @@ function GraphCanvas({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() =>
-            setPositioned({ key, layout: layoutExecutionGraph(projection) })
-          }
+          onClick={() => setRequest({ key, projection })}
         >
           <RotateCcw size={14} aria-hidden="true" />
           Re-layout
@@ -269,12 +288,23 @@ function GraphCanvas({
           maxZoom={2}
           ariaLabelConfig={ariaLabelConfig}
         >
-          <CompletionFrontier
-            y={positioned.layout.frontierY}
-            width={positioned.layout.width}
-            completed={projection.completion.completed}
-          />
+          {positioned && (
+            <CompletionFrontier
+              y={positioned.frontierY}
+              width={positioned.width}
+              completed={projection.completion.completed}
+            />
+          )}
         </ReactFlow>
+        {failedRequest === request ? (
+          <p className="execution-graph-hint" role="alert">
+            Unable to arrange Graph. Use Re-layout to try again.
+          </p>
+        ) : !positioned && visible.nodes.length > 0 ? (
+          <p className="execution-graph-hint" role="status">
+            Arranging Graph…
+          </p>
+        ) : null}
         {visible.nodes.length === 0 && (
           <div className="execution-graph-empty">
             <EmptyState

@@ -312,26 +312,27 @@ Workspace/Project access at both endpoints; inaccessible prerequisites and their
 completion cannot be inferred through Graph. Readiness describes the readable
 dependency graph, not hidden Project work.
 
-`features/execution-graph` separates pure projection/execution state, a Dagre
+`features/execution-graph` separates pure projection/execution state, an ELK
 layout adapter, React Flow nodes/edges, Completion Frontier and viewport controls.
 The renderer is `@xyflow/react` 12.12.0 (React 19-compatible peer range, MIT,
 DOM nodes, keyboard focus, touch pan/pinch, ESM); layout is the maintained
-`@dagrejs/dagre` 3.1.1 (MIT, ESM, deterministic layered layout). Both are
-lazy-loaded with Graph. Library types stay inside the feature. Attribution is
+`elkjs` 0.12.0 (EPL-2.0 option, layered orthogonal layout), running in a Vite
+Worker. Both are lazy-loaded with Graph. Library types stay inside the feature. Attribution is
 retained; Kanleaf controls and tokens replace the renderer's default controls.
 
 Parent edges come from `parent`, rendered solid with an arrow from child to parent.
 Blocks edges are dashed with an arrow from blocker to blocked task. Hierarchy
 arrows indicate parenthood only, never an implicit dependency.
-Both use compact stepped paths; hierarchy paths have a parallel lane offset
-instead of a sweeping curve. `blocking` projects task-to-related-task; `blocked_by` projects
+Both use obstacle-aware orthogonal paths with distinct ports for every edge,
+instead of shared stems or sweeping curves. `blocking` projects task-to-related-task; `blocked_by` projects
 related-task-to-task. Every Task has one node, including multi-predecessor and
 multi-successor work. Completion uses stable `done`/`cancelled` roles, as elsewhere
 in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
 then In Progress or Ready. Parenthood never creates an implicit prerequisite.
 
-Dagre sees both relation types with bottom-to-top ranking; a zoned adapter packs
-unfinished ranks above a quiet frontier and terminal ranks below it. Edges cross
+ELK places both relation types bottom-to-top and routes edges in the same pass.
+Partitions keep unfinished nodes above a quiet frontier and terminal nodes below
+it, including disconnected components. Nodes are never shifted after routing. Edges cross
 the frontier normally. Contradictory hierarchy/dependency ordering is allowed:
 only the dependency graph must be acyclic, and layout never rewrites relations.
 Completion zoning takes precedence when an already-completed target has an

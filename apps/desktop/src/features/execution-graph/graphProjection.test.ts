@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import ELK from 'elkjs/lib/elk.bundled.js';
 import { graphTask } from './testFixtures';
 import { projectExecutionGraph, visibleGraph } from './graphProjection';
 import { defaultGraphViewSettings } from './types';
 import { layoutExecutionGraph } from './graphLayout';
+
+vi.mock('./graphLayoutWorker', () => ({
+  createGraphLayoutEngine: () => new ELK(),
+}));
 
 describe('Execution Graph projection', () => {
   it('projects one node per task, independent parent edges and directed many-to-many blocks', () => {
@@ -146,7 +151,7 @@ describe('Execution Graph projection', () => {
     ).toEqual([]);
   });
 
-  it('lays out bottom-up, zones completion, and does not depend on selection/title or edge visibility', () => {
+  it('lays out bottom-up, zones completion, and does not depend on selection/title or edge visibility', async () => {
     const tasks = [
       graphTask(
         'prerequisite',
@@ -163,11 +168,11 @@ describe('Execution Graph projection', () => {
       graphTask('target'),
     ];
     const graph = projectExecutionGraph(tasks);
-    const layout = layoutExecutionGraph(graph);
+    const layout = await layoutExecutionGraph(graph);
     expect(layout.positions.prerequisite?.y).toBeGreaterThan(layout.frontierY);
     expect(layout.positions.target?.y).toBeLessThan(layout.frontierY);
     expect(
-      layoutExecutionGraph(
+      await layoutExecutionGraph(
         projectExecutionGraph(
           tasks.map((task) => ({ ...task, title: 'Changed' })),
         ),
@@ -179,7 +184,7 @@ describe('Execution Graph projection', () => {
     ).toHaveLength(0);
   });
 
-  it('handles independent hierarchy/dependency cycles and a 250-node synthetic graph without overlap', () => {
+  it('handles independent hierarchy/dependency cycles and a 250-node synthetic graph without overlap', async () => {
     const tasks = Array.from({ length: 250 }, (_, index) =>
       graphTask(
         `task-${String(index).padStart(3, '0')}`,
@@ -199,7 +204,7 @@ describe('Execution Graph projection', () => {
           : {},
       ),
     );
-    const layout = layoutExecutionGraph(projectExecutionGraph(tasks));
+    const layout = await layoutExecutionGraph(projectExecutionGraph(tasks));
     expect(Object.keys(layout.positions)).toHaveLength(250);
     expect(
       new Set(Object.values(layout.positions).map(({ x, y }) => `${x},${y}`))
@@ -217,6 +222,8 @@ describe('Execution Graph projection', () => {
       }),
       graphTask('b'),
     ]);
-    expect(Object.keys(layoutExecutionGraph(mixed).positions)).toHaveLength(2);
+    expect(
+      Object.keys((await layoutExecutionGraph(mixed)).positions),
+    ).toHaveLength(2);
   });
 });

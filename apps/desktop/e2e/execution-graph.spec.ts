@@ -145,8 +145,11 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   await expect(parentPath).not.toHaveAttribute('d', /C/);
   const viewport = graph.locator('.react-flow__viewport');
   const initialViewport = await viewport.getAttribute('style');
-  await graph.getByRole('button', { name: 'Fit graph' }).click();
+  await graph.getByRole('button', { name: 'Zoom in' }).click();
   await expect(viewport).not.toHaveAttribute('style', initialViewport ?? '');
+  const zoomedViewport = await viewport.getAttribute('style');
+  await graph.getByRole('button', { name: 'Fit graph' }).click();
+  await expect(viewport).not.toHaveAttribute('style', zoomedViewport ?? '');
   const before = await viewport.getAttribute('style');
   await graph.getByRole('button', { name: /API Layer, Ready/ }).focus();
   await page.keyboard.press('Enter');
