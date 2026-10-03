@@ -112,15 +112,12 @@ function GraphCanvas({
           edge.kind === 'blocks'
             ? 'Blocking dependency'
             : 'Parent / child relation',
-        markerEnd:
-          edge.kind === 'blocks'
-            ? {
-                type: MarkerType.ArrowClosed,
-                color: 'var(--color-text-muted)',
-                width: 18,
-                height: 18,
-              }
-            : undefined,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: 'var(--color-text-muted)',
+          width: 18,
+          height: 18,
+        },
       })),
     [visible.edges],
   );

@@ -141,7 +141,7 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   await expect(dependencyPath).toHaveCSS('stroke-dasharray', '5px, 5px');
   await expect(dependencyPath).toHaveAttribute('marker-end', /url\(/);
   await expect(parentPath).toHaveCSS('stroke-dasharray', 'none');
-  await expect(parentPath).not.toHaveAttribute('marker-end');
+  await expect(parentPath).toHaveAttribute('marker-end', /url\(/);
   await expect(parentPath).not.toHaveAttribute('d', /C/);
   const viewport = graph.locator('.react-flow__viewport');
   const initialViewport = await viewport.getAttribute('style');

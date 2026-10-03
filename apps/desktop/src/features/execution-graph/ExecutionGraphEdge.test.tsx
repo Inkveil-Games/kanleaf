@@ -19,7 +19,11 @@ describe('Execution Graph edges', () => {
   it('uses a compact stepped path for hierarchy, parallel to the dependency lane', () => {
     const { container } = render(
       <svg>
-        <ExecutionGraphEdge {...endpoints} data={{ kind: 'parent' }} />
+        <ExecutionGraphEdge
+          {...endpoints}
+          data={{ kind: 'parent' }}
+          markerEnd="url(#parent-arrow)"
+        />
       </svg>,
     );
     const [expected] = getSmoothStepPath({
@@ -30,8 +34,9 @@ describe('Execution Graph edges', () => {
       borderRadius: 12,
     });
     expect(container.querySelector('#relation')).toHaveAttribute('d', expected);
-    expect(container.querySelector('#relation')).not.toHaveAttribute(
+    expect(container.querySelector('#relation')).toHaveAttribute(
       'marker-end',
+      'url(#parent-arrow)',
     );
   });
 

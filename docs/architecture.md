@@ -320,8 +320,9 @@ DOM nodes, keyboard focus, touch pan/pinch, ESM); layout is the maintained
 lazy-loaded with Graph. Library types stay inside the feature. Attribution is
 retained; Kanleaf controls and tokens replace the renderer's default controls.
 
-Parent edges come from `parent`, directed child-to-parent for layout, rendered
-solid without execution arrows. Blocks edges are dashed with a directional arrow.
+Parent edges come from `parent`, rendered solid with an arrow from child to parent.
+Blocks edges are dashed with an arrow from blocker to blocked task. Hierarchy
+arrows indicate parenthood only, never an implicit dependency.
 Both use compact stepped paths; hierarchy paths have a parallel lane offset
 instead of a sweeping curve. `blocking` projects task-to-related-task; `blocked_by` projects
 related-task-to-task. Every Task has one node, including multi-predecessor and
