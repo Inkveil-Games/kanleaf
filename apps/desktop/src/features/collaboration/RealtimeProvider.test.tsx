@@ -23,6 +23,19 @@ describe('RealtimeProvider', () => {
     vi.unstubAllGlobals();
   });
 
+  it('invalidates canonical task results and details on relation/activity changes', async () => {
+    const { queryClient } = renderRealtime(<div>Graph</div>);
+    const socket = authenticateAndSubscribe();
+    const invalidations = vi.spyOn(queryClient, 'invalidateQueries');
+    act(() => socket.receive(taskEvent('task.activity.changed', 'task-1')));
+    expect(invalidations).toHaveBeenCalledWith({
+      queryKey: ['tasks', 'workspace-1'],
+    });
+    expect(invalidations).toHaveBeenCalledWith({
+      queryKey: ['task', 'workspace-1'],
+    });
+  });
+
   it('refetches the affected Task feed so another client comment becomes visible', async () => {
     let feed = 'Initial activity';
     const query = vi.fn(async () => feed);

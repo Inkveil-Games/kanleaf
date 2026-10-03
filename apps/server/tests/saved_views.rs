@@ -132,6 +132,43 @@ fn project_query(project_id: &str) -> Value {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn graph_layout_and_presentation_round_trip_without_changing_query(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool, &data_dir);
+    let (token, _, workspace_id) = register(&app, "graph-view@example.com").await;
+    let uri = format!("/api/workspaces/{workspace_id}/views");
+    let settings = json!({"direction": "vertical", "showParentEdges": false, "showBlockEdges": true, "showCompleted": false});
+    let created = create_json(&app, &token, &uri, json!({"name": "Execution", "layout": "graph", "query": {"version": 2, "scope": {"kind": "workspace"}, "include_completed": true}, "graph_settings": settings})).await;
+    assert_eq!(created["layout"], "graph");
+    assert_eq!(created["graph_settings"], settings);
+    assert_eq!(created["query"]["include_completed"], true);
+    let detail_uri = format!("{uri}/{}", created["id"].as_str().unwrap());
+    let restored = json_body(send(&app, "GET", &detail_uri, None, &token).await).await;
+    assert_eq!(restored["graph_settings"], settings);
+    for layout in ["list", "board", "calendar", "table", "timeline", "graph"] {
+        let response = send(
+            &app,
+            "PATCH",
+            &detail_uri,
+            Some(json!({"layout": layout})),
+            &token,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_body(response).await["graph_settings"], settings);
+    }
+    let invalid = send(
+        &app,
+        "PATCH",
+        &detail_uri,
+        Some(json!({"graph_settings": {"direction": "horizontal"}})),
+        &token,
+    )
+    .await;
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn typed_query_matches_legacy_scopes_and_treats_search_as_data(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool.clone(), &data_dir);

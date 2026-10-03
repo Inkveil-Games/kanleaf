@@ -13,6 +13,7 @@ use crate::{
     AppState,
     domain::{DateDefault, TaskPriority},
     quick_link::QuickLinkConfig,
+    saved_view::GraphViewSettings,
     vault::{PortableConfigSnapshot, VaultError},
 };
 
@@ -225,6 +226,9 @@ pub(super) struct ViewConfig {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
     pub owner_email: Option<String>,
+    #[serde(default)]
+    #[sqlx(json)]
+    pub graph_settings: GraphViewSettings,
     pub name: String,
     pub query_version: i16,
     pub query: Value,
@@ -605,7 +609,7 @@ async fn build_snapshot(
     let views = sqlx::query_as::<_, ViewConfig>(
         r#"
         SELECT views.id, views.project_id, users.email AS owner_email,
-               views.name, views.query_version, views.query, views.layout
+               views.name, views.query_version, views.query, views.layout, views.graph_settings
         FROM saved_views AS views
         LEFT JOIN users ON users.id = views.owner_id
         WHERE views.workspace_id = $1 AND views.visibility = 'shared'

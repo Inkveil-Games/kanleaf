@@ -2,6 +2,7 @@ import {
   ArrowDownAZ,
   CalendarDays,
   ChartGantt,
+  Network,
   Columns3,
   List,
   Filter,
@@ -89,6 +90,7 @@ const layouts: { value: TaskLayout; label: string; icon: LucideIcon }[] = [
   { value: 'calendar', label: 'Calendar', icon: CalendarDays },
   { value: 'table', label: 'Table', icon: Table2 },
   { value: 'timeline', label: 'Timeline', icon: ChartGantt },
+  { value: 'graph', label: 'Graph', icon: Network },
 ];
 
 const priorities: TaskPriority[] = TASK_PRIORITY_OPTIONS.map(

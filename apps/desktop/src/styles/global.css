@@ -3063,7 +3063,8 @@ html[data-input-modality='keyboard']
     .task-board-scroll-area,
     .task-calendar-scroll-area,
     .task-table-wrap,
-    .task-timeline-scroll-area
+    .task-timeline-scroll-area,
+    .execution-graph
   ) {
   grid-row: 2;
 }

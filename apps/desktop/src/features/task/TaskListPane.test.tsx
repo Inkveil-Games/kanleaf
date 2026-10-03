@@ -627,12 +627,12 @@ describe('TaskListPane', () => {
     );
   });
 
-  it.each(['list', 'board', 'calendar', 'table', 'timeline'] as const)(
-    'switches directly between all five layouts with %s selected',
+  it.each(['list', 'board', 'calendar', 'table', 'timeline', 'graph'] as const)(
+    'switches directly between all six layouts with %s selected',
     (layout) => {
       const props = renderList({ layout });
       const layouts = screen.getByRole('group', { name: 'Task layout' });
-      expect(within(layouts).getAllByRole('button')).toHaveLength(5);
+      expect(within(layouts).getAllByRole('button')).toHaveLength(6);
 
       for (const [value, name] of [
         ['list', 'List view'],
@@ -640,6 +640,7 @@ describe('TaskListPane', () => {
         ['calendar', 'Calendar view'],
         ['table', 'Table view'],
         ['timeline', 'Timeline view'],
+        ['graph', 'Graph view'],
       ]) {
         const button = within(layouts).getByRole('button', { name });
         expect(button).toHaveAttribute(

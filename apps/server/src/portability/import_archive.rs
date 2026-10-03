@@ -577,7 +577,7 @@ pub(super) fn validate_staging(
             || ResourceName::new(&view.name).is_err()
             || !matches!(
                 view.layout.as_str(),
-                "list" | "board" | "calendar" | "table" | "timeline"
+                "list" | "board" | "calendar" | "table" | "timeline" | "graph"
             )
             || view
                 .project_id
@@ -1754,6 +1754,8 @@ fn validate_relations(
     task_ids: &HashSet<Uuid>,
 ) -> Result<(), ImportArchiveError> {
     let mut pairs = HashSet::new();
+    let mut successors: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    let mut incoming: HashMap<Uuid, usize> = HashMap::new();
     for relation in relations {
         if relation.task_a_id >= relation.task_b_id
             || !task_ids.contains(&relation.task_a_id)
@@ -1767,8 +1769,72 @@ fn validate_relations(
         {
             return Err(ImportArchiveError::InvalidMetadata);
         }
+        if let Some(a_blocks) = relation.task_a_blocks {
+            let (source, target) = if a_blocks {
+                (relation.task_a_id, relation.task_b_id)
+            } else {
+                (relation.task_b_id, relation.task_a_id)
+            };
+            successors.entry(source).or_default().push(target);
+            incoming.entry(source).or_default();
+            *incoming.entry(target).or_default() += 1;
+        }
+    }
+    let mut ready: Vec<Uuid> = incoming
+        .iter()
+        .filter_map(|(id, count)| (*count == 0).then_some(*id))
+        .collect();
+    let mut visited = 0;
+    while let Some(source) = ready.pop() {
+        visited += 1;
+        for target in successors.get(&source).into_iter().flatten() {
+            if let Some(count) = incoming.get_mut(target) {
+                *count -= 1;
+                if *count == 0 {
+                    ready.push(*target);
+                }
+            }
+        }
+    }
+    if visited != incoming.len() {
+        return Err(ImportArchiveError::InvalidMetadata);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod dependency_tests {
+    use super::*;
+
+    #[test]
+    fn archives_reject_dependency_cycles_in_both_canonical_orientations() {
+        let ids = [Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3)];
+        let task_ids = ids.into_iter().collect();
+        let mut relations = vec![
+            ManifestRelation {
+                task_a_id: ids[0],
+                task_b_id: ids[1],
+                relation_type: "blocks".to_owned(),
+                task_a_blocks: Some(true),
+            },
+            ManifestRelation {
+                task_a_id: ids[1],
+                task_b_id: ids[2],
+                relation_type: "blocks".to_owned(),
+                task_a_blocks: Some(true),
+            },
+        ];
+        assert!(validate_relations(&relations, &task_ids).is_ok());
+        relations.push(ManifestRelation {
+            task_a_id: ids[0],
+            task_b_id: ids[2],
+            relation_type: "blocks".to_owned(),
+            task_a_blocks: Some(false),
+        });
+        assert!(validate_relations(&relations, &task_ids).is_err());
+        relations[2].task_a_blocks = Some(true);
+        assert!(validate_relations(&relations, &task_ids).is_ok());
+    }
 }
 
 fn validate_task_hierarchy(
@@ -2094,6 +2160,7 @@ mod tests {
                 id: Uuid::new_v4(),
                 project_id: None,
                 owner_email: Some("owner@example.com".to_owned()),
+                graph_settings: Default::default(),
                 name: "Legacy".to_owned(),
                 query_version: 1,
                 query: serde_json::json!({

@@ -30,6 +30,7 @@ import type {
   TaskState,
 } from '../workspace/types';
 import { TaskLayouts } from '../view/TaskLayouts';
+import type { GraphViewSettings } from '../execution-graph/types';
 import { buildTaskGroupTree } from '../view/grouping';
 import { TaskViewToolbar } from '../view/TaskViewToolbar';
 import type {
@@ -53,6 +54,8 @@ interface TaskListPaneProps {
   selectedTaskId: string | null;
   query: TaskQuery;
   layout: TaskLayout;
+  graphSettings?: GraphViewSettings;
+  onGraphSettingsChange?: (settings: GraphViewSettings) => void;
   activeView: SavedView | null;
   loading: boolean;
   error: string | null;
@@ -98,6 +101,8 @@ export function TaskListPane({
   selectedTaskId,
   query,
   layout,
+  graphSettings,
+  onGraphSettingsChange,
   activeView,
   loading,
   error,
@@ -486,6 +491,8 @@ export function TaskListPane({
         {tasks.length > 0 && layout !== 'list' && (
           <TaskLayouts
             layout={layout}
+            graphSettings={graphSettings}
+            onGraphSettingsChange={onGraphSettingsChange}
             query={query}
             tasks={tasks}
             projects={projects}

@@ -1,4 +1,5 @@
 import type { Collection, TaskPriority } from '../workspace/types';
+import type { GraphViewSettings } from '../execution-graph/types';
 
 export const taskLayouts = [
   'list',
@@ -6,6 +7,7 @@ export const taskLayouts = [
   'calendar',
   'table',
   'timeline',
+  'graph',
 ] as const;
 
 export type TaskLayout = (typeof taskLayouts)[number];
@@ -107,6 +109,7 @@ export interface SavedView {
   query_version: number;
   query: TaskQuery;
   layout: TaskLayout;
+  graph_settings?: GraphViewSettings;
   created_at: string;
   updated_at: string;
 }

@@ -1,4 +1,8 @@
 import { WorkspaceHome } from '../home/WorkspaceHome';
+import {
+  defaultGraphViewSettings,
+  type GraphViewSettings,
+} from '../execution-graph/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useCallback,
@@ -168,6 +172,7 @@ interface TaskViewDraft {
   identity: string;
   query: ReturnType<typeof createTaskQuery>;
   layout: TaskLayout;
+  graphSettings: GraphViewSettings;
 }
 
 interface WorkspaceIntentResult<T> {
@@ -385,6 +390,7 @@ function WorkspaceShellContent({
       identity: routeIdentity,
       query: activeView?.query ?? createTaskQuery(collection),
       layout: activeView?.layout ?? 'list',
+      graphSettings: activeView?.graph_settings ?? defaultGraphViewSettings,
     };
   }, [
     activeView,
@@ -401,6 +407,8 @@ function WorkspaceShellContent({
     [collection, currentTaskDraft?.query],
   );
   const taskLayout = currentTaskDraft?.layout ?? 'list';
+  const graphSettings =
+    currentTaskDraft?.graphSettings ?? defaultGraphViewSettings;
   const taskDraftReady =
     visibleSurface !== 'tasks' || currentTaskDraft !== null;
   const taskRequest = useMemo(
@@ -1012,10 +1020,13 @@ function WorkspaceShellContent({
       relationType,
     );
     queryClient.setQueryData(['task', workspaceId, selectedTaskId], updated);
-    await queryClient.invalidateQueries({
-      queryKey: ['task', workspaceId, relatedTaskId],
-      refetchType: 'none',
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
+      queryClient.invalidateQueries({
+        queryKey: ['task', workspaceId, relatedTaskId],
+        refetchType: 'none',
+      }),
+    ]);
   }
 
   async function removeRelation(relatedTaskId: string) {
@@ -1027,6 +1038,7 @@ function WorkspaceShellContent({
       relatedTaskId,
     );
     await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
       queryClient.invalidateQueries({
         queryKey: ['task', workspaceId, selectedTaskId],
       }),
@@ -1092,6 +1104,7 @@ function WorkspaceShellContent({
       project_id: activeView?.project_id ?? scopeProjectId(taskQuery.scope),
       query: taskQuery,
       layout: taskLayout,
+      graph_settings: graphSettings,
     });
     queryClient.setQueryData(['saved-view', workspaceId, created.id], created);
     await refreshSavedViewCache(created.project_id);
@@ -1144,6 +1157,7 @@ function WorkspaceShellContent({
     const updated = await updateSavedView(context, workspaceId, activeView.id, {
       query: taskQuery,
       layout: taskLayout,
+      graph_settings: graphSettings,
     });
     queryClient.setQueryData(['saved-view', workspaceId, updated.id], updated);
     await refreshSavedViewCache(updated.project_id);
@@ -2049,6 +2063,11 @@ function WorkspaceShellContent({
             selectedTaskId={selectedTaskId}
             query={taskQuery}
             layout={taskLayout}
+            graphSettings={graphSettings}
+            onGraphSettingsChange={(settings) => {
+              if (currentTaskDraft)
+                setTaskDraft({ ...currentTaskDraft, graphSettings: settings });
+            }}
             activeView={activeView}
             loading={tasks.isPending || tasks.isFetching}
             error={tasks.error ? errorMessage(tasks.error) : null}

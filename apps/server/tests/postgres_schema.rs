@@ -12,6 +12,105 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 #[sqlx::test(migrations = false)]
+async fn execution_graph_migration_preserves_views_and_validates_presentation(pool: PgPool) {
+    let migrations = sqlx::migrate!();
+    Migrator {
+        migrations: Cow::Owned(
+            migrations
+                .iter()
+                .filter(|migration| migration.version <= 33)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    }
+    .run(&pool)
+    .await
+    .unwrap();
+    let user_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let state_id = Uuid::new_v4();
+    let view_id = Uuid::new_v4();
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO users(id,email,password_hash,display_name) VALUES($1,'graph-schema@example.com','test-hash','Graph')").bind(user_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query("INSERT INTO workspace_identifier_registry(identifier,workspace_id) VALUES('graph-upgrade',$1)").bind(workspace_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query("INSERT INTO workspaces(id,name,identifier,default_inbox_state_id) VALUES($1,'Graph','graph-upgrade',$2)").bind(workspace_id).bind(state_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query("INSERT INTO task_states(id,workspace_id,name,color,description,system_role,position) VALUES($1,$2,'Todo','#7A4DD1','Ready to be worked on.','todo',1)").bind(state_id).bind(workspace_id).execute(&mut *transaction).await.unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO saved_views(id,workspace_id,owner_id,name,visibility,query_version,query,layout) VALUES($1,$2,$3,'Existing','shared',2,'{\"version\":2,\"scope\":{\"kind\":\"workspace\"}}','list')").bind(view_id).bind(workspace_id).bind(user_id).execute(&mut *transaction).await.unwrap();
+    transaction.commit().await.unwrap();
+    let task_ids = [Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3)];
+    for (index, task_id) in task_ids.iter().enumerate() {
+        sqlx::query("INSERT INTO tasks(id,workspace_id,title,storage_name,state_id,task_number,position) VALUES($1,$2,'Legacy task',$3,$4,$5,$5)")
+            .bind(task_id).bind(workspace_id).bind(format!("legacy-{index}--abcdef")).bind(state_id).bind(index as i64+1).execute(&pool).await.unwrap();
+    }
+    for (source, target, direction) in [
+        (task_ids[0], task_ids[1], true),
+        (task_ids[1], task_ids[2], true),
+        (task_ids[0], task_ids[2], false),
+    ] {
+        sqlx::query("INSERT INTO task_relations(workspace_id,task_a_id,task_b_id,relation_type,task_a_blocks) VALUES($1,$2,$3,'blocks',$4)")
+            .bind(workspace_id).bind(source).bind(target).bind(direction).execute(&pool).await.unwrap();
+    }
+    let migration_error = migrations.run(&pool).await.unwrap_err();
+    assert!(migration_error.to_string().contains("dependency cycle"));
+    let preserved: i64 = sqlx::query_scalar("SELECT count(*) FROM task_relations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(preserved, 3);
+    sqlx::query("DELETE FROM task_relations WHERE task_a_id=$1 AND task_b_id=$2")
+        .bind(task_ids[0])
+        .bind(task_ids[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+    migrations.run(&pool).await.unwrap();
+    let (layout, settings): (String, Value) =
+        sqlx::query_as("SELECT layout,graph_settings FROM saved_views WHERE id=$1")
+            .bind(view_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(layout, "list");
+    assert_eq!(
+        settings,
+        json!({"direction":"vertical","showParentEdges":true,"showBlockEdges":true,"showCompleted":true})
+    );
+    sqlx::query("UPDATE saved_views SET layout='graph' WHERE id=$1")
+        .bind(view_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for invalid in [
+        json!({}),
+        json!({"direction":null,"showParentEdges":true,"showBlockEdges":true,"showCompleted":true}),
+        json!({"direction":"vertical","showParentEdges":"yes","showBlockEdges":true,"showCompleted":true}),
+    ] {
+        let error = sqlx::query("UPDATE saved_views SET graph_settings=$2 WHERE id=$1")
+            .bind(view_id)
+            .bind(invalid)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref(),
+            Some("23514")
+        );
+    }
+}
+
+#[sqlx::test(migrations = false)]
 async fn quick_links_migration_requeues_existing_workspace_configs(pool: PgPool) {
     let all_migrations = sqlx::migrate!();
     Migrator {

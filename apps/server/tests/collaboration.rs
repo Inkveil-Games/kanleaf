@@ -423,6 +423,68 @@ async fn realtime_delivers_committed_comment_changes_only_to_task_members(pool: 
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn realtime_removes_archived_and_deleted_tasks_without_leaking_private_projects(
+    pool: PgPool,
+) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner_token, _, workspace_id) = register(&app, "graph-live-owner@example.com").await;
+    let (reader_token, reader_id, _) = register(&app, "graph-live-reader@example.com").await;
+    add_workspace_member(&pool, workspace_id, reader_id, "member").await;
+    let (_, archive_id) = project_task(&app, &owner_token, workspace_id, &[]).await;
+    let (_, delete_id) = project_task(&app, &owner_token, workspace_id, &[]).await;
+    let deleted_task = body(
+        send(
+            &app,
+            "GET",
+            &format!("/api/workspaces/{workspace_id}/tasks/{delete_id}"),
+            None,
+            &owner_token,
+        )
+        .await,
+    )
+    .await;
+    let server = start_test_server(app.clone()).await;
+    let mut owner = connect_realtime(&server.websocket_url, &owner_token).await;
+    let mut reader = connect_realtime(&server.websocket_url, &reader_token).await;
+    assert_eq!(
+        subscribe_workspace(&mut owner, workspace_id).await["type"],
+        "subscribed"
+    );
+    assert_eq!(
+        subscribe_workspace(&mut reader, workspace_id).await["type"],
+        "subscribed"
+    );
+    for (method, task_id, suffix, payload) in [
+        ("DELETE", archive_id, "", None),
+        (
+            "POST",
+            delete_id,
+            "/delete",
+            Some(json!({"reference":deleted_task["reference"]})),
+        ),
+    ] {
+        assert_eq!(
+            send(
+                &app,
+                method,
+                &format!("/api/workspaces/{workspace_id}/tasks/{task_id}{suffix}"),
+                payload,
+                &owner_token
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        let event = receive_socket_message(&mut owner).await;
+        assert_eq!(event["type"], "task.activity.changed");
+        assert_eq!(event["task_id"], task_id.to_string());
+        assert!(event.get("access").is_none());
+        expect_no_socket_message(&mut reader).await;
+    }
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn realtime_reports_committed_task_activity_changes(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool, &data_dir);

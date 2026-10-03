@@ -53,6 +53,7 @@ pub struct TaskSubtaskProgress {
 pub(crate) struct TaskRelationSummary {
     pub task: TaskLink,
     pub relation_type: String,
+    pub task_system_role: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -155,6 +156,7 @@ impl From<TaskRow> for TaskResponse {
 pub(super) async fn hydrate_tasks(
     pool: &PgPool,
     workspace_id: Uuid,
+    user_id: Uuid,
     tasks: &mut [TaskResponse],
 ) -> Result<(), AppError> {
     if tasks.is_empty() {
@@ -356,24 +358,45 @@ pub(super) async fn hydrate_tasks(
                relations.relation_type, relations.task_a_blocks,
                task_a.task_number AS task_a_number,
                task_a.title AS task_a_title,
+               state_a.system_role AS task_a_system_role,
                project_a.identifier AS task_a_project_identifier,
                task_b.task_number AS task_b_number,
                task_b.title AS task_b_title,
+               state_b.system_role AS task_b_system_role,
                project_b.identifier AS task_b_project_identifier
         FROM task_relations AS relations
         JOIN tasks AS task_a ON task_a.id = relations.task_a_id
         JOIN tasks AS task_b ON task_b.id = relations.task_b_id
+        JOIN task_states AS state_a ON state_a.id = task_a.state_id
+        JOIN task_states AS state_b ON state_b.id = task_b.state_id
         LEFT JOIN projects AS project_a ON project_a.id = task_a.project_id
         LEFT JOIN projects AS project_b ON project_b.id = task_b.project_id
+        JOIN workspace_memberships AS reader
+          ON reader.workspace_id = relations.workspace_id AND reader.user_id = $3
+        LEFT JOIN project_memberships AS access_a
+          ON access_a.workspace_id = relations.workspace_id
+         AND access_a.project_id = task_a.project_id AND access_a.user_id = $3
+        LEFT JOIN project_memberships AS access_b
+          ON access_b.workspace_id = relations.workspace_id
+         AND access_b.project_id = task_b.project_id AND access_b.user_id = $3
         WHERE relations.workspace_id = $1
           AND (relations.task_a_id = ANY($2) OR relations.task_b_id = ANY($2))
           AND task_a.archived_at IS NULL
           AND task_b.archived_at IS NULL
+          AND (task_a.project_id IS NULL OR project_a.archived_at IS NULL)
+          AND (task_b.project_id IS NULL OR project_b.archived_at IS NULL)
+          AND (reader.role IN ('owner', 'admin')
+               OR (task_a.project_id IS NULL AND reader.role = 'member')
+               OR access_a.user_id IS NOT NULL)
+          AND (reader.role IN ('owner', 'admin')
+               OR (task_b.project_id IS NULL AND reader.role = 'member')
+               OR access_b.user_id IS NOT NULL)
         ORDER BY relations.created_at, relations.task_a_id, relations.task_b_id
         "#,
     )
     .bind(workspace_id)
     .bind(&ids)
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
     for row in relations {
@@ -388,6 +411,7 @@ pub(super) async fn hydrate_tasks(
                     title: row.task_b_title.clone(),
                 },
                 relation_type: row.relation_for_a(),
+                task_system_role: row.task_b_system_role.clone(),
             });
         }
         if let Some(&index) = indexes.get(&row.task_b_id) {
@@ -402,6 +426,7 @@ pub(super) async fn hydrate_tasks(
                     title: row.task_a_title,
                 },
                 relation_type,
+                task_system_role: row.task_a_system_role,
             });
         }
     }
@@ -504,9 +529,11 @@ struct RelationRow {
     task_a_blocks: Option<bool>,
     task_a_number: i64,
     task_a_title: String,
+    task_a_system_role: String,
     task_a_project_identifier: Option<String>,
     task_b_number: i64,
     task_b_title: String,
+    task_b_system_role: String,
     task_b_project_identifier: Option<String>,
 }
 

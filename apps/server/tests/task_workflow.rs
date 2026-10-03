@@ -121,6 +121,241 @@ async fn create_task(app: &Router, token: &str, workspace_id: Uuid, body: Value)
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn dependency_hydration_and_mutations_respect_project_access(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (owner, _, workspace_id) = register(&app, "graph-owner@example.com").await;
+    let (reader, reader_id, _) = register(&app, "graph-reader@example.com").await;
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(reader_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let project = create_project(&app, &owner, workspace_id, "Private prerequisites").await;
+    let project_id = project["id"].as_str().unwrap();
+    let prerequisite = create_task(
+        &app,
+        &owner,
+        workspace_id,
+        json!({"title":"Private blocker", "project_id":project_id}),
+    )
+    .await;
+    let target = create_task(&app, &owner, workspace_id, json!({"title":"Visible work"})).await;
+    let target_id = target["id"].as_str().unwrap();
+    let relation_url = format!("/api/workspaces/{workspace_id}/tasks/{target_id}/relations");
+    create(
+        &app,
+        &owner,
+        &relation_url,
+        json!({"task_id":prerequisite["id"],"relation_type":"blocked_by"}),
+    )
+    .await;
+    let detail_url = format!("/api/workspaces/{workspace_id}/tasks/{target_id}");
+    let detail = get(&app, &reader, &detail_url).await;
+    assert_eq!(detail["relations"], json!([]));
+    let list = get(
+        &app,
+        &reader,
+        &format!("/api/workspaces/{workspace_id}/tasks"),
+    )
+    .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["relations"], json!([]));
+    assert_eq!(
+        get(&app, &owner, &detail_url).await["relations"][0]["task_system_role"],
+        "todo"
+    );
+    create(
+        &app,
+        &owner,
+        &format!("/api/workspaces/{workspace_id}/projects/{project_id}/members"),
+        json!({"user_id":reader_id,"role":"viewer"}),
+    )
+    .await;
+    assert_eq!(
+        get(&app, &reader, &detail_url).await["relations"][0]["task_system_role"],
+        "todo"
+    );
+    let denied = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &relation_url,
+            Some(json!({"task_id":prerequisite["id"],"relation_type":"blocking"})),
+            Some(&reader),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let denied = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("{relation_url}/{}", prerequisite["id"].as_str().unwrap()),
+            None,
+            Some(&reader),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_relations WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    sqlx::query("UPDATE projects SET archived_at = now() WHERE id = $1")
+        .bind(project_id.parse::<Uuid>().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        get(&app, &reader, &detail_url).await["relations"],
+        json!([])
+    );
+    let list = get(
+        &app,
+        &reader,
+        &format!("/api/workspaces/{workspace_id}/tasks"),
+    )
+    .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["relations"], json!([]));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn blocking_dependencies_are_a_transactional_dag(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "graph@example.com").await;
+    let mut ids = Vec::new();
+    for title in ["A", "B", "C", "D", "E"] {
+        let task = create_task(&app, &token, workspace_id, json!({"title": title})).await;
+        ids.push(task["id"].as_str().unwrap().to_owned());
+    }
+    for (source, target, kind) in [
+        (0, 1, "blocking"),
+        (2, 1, "blocked_by"),
+        (0, 3, "blocking"),
+        (4, 3, "blocking"),
+    ] {
+        create(
+            &app,
+            &token,
+            &format!(
+                "/api/workspaces/{workspace_id}/tasks/{}/relations",
+                ids[source]
+            ),
+            json!({"task_id": ids[target], "relation_type": kind}),
+        )
+        .await;
+    }
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM task_activity")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for (source, target, status) in [
+        (2, 0, StatusCode::UNPROCESSABLE_ENTITY),
+        (0, 0, StatusCode::UNPROCESSABLE_ENTITY),
+        (0, 1, StatusCode::CONFLICT),
+        (1, 0, StatusCode::CONFLICT),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!(
+                    "/api/workspaces/{workspace_id}/tasks/{}/relations",
+                    ids[source]
+                ),
+                Some(json!({"task_id": ids[target], "relation_type": "blocking"})),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        if source == 2 {
+            assert!(
+                json_body(response).await["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("cycle")
+            );
+        }
+    }
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM task_activity")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, after);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM task_relations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 4);
+    let target = get(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/tasks/{}", ids[1]),
+    )
+    .await;
+    assert_eq!(target["relations"][0]["task_system_role"], "todo");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn concurrent_dependency_writes_cannot_close_a_cycle(pool: PgPool) {
+    let data_dir = TempDir::new().unwrap();
+    let app = test_app(pool.clone(), &data_dir);
+    let (token, _, workspace_id) = register(&app, "concurrent-graph@example.com").await;
+    let first = create_task(&app, &token, workspace_id, json!({"title":"First"})).await;
+    let second = create_task(&app, &token, workspace_id, json!({"title":"Second"})).await;
+    let third = create_task(&app, &token, workspace_id, json!({"title":"Third"})).await;
+    let first = first["id"].as_str().unwrap();
+    let second = second["id"].as_str().unwrap();
+    let third = third["id"].as_str().unwrap();
+    create(
+        &app,
+        &token,
+        &format!("/api/workspaces/{workspace_id}/tasks/{first}/relations"),
+        json!({"task_id":second,"relation_type":"blocking"}),
+    )
+    .await;
+    let mut pending = Vec::new();
+    for (source, target) in [(second, third), (third, first)] {
+        let app = app.clone();
+        let input = request(
+            "POST",
+            &format!("/api/workspaces/{workspace_id}/tasks/{source}/relations"),
+            Some(json!({"task_id":target,"relation_type":"blocking"})),
+            Some(&token),
+        );
+        pending.push(tokio::spawn(async move {
+            app.oneshot(input).await.unwrap().status()
+        }));
+    }
+    let mut statuses = Vec::new();
+    for pending in pending {
+        statuses.push(
+            tokio::time::timeout(Duration::from_secs(10), pending)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    assert!(statuses.contains(&StatusCode::CREATED));
+    assert!(statuses.contains(&StatusCode::UNPROCESSABLE_ENTITY));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM task_relations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn task_numbers_are_unique_and_monotonic_under_concurrent_creation(pool: PgPool) {
     let data_dir = TempDir::new().unwrap();
     let app = test_app(pool, &data_dir);

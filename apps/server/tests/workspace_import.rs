@@ -546,7 +546,8 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             "name": "Portable work",
             "visibility": "shared",
             "project_id": project_id,
-            "layout": "board",
+            "layout": "graph",
+            "graph_settings": {"direction":"vertical","showParentEdges":false,"showBlockEdges":true,"showCompleted":false},
             "query": {
                 "version": 2,
                 "scope": {"kind": "project", "project_id": project_id},
@@ -874,6 +875,17 @@ async fn export_import_round_trip_remaps_ids_and_preserves_portable_content(pool
             .fetch_one(&pool)
             .await
             .unwrap();
+    let (view_layout, graph_settings): (String, Value) =
+        sqlx::query_as("SELECT layout, graph_settings FROM saved_views WHERE workspace_id = $1")
+            .bind(imported_workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(view_layout, "graph");
+    assert_eq!(
+        graph_settings,
+        json!({"direction":"vertical","showParentEdges":false,"showBlockEdges":true,"showCompleted":false})
+    );
     assert_eq!(
         view_query["scope"]["project_id"],
         imported_project.0.to_string()

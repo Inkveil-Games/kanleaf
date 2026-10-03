@@ -1,0 +1,194 @@
+.execution-graph {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  color: var(--color-text);
+  background: var(--color-canvas);
+}
+
+.execution-graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.execution-graph-toolbar fieldset {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
+}
+
+.execution-graph-toolbar legend {
+  float: left;
+  margin-right: 12px;
+  color: var(--color-text-muted);
+}
+
+.execution-graph-toolbar label,
+.execution-viewport-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.execution-viewport-controls {
+  margin-left: auto;
+}
+.execution-graph-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+}
+.execution-graph .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.execution-graph-node {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  gap: 4px 8px;
+  width: 252px;
+  height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.execution-node-reference {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.execution-node-title {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+}
+.execution-node-state {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.execution-node-metadata {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.execution-node-metadata small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+.execution-graph-node[data-execution-state='blocked'] {
+  border-style: dashed;
+}
+.execution-graph-node[data-execution-state='in_progress'] {
+  border-color: var(--color-accent);
+  box-shadow: inset 3px 0 var(--color-accent);
+}
+.execution-graph-node[data-execution-state='done'],
+.execution-graph-node[data-execution-state='cancelled'] {
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+.execution-graph-node[data-execution-state='cancelled'] {
+  border-style: dotted;
+}
+.execution-graph .react-flow__node.selected .execution-graph-node {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.execution-graph .react-flow__node:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 5px;
+  border-radius: var(--radius-md);
+}
+.execution-graph .execution-edge-blocks path {
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+}
+.execution-graph .execution-edge-parent path {
+  stroke: var(--color-text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+
+.execution-graph .react-flow__attribution {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+.completion-frontier {
+  position: absolute;
+  pointer-events: none;
+  color: var(--color-text-muted);
+}
+.completion-frontier svg {
+  display: block;
+  overflow: visible;
+}
+.completion-frontier path {
+  stroke: var(--color-border);
+  stroke-width: 2;
+}
+.completion-frontier span {
+  position: absolute;
+  right: 8px;
+  top: 12px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.execution-graph-empty {
+  position: absolute;
+  inset: 24px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.execution-graph-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .execution-graph-toolbar {
+    gap: 4px 8px;
+    padding: 6px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-graph *,
+  .execution-graph *::before,
+  .execution-graph *::after {
+    transition: none;
+    animation: none;
+  }
+}

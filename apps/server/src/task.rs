@@ -507,7 +507,7 @@ pub(crate) async fn create(
         .realtime
         .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     project_now(&state, workspace_id, task_id).await;
-    let task = find_task(&state.pool, workspace_id, task_id).await?;
+    let task = find_task(&state.pool, workspace_id, task_id, auth.user.id).await?;
     Ok((StatusCode::CREATED, Json(task)))
 }
 
@@ -521,7 +521,9 @@ pub(crate) async fn get(
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
     transaction.commit().await?;
-    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
+    Ok(Json(
+        find_task(&state.pool, workspace_id, task_id, auth.user.id).await?,
+    ))
 }
 
 pub(crate) async fn get_by_number(
@@ -544,7 +546,9 @@ pub(crate) async fn get_by_number(
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, false).await?;
     authorize_task_location(&state.pool, auth.user.id, workspace_id, project_id, false).await?;
     transaction.commit().await?;
-    Ok(Json(find_task(&state.pool, workspace_id, task_id).await?))
+    Ok(Json(
+        find_task(&state.pool, workspace_id, task_id, auth.user.id).await?,
+    ))
 }
 
 pub(crate) async fn update(
@@ -983,7 +987,7 @@ pub(crate) async fn update_task_with_properties(
             .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     }
     project_many(state, workspace_id, &projection_task_ids).await;
-    find_task(&state.pool, workspace_id, task_id).await
+    find_task(&state.pool, workspace_id, task_id, actor_id).await
 }
 
 pub(crate) async fn archive(
@@ -1061,9 +1065,11 @@ pub(crate) async fn archive(
     projection_task_ids.extend(child_ids);
     enqueue_projection(&mut transaction, workspace_id, &projection_task_ids).await?;
     transaction.commit().await?;
-    state
-        .realtime
-        .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
+    state.realtime.publish(RealtimeEvent::task_removed(
+        workspace_id,
+        task_id,
+        project_id,
+    ));
     project_many(&state, workspace_id, &projection_task_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1145,6 +1151,11 @@ pub(crate) async fn delete_permanently(
         // safer than reporting a failure that could make clients retry the delete.
         warn!(task_id = %task_id, %error, "failed to purge deleted Task document");
     }
+    state.realtime.publish(RealtimeEvent::task_removed(
+        workspace_id,
+        task_id,
+        project_id,
+    ));
     project_many(&state, workspace_id, &child_ids).await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1402,7 +1413,7 @@ pub(crate) async fn bulk_update(
     finish_task_file_updates(&state, &file_updates).await;
     project_many(&state, workspace_id, &projection_task_ids).await;
     let mut tasks = find_tasks(&state.pool, workspace_id, &task_ids).await?;
-    hydrate_tasks(&state.pool, workspace_id, &mut tasks).await?;
+    hydrate_tasks(&state.pool, workspace_id, auth.user.id, &mut tasks).await?;
     Ok(Json(tasks))
 }
 
@@ -1420,6 +1431,8 @@ pub(crate) async fn add_relation(
         ));
     }
     let mut transaction = state.pool.begin().await?;
+    workspace_role(&state.pool, auth.user.id, workspace_id).await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
     let related_project =
         lock_task_location(&mut transaction, workspace_id, request.task_id, true).await?;
@@ -1443,6 +1456,50 @@ pub(crate) async fn add_relation(
         TaskRelationType::RelatesTo => ("relates_to", None),
         TaskRelationType::Duplicate => ("duplicate", None),
     };
+    let duplicate: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM task_relations WHERE workspace_id = $1 AND task_a_id = $2 AND task_b_id = $3)",
+    )
+    .bind(workspace_id)
+    .bind(task_a_id)
+    .bind(task_b_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if duplicate {
+        return Err(AppError::Conflict(
+            "These Tasks already have a relation".to_owned(),
+        ));
+    }
+    if let Some(a_blocks) = task_a_blocks {
+        let (blocker, blocked) = if a_blocks {
+            (task_a_id, task_b_id)
+        } else {
+            (task_b_id, task_a_id)
+        };
+        let creates_cycle: bool = sqlx::query_scalar(
+            r#"
+            WITH RECURSIVE edges AS (
+                SELECT CASE WHEN task_a_blocks THEN task_a_id ELSE task_b_id END AS source,
+                       CASE WHEN task_a_blocks THEN task_b_id ELSE task_a_id END AS target
+                FROM task_relations WHERE workspace_id = $1 AND relation_type = 'blocks'
+            ), reachable(id) AS (
+                SELECT $2::uuid
+                UNION
+                SELECT edges.target FROM edges JOIN reachable ON edges.source = reachable.id
+            )
+            SELECT EXISTS(SELECT 1 FROM reachable WHERE id = $3)
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(blocked)
+        .bind(blocker)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if creates_cycle {
+            return Err(AppError::Validation(
+                "Cannot create dependency: this relation would create a cycle".to_owned(),
+            ));
+        }
+    }
     let inserted = sqlx::query(
         r#"
         INSERT INTO task_relations
@@ -1490,7 +1547,7 @@ pub(crate) async fn add_relation(
         .publish(RealtimeEvent::task_activity_changed(workspace_id, task_id));
     Ok((
         StatusCode::CREATED,
-        Json(find_task(&state.pool, workspace_id, task_id).await?),
+        Json(find_task(&state.pool, workspace_id, task_id, auth.user.id).await?),
     ))
 }
 
@@ -1501,6 +1558,8 @@ pub(crate) async fn remove_relation(
 ) -> Result<StatusCode, AppError> {
     let Path((workspace_id, task_id, related_task_id)) = path.map_err(AppError::from)?;
     let mut transaction = state.pool.begin().await?;
+    workspace_role(&state.pool, auth.user.id, workspace_id).await?;
+    lock_workspace_for_assignment(&mut transaction, workspace_id).await?;
     let project_id = lock_task_location(&mut transaction, workspace_id, task_id, true).await?;
     let related_project =
         lock_task_location(&mut transaction, workspace_id, related_task_id, true).await?;
@@ -1929,9 +1988,10 @@ async fn find_task(
     pool: &PgPool,
     workspace_id: Uuid,
     task_id: Uuid,
+    user_id: Uuid,
 ) -> Result<TaskResponse, AppError> {
     let mut tasks = find_tasks(pool, workspace_id, &[task_id]).await?;
-    hydrate_tasks(pool, workspace_id, &mut tasks).await?;
+    hydrate_tasks(pool, workspace_id, user_id, &mut tasks).await?;
     tasks
         .pop()
         .ok_or_else(|| AppError::NotFound("Task not found".to_owned()))

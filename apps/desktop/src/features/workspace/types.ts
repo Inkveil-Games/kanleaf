@@ -330,6 +330,7 @@ export type TaskRelationType =
 export interface TaskRelation {
   task: TaskLink;
   relation_type: TaskRelationType;
+  task_system_role?: TaskState['system_role'];
 }
 
 export type Collection =

@@ -1,6 +1,7 @@
 import { apiRequest } from '../../lib/api/client';
 import type { ApiContext } from '../workspace/api';
 import type { Task } from '../workspace/types';
+import type { GraphViewSettings } from '../execution-graph/types';
 import type {
   SavedView,
   SavedViewVisibility,
@@ -60,6 +61,7 @@ export function createSavedView(
     project_id: string | null;
     query: TaskQuery;
     layout: TaskLayout;
+    graph_settings?: GraphViewSettings;
   },
 ) {
   return apiRequest<SavedView>(
@@ -77,7 +79,12 @@ export function updateSavedView(
   context: ApiContext,
   workspaceId: string,
   viewId: string,
-  patch: Partial<Pick<SavedView, 'name' | 'visibility' | 'query' | 'layout'>>,
+  patch: Partial<
+    Pick<
+      SavedView,
+      'name' | 'visibility' | 'query' | 'layout' | 'graph_settings'
+    >
+  >,
 ) {
   return apiRequest<SavedView>(
     context.serverUrl,

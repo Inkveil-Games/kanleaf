@@ -1,6 +1,8 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Fragment,
+  lazy,
+  Suspense,
   useMemo,
   useState,
   type CSSProperties,
@@ -23,6 +25,14 @@ import {
 import { TaskPropertyIcon } from '../task/TaskPropertyIcon';
 import { PriorityIcon, StateIcon } from '../task/TaskValueIcon';
 import { TASK_PROPERTY_PRESENTATION } from '../task/taskPropertyPresentation';
+import type { GraphViewSettings } from '../execution-graph/types';
+import { defaultGraphViewSettings } from '../execution-graph/types';
+
+const ExecutionGraph = lazy(() =>
+  import('../execution-graph/ExecutionGraph').then((module) => ({
+    default: module.ExecutionGraph,
+  })),
+);
 import { useTaskPropertyEditing } from '../task/useTaskPropertyEditing';
 import type {
   Project,
@@ -41,6 +51,8 @@ import {
 
 interface TaskLayoutsProps {
   layout: Exclude<TaskLayout, 'list'>;
+  graphSettings?: GraphViewSettings;
+  onGraphSettingsChange?: (settings: GraphViewSettings) => void;
   query: TaskQuery;
   tasks: Task[];
   projects: Project[];
@@ -56,6 +68,18 @@ interface TaskLayoutsProps {
 
 export function TaskLayouts(props: TaskLayoutsProps) {
   switch (props.layout) {
+    case 'graph':
+      return (
+        <Suspense fallback={<p role="status">Loading Graph…</p>}>
+          <ExecutionGraph
+            tasks={props.tasks}
+            selectedTaskId={props.selectedTaskId}
+            onSelectTask={props.onSelectTask}
+            settings={props.graphSettings ?? defaultGraphViewSettings}
+            onSettingsChange={props.onGraphSettingsChange ?? (() => undefined)}
+          />
+        </Suspense>
+      );
     case 'board':
       return <TaskBoard {...props} />;
     case 'calendar':

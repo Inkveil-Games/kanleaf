@@ -297,6 +297,72 @@ be Personal or Shared. Workspace Owner/Admin manage shared workspace Views;
 Project Contributors can create and edit their own shared Project Views, while
 Project Admin manages all shared Views in the Project.
 
+### Execution Graph
+
+Graph is a read-oriented task layout, not a diagram editor. The existing
+TaskQuery endpoint supplies the authoritative visible task set; Graph never
+pulls connected tasks into that set or makes per-node requests. Grouping is
+ignored for Graph presentation; search, filters, scope and `include_completed`
+remain query semantics. The existing query flag excludes Done tasks, not
+Cancelled tasks; Graph does not change that rule. Its presentation toggle hides
+both terminal roles when they are present in the result. Bulk relation hydration
+includes `task_system_role` so readable out-of-query prerequisites still affect
+readiness without fabricating nodes. Relations are filtered by the reader's
+Workspace/Project access at both endpoints; inaccessible prerequisites and their
+completion cannot be inferred through Graph. Readiness describes the readable
+dependency graph, not hidden Project work.
+
+`features/execution-graph` separates pure projection/execution state, a Dagre
+layout adapter, React Flow nodes/edges, Completion Frontier and viewport controls.
+The renderer is `@xyflow/react` 12.12.0 (React 19-compatible peer range, MIT,
+DOM nodes, keyboard focus, touch pan/pinch, ESM); layout is the maintained
+`@dagrejs/dagre` 3.1.1 (MIT, ESM, deterministic layered layout). Both are
+lazy-loaded with Graph. Library types stay inside the feature. Attribution is
+retained; Kanleaf controls and tokens replace the renderer's default controls.
+
+Parent edges come from `parent`, directed child-to-parent for layout but without
+execution arrows. `blocking` projects task-to-related-task; `blocked_by` projects
+related-task-to-task. Every Task has one node, including multi-predecessor and
+multi-successor work. Completion uses stable `done`/`cancelled` roles, as elsewhere
+in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
+then In Progress or Ready. Parenthood never creates an implicit prerequisite.
+
+Dagre sees both relation types with bottom-to-top ranking; a zoned adapter packs
+unfinished ranks above a quiet frontier and terminal ranks below it. Edges cross
+the frontier normally. Contradictory hierarchy/dependency ordering is allowed:
+only the dependency graph must be acyclic, and layout never rewrites relations.
+Completion zoning takes precedence when an already-completed target has an
+unfinished prerequisite. The full graph determines coordinates even when edges
+or completed nodes are hidden. Only topology/completion changes or explicit
+Re-layout recalculate positions; ordinary refetches, titles and detail selection
+do not. Fit is initial/explicit, not a task-mutation side effect. Resizing keeps
+the same world-space center and zoom rather than shrinking nodes on mobile.
+
+Saved Views persist typed `graph_settings` JSON (vertical direction, Parent and
+Blocks visibility, completed visibility), independently of TaskQuery. Settings
+use the existing Save changes flow and survive export/import. Unsaved settings
+remain in the scoped view draft. Automatic positions are ephemeral; future
+manual positions belong to a View/Task pair, never Task metadata or Markdown.
+
+The existing relation POST/DELETE path locks the Workspace before Task rows.
+Before inserting a blocking edge, recursive reachability checks whether the
+target already reaches the source, honoring canonical `task_a_blocks` direction.
+The lock serializes concurrent additions and existing task/configuration changes.
+Duplicates remain conflicts, cycles are validation errors, and neither publishes
+activity before commit. Archive import also rejects cyclic dependencies.
+Migration 0034 checks legacy relations under a table lock and refuses an upgrade
+if a cycle exists, leaving all data intact. Remove the offending dependency in
+Task Detail on the previous version and retry; no automatic edge deletion occurs.
+
+Graph uses the existing Workspace realtime connection. Task activity events and
+reconnect reconciliation invalidate canonical task lists/details; local relation
+mutations do likewise. Archive/delete events retain a server-only snapshot of the
+removed Task's Project location and recheck current access to that location before
+delivery, since the live Task is no longer readable. No private Project metadata
+is broadcast, and the existing wire event remains unchanged.
+Panning, zooming, visibility and layout produce no Task
+activity. Phase 1 disables node dragging, edge reconnection and topology editing.
+
 Workspace invitations contain normalized target emails, seven-day expiry, and
 only SHA-256 token digests. Owner/Admin can issue, renew, or revoke invitations;
 acceptance verifies the authenticated account email in the same transaction as
@@ -801,6 +867,6 @@ one-directory tests do not prove it.
 
 Offline caching and sync, automatic conflict merging or version history,
 non-image file insertion, asset reference indexing and orphan collection,
-full-text document indexing, wikilink resolution, backlinks/graph views, explicit
+full-text document indexing, wikilink resolution, backlinks/document-link graphs, explicit
 file renames, plugins, collaborative Markdown editing, presence, mobile clients,
 release signing, and bundled TLS are not current implementation concerns.

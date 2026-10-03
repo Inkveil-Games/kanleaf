@@ -191,6 +191,7 @@ vi.mock('../task/TaskListPane', () => ({
     onCreateView,
     onDeleteView,
     onSelectTask,
+    layout,
   }: {
     activeView: { id: string } | null;
     onCreateTask: (title: string) => Promise<void>;
@@ -200,8 +201,10 @@ vi.mock('../task/TaskListPane', () => ({
     ) => Promise<void>;
     onDeleteView: () => Promise<void>;
     onSelectTask: (taskId: string) => void;
+    layout: string;
   }) => (
     <div data-testid="task-list">
+      <output aria-label="Task layout">{layout}</output>
       <button
         type="button"
         onClick={() => void onCreateTask('New Task').catch(() => undefined)}
@@ -2723,6 +2726,26 @@ describe('WorkspaceShell routing integration', () => {
       ),
     );
     expect(mocks.getSavedView).toHaveBeenCalledOnce();
+  });
+
+  it('restores a Graph Saved View and keeps its layout through task detail open and close', async () => {
+    mocks.getSavedView.mockResolvedValue({ ...savedView, layout: 'graph' });
+    renderWorkspaceRoutes({ initialEntries: ['/w/workspace-1/views/view-1'] });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Task layout')).toHaveTextContent('graph'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open Task' }));
+    expect(await screen.findByLabelText('Selected task')).toHaveTextContent(
+      'task-1',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close Task' }));
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Selected task')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Task layout')).toHaveTextContent('graph');
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/w/workspace-1/views/view-1',
+    );
   });
 
   it('returns a direct View route to Project Overview when Views are disabled', async () => {

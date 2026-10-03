@@ -1193,8 +1193,8 @@ async fn insert_views(
             r#"
             INSERT INTO saved_views (
                 id, workspace_id, project_id, owner_id, name, visibility,
-                query_version, query, layout
-            ) VALUES ($1, $2, $3, $4, $5, 'shared', 2, $6, $7)
+                query_version, query, layout, graph_settings
+            ) VALUES ($1, $2, $3, $4, $5, 'shared', 2, $6, $7, $8)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -1204,6 +1204,7 @@ async fn insert_views(
         .bind(&view.name)
         .bind(sqlx::types::Json(query))
         .bind(&view.layout)
+        .bind(sqlx::types::Json(&view.graph_settings))
         .execute(&mut **transaction)
         .await?;
     }

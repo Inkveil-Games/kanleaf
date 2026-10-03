@@ -1,3 +1,6 @@
+mod graph_settings;
+pub(crate) use graph_settings::GraphViewSettings;
+
 use anyhow::anyhow;
 use axum::{
     Json, Router,
@@ -57,6 +60,7 @@ enum SavedViewLayout {
     Calendar,
     Table,
     Timeline,
+    Graph,
 }
 
 impl SavedViewLayout {
@@ -67,6 +71,7 @@ impl SavedViewLayout {
             Self::Calendar => "calendar",
             Self::Table => "table",
             Self::Timeline => "timeline",
+            Self::Graph => "graph",
         }
     }
 
@@ -77,6 +82,7 @@ impl SavedViewLayout {
             "calendar" => Ok(Self::Calendar),
             "table" => Ok(Self::Table),
             "timeline" => Ok(Self::Timeline),
+            "graph" => Ok(Self::Graph),
             _ => Err(AppError::internal(anyhow!(
                 "database contains invalid saved view layout"
             ))),
@@ -95,6 +101,7 @@ struct SavedViewResponse {
     query_version: i16,
     query: TaskQuery,
     layout: SavedViewLayout,
+    graph_settings: GraphViewSettings,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -110,6 +117,7 @@ struct SavedViewRow {
     query_version: i16,
     query: SqlJson<TaskQuery>,
     layout: String,
+    graph_settings: SqlJson<GraphViewSettings>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -126,6 +134,7 @@ impl SavedViewRow {
             query_version: self.query_version,
             query: self.query.0,
             layout: SavedViewLayout::from_database(&self.layout)?,
+            graph_settings: self.graph_settings.0,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -148,6 +157,8 @@ struct CreateSavedViewRequest {
     project_id: Option<Uuid>,
     query: TaskQuery,
     layout: SavedViewLayout,
+    #[serde(default)]
+    graph_settings: GraphViewSettings,
 }
 
 #[derive(Deserialize)]
@@ -161,6 +172,8 @@ struct UpdateSavedViewRequest {
     query: Option<TaskQuery>,
     #[serde(default)]
     layout: Option<SavedViewLayout>,
+    #[serde(default)]
+    graph_settings: Option<GraphViewSettings>,
 }
 
 pub(crate) fn routes() -> Router<AppState> {
@@ -188,7 +201,7 @@ async fn list(
     let rows = sqlx::query_as::<_, SavedViewRow>(
         r#"
         SELECT id, workspace_id, project_id, owner_id, name, visibility,
-               query_version, query, layout, created_at, updated_at
+               query_version, query, layout, graph_settings, created_at, updated_at
         FROM saved_views
         WHERE workspace_id = $1
           AND project_id IS NOT DISTINCT FROM $2
@@ -249,11 +262,11 @@ async fn create(
         r#"
         INSERT INTO saved_views (
             id, workspace_id, project_id, owner_id, name, visibility,
-            query_version, query, layout
+            query_version, query, layout, graph_settings
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, workspace_id, project_id, owner_id, name, visibility,
-                  query_version, query, layout, created_at, updated_at
+                  query_version, query, layout, graph_settings, created_at, updated_at
         "#,
     )
     .bind(Uuid::new_v4())
@@ -265,6 +278,7 @@ async fn create(
     .bind(query.version as i16)
     .bind(SqlJson(query))
     .bind(request.layout.as_str())
+    .bind(SqlJson(request.graph_settings))
     .fetch_one(&state.pool)
     .await;
     let row = result.map_err(map_name_conflict)?;
@@ -283,6 +297,7 @@ async fn update(
         && request.visibility.is_none()
         && request.query.is_none()
         && request.layout.is_none()
+        && request.graph_settings.is_none()
     {
         return Err(AppError::Validation(
             "Saved view update must change at least one field".to_owned(),
@@ -338,10 +353,11 @@ async fn update(
             query_version = $5,
             query = $6,
             layout = COALESCE($7, layout),
+            graph_settings = COALESCE($8, graph_settings),
             updated_at = now()
         WHERE workspace_id = $1 AND id = $2
         RETURNING id, workspace_id, project_id, owner_id, name, visibility,
-                  query_version, query, layout, created_at, updated_at
+                  query_version, query, layout, graph_settings, created_at, updated_at
         "#,
     )
     .bind(workspace_id)
@@ -351,6 +367,7 @@ async fn update(
     .bind(query.version as i16)
     .bind(SqlJson(query))
     .bind(request.layout.map(SavedViewLayout::as_str))
+    .bind(request.graph_settings.map(SqlJson))
     .fetch_one(&state.pool)
     .await;
     Ok(Json(result.map_err(map_name_conflict)?.into_response()?))
@@ -381,7 +398,7 @@ async fn find_view(
     sqlx::query_as::<_, SavedViewRow>(
         r#"
         SELECT id, workspace_id, project_id, owner_id, name, visibility,
-               query_version, query, layout, created_at, updated_at
+               query_version, query, layout, graph_settings, created_at, updated_at
         FROM saved_views
         WHERE workspace_id = $1 AND id = $2
         "#,

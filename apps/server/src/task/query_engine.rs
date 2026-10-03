@@ -396,7 +396,7 @@ pub(super) async fn run(
 
     let rows = sql.build_query_as::<TaskRow>().fetch_all(pool).await?;
     let mut tasks = rows.into_iter().map(TaskResponse::from).collect::<Vec<_>>();
-    hydrate_tasks(pool, workspace_id, &mut tasks).await?;
+    hydrate_tasks(pool, workspace_id, user_id, &mut tasks).await?;
     Ok(tasks)
 }
 

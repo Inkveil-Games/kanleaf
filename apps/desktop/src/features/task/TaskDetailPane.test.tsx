@@ -137,6 +137,55 @@ const modules: ProjectModule[] = [
 ];
 
 describe('TaskDetailPane', () => {
+  it('keeps a rejected cyclic dependency out of relations and shows the validation error', async () => {
+    const onAddRelation = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Cannot create dependency: this relation would create a cycle',
+        ),
+      );
+    render(
+      <TaskDetailPane
+        serverUrl="https://kanleaf.example.com"
+        token="token"
+        workspaceId="workspace-1"
+        task={task}
+        projects={projects}
+        states={states}
+        labels={[]}
+        cycles={[]}
+        modules={[]}
+        assigneeCandidates={[]}
+        taskCandidates={[
+          task,
+          { ...task, id: 'task-2', reference: '#2', title: 'Prerequisite' },
+        ]}
+        loading={false}
+        error={null}
+        canEdit
+        onPatch={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onAddRelation={onAddRelation}
+        onRemoveRelation={vi.fn()}
+        onOpenTask={vi.fn()}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('Relations', { selector: 'summary *' }));
+    await chooseSelectOption('Relation type', 'Blocking');
+    await chooseSelectOption('Related task', '#2 · Prerequisite');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'would create a cycle',
+    );
+    expect(screen.getByText('No relations.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+    expect(onAddRelation).toHaveBeenCalledWith('task-2', 'blocking');
+  });
+
   it('uses a compact inspector close control', () => {
     const props = {
       serverUrl: 'https://kanleaf.example.com',

@@ -104,6 +104,14 @@ pub(crate) struct RealtimeEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     entity_id: Option<Uuid>,
     occurred_at: DateTime<Utc>,
+    #[serde(skip)]
+    access: TaskEventAccess,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum TaskEventAccess {
+    Live,
+    RemovedFrom { project_id: Option<Uuid> },
 }
 
 impl RealtimeEvent {
@@ -143,6 +151,16 @@ impl RealtimeEvent {
         )
     }
 
+    pub(crate) fn task_removed(
+        workspace_id: Uuid,
+        task_id: Uuid,
+        project_id: Option<Uuid>,
+    ) -> Self {
+        let mut event = Self::task_activity_changed(workspace_id, task_id);
+        event.access = TaskEventAccess::RemovedFrom { project_id };
+        event
+    }
+
     fn new(
         kind: RealtimeEventKind,
         workspace_id: Uuid,
@@ -157,6 +175,7 @@ impl RealtimeEvent {
             task_id,
             entity_id,
             occurred_at: Utc::now(),
+            access: TaskEventAccess::Live,
         }
     }
 }
@@ -327,7 +346,11 @@ async fn handle_socket(state: AppState, mut socket: WebSocket) {
                                 break;
                             }
                         }
-                        match authorize_task(&state.pool, auth.user.id, event.workspace_id, event.task_id, false).await {
+                        let access = match event.access {
+                            TaskEventAccess::Live => authorize_task(&state.pool, auth.user.id, event.workspace_id, event.task_id, false).await.map(|_| ()),
+                            TaskEventAccess::RemovedFrom { project_id } => crate::task::authorize_task_location(&state.pool, auth.user.id, event.workspace_id, project_id, false).await,
+                        };
+                        match access {
                             Ok(_) => {
                                 if send_json(&mut socket, &event).await.is_err() {
                                     break;

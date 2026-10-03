@@ -73,6 +73,8 @@ export function RealtimeProvider({
 
     const reconcileWorkspace = (workspaceId: string) => {
       void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['task', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['task-feed', workspaceId] }),
         queryClient.invalidateQueries({
           queryKey: ['comment-revisions', workspaceId],
@@ -86,6 +88,14 @@ export function RealtimeProvider({
 
     const handleEvent = (event: RealtimeEvent) => {
       if (event.workspace_id !== desiredWorkspaceRef.current) return;
+      if (event.type === 'task.activity.changed') {
+        void queryClient.invalidateQueries({
+          queryKey: ['tasks', event.workspace_id],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['task', event.workspace_id],
+        });
+      }
       void queryClient.invalidateQueries({
         queryKey: ['task-feed', event.workspace_id, event.task_id],
         exact: true,
