@@ -223,6 +223,7 @@ export function useAccountSessions(
       } catch (cause) {
         throw new Error(
           `Resolve unsaved Markdown before deleting your account. ${errorMessage(cause)}`,
+          { cause },
         );
       }
       await deleteAccount({ serverUrl, token }, password);
