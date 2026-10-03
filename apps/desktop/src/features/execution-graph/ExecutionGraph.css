@@ -128,11 +128,11 @@
 .execution-graph .execution-edge-blocks path {
   stroke: var(--color-text-muted);
   stroke-width: 1.6;
+  stroke-dasharray: 5 5;
 }
 .execution-graph .execution-edge-parent path {
   stroke: var(--color-text-muted);
   stroke-width: 1.5;
-  stroke-dasharray: 5 5;
 }
 
 .execution-graph .react-flow__attribution {

@@ -132,6 +132,17 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   ).toBeVisible();
   await expect(graph.locator('.execution-edge-blocks')).toHaveCount(7);
   await expect(graph.locator('.execution-edge-parent')).toHaveCount(2);
+  const dependencyPath = graph
+    .locator('.execution-edge-blocks .react-flow__edge-path')
+    .first();
+  const parentPath = graph
+    .locator('.execution-edge-parent .react-flow__edge-path')
+    .first();
+  await expect(dependencyPath).toHaveCSS('stroke-dasharray', '5px, 5px');
+  await expect(dependencyPath).toHaveAttribute('marker-end', /url\(/);
+  await expect(parentPath).toHaveCSS('stroke-dasharray', 'none');
+  await expect(parentPath).not.toHaveAttribute('marker-end');
+  await expect(parentPath).not.toHaveAttribute('d', /C/);
   const viewport = graph.locator('.react-flow__viewport');
   const initialViewport = await viewport.getAttribute('style');
   await graph.getByRole('button', { name: 'Fit graph' }).click();

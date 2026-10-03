@@ -320,8 +320,10 @@ DOM nodes, keyboard focus, touch pan/pinch, ESM); layout is the maintained
 lazy-loaded with Graph. Library types stay inside the feature. Attribution is
 retained; Kanleaf controls and tokens replace the renderer's default controls.
 
-Parent edges come from `parent`, directed child-to-parent for layout but without
-execution arrows. `blocking` projects task-to-related-task; `blocked_by` projects
+Parent edges come from `parent`, directed child-to-parent for layout, rendered
+solid without execution arrows. Blocks edges are dashed with a directional arrow.
+Both use compact stepped paths; hierarchy paths have a parallel lane offset
+instead of a sweeping curve. `blocking` projects task-to-related-task; `blocked_by` projects
 related-task-to-task. Every Task has one node, including multi-predecessor and
 multi-successor work. Completion uses stable `done`/`cancelled` roles, as elsewhere
 in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,

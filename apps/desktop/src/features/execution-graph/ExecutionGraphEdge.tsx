@@ -1,17 +1,16 @@
-import {
-  BaseEdge,
-  getBezierPath,
-  getSmoothStepPath,
-  type EdgeProps,
-} from '@xyflow/react';
+import { BaseEdge, getSmoothStepPath, type EdgeProps } from '@xyflow/react';
 
 export function ExecutionGraphEdge(props: EdgeProps) {
   const [path] =
     props.data?.kind === 'parent'
-      ? getBezierPath({
+      ? getSmoothStepPath({
           ...props,
-          sourceX: props.sourceX + 18,
-          targetX: props.targetX + 18,
+          sourceX: props.sourceX + 12,
+          targetX: props.targetX + 12,
+          centerY:
+            (props.sourceY + props.targetY) / 2 +
+            (props.targetX >= props.sourceX ? 12 : -12),
+          borderRadius: 12,
         })
       : getSmoothStepPath({ ...props, borderRadius: 12 });
   return (
