@@ -4,6 +4,7 @@ export const accountSettingsSections = [
   'security',
   'invitations',
   'notifications',
+  'danger',
 ] as const;
 
 export type AccountSettingsSection = (typeof accountSettingsSections)[number];

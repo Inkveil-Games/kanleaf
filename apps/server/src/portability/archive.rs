@@ -340,7 +340,7 @@ async fn delete_canceled_export_marker(
     sqlx::query(
         r#"
         DELETE FROM workspace_operations
-        WHERE id = $1 AND actor_id = $2 AND kind = $3 AND state = 'canceled'
+        WHERE id = $1 AND (actor_id = $2 OR actor_id IS NULL) AND kind = $3 AND state = 'canceled'
           AND staging_key IS NOT DISTINCT FROM $4
         "#,
     )

@@ -89,7 +89,7 @@ struct SavedViewResponse {
     id: Uuid,
     workspace_id: Uuid,
     project_id: Option<Uuid>,
-    owner_id: Uuid,
+    owner_id: Option<Uuid>,
     name: String,
     visibility: SavedViewVisibility,
     query_version: i16,
@@ -104,7 +104,7 @@ struct SavedViewRow {
     id: Uuid,
     workspace_id: Uuid,
     project_id: Option<Uuid>,
-    owner_id: Uuid,
+    owner_id: Option<Uuid>,
     name: String,
     visibility: String,
     query_version: i16,
@@ -295,7 +295,9 @@ async fn update(
         .visibility
         .unwrap_or(SavedViewVisibility::from_database(&current.visibility)?);
     if request.visibility.is_some() {
-        if current.owner_id != auth.user.id && matches!(visibility, SavedViewVisibility::Personal) {
+        if current.owner_id != Some(auth.user.id)
+            && matches!(visibility, SavedViewVisibility::Personal)
+        {
             return Err(AppError::Forbidden);
         }
         authorize_visibility(
@@ -399,7 +401,7 @@ async fn authorize_read(
     row: &SavedViewRow,
 ) -> Result<(), AppError> {
     authorize_project_scope(pool, user_id, workspace_id, row.project_id).await?;
-    if row.visibility == "personal" && row.owner_id != user_id {
+    if row.visibility == "personal" && row.owner_id != Some(user_id) {
         return Err(AppError::NotFound("Saved view not found".to_owned()));
     }
     Ok(())
@@ -414,14 +416,14 @@ async fn authorize_mutation(
 ) -> Result<(), AppError> {
     authorize_read(pool, user_id, workspace_id, role, row).await?;
     if row.visibility == "personal" {
-        return if row.owner_id == user_id {
+        return if row.owner_id == Some(user_id) {
             Ok(())
         } else {
             Err(AppError::Forbidden)
         };
     }
     match row.project_id {
-        Some(project_id) if row.owner_id == user_id => {
+        Some(project_id) if row.owner_id == Some(user_id) => {
             require_project_editor(pool, user_id, workspace_id, project_id).await?;
         }
         Some(project_id) => {

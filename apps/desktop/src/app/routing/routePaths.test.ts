@@ -70,6 +70,7 @@ describe('routePatterns', () => {
       projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
       projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
       accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
+      standaloneAccountSettings: '/w/settings/account/:section',
       workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
       workspaceSettingsDetail:
         '/w/:workspaceIdentifier/settings/workspace/:section/:detail',

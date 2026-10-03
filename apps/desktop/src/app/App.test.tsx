@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import {
   MemoryRouter,
   useLocation,
@@ -58,6 +64,73 @@ vi.mock('../features/host/HostConsole', () => ({
 }));
 
 describe('App', () => {
+  it.each([false, true])(
+    'deletes through Account settings and transitions safely (retained: %s)',
+    async (retainAnother) => {
+      retainAccount('user-1');
+      if (retainAnother) {
+        writeServerAccountSessions('https://kanleaf.example.com', {
+          active_user_id: 'user-1',
+          accounts: [account('user-1'), account('user-2')],
+        });
+      }
+      const fetchMock = vi
+        .fn()
+        .mockImplementation((url: string, options?: RequestInit) => {
+          if (url.endsWith('/api/health'))
+            return Promise.resolve(healthResponse());
+          if (options?.method === 'DELETE')
+            return Promise.resolve(new Response(null, { status: 204 }));
+          const token = new Headers(options?.headers).get('authorization');
+          const userId = token === 'Bearer user-2-token' ? 'user-2' : 'user-1';
+          const payload = url.endsWith('/api/account')
+            ? session(userId).user
+            : url.endsWith('/api/workspaces')
+              ? [workspace(userId)]
+              : session(userId);
+          return Promise.resolve(
+            new Response(JSON.stringify(payload), {
+              headers: { 'content-type': 'application/json' },
+            }),
+          );
+        });
+      vi.stubGlobal('fetch', fetchMock);
+      renderApp(['/w/settings/account/danger']);
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Delete account' }),
+      );
+      const dialog = screen.getByRole('alertdialog');
+      fireEvent.change(within(dialog).getByRole('textbox'), {
+        target: { value: 'user-1@example.com' },
+      });
+      fireEvent.change(within(dialog).getByLabelText('Current password'), {
+        target: { value: 'current password' },
+      });
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Delete account' }),
+      );
+      if (retainAnother) {
+        expect(
+          await screen.findByText('Workspace for user-2@example.com'),
+        ).toBeInTheDocument();
+      } else {
+        expect(
+          await screen.findByRole('heading', { name: 'Sign in to Kanleaf' }),
+        ).toBeInTheDocument();
+      }
+      expect(
+        screen.queryByText('Workspace for user-1@example.com'),
+      ).not.toBeInTheDocument();
+      expect(readRetainedUserIds('https://kanleaf.example.com')).toEqual(
+        retainAnother ? ['user-2'] : [],
+      );
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).endsWith('/api/auth/logout'),
+        ),
+      ).toBe(false);
+    },
+  );
   beforeEach(() => {
     localStorage.clear();
     window.history.replaceState(null, '', '/');

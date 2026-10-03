@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { ApiError, apiRequest } from '../../lib/api/client';
 import type { AuthResponse, SessionResponse } from '../../lib/api/types';
+import { deleteAccount } from '../account/api';
 import {
   activateAccountSession,
   readLegacySessionToken,
@@ -23,6 +24,7 @@ export function useAccountSessions(
     readServerAccountSessions(serverUrl),
   );
   const sessionsRef = useRef(sessions);
+  const deletedTokens = useRef(new Set<string>());
   const [token, setToken] = useState<string | null>(() => {
     const retained = activeAccount(sessions)?.token;
     return (
@@ -76,6 +78,7 @@ export function useAccountSessions(
 
   const synchronizeValidatedSession = useCallback(
     (validatedToken: string, response: SessionResponse) => {
+      if (deletedTokens.current.has(validatedToken)) return;
       const current = sessionsRef.current;
       const retained = current.accounts.find(
         ({ user_id }) => user_id === response.user.id,
@@ -209,6 +212,57 @@ export function useAccountSessions(
     }
   }
 
+  async function deleteCurrentAccount(password: string): Promise<void> {
+    if (!token) throw new Error('Sign in again before deleting your account');
+    if (!startTransition())
+      throw new Error('An account transition is already in progress');
+    setError(null);
+    try {
+      try {
+        await flushDocumentSaves();
+      } catch (cause) {
+        throw new Error(
+          `Resolve unsaved Markdown before deleting your account. ${errorMessage(cause)}`,
+        );
+      }
+      await deleteAccount({ serverUrl, token }, password);
+      deletedTokens.current.add(token);
+      const current = sessionsRef.current;
+      const retained = current.accounts.find(
+        (account) => account.token === token,
+      );
+      const next = retained
+        ? removeAccountSession(current, retained.user_id)
+        : current;
+      persist(next);
+      writeLegacySessionToken(null);
+      setToken(null);
+      await clearAccountQueries();
+      for (const candidate of next.accounts) {
+        try {
+          const response = await apiRequest<SessionResponse>(
+            serverUrl,
+            '/api/session',
+            { token: candidate.token },
+          );
+          await commitIdentity(sessionsRef.current, candidate.token, response);
+          break;
+        } catch (cause) {
+          if (cause instanceof ApiError && cause.status === 401) {
+            persist(
+              removeAccountSession(sessionsRef.current, candidate.user_id),
+            );
+          } else {
+            setError(errorMessage(cause));
+            break;
+          }
+        }
+      }
+    } finally {
+      finishTransition();
+    }
+  }
+
   const discardInvalidSession = useCallback(
     async (invalidToken: string) => {
       const current = sessionsRef.current;
@@ -267,6 +321,7 @@ export function useAccountSessions(
     switchAccount,
     addAuthenticated,
     signOutCurrent,
+    deleteCurrentAccount,
   };
 }
 

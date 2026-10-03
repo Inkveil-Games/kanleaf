@@ -29,6 +29,7 @@ import {
 } from './api';
 import type { AccountSettingsSection } from './settingsSections';
 import { applyTheme } from './theme';
+import { AccountDangerSettings } from './AccountDangerSettings';
 
 export type { AccountSettingsSection } from './settingsSections';
 
@@ -37,6 +38,7 @@ interface AccountSettingsProps {
   initialUser: User;
   section: AccountSettingsSection;
   onWorkspaceJoined: (workspace: Workspace) => void | Promise<void>;
+  onDeleteAccount: (password: string) => Promise<void>;
 }
 
 export function AccountSettings({
@@ -44,6 +46,7 @@ export function AccountSettings({
   initialUser,
   section,
   onWorkspaceJoined,
+  onDeleteAccount,
 }: AccountSettingsProps) {
   const account = useQuery({
     queryKey: ['account', context.serverUrl, context.token],
@@ -53,6 +56,14 @@ export function AccountSettings({
 
   if (section === 'profile') {
     return <ProfileSettings context={context} user={account.data} />;
+  }
+  if (section === 'danger') {
+    return (
+      <AccountDangerSettings
+        email={account.data.email}
+        onDeleteAccount={onDeleteAccount}
+      />
+    );
   }
   if (section === 'preferences') {
     return <PreferenceSettings context={context} user={account.data} />;

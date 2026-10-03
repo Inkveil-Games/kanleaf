@@ -18,6 +18,148 @@ const serverUrl = 'https://kanleaf.example.com';
 describe('useAccountSessions', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('skips expired retained identities after deletion', async () => {
+    retainAccounts(account('user-1'), account('user-2'), account('user-3'));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: { code: 'unauthorized', message: 'Session expired' },
+          }),
+          { status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(sessionResponse('user-3'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderAccountSessions(
+      vi.fn().mockResolvedValue(undefined),
+    );
+    await act(() => result.current.deleteCurrentAccount('password'));
+    expect(result.current.token).toBe('user-3-token');
+    expect(
+      readServerAccountSessions(serverUrl).accounts.map(
+        ({ user_id }) => user_id,
+      ),
+    ).toEqual(['user-3']);
+    act(() =>
+      result.current.synchronizeValidatedSession(
+        'user-1-token',
+        sessionPayload('user-1'),
+      ),
+    );
+    expect(
+      readServerAccountSessions(serverUrl).accounts.map(
+        ({ user_id }) => user_id,
+      ),
+    ).toEqual(['user-3']);
+  });
+
+  it('keeps the deleted identity removed when validating another account fails offline', async () => {
+    retainAccounts(account('user-1'), account('user-2'));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockRejectedValueOnce(new Error('Network unavailable')),
+    );
+    const { result, queryClient } = renderAccountSessions(
+      vi.fn().mockResolvedValue(undefined),
+    );
+    queryClient.setQueryData(['tasks'], ['private']);
+    await act(() => result.current.deleteCurrentAccount('password'));
+    expect(result.current.token).toBeNull();
+    expect(result.current.error).toBe('Network unavailable');
+    expect(queryClient.getQueryData(['tasks'])).toBeUndefined();
+    expect(
+      readServerAccountSessions(serverUrl).accounts.map(
+        ({ user_id }) => user_id,
+      ),
+    ).toEqual(['user-2']);
+  });
+
+  it('deletes after flushing, removes the token and switches to a retained account', async () => {
+    retainAccounts(account('user-1'), account('user-2'));
+    const flush = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(sessionResponse('user-2'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, queryClient } = renderAccountSessions(flush);
+    queryClient.setQueryData(['tasks', 'workspace-1'], ['private']);
+    await act(() => result.current.deleteCurrentAccount('current password'));
+    expect(flush.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[0]!,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${serverUrl}/api/account`,
+      expect.objectContaining({
+        method: 'DELETE',
+        body: JSON.stringify({ password: 'current password' }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.token).toBe('user-2-token');
+    expect(
+      readServerAccountSessions(serverUrl).accounts.map(
+        ({ user_id }) => user_id,
+      ),
+    ).toEqual(['user-2']);
+    expect(queryClient.getQueryData(['tasks', 'workspace-1'])).toBeUndefined();
+    expect(readLegacySessionToken()).toBeNull();
+  });
+
+  it('aborts deletion when Markdown cannot be saved', async () => {
+    retainAccounts(account('user-1'));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderAccountSessions(
+      vi.fn().mockRejectedValue(new Error('Revision conflict')),
+    );
+    await act(async () => {
+      await expect(
+        result.current.deleteCurrentAccount('password'),
+      ).rejects.toThrow('Markdown');
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.token).toBe('user-1-token');
+    expect(readServerAccountSessions(serverUrl).accounts).toHaveLength(1);
+  });
+
+  it('clears the last identity only after successful deletion', async () => {
+    retainAccounts(account('user-1'));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'conflict',
+              message: 'Transfer ownership of Team first',
+            },
+          }),
+          { status: 409, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderAccountSessions(
+      vi.fn().mockResolvedValue(undefined),
+    );
+    await act(async () => {
+      await expect(
+        result.current.deleteCurrentAccount('password'),
+      ).rejects.toThrow('Team');
+    });
+    expect(result.current.token).toBe('user-1-token');
+    await act(() => result.current.deleteCurrentAccount('password'));
+    expect(result.current.token).toBeNull();
+    expect(readServerAccountSessions(serverUrl).accounts).toEqual([]);
+  });
+
   it('validates and commits an explicit account switch', async () => {
     retainAccounts(account('user-1'), account('user-2'));
     const flushDocumentSaves = vi.fn().mockResolvedValue(undefined);

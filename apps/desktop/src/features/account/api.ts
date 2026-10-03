@@ -15,6 +15,14 @@ export function getAccount(context: ApiContext) {
   });
 }
 
+export function deleteAccount(context: ApiContext, password: string) {
+  return apiRequest<void>(context.serverUrl, '/api/account', {
+    method: 'DELETE',
+    token: context.token,
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function updateProfile(context: ApiContext, displayName: string) {
   return apiRequest<User>(context.serverUrl, '/api/account/profile', {
     method: 'PATCH',

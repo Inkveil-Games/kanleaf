@@ -2,6 +2,8 @@ mod invitation;
 mod membership;
 mod vault_migration;
 
+pub(crate) use membership::clear_project_references;
+
 pub use vault_migration::{migrate_workspace_vaults, register_workspace_vault_paths};
 
 use anyhow::anyhow;

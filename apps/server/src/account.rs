@@ -14,6 +14,8 @@ use crate::{
     auth::{AuthenticatedUser, UserResponse, hash_password, select_user_response, verify_password},
     domain::{ResourceName, ValidatedPassword},
     error::AppError,
+    task::enqueue_projection,
+    workspace::{WorkspaceRole, clear_project_references},
 };
 
 #[derive(Deserialize)]
@@ -102,6 +104,11 @@ struct ChangePasswordRequest {
     new_password: String,
 }
 
+#[derive(Deserialize)]
+struct DeleteAccountRequest {
+    password: String,
+}
+
 #[derive(Serialize, FromRow)]
 struct AccountSessionResponse {
     id: Uuid,
@@ -112,7 +119,7 @@ struct AccountSessionResponse {
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/api/account", get(get_account))
+        .route("/api/account", get(get_account).delete(delete_account))
         .route("/api/account/setup", patch(setup_account))
         .route("/api/account/setup/complete", post(complete_setup))
         .route("/api/account/profile", patch(update_profile))
@@ -128,6 +135,96 @@ pub(crate) fn routes() -> Router<AppState> {
 
 async fn get_account(auth: AuthenticatedUser) -> Json<UserResponse> {
     Json(auth.user)
+}
+
+async fn delete_account(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    payload: Result<Json<DeleteAccountRequest>, JsonRejection>,
+) -> Result<StatusCode, AppError> {
+    let Json(request) = payload.map_err(AppError::from)?;
+    let password = ValidatedPassword::new(request.password)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let verified_hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+        .bind(auth.user.id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    if !verify_password(password, verified_hash.clone()).await? {
+        return Err(AppError::Validation(
+            "Current password is incorrect".to_owned(),
+        ));
+    }
+
+    for _attempt in 0..3 {
+        let mut transaction = state.pool.begin().await?;
+        let workspace_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_memberships WHERE user_id = $1) ORDER BY id FOR UPDATE",
+        )
+        .bind(auth.user.id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let current_hash: String =
+            sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1 FOR UPDATE")
+                .bind(auth.user.id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+        if current_hash != verified_hash {
+            return Err(AppError::Validation(
+                "Password changed; enter your current password again".to_owned(),
+            ));
+        }
+        let memberships: Vec<(Uuid, String, String, String)> = sqlx::query_as(
+            "SELECT workspace_id, role, name, identifier FROM workspace_memberships JOIN workspaces ON workspaces.id = workspace_id WHERE user_id = $1 ORDER BY workspace_id",
+        )
+        .bind(auth.user.id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        if memberships
+            .iter()
+            .any(|(workspace_id, _, _, _)| !workspace_ids.contains(workspace_id))
+        {
+            transaction.rollback().await?;
+            continue;
+        }
+        let mut owned = Vec::new();
+        for (_, role, name, identifier) in &memberships {
+            if WorkspaceRole::from_database(role)? == WorkspaceRole::Owner {
+                owned.push(format!("{name} (/{identifier})"));
+            }
+        }
+        if !owned.is_empty() {
+            return Err(AppError::Conflict(format!(
+                "You must delete or transfer ownership of these Workspaces before deleting your account: {}.",
+                owned.join(", ")
+            )));
+        }
+        for (workspace_id, _, _, _) in &memberships {
+            let task_ids: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT task_id FROM task_assignees WHERE workspace_id = $1 AND user_id = $2 ORDER BY task_id",
+            )
+            .bind(workspace_id)
+            .bind(auth.user.id)
+            .fetch_all(&mut *transaction)
+            .await?;
+            clear_project_references(&mut transaction, *workspace_id, auth.user.id).await?;
+            enqueue_projection(&mut transaction, *workspace_id, &task_ids).await?;
+        }
+        sqlx::query("UPDATE workspace_operations SET state = 'canceled' WHERE actor_id = $1 AND kind = 'workspace_export' AND state = 'preparing'")
+            .bind(auth.user.id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(auth.user.id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    Err(AppError::Conflict(
+        "Workspace membership changed; try deleting your account again".to_owned(),
+    ))
 }
 
 async fn setup_account(

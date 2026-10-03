@@ -84,6 +84,20 @@ beforeEach(() => {
 });
 
 describe('AuthenticatedRoutes Workspace tree', () => {
+  it('opens Account Danger zone without a Workspace or completed onboarding', async () => {
+    mocks.listWorkspaces.mockResolvedValue([]);
+    renderAuthenticatedRoutes('/w/settings/account/danger', {
+      setupStage: 'workspace',
+    });
+    expect(
+      await screen.findByRole('heading', { name: 'Danger zone' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Danger zone' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(mocks.listWorkspaces).not.toHaveBeenCalled();
+  });
   it('gates every authenticated route behind the server-owned setup stage', async () => {
     renderAuthenticatedRoutes('/host', {
       setupStage: 'workspace',
@@ -423,6 +437,7 @@ function renderAuthenticatedRoutes(
           onAddAccount={() => undefined}
           onDismissAccountError={() => undefined}
           onSignOut={() => undefined}
+          onDeleteAccount={async () => undefined}
           onSessionChanged={() => Promise.resolve()}
           flushDocumentSaves={() => Promise.resolve()}
         />

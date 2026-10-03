@@ -27,6 +27,7 @@ describe('settings shells', () => {
         section="profile"
         onSectionChange={onSectionChange}
         onWorkspaceJoined={vi.fn()}
+        onDeleteAccount={vi.fn()}
         onClose={onClose}
       />,
     );
@@ -50,6 +51,8 @@ describe('settings shells', () => {
     expect(screen.queryByRole('button', { name: 'Members' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Security' }));
     expect(onSectionChange).toHaveBeenCalledWith('security');
+    fireEvent.click(screen.getByRole('button', { name: 'Danger zone' }));
+    expect(onSectionChange).toHaveBeenCalledWith('danger');
     fireEvent.click(screen.getByRole('button', { name: 'Back to Workspace' }));
     expect(onClose).toHaveBeenCalledOnce();
   });

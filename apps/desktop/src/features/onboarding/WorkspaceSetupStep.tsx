@@ -1,5 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router';
+import { routePaths } from '../../app/routing/routePaths';
 import { Button } from '../../components/ui/Button';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { errorMessage } from '../settings/utils';
@@ -176,6 +178,9 @@ export function WorkspaceSetupStep({
         </p>
       ) : null}
       <footer className="setup-quiet-actions">
+        <Link to={routePaths.standaloneAccountSettings('profile')}>
+          Account settings
+        </Link>
         <Button variant="text" type="button" onClick={onSignOut}>
           Sign out
         </Button>

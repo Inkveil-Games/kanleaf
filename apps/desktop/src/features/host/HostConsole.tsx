@@ -25,6 +25,7 @@ interface HostConsoleProps {
   onAddAccount: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
+  onOpenAccountSettings?: () => void;
   onClose: () => void;
 }
 
@@ -40,6 +41,7 @@ export function HostConsole({
   onAddAccount,
   onDismissAccountError,
   onSignOut,
+  onOpenAccountSettings,
   onClose,
 }: HostConsoleProps) {
   return (
@@ -74,6 +76,7 @@ export function HostConsole({
             onSwitchAccount={onSwitchAccount}
             onAddAccount={onAddAccount}
             onSignOutCurrent={onSignOut}
+            onOpenAccountSettings={onOpenAccountSettings}
             onDismissError={onDismissAccountError}
           />
         }

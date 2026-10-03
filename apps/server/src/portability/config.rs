@@ -224,7 +224,7 @@ pub(super) struct ViewsConfig {
 pub(super) struct ViewConfig {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
-    pub owner_email: String,
+    pub owner_email: Option<String>,
     pub name: String,
     pub query_version: i16,
     pub query: Value,
@@ -607,7 +607,7 @@ async fn build_snapshot(
         SELECT views.id, views.project_id, users.email AS owner_email,
                views.name, views.query_version, views.query, views.layout
         FROM saved_views AS views
-        JOIN users ON users.id = views.owner_id
+        LEFT JOIN users ON users.id = views.owner_id
         WHERE views.workspace_id = $1 AND views.visibility = 'shared'
         ORDER BY views.project_id NULLS FIRST, lower(views.name), views.id
         "#,

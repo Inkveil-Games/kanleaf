@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceSetupStep } from './WorkspaceSetupStep';
+import { MemoryRouter } from 'react-router';
 
 describe('WorkspaceSetupStep', () => {
   it('changes the setup choice with the keyboard', () => {
@@ -10,19 +11,21 @@ describe('WorkspaceSetupStep', () => {
       vi.fn().mockImplementation(() => new Promise<Response>(() => undefined)),
     );
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <WorkspaceSetupStep
-          context={{
-            serverUrl: 'https://kanleaf.example.com',
-            token: 'session-token',
-          }}
-          isHost={false}
-          onWorkspaceCreated={vi.fn()}
-          onJoined={vi.fn()}
-          onHostContinue={vi.fn()}
-          onSignOut={vi.fn()}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceSetupStep
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            isHost={false}
+            onWorkspaceCreated={vi.fn()}
+            onJoined={vi.fn()}
+            onHostContinue={vi.fn()}
+            onSignOut={vi.fn()}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
     fireEvent.keyDown(
       screen.getByRole('button', { name: 'Create a Workspace' }),
@@ -58,19 +61,21 @@ describe('WorkspaceSetupStep', () => {
     vi.stubGlobal('fetch', fetchMock);
     const onWorkspaceCreated = vi.fn();
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <WorkspaceSetupStep
-          context={{
-            serverUrl: 'https://kanleaf.example.com',
-            token: 'session-token',
-          }}
-          isHost={false}
-          onWorkspaceCreated={onWorkspaceCreated}
-          onJoined={vi.fn()}
-          onHostContinue={vi.fn()}
-          onSignOut={vi.fn()}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceSetupStep
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            isHost={false}
+            onWorkspaceCreated={onWorkspaceCreated}
+            onJoined={vi.fn()}
+            onHostContinue={vi.fn()}
+            onSignOut={vi.fn()}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     fireEvent.change(screen.getByLabelText('Workspace name'), {
@@ -115,19 +120,21 @@ describe('WorkspaceSetupStep', () => {
       .mockRejectedValueOnce(new Error('Session refresh failed'))
       .mockResolvedValueOnce(undefined);
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <WorkspaceSetupStep
-          context={{
-            serverUrl: 'https://kanleaf.example.com',
-            token: 'session-token',
-          }}
-          isHost={false}
-          onWorkspaceCreated={onWorkspaceCreated}
-          onJoined={vi.fn()}
-          onHostContinue={vi.fn()}
-          onSignOut={vi.fn()}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceSetupStep
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            isHost={false}
+            onWorkspaceCreated={onWorkspaceCreated}
+            onJoined={vi.fn()}
+            onHostContinue={vi.fn()}
+            onSignOut={vi.fn()}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     fireEvent.change(screen.getByLabelText('Workspace name'), {
@@ -176,20 +183,22 @@ describe('WorkspaceSetupStep', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <WorkspaceSetupStep
-          context={{
-            serverUrl: 'https://kanleaf.example.com',
-            token: 'session-token',
-          }}
-          isHost={false}
-          createWorkspaceAction={createWorkspaceAction}
-          onWorkspaceCreated={onWorkspaceCreated}
-          onJoined={vi.fn()}
-          onHostContinue={vi.fn()}
-          onSignOut={vi.fn()}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceSetupStep
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            isHost={false}
+            createWorkspaceAction={createWorkspaceAction}
+            onWorkspaceCreated={onWorkspaceCreated}
+            onJoined={vi.fn()}
+            onHostContinue={vi.fn()}
+            onSignOut={vi.fn()}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     fireEvent.change(screen.getByLabelText('Workspace name'), {
@@ -214,19 +223,21 @@ describe('WorkspaceSetupStep', () => {
       .mockResolvedValueOnce(undefined);
 
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <WorkspaceSetupStep
-          context={{
-            serverUrl: 'https://kanleaf.example.com',
-            token: 'session-token',
-          }}
-          isHost
-          onWorkspaceCreated={vi.fn()}
-          onJoined={vi.fn()}
-          onHostContinue={onHostContinue}
-          onSignOut={vi.fn()}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceSetupStep
+            context={{
+              serverUrl: 'https://kanleaf.example.com',
+              token: 'session-token',
+            }}
+            isHost
+            onWorkspaceCreated={vi.fn()}
+            onJoined={vi.fn()}
+            onHostContinue={onHostContinue}
+            onSignOut={vi.fn()}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     fireEvent.click(

@@ -50,6 +50,7 @@ export const routePatterns = {
   projectViews: '/w/:workspaceIdentifier/p/:projectIdentifier/views',
   projectView: '/w/:workspaceIdentifier/p/:projectIdentifier/views/:viewId',
   accountSettings: '/w/:workspaceIdentifier/settings/account/:section',
+  standaloneAccountSettings: '/w/settings/account/:section',
   workspaceSettings: '/w/:workspaceIdentifier/settings/workspace/:section',
   workspaceSettingsDetail:
     '/w/:workspaceIdentifier/settings/workspace/:section/:detail',
@@ -133,6 +134,8 @@ export const routePaths = {
     section: AccountSettingsSection,
   ) =>
     `${workspacePath(workspaceIdentifier)}/settings/account/${segment(section)}`,
+  standaloneAccountSettings: (section: AccountSettingsSection) =>
+    `/w/settings/account/${segment(section)}`,
   workspaceSettings: (
     workspaceIdentifier: string,
     section: WorkspaceSettingsSection,

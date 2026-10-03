@@ -148,6 +148,7 @@ export interface WorkspaceShellProps {
   onOpenDeveloperConsole?: (workspaceId: string) => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
+  onDeleteAccount: (password: string) => Promise<void>;
   location: WorkspaceLocation | null;
   workspaceAccessVerified: boolean;
   onNavigate: (
@@ -195,6 +196,7 @@ function WorkspaceShellContent({
   onOpenDeveloperConsole,
   onDismissAccountError,
   onSignOut,
+  onDeleteAccount,
   location,
   workspaceAccessVerified,
   onNavigate,
@@ -2187,6 +2189,7 @@ function WorkspaceShellContent({
               onSectionChange={changeAccountSettingsSection}
               onWorkspaceJoined={finishWorkspaceJoin}
               onClose={closeSettings}
+              onDeleteAccount={onDeleteAccount}
             />
           </SettingsDialog>
         )}

@@ -200,6 +200,7 @@ function renderSettings(
         initialUser={user}
         section={section}
         onWorkspaceJoined={onWorkspaceJoined}
+        onDeleteAccount={vi.fn()}
       />
     </QueryClientProvider>,
   );

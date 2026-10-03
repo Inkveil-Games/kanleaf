@@ -63,6 +63,27 @@ const initialFeed: TaskFeed = {
 };
 
 describe('TaskActivity', () => {
+  it('preserves readable comments and activity after account attribution is removed', async () => {
+    vi.mocked(getTaskFeed).mockResolvedValue({
+      ...initialFeed,
+      comments: initialFeed.comments.map((comment) => ({
+        ...comment,
+        author: null,
+      })),
+      activity: initialFeed.activity.map((event) => ({
+        ...event,
+        actor: null,
+      })),
+    });
+    vi.mocked(listMentionCandidates).mockResolvedValue([]);
+    renderActivity();
+    expect(await screen.findByText('Former member')).toBeInTheDocument();
+    expect(screen.getByText('Kanleaf')).toBeInTheDocument();
+    expect(screen.getByText('API contract')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Edit' }),
+    ).not.toBeInTheDocument();
+  });
   it('renders the chronological feed and watches the Task', async () => {
     vi.mocked(getTaskFeed)
       .mockResolvedValueOnce(initialFeed)

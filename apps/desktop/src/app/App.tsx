@@ -51,6 +51,7 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
     switchAccount,
     addAuthenticated,
     signOutCurrent,
+    deleteCurrentAccount,
   } = useAccountSessions(serverUrl, flushDocumentSaves);
   const [addingAccount, setAddingAccount] = useState(false);
   const health = useQuery({
@@ -235,6 +236,10 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
     },
     onDismissAccountError: clearAccountError,
     onSignOut: () => void signOutCurrent(),
+    onDeleteAccount: async (password: string) => {
+      await deleteCurrentAccount(password);
+      navigate(routePaths.root(), { replace: true });
+    },
   };
   return (
     <>

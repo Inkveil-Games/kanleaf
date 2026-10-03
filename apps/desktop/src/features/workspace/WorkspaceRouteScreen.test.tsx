@@ -1010,6 +1010,7 @@ function renderRouteScreen(
     onAddAccount: () => undefined,
     onDismissAccountError: () => undefined,
     onSignOut: () => undefined,
+    onDeleteAccount: async () => undefined,
     flushDocumentSaves: () => Promise.resolve(),
   };
 

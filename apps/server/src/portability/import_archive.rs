@@ -2093,7 +2093,7 @@ mod tests {
             views: vec![super::super::config::ViewConfig {
                 id: Uuid::new_v4(),
                 project_id: None,
-                owner_email: "owner@example.com".to_owned(),
+                owner_email: Some("owner@example.com".to_owned()),
                 name: "Legacy".to_owned(),
                 query_version: 1,
                 query: serde_json::json!({

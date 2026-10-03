@@ -113,6 +113,7 @@ function renderRoutes(
           onAddAccount={mocks.addAccount}
           onDismissAccountError={vi.fn()}
           onSignOut={mocks.signOut}
+          onDeleteAccount={async () => undefined}
           onSessionChanged={vi.fn()}
           flushDocumentSaves={mocks.flush}
         />

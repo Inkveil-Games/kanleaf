@@ -2888,6 +2888,7 @@ function renderWorkspaceRoutes({
     onAddAccount: vi.fn(),
     onDismissAccountError: vi.fn(),
     onSignOut: vi.fn(),
+    onDeleteAccount: vi.fn(),
     flushDocumentSaves,
   };
 

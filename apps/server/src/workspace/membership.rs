@@ -404,7 +404,7 @@ async fn select_active_workspace_after_departure(
     Ok(())
 }
 
-async fn clear_project_references(
+pub(crate) async fn clear_project_references(
     transaction: &mut Transaction<'_, Postgres>,
     workspace_id: Uuid,
     user_id: Uuid,

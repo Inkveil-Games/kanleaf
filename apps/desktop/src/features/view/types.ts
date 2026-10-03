@@ -101,7 +101,7 @@ export interface SavedView {
   id: string;
   workspace_id: string;
   project_id: string | null;
-  owner_id: string;
+  owner_id: string | null;
   name: string;
   visibility: SavedViewVisibility;
   query_version: number;

@@ -36,6 +36,8 @@ interface AccountSettingsShellProps {
   onSectionChange: (section: AccountSettingsSection) => void;
   onWorkspaceJoined: (workspace: Workspace) => void | Promise<void>;
   onClose: () => void;
+  onDeleteAccount: (password: string) => Promise<void>;
+  backLabel?: string;
 }
 
 export function AccountSettingsShell({
@@ -45,12 +47,15 @@ export function AccountSettingsShell({
   onSectionChange,
   onWorkspaceJoined,
   onClose,
+  onDeleteAccount,
+  backLabel = 'Back to Workspace',
 }: AccountSettingsShellProps) {
   return (
     <SettingsFrame
       label="Account settings"
+      className="settings-pane-account"
       title="Account settings"
-      backLabel="Back to Workspace"
+      backLabel={backLabel}
       onBack={onClose}
       navigation={
         <SettingsGroup label="Account">
@@ -84,6 +89,13 @@ export function AccountSettingsShell({
             label="Notifications"
             onClick={() => onSectionChange('notifications')}
           />
+          <SettingsLink
+            active={section === 'danger'}
+            icon={<ShieldAlert aria-hidden="true" size={15} />}
+            label="Danger zone"
+            danger
+            onClick={() => onSectionChange('danger')}
+          />
         </SettingsGroup>
       }
     >
@@ -93,6 +105,7 @@ export function AccountSettingsShell({
         initialUser={user}
         section={section}
         onWorkspaceJoined={onWorkspaceJoined}
+        onDeleteAccount={onDeleteAccount}
       />
     </SettingsFrame>
   );
@@ -249,6 +262,7 @@ export function SettingsFrame({
   children,
   onBack,
   footer,
+  className,
 }: {
   label: string;
   title: ReactNode;
@@ -257,9 +271,13 @@ export function SettingsFrame({
   children: ReactNode;
   onBack: () => void;
   footer?: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="settings-pane" aria-label={label}>
+    <section
+      className={`settings-pane${className ? ` ${className}` : ''}`}
+      aria-label={label}
+    >
       <aside className="settings-navigation">
         <ScrollArea
           className="settings-navigation-scroll-area"

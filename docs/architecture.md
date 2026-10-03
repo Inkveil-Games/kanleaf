@@ -231,6 +231,42 @@ changes require the current password and atomically revoke every other session;
 users can also inspect session creation/expiry times and revoke sessions without
 exposing token hashes.
 
+`DELETE /api/account` requires `{ "password": "current password" }` and returns
+204 after permanent deletion. Accounts that own any Workspace receive a 409
+conflict naming the Workspaces to delete or transfer first. Workspace deletion
+is a separate operation; account deletion never removes Workspace vaults.
+The configured Host follows the same rule and may register its configured email
+again, including in Restricted mode.
+
+Deletion verifies the password before opening the transaction, then locks all
+membership Workspaces in UUID order before the user row, matching Workspace
+deletion's lock order. It compares the verified password snapshot and rechecks
+membership after locking the user; a newly joined Workspace retries the lock
+set. Workspace locks serialize ownership transfers and assignment changes;
+the user lock fences new membership/session foreign keys. Project leads and
+default assignees use the existing departure cleanup. Assignment changes enqueue
+the normal durable Markdown projection jobs before commit.
+
+The user-reference audit through migration 0033 has these deletion semantics:
+
+| References | Behavior |
+| --- | --- |
+| Sessions, password reset tokens, Workspace memberships, comment mentions, notification recipients | Cascade |
+| Project memberships, Task assignees and subscriptions through Workspace memberships | Cascade |
+| Comment authors, revision editors, activity actors, notification actors, invitation inviters, webhook creators | Set null; shared history survives |
+| Project lead/default assignee and module lead through memberships | Restrictive FKs; explicit departure cleanup clears references |
+| Saved View ownership through memberships | Personal views deleted; shared views retain null ownership and remain portable |
+| Workspace operation actor | Set null; recovery/expiry retains responsibility for staged artifacts; preparing exports are canceled |
+| Quick links, domain events, Tasks and Library bodies | No user ownership FK; remain Workspace data |
+
+Account Settings uses the shared typed confirmation dialog with the exact email
+and current password. `/w/settings/account/:section` keeps Account Settings
+reachable without a Workspace, including from setup and Host Console.
+`useAccountSessions` flushes pending Markdown before requesting deletion and
+aborts on save failure. Success removes the retained account/token, clears
+account queries, and validates another retained account or returns to normal
+authentication. It does not send logout after deletion.
+
 Every workspace, project, task, and document operation resolves the session and
 checks effective access on the server. Project roles distinguish management,
 editing, commenting, and read-only access; task and vault operations inherit

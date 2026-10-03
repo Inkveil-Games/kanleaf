@@ -5,6 +5,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
+  matchPath,
 } from 'react-router';
 import { DeveloperRouteScreen } from '../../features/developer/DeveloperRouteScreen';
 import { Wordmark } from '../../components/ui/Wordmark';
@@ -19,6 +20,9 @@ import {
 } from '../../features/workspace/WorkspaceRouteScreen';
 import type { WorkspaceRouteKind } from '../../features/workspace/workspaceRouteAdapter';
 import { routePaths, routePatterns } from './routePaths';
+import { AccountSettingsShell } from '../../features/settings/SettingsShell';
+import { SettingsDialog } from '../../features/settings/SettingsDialog';
+import { isAccountSettingsSection } from '../../features/account/settingsSections';
 
 interface AuthenticatedRoutesProps {
   serverUrl: string;
@@ -31,6 +35,7 @@ interface AuthenticatedRoutesProps {
   onAddAccount: () => void;
   onDismissAccountError: () => void;
   onSignOut: () => void;
+  onDeleteAccount: (password: string) => Promise<void>;
   onSessionChanged: () => Promise<void>;
   flushDocumentSaves: () => Promise<void>;
 }
@@ -53,6 +58,44 @@ export function AuthenticatedRoutes(props: AuthenticatedRoutesProps) {
           hash: location.hash,
         }}
       />
+    );
+  }
+
+  const accountSettingsMatch = matchPath(
+    routePatterns.standaloneAccountSettings,
+    location.pathname,
+  );
+  if (accountSettingsMatch) {
+    const section = accountSettingsMatch.params.section;
+    if (!isAccountSettingsSection(section)) {
+      return (
+        <Navigate
+          replace
+          to={routePaths.standaloneAccountSettings('profile')}
+        />
+      );
+    }
+    return (
+      <SettingsDialog
+        label="Account settings"
+        onClose={() => navigate(routePaths.root())}
+      >
+        <AccountSettingsShell
+          context={{ serverUrl: props.serverUrl, token: props.token }}
+          user={props.user}
+          section={section}
+          backLabel="Back"
+          onSectionChange={(next) =>
+            navigate(routePaths.standaloneAccountSettings(next))
+          }
+          onClose={() => navigate(routePaths.root())}
+          onDeleteAccount={props.onDeleteAccount}
+          onWorkspaceJoined={async () => {
+            await props.onSessionChanged();
+            navigate(routePaths.root());
+          }}
+        />
+      </SettingsDialog>
     );
   }
 
@@ -332,6 +375,9 @@ function HostRoute({
       onAddAccount={onAddAccount}
       onDismissAccountError={onDismissAccountError}
       onSignOut={onSignOut}
+      onOpenAccountSettings={() =>
+        navigate(routePaths.standaloneAccountSettings('profile'))
+      }
       onClose={() => navigate(routePaths.root())}
     />
   );
