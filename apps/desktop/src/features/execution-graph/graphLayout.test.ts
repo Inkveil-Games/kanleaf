@@ -59,19 +59,18 @@ function fixture() {
 }
 
 describe('Graph placement and edge routing', () => {
-  it('routes every edge outside unrelated task rectangles and gives each dependency its own endpoint', async () => {
+  it('routes outside tasks, merges same-kind incoming branches, and separates relation types', async () => {
     const projection = fixture();
     const layout = await layoutExecutionGraph(projection);
     const edges = [...projection.hierarchyEdges, ...projection.dependencyEdges];
     const sources = new Map<string, Set<string>>();
-    const targets = new Map<string, Set<string>>();
+    const targets = new Map<string, string>();
     for (const edge of edges) {
       const points = layout.routes[edge.id];
       expect(points?.length).toBeGreaterThanOrEqual(2);
       if (!points) throw new Error('Missing edge route');
       for (const [nodeId, endpoint, groups] of [
         [edge.source, points[0], sources],
-        [edge.target, points.at(-1), targets],
       ] as const) {
         const used = groups.get(nodeId) ?? new Set<string>();
         const key = JSON.stringify(endpoint);
@@ -79,6 +78,13 @@ describe('Graph placement and edge routing', () => {
         used.add(key);
         groups.set(nodeId, used);
       }
+      const targetKey = `${edge.target}:${edge.kind}`;
+      const endpoint = JSON.stringify(points.at(-1));
+      const previous = targets.get(targetKey);
+      if (previous) expect(endpoint).toBe(previous);
+      targets.set(targetKey, endpoint);
+      const otherKind = edge.kind === 'parent' ? 'blocks' : 'parent';
+      expect(endpoint).not.toBe(targets.get(`${edge.target}:${otherKind}`));
       for (let index = 1; index < points.length; index += 1) {
         const start = points[index - 1];
         const end = points[index];
@@ -116,6 +122,13 @@ describe('Graph placement and edge routing', () => {
     for (const [index, segment] of segments.entries()) {
       for (const other of segments.slice(index + 1)) {
         if (segment.id === other.id) continue;
+        const relation = edges.find((edge) => edge.id === segment.id);
+        const otherRelation = edges.find((edge) => edge.id === other.id);
+        if (
+          relation?.kind === otherRelation?.kind &&
+          relation?.target === otherRelation?.target
+        )
+          continue;
         const vertical = segment.start.x === segment.end.x;
         const sameAxis = vertical
           ? other.start.x === other.end.x && segment.start.x === other.start.x

@@ -41,8 +41,11 @@ export async function layoutExecutionGraph(
       [edge.target, 'target', 'SOUTH'],
     ] as const) {
       const list = ports.get(id) ?? [];
+      const portId =
+        suffix === 'target' ? `${id}:${edge.kind}:target` : `${edge.id}:source`;
+      if (list.some((port) => port.id === portId)) continue;
       list.push({
-        id: `${edge.id}:${suffix}`,
+        id: portId,
         width: 0,
         height: 0,
         layoutOptions: { 'elk.port.side': side },
@@ -81,7 +84,7 @@ export async function layoutExecutionGraph(
     edges: edges.map((edge) => ({
       id: edge.id,
       sources: [`${edge.id}:source`],
-      targets: [`${edge.id}:target`],
+      targets: [`${edge.target}:${edge.kind}:target`],
     })),
   };
   engine ??= createGraphLayoutEngine();

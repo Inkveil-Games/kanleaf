@@ -323,8 +323,10 @@ retained; Kanleaf controls and tokens replace the renderer's default controls.
 Parent edges come from `parent`, rendered solid with an arrow from child to parent.
 Blocks edges are dashed with an arrow from blocker to blocked task. Hierarchy
 arrows indicate parenthood only, never an implicit dependency.
-Both use obstacle-aware orthogonal paths with distinct ports for every edge,
-instead of shared stems or sweeping curves. `blocking` projects task-to-related-task; `blocked_by` projects
+Both use obstacle-aware orthogonal paths with restrained rounded corners.
+Incoming edges of the same type share a target port and may merge into a common
+stem; Parent and Blocks retain separate ports. Dashed paths align their pattern
+at the target so shared stems remain dashed. `blocking` projects task-to-related-task; `blocked_by` projects
 related-task-to-task. Every Task has one node, including multi-predecessor and
 multi-successor work. Completion uses stable `done`/`cancelled` roles, as elsewhere
 in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
