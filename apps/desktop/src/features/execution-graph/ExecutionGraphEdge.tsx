@@ -3,11 +3,15 @@ import { useLayoutEffect, useRef } from 'react';
 import type { GraphPosition } from './graphLayout';
 import { roundedGraphPath } from './graphPath';
 
-export type ExecutionFlowEdge = Edge<{ kind: string; route: GraphPosition[] }>;
+export type ExecutionFlowEdge = Edge<{
+  kind: string;
+  route: GraphPosition[];
+  cornerRadii?: number[];
+}>;
 
 export function ExecutionGraphEdge(props: EdgeProps<ExecutionFlowEdge>) {
   const points = props.data?.route;
-  const path = roundedGraphPath(points ?? []);
+  const path = roundedGraphPath(points ?? [], props.data?.cornerRadii);
   const groupRef = useRef<SVGGElement>(null);
   useLayoutEffect(() => {
     const element = groupRef.current?.querySelector<SVGPathElement>(

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { graphTask } from './testFixtures';
 import { projectExecutionGraph } from './graphProjection';
 import { parallelRoute } from './graphRouting';
+import { pairedCornerRadii } from './graphPath';
 import {
   GRAPH_NODE_HEIGHT,
   GRAPH_NODE_WIDTH,
@@ -108,7 +109,8 @@ describe('Graph placement and edge routing', () => {
         }),
       ),
     ]);
-    const { positions, routes } = await layoutExecutionGraph(projection);
+    const { positions, routes, cornerRadii } =
+      await layoutExecutionGraph(projection);
     const { goal, left, right } = positions;
     if (!goal || !left || !right) throw new Error('Missing positions');
     expect(left.y).toBe(right.y);
@@ -120,6 +122,10 @@ describe('Graph placement and edge routing', () => {
       const paired = parallelRoute(dependency, 12, []);
       expect(paired).not.toBeNull();
       expect(routes[`parent:${source}:goal`]).toEqual(paired);
+      if (!paired) throw new Error('Missing paired route');
+      const radii = pairedCornerRadii(dependency, paired, 12);
+      expect(cornerRadii[`parent:${source}:goal`]).toEqual(radii?.paired);
+      expect(cornerRadii[`blocks:${source}:goal`]).toEqual(radii?.base);
     }
   });
 

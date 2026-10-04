@@ -12,7 +12,7 @@ describe('Execution Graph edges', () => {
         { x: 0, y: 0 },
         { x: 4, y: 0 },
       ]),
-    ).toBe('M 0 10 L 0 2 Q 0 0 2 0 L 4 0');
+    ).toBe('M 0 10 L 0 2 A 2 2 0 0 1 2 0 L 4 0');
     expect(
       roundedGraphPath([
         { x: 0, y: 10 },
@@ -80,6 +80,7 @@ describe('Execution Graph edges', () => {
             targetPosition={Position.Bottom}
             data={{
               kind,
+              cornerRadii: [0, 24, 24, 0],
               route: [
                 { x: 80, y: 300 },
                 { x: 80, y: 200 },
@@ -93,7 +94,7 @@ describe('Execution Graph edges', () => {
       );
       expect(container.querySelector('#relation')).toHaveAttribute(
         'd',
-        'M 80 300 L 80 212 Q 80 200 92 200 L 308 200 Q 320 200 320 188 L 320 100',
+        'M 80 300 L 80 224 A 24 24 0 0 1 104 200 L 296 200 A 24 24 0 0 0 320 176 L 320 100',
       );
       expect(container.querySelector('#relation')).toHaveAttribute(
         'marker-end',

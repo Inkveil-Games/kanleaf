@@ -1,6 +1,7 @@
 import type { ElkNode, ElkPort } from 'elkjs/lib/elk-api.js';
 import { createGraphLayoutEngine } from './graphLayoutWorker';
 import { parallelRoute, straightenEndpointJogs } from './graphRouting';
+import { pairedCornerRadii } from './graphPath';
 import type { ExecutionGraphProjection } from './types';
 
 export const GRAPH_NODE_WIDTH = 252;
@@ -14,6 +15,7 @@ export interface GraphPosition {
 export interface GraphLayout {
   positions: Record<string, GraphPosition>;
   routes: Record<string, GraphPosition[]>;
+  cornerRadii: Record<string, number[]>;
   frontierY: number;
   width: number;
 }
@@ -122,6 +124,7 @@ export async function layoutExecutionGraph(
   const result = await engine.layout(input);
   const positions: GraphLayout['positions'] = {};
   const routes: GraphLayout['routes'] = {};
+  const cornerRadii: GraphLayout['cornerRadii'] = {};
   for (const node of result.children ?? []) {
     if (node.x === undefined || node.y === undefined)
       throw new Error('Missing graph position');
@@ -165,7 +168,16 @@ export async function layoutExecutionGraph(
           candidate.at(index)?.y === original.at(index)?.y,
       )
     ) {
-      routes[parent.id] = candidate;
+      const radii = pairedCornerRadii(
+        dependency,
+        candidate,
+        GRAPH_LANE_SPACING,
+      );
+      if (radii) {
+        routes[parent.id] = candidate;
+        cornerRadii[parent.id] = radii.paired;
+        cornerRadii[`blocks:${parent.source}:${parent.target}`] = radii.base;
+      }
     }
   }
   const activeBottom = Math.max(
@@ -182,6 +194,7 @@ export async function layoutExecutionGraph(
   return {
     positions,
     routes,
+    cornerRadii,
     frontierY: Number.isFinite(completedTop)
       ? (activeBottom + completedTop) / 2
       : activeBottom + 48,

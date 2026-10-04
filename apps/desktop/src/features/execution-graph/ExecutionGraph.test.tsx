@@ -60,6 +60,7 @@ describe('Execution Graph', () => {
       resolveOld?.({
         positions: { old: { x: 0, y: 0 } },
         routes: {},
+        cornerRadii: {},
         frontierY: 100,
         width: 600,
       });

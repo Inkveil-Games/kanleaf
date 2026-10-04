@@ -124,7 +124,11 @@ function GraphCanvas({
         .filter((edge) => positioned?.routes[edge.id])
         .map((edge) => ({
           ...edge,
-          data: { kind: edge.kind, route: positioned?.routes[edge.id] ?? [] },
+          data: {
+            kind: edge.kind,
+            route: positioned?.routes[edge.id] ?? [],
+            cornerRadii: positioned?.cornerRadii[edge.id],
+          },
           type: 'execution',
           className: `execution-edge-${edge.kind}`,
           deletable: false,

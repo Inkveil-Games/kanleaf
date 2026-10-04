@@ -345,6 +345,9 @@ branch. Graphs with cross-dependencies need not be perfectly symmetric.
 Sub-2px endpoint doglegs introduced by balanced placement are straightened only
 when both ports stay fixed and the replacement retains clearance from other
 tasks; intentional lane changes and obstacle detours remain untouched.
+Paired bends use concentric circular arcs: outer radii exceed inner radii by
+the lane spacing. Both radii are fitted together to available segment lengths
+rather than independently rounding each path with the same radius.
 Partitions keep unfinished nodes above a quiet frontier and terminal nodes below
 it, including disconnected components. Nodes are never shifted after routing. Edges cross
 the frontier normally. Contradictory hierarchy/dependency ordering is allowed:
