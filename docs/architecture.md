@@ -338,6 +338,9 @@ used for horizontal routing; paired relation types stay adjacent. Very high
 degree nodes compress port spacing to stay within the task boundary. Balanced
 Brandes–Köpf placement favors centered branches over aligning a goal with one
 branch. Graphs with cross-dependencies need not be perfectly symmetric.
+Sub-2px endpoint doglegs introduced by balanced placement are straightened only
+when both ports stay fixed and the replacement retains clearance from other
+tasks; intentional lane changes and obstacle detours remain untouched.
 Partitions keep unfinished nodes above a quiet frontier and terminal nodes below
 it, including disconnected components. Nodes are never shifted after routing. Edges cross
 the frontier normally. Contradictory hierarchy/dependency ordering is allowed:

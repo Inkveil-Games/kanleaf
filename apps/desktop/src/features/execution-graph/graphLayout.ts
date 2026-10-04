@@ -1,5 +1,6 @@
 import type { ElkNode, ElkPort } from 'elkjs/lib/elk-api.js';
 import { createGraphLayoutEngine } from './graphLayoutWorker';
+import { straightenEndpointJogs } from './graphRouting';
 import type { ExecutionGraphProjection } from './types';
 
 export const GRAPH_NODE_WIDTH = 252;
@@ -125,14 +126,24 @@ export async function layoutExecutionGraph(
       throw new Error('Missing graph position');
     positions[node.id] = { x: node.x, y: node.y };
   }
+  const relations = new Map(edges.map((edge) => [edge.id, edge]));
+  const rectangles = Object.entries(positions).map(([id, position]) => ({
+    id,
+    ...position,
+    width: GRAPH_NODE_WIDTH,
+    height: GRAPH_NODE_HEIGHT,
+  }));
   for (const edge of result.edges ?? []) {
     const section = edge.sections?.[0];
     if (!section) throw new Error('Missing graph route');
-    routes[edge.id] = [
-      section.startPoint,
-      ...(section.bendPoints ?? []),
-      section.endPoint,
-    ];
+    const relation = relations.get(edge.id);
+    const obstacles = rectangles.filter(
+      ({ id }) => id !== relation?.source && id !== relation?.target,
+    );
+    routes[edge.id] = straightenEndpointJogs(
+      [section.startPoint, ...(section.bendPoints ?? []), section.endPoint],
+      obstacles,
+    );
   }
   const activeBottom = Math.max(
     0,
