@@ -59,6 +59,56 @@ function fixture() {
 }
 
 describe('Graph placement and edge routing', () => {
+  it('keeps paired relation ports one routing lane apart, centered on each task', async () => {
+    const projection = fixture();
+    const layout = await layoutExecutionGraph(projection);
+    for (const parent of projection.hierarchyEdges) {
+      const blocks = projection.dependencyEdges.find(
+        (edge) =>
+          edge.source === parent.source && edge.target === parent.target,
+      );
+      if (!blocks) throw new Error('Missing paired relation');
+      const parentRoute = layout.routes[parent.id];
+      const blockRoute = layout.routes[blocks.id];
+      if (!parentRoute || !blockRoute) throw new Error('Missing route');
+      for (const index of [0, -1]) {
+        const parentPort = parentRoute.at(index);
+        const blockPort = blockRoute.at(index);
+        if (!parentPort || !blockPort) throw new Error('Missing port');
+        expect(Math.abs(parentPort.x - blockPort.x)).toBeCloseTo(16);
+        expect(parentPort.y).toBe(blockPort.y);
+      }
+      const target = layout.positions[parent.target];
+      if (!target) throw new Error('Missing target');
+      expect(
+        ((parentRoute.at(-1)?.x ?? 0) + (blockRoute.at(-1)?.x ?? 0)) / 2,
+      ).toBeCloseTo(target.x + GRAPH_NODE_WIDTH / 2);
+    }
+  });
+
+  it('balances a symmetric branching graph around its goal instead of pinning it to one branch', async () => {
+    const projection = projectExecutionGraph([
+      graphTask('goal'),
+      ...['left', 'right'].map((id) =>
+        graphTask(id, {
+          parent: { id: 'goal', reference: '#1', title: 'Goal' },
+          relations: [
+            {
+              task: { id: 'goal', reference: '#1', title: 'Goal' },
+              relation_type: 'blocking',
+            },
+          ],
+        }),
+      ),
+    ]);
+    const { positions } = await layoutExecutionGraph(projection);
+    const { goal, left, right } = positions;
+    if (!goal || !left || !right) throw new Error('Missing positions');
+    expect(left.y).toBe(right.y);
+    expect(goal.x).toBeCloseTo((left.x + right.x) / 2);
+    expect(goal.y).toBeLessThan(left.y);
+  });
+
   it('routes outside tasks, merges same-kind incoming branches, and separates relation types', async () => {
     const projection = fixture();
     const layout = await layoutExecutionGraph(projection);

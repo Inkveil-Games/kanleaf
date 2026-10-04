@@ -4,6 +4,7 @@ import type { ExecutionGraphProjection } from './types';
 
 export const GRAPH_NODE_WIDTH = 252;
 export const GRAPH_NODE_HEIGHT = 72;
+const GRAPH_LANE_SPACING = 16;
 
 export interface GraphPosition {
   x: number;
@@ -35,6 +36,7 @@ export async function layoutExecutionGraph(
     ...projection.dependencyEdges,
   ].sort((left, right) => left.id.localeCompare(right.id));
   const ports = new Map<string, ElkPort[]>();
+  const portOrder = new Map<string, string>();
   for (const edge of edges) {
     for (const [id, suffix, side] of [
       [edge.source, 'source', 'NORTH'],
@@ -44,6 +46,10 @@ export async function layoutExecutionGraph(
       const portId =
         suffix === 'target' ? `${id}:${edge.kind}:target` : `${edge.id}:source`;
       if (list.some((port) => port.id === portId)) continue;
+      portOrder.set(
+        portId,
+        `${suffix === 'source' ? edge.target : ''}:${edge.kind === 'parent' ? '0' : '1'}`,
+      );
       list.push({
         id: portId,
         width: 0,
@@ -51,6 +57,26 @@ export async function layoutExecutionGraph(
         layoutOptions: { 'elk.port.side': side },
       });
       ports.set(id, list);
+    }
+  }
+  for (const list of ports.values()) {
+    for (const side of ['NORTH', 'SOUTH']) {
+      const group = list
+        .filter((port) => port.layoutOptions?.['elk.port.side'] === side)
+        .sort((left, right) =>
+          (portOrder.get(left.id) ?? '').localeCompare(
+            portOrder.get(right.id) ?? '',
+          ),
+        );
+      const spacing = Math.min(
+        GRAPH_LANE_SPACING,
+        (GRAPH_NODE_WIDTH - 32) / Math.max(1, group.length - 1),
+      );
+      group.forEach((port, index) => {
+        port.x =
+          GRAPH_NODE_WIDTH / 2 + (index - (group.length - 1) / 2) * spacing;
+        port.y = side === 'NORTH' ? 0 : GRAPH_NODE_HEIGHT;
+      });
     }
   }
   const input: ElkNode = {
@@ -62,12 +88,15 @@ export async function layoutExecutionGraph(
       'elk.partitioning.activate': 'true',
       'elk.separateConnectedComponents': 'false',
       'elk.layered.mergeEdges': 'false',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+      'elk.layered.nodePlacement.favorStraightEdges': 'false',
       'elk.spacing.nodeNode': '48',
       'elk.layered.spacing.nodeNodeBetweenLayers': '96',
       'elk.spacing.edgeNode': '24',
       'elk.layered.spacing.edgeNodeBetweenLayers': '24',
-      'elk.spacing.edgeEdge': '16',
-      'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+      'elk.spacing.edgeEdge': String(GRAPH_LANE_SPACING),
+      'elk.layered.spacing.edgeEdgeBetweenLayers': String(GRAPH_LANE_SPACING),
       'elk.padding': '[top=32,left=32,bottom=32,right=32]',
       'elk.randomSeed': '1',
     },
@@ -78,7 +107,7 @@ export async function layoutExecutionGraph(
       ports: ports.get(node.id) ?? [],
       layoutOptions: {
         'elk.partitioning.partition': node.completed ? '0' : '1',
-        'elk.portConstraints': 'FIXED_SIDE',
+        'elk.portConstraints': 'FIXED_POS',
       },
     })),
     edges: edges.map((edge) => ({

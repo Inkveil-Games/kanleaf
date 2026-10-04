@@ -333,6 +333,11 @@ in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
 then In Progress or Ready. Parenthood never creates an implicit prerequisite.
 
 ELK places both relation types bottom-to-top and routes edges in the same pass.
+Ports are clustered around each task's center with the same 16px lane spacing
+used for horizontal routing; paired relation types stay adjacent. Very high
+degree nodes compress port spacing to stay within the task boundary. Balanced
+Brandes–Köpf placement favors centered branches over aligning a goal with one
+branch. Graphs with cross-dependencies need not be perfectly symmetric.
 Partitions keep unfinished nodes above a quiet frontier and terminal nodes below
 it, including disconnected components. Nodes are never shifted after routing. Edges cross
 the frontier normally. Contradictory hierarchy/dependency ordering is allowed:
