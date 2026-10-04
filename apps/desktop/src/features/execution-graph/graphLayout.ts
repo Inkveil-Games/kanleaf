@@ -1,11 +1,11 @@
 import type { ElkNode, ElkPort } from 'elkjs/lib/elk-api.js';
 import { createGraphLayoutEngine } from './graphLayoutWorker';
-import { straightenEndpointJogs } from './graphRouting';
+import { parallelRoute, straightenEndpointJogs } from './graphRouting';
 import type { ExecutionGraphProjection } from './types';
 
 export const GRAPH_NODE_WIDTH = 252;
 export const GRAPH_NODE_HEIGHT = 72;
-const GRAPH_LANE_SPACING = 16;
+const GRAPH_LANE_SPACING = 12;
 
 export interface GraphPosition {
   x: number;
@@ -49,7 +49,7 @@ export async function layoutExecutionGraph(
       if (list.some((port) => port.id === portId)) continue;
       portOrder.set(
         portId,
-        `${suffix === 'source' ? edge.target : ''}:${edge.kind === 'parent' ? '0' : '1'}`,
+        `${suffix === 'source' ? edge.target : ''}:${edge.kind === 'blocks' ? '0' : '1'}`,
       );
       list.push({
         id: portId,
@@ -89,11 +89,12 @@ export async function layoutExecutionGraph(
       'elk.partitioning.activate': 'true',
       'elk.separateConnectedComponents': 'false',
       'elk.layered.mergeEdges': 'false',
+      'elk.layered.layering.strategy': 'LONGEST_PATH',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
       'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
       'elk.layered.nodePlacement.favorStraightEdges': 'false',
       'elk.spacing.nodeNode': '48',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '96',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '72',
       'elk.spacing.edgeNode': '24',
       'elk.layered.spacing.edgeNodeBetweenLayers': '24',
       'elk.spacing.edgeEdge': String(GRAPH_LANE_SPACING),
@@ -144,6 +145,28 @@ export async function layoutExecutionGraph(
       [section.startPoint, ...(section.bendPoints ?? []), section.endPoint],
       obstacles,
     );
+  }
+  for (const parent of projection.hierarchyEdges) {
+    const dependency = routes[`blocks:${parent.source}:${parent.target}`];
+    const original = routes[parent.id];
+    if (!dependency || !original) continue;
+    const candidate = parallelRoute(
+      dependency,
+      GRAPH_LANE_SPACING,
+      rectangles.filter(
+        ({ id }) => id !== parent.source && id !== parent.target,
+      ),
+    );
+    if (
+      candidate &&
+      [0, -1].every(
+        (index) =>
+          candidate.at(index)?.x === original.at(index)?.x &&
+          candidate.at(index)?.y === original.at(index)?.y,
+      )
+    ) {
+      routes[parent.id] = candidate;
+    }
   }
   const activeBottom = Math.max(
     0,

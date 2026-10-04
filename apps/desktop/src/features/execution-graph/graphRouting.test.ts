@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { straightenEndpointJogs } from './graphRouting';
+import { parallelRoute, straightenEndpointJogs } from './graphRouting';
 
 const route = [
   { x: 596, y: 516 },
@@ -11,6 +11,47 @@ const route = [
 ];
 
 describe('Graph endpoint routing', () => {
+  it('keeps paired lanes parallel around left and right bends', () => {
+    for (const targetX of [-100, 100]) {
+      const points = [
+        { x: 0, y: 200 },
+        { x: 0, y: 100 },
+        { x: targetX, y: 100 },
+        { x: targetX, y: 0 },
+      ];
+      expect(parallelRoute(points, 12, [])).toEqual([
+        { x: 12, y: 200 },
+        { x: 12, y: 100 + Math.sign(targetX) * 12 },
+        { x: targetX + 12, y: 100 + Math.sign(targetX) * 12 },
+        { x: targetX + 12, y: 0 },
+      ]);
+    }
+  });
+
+  it('rejects a parallel lane if it would cross another task or reverse a short segment', () => {
+    expect(
+      parallelRoute(
+        [
+          { x: 0, y: 100 },
+          { x: 0, y: 0 },
+        ],
+        12,
+        [{ x: 10, y: 40, width: 10, height: 10 }],
+      ),
+    ).toBeNull();
+    expect(
+      parallelRoute(
+        [
+          { x: 0, y: 100 },
+          { x: 0, y: 90 },
+          { x: 100, y: 90 },
+          { x: 100, y: 0 },
+        ],
+        12,
+        [],
+      ),
+    ).toBeNull();
+  });
   it('removes a one-pixel endpoint dogleg without moving either port', () => {
     expect(straightenEndpointJogs(route, [])).toEqual([
       { x: 596, y: 516 },

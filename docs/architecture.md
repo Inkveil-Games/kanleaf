@@ -333,9 +333,13 @@ in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
 then In Progress or Ready. Parenthood never creates an implicit prerequisite.
 
 ELK places both relation types bottom-to-top and routes edges in the same pass.
-Ports are clustered around each task's center with the same 16px lane spacing
-used for horizontal routing; paired relation types stay adjacent. Very high
-degree nodes compress port spacing to stay within the task boundary. Balanced
+Ports are clustered around each task's center with the same 12px lane spacing
+used for horizontal routing; Blocks sit left of Parent in each pair. Short
+branches sit near their goal using longest-path layering instead of starting
+at the bottom rank. Paired Parent/Blocks routes use a constant-offset lane around
+left and right turns when both fixed ports and obstacle clearance permit it;
+otherwise the original obstacle-aware route is retained. Very high degree
+nodes compress port spacing to stay within the task boundary. Balanced
 Brandes–Köpf placement favors centered branches over aligning a goal with one
 branch. Graphs with cross-dependencies need not be perfectly symmetric.
 Sub-2px endpoint doglegs introduced by balanced placement are straightened only

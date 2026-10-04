@@ -2,6 +2,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import { describe, expect, it, vi } from 'vitest';
 import { graphTask } from './testFixtures';
 import { projectExecutionGraph } from './graphProjection';
+import { parallelRoute } from './graphRouting';
 import {
   GRAPH_NODE_HEIGHT,
   GRAPH_NODE_WIDTH,
@@ -75,7 +76,7 @@ describe('Graph placement and edge routing', () => {
         const parentPort = parentRoute.at(index);
         const blockPort = blockRoute.at(index);
         if (!parentPort || !blockPort) throw new Error('Missing port');
-        expect(Math.abs(parentPort.x - blockPort.x)).toBeCloseTo(16);
+        expect(parentPort.x - blockPort.x).toBeCloseTo(12);
         expect(parentPort.y).toBe(blockPort.y);
       }
       const target = layout.positions[parent.target];
@@ -84,6 +85,12 @@ describe('Graph placement and edge routing', () => {
         ((parentRoute.at(-1)?.x ?? 0) + (blockRoute.at(-1)?.x ?? 0)) / 2,
       ).toBeCloseTo(target.x + GRAPH_NODE_WIDTH / 2);
     }
+  });
+
+  it('keeps a short branch next to its goal instead of stretching it from the bottom rank', async () => {
+    const { positions } = await layoutExecutionGraph(fixture());
+    expect(positions.notes?.y).toBe(positions.integration?.y);
+    expect(positions.release?.y).toBeLessThan(positions.notes?.y ?? 0);
   });
 
   it('balances a symmetric branching graph around its goal instead of pinning it to one branch', async () => {
@@ -101,12 +108,19 @@ describe('Graph placement and edge routing', () => {
         }),
       ),
     ]);
-    const { positions } = await layoutExecutionGraph(projection);
+    const { positions, routes } = await layoutExecutionGraph(projection);
     const { goal, left, right } = positions;
     if (!goal || !left || !right) throw new Error('Missing positions');
     expect(left.y).toBe(right.y);
     expect(goal.x).toBeCloseTo((left.x + right.x) / 2);
     expect(goal.y).toBeLessThan(left.y);
+    for (const source of ['left', 'right']) {
+      const dependency = routes[`blocks:${source}:goal`];
+      if (!dependency) throw new Error('Missing dependency route');
+      const paired = parallelRoute(dependency, 12, []);
+      expect(paired).not.toBeNull();
+      expect(routes[`parent:${source}:goal`]).toEqual(paired);
+    }
   });
 
   it('routes outside tasks, merges same-kind incoming branches, and separates relation types', async () => {
