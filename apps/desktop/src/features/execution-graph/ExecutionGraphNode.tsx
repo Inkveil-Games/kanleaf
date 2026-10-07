@@ -4,10 +4,11 @@ import { LockKeyhole } from 'lucide-react';
 import { Avatar } from '../../components/ui/Avatar';
 import { PriorityIcon, StateIcon } from '../task/TaskValueIcon';
 import { priorityLabel } from '../task/taskPropertyModel';
-import { executionStateLabels } from './executionState';
+import { executionStateLabel } from './executionState';
 import type { GraphTaskNode } from './types';
 
 export type ExecutionFlowNode = Node<{ node: GraphTaskNode }, 'execution'>;
+const NODE_BORDER_DASH_COUNT = 52;
 
 export const ExecutionGraphNode = memo(function ExecutionGraphNode({
   data,
@@ -16,6 +17,15 @@ export const ExecutionGraphNode = memo(function ExecutionGraphNode({
   const assignee = task.assignees[0];
   return (
     <div className="execution-graph-node" data-execution-state={executionState}>
+      {executionState === 'blocked' && (
+        <svg
+          className="execution-node-border"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <rect x="1" y="1" pathLength={NODE_BORDER_DASH_COUNT * 2} />
+        </svg>
+      )}
       <Handle type="source" position={Position.Top} isConnectable={false} />
       <span className="execution-node-reference">{task.reference}</span>
       <span className="execution-node-title" title={task.title}>
@@ -27,11 +37,12 @@ export const ExecutionGraphNode = memo(function ExecutionGraphNode({
         ) : (
           <StateIcon role={task.state.system_role} size={14} />
         )}
-        {executionStateLabels[executionState]}
+        {executionStateLabel(task, executionState)}
       </span>
       <span className="execution-node-metadata">
-        <span title={priorityLabel(task.priority)}>
+        <span className="execution-node-priority">
           <PriorityIcon priority={task.priority} size={15} />
+          {priorityLabel(task.priority)}
         </span>
         {assignee && (
           <Avatar

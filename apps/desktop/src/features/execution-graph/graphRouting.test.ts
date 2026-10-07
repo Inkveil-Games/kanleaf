@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parallelRoute, straightenEndpointJogs } from './graphRouting';
+import {
+  parallelRoute,
+  retargetRoute,
+  straightenEndpointJogs,
+} from './graphRouting';
 
 const route = [
   { x: 596, y: 516 },
@@ -11,6 +15,46 @@ const route = [
 ];
 
 describe('Graph endpoint routing', () => {
+  it('keeps existing orthogonal corridors when task endpoints move onto the grid', () => {
+    const points = [
+      { x: 6, y: 200 },
+      { x: 6, y: 100 },
+      { x: 100, y: 100 },
+      { x: 100, y: 0 },
+    ];
+    expect(
+      retargetRoute(points, { x: 0, y: 200 }, { x: 96, y: 0 }, []),
+    ).toEqual([
+      { x: 0, y: 200 },
+      { x: 0, y: 100 },
+      { x: 96, y: 100 },
+      { x: 96, y: 0 },
+    ]);
+    expect(points[0]?.x).toBe(6);
+    expect(
+      retargetRoute(points, { x: 0, y: 200 }, { x: 96, y: 0 }, [
+        { x: 30, y: 90, width: 20, height: 20 },
+      ]),
+    ).toBeNull();
+  });
+
+  it('keeps retargeted straight connections orthogonal', () => {
+    const points = [
+      { x: 6, y: 200 },
+      { x: 6, y: 0 },
+    ];
+    const shifted = retargetRoute(points, { x: 0, y: 200 }, { x: 6, y: 0 }, []);
+    expect(shifted).toEqual([
+      { x: 0, y: 200 },
+      { x: 0, y: 100 },
+      { x: 6, y: 100 },
+      { x: 6, y: 0 },
+    ]);
+    expect(
+      retargetRoute(points, { x: 0, y: -20 }, { x: 6, y: 0 }, []),
+    ).toBeNull();
+  });
+
   it('keeps paired lanes parallel around left and right bends', () => {
     for (const targetX of [-100, 100]) {
       const points = [

@@ -17,7 +17,7 @@ import { Checkbox } from '../../components/ui/Checkbox';
 import { IconButton } from '../../components/ui/IconButton';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { EmptyState } from '../../components/ui/EmptyState';
-import type { Task } from '../workspace/types';
+import type { Project, Task } from '../workspace/types';
 import {
   ExecutionGraphNode,
   type ExecutionFlowNode,
@@ -27,6 +27,7 @@ import {
   type ExecutionFlowEdge,
 } from './ExecutionGraphEdge';
 import { CompletionFrontier } from './CompletionFrontier';
+import { ProjectFrames } from './ProjectFrames';
 import { projectExecutionGraph, visibleGraph } from './graphProjection';
 import {
   GRAPH_NODE_HEIGHT,
@@ -35,12 +36,13 @@ import {
   layoutExecutionGraph,
   type GraphLayout,
 } from './graphLayout';
-import { executionStateLabels } from './executionState';
+import { executionStateLabel } from './executionState';
 import type { GraphViewSettings } from './types';
 import '@xyflow/react/dist/base.css';
 import './ExecutionGraph.css';
 
 const nodeTypes = { execution: ExecutionGraphNode };
+const emptyProjects: Project[] = [];
 const edgeTypes = { execution: ExecutionGraphEdge };
 const initialFitOptions = { padding: 0.15, minZoom: 0.8, maxZoom: 1 };
 const ariaLabelConfig = {
@@ -50,6 +52,7 @@ const ariaLabelConfig = {
 
 interface ExecutionGraphProps {
   tasks: Task[];
+  projects?: Project[];
   selectedTaskId: string | null;
   onSelectTask: (taskId: string) => void;
   settings: GraphViewSettings;
@@ -66,6 +69,7 @@ export function ExecutionGraph(props: ExecutionGraphProps) {
 
 function GraphCanvas({
   tasks,
+  projects = emptyProjects,
   selectedTaskId,
   onSelectTask,
   settings,
@@ -110,7 +114,7 @@ function GraphCanvas({
           height: GRAPH_NODE_HEIGHT,
           selected: node.id === selectedTaskId,
           ariaRole: 'button',
-          ariaLabel: `${node.task.reference} ${node.task.title}, ${executionStateLabels[node.executionState]}`,
+          ariaLabel: `${node.task.reference} ${node.task.title}, ${executionStateLabel(node.task, node.executionState)}`,
           domAttributes: { 'aria-pressed': node.id === selectedTaskId },
           draggable: false,
           connectable: false,
@@ -139,7 +143,10 @@ function GraphCanvas({
               : 'Parent / child relation',
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: 'var(--color-text-muted)',
+            color:
+              edge.kind === 'blocks'
+                ? 'var(--graph-block-edge)'
+                : 'var(--graph-parent-edge)',
             width: 18,
             height: 18,
           },
@@ -292,6 +299,13 @@ function GraphCanvas({
           maxZoom={2}
           ariaLabelConfig={ariaLabelConfig}
         >
+          {positioned && (
+            <ProjectFrames
+              nodes={visible.nodes}
+              positions={positioned.positions}
+              projects={projects}
+            />
+          )}
           {positioned && (
             <CompletionFrontier
               y={positioned.frontierY}

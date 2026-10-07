@@ -1,4 +1,19 @@
 .execution-graph {
+  --graph-node-border: color-mix(
+    in srgb,
+    var(--color-text-muted) 70%,
+    var(--color-border)
+  );
+  --graph-parent-edge: color-mix(
+    in srgb,
+    var(--color-text-muted) 75%,
+    var(--color-border)
+  );
+  --graph-block-edge: color-mix(
+    in srgb,
+    var(--color-accent) 55%,
+    var(--graph-parent-edge)
+  );
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -64,7 +79,7 @@
   width: 252px;
   height: 72px;
   padding: 10px 12px;
-  border: 1px solid var(--color-text-muted);
+  border: 2px solid var(--graph-node-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
@@ -100,17 +115,42 @@
   color: var(--color-text-muted);
   font-size: 10px;
 }
-.execution-graph-node[data-execution-state='blocked'] {
-  border-style: dashed;
+.execution-node-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
-.execution-graph-node[data-execution-state='in_progress'] {
-  border-color: var(--color-accent);
-  box-shadow: inset 3px 0 var(--color-accent);
+.execution-graph-node[data-execution-state='blocked'] {
+  border-color: transparent;
+}
+.execution-node-border {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.execution-node-border rect {
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  rx: calc(var(--radius-md) - 1px);
+  fill: none;
+  stroke: color-mix(in srgb, var(--graph-node-border) 85%, var(--color-border));
+  stroke-width: 2;
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 0.5;
 }
 .execution-graph-node[data-execution-state='done'],
 .execution-graph-node[data-execution-state='cancelled'] {
   background: var(--color-surface-muted);
-  border-color: var(--color-border);
+  border-color: color-mix(
+    in srgb,
+    var(--color-border) 80%,
+    var(--graph-node-border)
+  );
   color: var(--color-text-muted);
 }
 .execution-graph-node[data-execution-state='cancelled'] {
@@ -126,12 +166,12 @@
   border-radius: var(--radius-md);
 }
 .execution-graph .execution-edge-blocks path {
-  stroke: var(--color-text-muted);
+  stroke: var(--graph-block-edge);
   stroke-width: 1.6;
   stroke-dasharray: 5 5;
 }
 .execution-graph .execution-edge-parent path {
-  stroke: var(--color-text-muted);
+  stroke: var(--graph-parent-edge);
   stroke-width: 1.5;
 }
 
@@ -144,6 +184,28 @@
   pointer-events: none;
   color: var(--color-text-muted);
 }
+.execution-project-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 18%, transparent);
+  pointer-events: none;
+}
+.execution-project-frame-title {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
 .completion-frontier svg {
   display: block;
   overflow: visible;
@@ -155,7 +217,8 @@
 .completion-frontier span {
   position: absolute;
   right: 8px;
-  top: 12px;
+  top: -8px;
+  transform: translateY(-100%);
   font-size: 11px;
   white-space: nowrap;
 }

@@ -330,9 +330,24 @@ at the target so shared stems remain dashed. `blocking` projects task-to-related
 related-task-to-task. Every Task has one node, including multi-predecessor and
 multi-successor work. Completion uses stable `done`/`cancelled` roles, as elsewhere
 in Kanleaf. Terminal states take precedence, then unresolved explicit blockers,
-then In Progress or Ready. Parenthood never creates an implicit prerequisite.
+then In Progress or Ready. These remain internal execution classifications;
+node text and accessible names display the configured workflow state name,
+except unresolved blockers display `Blocked`. Parenthood never creates an implicit prerequisite.
 
-ELK places both relation types bottom-to-top and routes edges in the same pass.
+Project frames use the accessible Project collection already loaded by the
+Workspace shell. They outline each Project's visible positioned tasks and show
+its name; Workspace-level tasks have no frame. These presentation bounds do not
+change query scope or introduce additional requests.
+
+ELK first discovers bottom-to-top ranks and balanced branches. Task centers are
+then snapped to a shared half-column lattice (252px task width + 32px gap,
+divided by two so parents can sit between branches). A second interactive ELK
+pass respects those positions and routes edges independently of node alignment.
+Existing routing corridors are retained only when the new endpoints remain
+orthogonal and clear of other tasks; otherwise the second pass supplies routes.
+Rows use a uniform pitch, at least task height + 72px and large enough for the
+most crowded rank gap. Routing coordinates receive the same monotonic row
+mapping without scaling task heights.
 Ports are clustered around each task's center with the same 12px lane spacing
 used for horizontal routing; Blocks sit left of Parent in each pair. Short
 branches sit near their goal using longest-path layering instead of starting
@@ -349,7 +364,8 @@ Paired bends use concentric circular arcs: outer radii exceed inner radii by
 the lane spacing. Both radii are fitted together to available segment lengths
 rather than independently rounding each path with the same radius.
 Partitions keep unfinished nodes above a quiet frontier and terminal nodes below
-it, including disconnected components. Nodes are never shifted after routing. Edges cross
+it, including disconnected components. An extra 64px frontier band moves nodes
+and route coordinates together, rather than shifting nodes independently. Edges cross
 the frontier normally. Contradictory hierarchy/dependency ordering is allowed:
 only the dependency graph must be acyclic, and layout never rewrites relations.
 Completion zoning takes precedence when an already-completed target has an

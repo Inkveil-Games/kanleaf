@@ -73,6 +73,7 @@ export function TaskLayouts(props: TaskLayoutsProps) {
         <Suspense fallback={<p role="status">Loading Graph…</p>}>
           <ExecutionGraph
             tasks={props.tasks}
+            projects={props.projects}
             selectedTaskId={props.selectedTaskId}
             onSelectTask={props.onSelectTask}
             settings={props.graphSettings ?? defaultGraphViewSettings}

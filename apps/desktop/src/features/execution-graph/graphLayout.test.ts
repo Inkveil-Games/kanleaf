@@ -61,6 +61,33 @@ function fixture() {
 }
 
 describe('Graph placement and edge routing', () => {
+  it('aligns task centers to shared columns rather than their offset ports', async () => {
+    const { positions } = await layoutExecutionGraph(fixture());
+    expect(positions.api?.x).toBe(positions.backend?.x);
+    const origin = Math.min(
+      ...Object.values(positions).map((point) => point.x),
+    );
+    for (const point of Object.values(positions)) {
+      const column = (point.x - origin) / ((GRAPH_NODE_WIDTH + 32) / 2);
+      expect(column).toBeCloseTo(Math.round(column));
+    }
+  });
+
+  it('leaves breathing room around the frontier without horizontal routes crowding it', async () => {
+    const layout = await layoutExecutionGraph(fixture());
+    for (const points of Object.values(layout.routes)) {
+      for (let index = 1; index < points.length; index += 1) {
+        const start = points[index - 1];
+        const end = points[index];
+        if (start && end && start.y === end.y) {
+          expect(Math.abs(start.y - layout.frontierY)).toBeGreaterThanOrEqual(
+            32,
+          );
+        }
+      }
+    }
+  });
+
   it('keeps paired relation ports one routing lane apart, centered on each task', async () => {
     const projection = fixture();
     const layout = await layoutExecutionGraph(projection);
@@ -114,6 +141,7 @@ describe('Graph placement and edge routing', () => {
     const { goal, left, right } = positions;
     if (!goal || !left || !right) throw new Error('Missing positions');
     expect(left.y).toBe(right.y);
+    expect(Math.abs(left.x - right.x) - GRAPH_NODE_WIDTH).toBe(32);
     expect(goal.x).toBeCloseTo((left.x + right.x) / 2);
     expect(goal.y).toBeLessThan(left.y);
     for (const source of ['left', 'right']) {

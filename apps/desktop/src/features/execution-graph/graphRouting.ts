@@ -19,6 +19,72 @@ function clearsObstacles(
   );
 }
 
+export function retargetRoute(
+  points: GraphPosition[],
+  source: GraphPosition,
+  target: GraphPosition,
+  obstacles: GraphObstacle[],
+): GraphPosition[] | null {
+  const first = points[0];
+  const last = points.at(-1);
+  if (!first || !last) return null;
+  let shifted: GraphPosition[];
+  if (points.every((point) => point.x === first.x)) {
+    const middleY = (source.y + target.y) / 2;
+    shifted = [
+      source,
+      { x: source.x, y: middleY },
+      { x: target.x, y: middleY },
+      target,
+    ];
+  } else {
+    shifted = points.map((point) => ({ ...point }));
+    for (
+      let index = 0;
+      index < points.length && points[index]?.x === first.x;
+      index += 1
+    ) {
+      const point = shifted[index];
+      if (point) point.x = source.x;
+    }
+    for (
+      let index = points.length - 1;
+      index >= 0 && points[index]?.x === last.x;
+      index -= 1
+    ) {
+      const point = shifted[index];
+      if (point) point.x = target.x;
+    }
+    shifted[0] = source;
+    shifted[shifted.length - 1] = target;
+  }
+  shifted = shifted.filter(
+    (point, index) =>
+      point.x !== shifted[index - 1]?.x || point.y !== shifted[index - 1]?.y,
+  );
+  const departure = shifted[1];
+  const arrival = shifted.at(-2);
+  if (
+    !departure ||
+    !arrival ||
+    departure.y >= source.y ||
+    arrival.y <= target.y
+  )
+    return null;
+  for (let index = 1; index < shifted.length; index += 1) {
+    const start = shifted[index - 1];
+    const end = shifted[index];
+    if (
+      !start ||
+      !end ||
+      (start.x !== end.x && start.y !== end.y) ||
+      !clearsObstacles(start, end, obstacles)
+    )
+      return null;
+  }
+  return shifted;
+}
+
 export function parallelRoute(
   points: GraphPosition[],
   spacing: number,

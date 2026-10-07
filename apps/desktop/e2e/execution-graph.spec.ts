@@ -42,7 +42,11 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   const base = `${serverUrl}/api/workspaces/${workspace.id}`;
   const configuration = (await (
     await request.get(`${base}/task-configuration`, { headers })
-  ).json()) as { states: { id: string; system_role: string }[] };
+  ).json()) as { states: { id: string; name: string; system_role: string }[] };
+  const todo = configuration.states.find(
+    (state) => state.system_role === 'todo',
+  );
+  if (!todo) throw new Error('Workspace has no Todo state');
   const done = configuration.states.find(
     (state) => state.system_role === 'done',
   );
@@ -125,7 +129,10 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   await expect(graph.locator('.react-flow__node')).toHaveCount(7);
   await expect(graph.getByText('Completed · 3')).toBeVisible();
   await expect(
-    graph.getByRole('button', { name: /API Layer, Ready/ }),
+    graph.getByRole('button', {
+      name: `${tasks['API Layer']?.reference} API Layer, ${todo.name}`,
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     graph.getByRole('button', { name: /Frontend, Blocked/ }),
@@ -151,7 +158,12 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   await graph.getByRole('button', { name: 'Fit graph' }).click();
   await expect(viewport).not.toHaveAttribute('style', zoomedViewport ?? '');
   const before = await viewport.getAttribute('style');
-  await graph.getByRole('button', { name: /API Layer, Ready/ }).focus();
+  await graph
+    .getByRole('button', {
+      name: `${tasks['API Layer']?.reference} API Layer, ${todo.name}`,
+      exact: true,
+    })
+    .focus();
   await page.keyboard.press('Enter');
   await expect(
     page.getByRole('region', { name: 'Task detail', exact: true }),
@@ -174,10 +186,6 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   await expect(detail.locator('.task-relation-row')).toHaveCount(2);
   await page.getByRole('button', { name: 'Close task', exact: true }).click();
 
-  const todo = configuration.states.find(
-    (state) => state.system_role === 'todo',
-  );
-  if (!todo) throw new Error('Workspace has no Todo state');
   expect(
     (
       await request.patch(`${base}/tasks/${tasks['API Layer']?.id}`, {
@@ -187,7 +195,10 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
     ).status(),
   ).toBe(200);
   await expect(
-    graph.getByRole('button', { name: /Frontend, Ready/ }),
+    graph.getByRole('button', {
+      name: `${tasks.Frontend?.reference} Frontend, ${todo.name}`,
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(viewport).toHaveAttribute('style', before ?? '');
   expect(
@@ -262,7 +273,10 @@ test('restores Graph, preserves its viewport through detail, and projects canoni
   ).toBe(204);
   await expect(graph.locator('.react-flow__node')).toHaveCount(6);
   await expect(
-    graph.getByRole('button', { name: /Frontend, Ready/ }),
+    graph.getByRole('button', {
+      name: `${tasks.Frontend?.reference} Frontend, ${todo.name}`,
+      exact: true,
+    }),
   ).toBeVisible();
   expect(
     (

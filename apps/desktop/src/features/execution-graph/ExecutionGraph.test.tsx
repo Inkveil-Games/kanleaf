@@ -27,7 +27,9 @@ describe('Execution Graph', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Use Re-layout');
     fireEvent.click(screen.getByRole('button', { name: 'Re-layout' }));
     expect(
-      await screen.findByRole('button', { name: '#api api, Ready' }),
+      await screen.findByRole('button', {
+        name: '#api api, Custom workflow name',
+      }),
     ).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     arrange.mockRestore();
@@ -54,7 +56,9 @@ describe('Execution Graph', () => {
     );
     rerender(<ExecutionGraph {...props} tasks={[graphTask('new')]} />);
     expect(
-      await screen.findByRole('button', { name: '#new new, Ready' }),
+      await screen.findByRole('button', {
+        name: '#new new, Custom workflow name',
+      }),
     ).toBeVisible();
     await act(async () => {
       resolveOld?.({
@@ -66,10 +70,10 @@ describe('Execution Graph', () => {
       });
     });
     expect(
-      screen.getByRole('button', { name: '#new new, Ready' }),
+      screen.getByRole('button', { name: '#new new, Custom workflow name' }),
     ).toBeVisible();
     expect(
-      screen.queryByRole('button', { name: '#old old, Ready' }),
+      screen.queryByRole('button', { name: '#old old, Custom workflow name' }),
     ).not.toBeInTheDocument();
     arrange.mockRestore();
   });
@@ -86,11 +90,15 @@ describe('Execution Graph', () => {
     };
     const { rerender } = render(<ExecutionGraph {...props} />);
     fireEvent.click(
-      await screen.findByRole('button', { name: '#api api, Ready' }),
+      await screen.findByRole('button', {
+        name: '#api api, Custom workflow name',
+      }),
     );
     expect(onSelectTask).toHaveBeenCalledWith('api');
     fireEvent.keyDown(
-      screen.getByRole('button', { name: '#schema schema, Done' }),
+      screen.getByRole('button', {
+        name: '#schema schema, Custom workflow name',
+      }),
       { key: 'Enter' },
     );
     expect(onSelectTask).toHaveBeenCalledWith('schema');
@@ -105,7 +113,9 @@ describe('Execution Graph', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: '#api Renamed, Ready' }),
+      screen.getByRole('button', {
+        name: '#api Renamed, Custom workflow name',
+      }),
     ).toHaveAttribute('aria-pressed', 'true');
     expect(relayout).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Re-layout' }));
@@ -151,7 +161,9 @@ describe('Execution Graph', () => {
       />,
     );
     expect(
-      screen.queryByRole('button', { name: '#done done, Done' }),
+      screen.queryByRole('button', {
+        name: '#done done, Custom workflow name',
+      }),
     ).not.toBeInTheDocument();
     expect(screen.getByText('All tasks are completed.')).toBeInTheDocument();
   });

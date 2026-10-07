@@ -15,10 +15,6 @@ export function taskExecutionState(
   return role === 'in_progress' ? 'in_progress' : 'ready';
 }
 
-export const executionStateLabels: Record<TaskExecutionState, string> = {
-  ready: 'Ready',
-  blocked: 'Blocked',
-  in_progress: 'In progress',
-  done: 'Done',
-  cancelled: 'Cancelled',
-};
+export function executionStateLabel(task: Task, state: TaskExecutionState) {
+  return state === 'blocked' ? 'Blocked' : task.state.name;
+}
