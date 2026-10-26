@@ -3,6 +3,8 @@ export interface VisualEditingSupport {
   reason?: string;
 }
 
+// Raw HTML stays editable visually: Milkdown keeps it as verbatim html nodes
+// that render as text and serialize unchanged (see MilkdownRoundTrip tests).
 export function visualEditingSupport(markdown: string): VisualEditingSupport {
   if (/^---\s*\n[\s\S]*?\n---\s*(?:\n|$)/.test(markdown)) {
     return {
@@ -12,14 +14,7 @@ export function visualEditingSupport(markdown: string): VisualEditingSupport {
   }
   const prose = markdown
     .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, '')
-    .replace(/(`+)[^\n]*?\1/g, '')
-    .replace(/<br\s*\/?>/gi, '');
-  if (/<\/?[A-Za-z][^>\n]*>/.test(prose)) {
-    return {
-      supported: false,
-      reason: 'Raw HTML is safest to edit in Source mode.',
-    };
-  }
+    .replace(/(`+)[^\n]*?\1/g, '');
   if (/^\[\^[^\]]+\]:/m.test(prose) || /\[\^[^\]]+\]/.test(prose)) {
     return {
       supported: false,

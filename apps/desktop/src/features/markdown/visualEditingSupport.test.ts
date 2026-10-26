@@ -11,9 +11,6 @@ describe('visualEditingSupport', () => {
   });
 
   it('routes content with unsafe round-trip syntax to Source mode', () => {
-    expect(visualEditingSupport('<details>Keep me</details>').supported).toBe(
-      false,
-    );
     expect(visualEditingSupport('---\ntitle: Keep me\n---\n').supported).toBe(
       false,
     );
@@ -22,11 +19,17 @@ describe('visualEditingSupport', () => {
     );
   });
 
-  it('allows HTML-looking code and line breaks that Milkdown preserves', () => {
+  it('allows raw HTML that Milkdown keeps verbatim', () => {
     expect(
       visualEditingSupport(
-        '```mermaid\nNote right of John: a long<br/>line\n```\n\n> <br />\n',
+        '<details>\n<summary>Hint</summary>\n\nKeep me\n\n</details>\n\nPress <kbd>Ctrl</kbd><br/>\n\n<!-- note -->',
       ),
+    ).toEqual({ supported: true });
+  });
+
+  it('ignores footnote-looking text inside code', () => {
+    expect(
+      visualEditingSupport('```\nitem[^1]\n```\n\nUse `[^1]: x` literally.'),
     ).toEqual({ supported: true });
   });
 });

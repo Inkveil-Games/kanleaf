@@ -314,15 +314,26 @@ describe('MarkdownDocument', () => {
   it('falls back to Source when visual round-trip safety is unknown', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(response('<details>Keep</details>'));
+      .mockResolvedValue(response('Reference[^1]\n\n[^1]: Keep'));
     renderDocument(fetchMock);
 
     expect(
       await screen.findByLabelText('Markdown source', undefined, {
         timeout: 3_000,
       }),
-    ).toHaveValue('<details>Keep</details>');
+    ).toHaveValue('Reference[^1]\n\n[^1]: Keep');
     expect(screen.getByRole('button', { name: 'Editor' })).toBeDisabled();
-    expect(screen.getByText(/Raw HTML is safest/)).toBeInTheDocument();
+    expect(screen.getByText(/Footnotes are safest/)).toBeInTheDocument();
+  });
+
+  it('opens raw HTML in the visual editor without a Source advisory', async () => {
+    const content = '<details>\n<summary>Hint</summary>\n\nKeep\n\n</details>';
+    renderDocument(vi.fn().mockResolvedValue(response(content)));
+
+    expect(await screen.findByLabelText('Visual Markdown editor')).toHaveValue(
+      content,
+    );
+    expect(screen.getByRole('button', { name: 'Editor' })).toBeEnabled();
+    expect(screen.queryByText(/safest to edit/)).not.toBeInTheDocument();
   });
 });

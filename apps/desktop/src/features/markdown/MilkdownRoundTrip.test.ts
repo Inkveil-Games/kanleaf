@@ -122,6 +122,20 @@ Note right of John: a long<br/>line
     expect(output).toContain('a long<br/>line');
   });
 
+  it('keeps raw HTML blocks, inline tags and comments verbatim', async () => {
+    const source = [
+      '<details>\n<summary>Gợi ý đáp án</summary>\n\n```bash\nls\n```\n\n</details>\n',
+      'Press <kbd>Ctrl</kbd> and <b>bold</b> text.\n',
+      '<!-- hidden note -->\n',
+      '<div align="center">\n**not bold**\n</div>\n',
+    ].join('\n');
+
+    const output = await roundTrip(source);
+
+    expect(output).toBe(source);
+    expect(await roundTrip(output)).toBe(output);
+  });
+
   it('preserves an explicit HTML line break outside fenced code', async () => {
     const output = await roundTrip('Before  \\nAfter\\n\\n> <br />\\n');
 
