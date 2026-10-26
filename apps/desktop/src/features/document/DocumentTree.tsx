@@ -12,9 +12,12 @@ import {
 } from 'lucide-react';
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
+  type FormEvent,
   type KeyboardEvent,
   type RefObject,
 } from 'react';
@@ -160,6 +163,15 @@ function DocumentTreeContent({
   'documents' | 'actionError' | 'busyIds' | 'onMove' | 'onKeepExpanded'
 >) {
   const entries = sections.flatMap((section) => section.entries);
+  // Drafts sit exactly where the created note will appear: after the target
+  // section's last entry, or after the parent's last visible descendant.
+  const topLevelSectionId = projectId ?? 'workspace';
+  const draftInSection =
+    creatingParentId === null &&
+    sections.some(({ id }) => id === topLevelSectionId);
+  const nestedDraft = creatingParentId
+    ? nestedDraftPlacement(entries, creatingParentId)
+    : null;
   const treeRef = useRef<HTMLDivElement>(null);
   useTreeLayoutAnimation(
     treeRef,
@@ -218,6 +230,7 @@ function DocumentTreeContent({
             size="sm"
             type="button"
             aria-label="New Library note"
+            data-active={creatingParentId === null || undefined}
             onClick={() => onStartCreate(null)}
           >
             <Plus aria-hidden="true" size={14} /> New note
@@ -229,10 +242,11 @@ function DocumentTreeContent({
         orientation="vertical"
         viewportProps={{ className: 'document-tree-scroll' }}
       >
-        {creatingParentId === null && (
-          <DocumentNameForm
+        {creatingParentId === null && !draftInSection && (
+          <DocumentDraftRow
             label="Note title"
             submitLabel="Create note"
+            depth={0}
             onCancel={onCancelCreate}
             onSubmit={(title) => onCreate(title, null)}
           />
@@ -290,17 +304,29 @@ function DocumentTreeContent({
                         onDownload={() => onDownload(entry.document.id)}
                       />
                     )}
-                    {creatingParentId === entry.document.id && (
-                      <DocumentNameForm
-                        label="Nested note title"
-                        submitLabel="Create nested note"
-                        depth={entry.depth + 1}
-                        onCancel={onCancelCreate}
-                        onSubmit={(title) => onCreate(title, entry.document.id)}
-                      />
-                    )}
+                    {nestedDraft?.afterId === entry.document.id &&
+                      creatingParentId && (
+                        <DocumentDraftRow
+                          label="Nested note title"
+                          submitLabel="Create nested note"
+                          depth={nestedDraft.depth}
+                          onCancel={onCancelCreate}
+                          onSubmit={(title) =>
+                            onCreate(title, creatingParentId)
+                          }
+                        />
+                      )}
                   </div>
                 ))}
+                {draftInSection && section.id === topLevelSectionId && (
+                  <DocumentDraftRow
+                    label="Note title"
+                    submitLabel="Create note"
+                    depth={0}
+                    onCancel={onCancelCreate}
+                    onSubmit={(title) => onCreate(title, null)}
+                  />
+                )}
               </section>
             ))}
           </div>
@@ -526,6 +552,135 @@ function DocumentNameForm({
       onSubmit={onSubmit}
       onCancel={onCancel}
     />
+  );
+}
+
+function nestedDraftPlacement(entries: TreeEntry[], parentId: string) {
+  const index = entries.findIndex(({ document }) => document.id === parentId);
+  const parent = entries[index];
+  if (!parent) return null;
+  let afterId = parent.document.id;
+  for (const entry of entries.slice(index + 1)) {
+    if (entry.depth <= parent.depth) break;
+    afterId = entry.document.id;
+  }
+  return { afterId, depth: parent.depth + 1 };
+}
+
+function DocumentDraftRow({
+  label,
+  submitLabel,
+  depth,
+  onSubmit,
+  onCancel,
+}: {
+  label: string;
+  submitLabel: string;
+  depth: number;
+  onSubmit: (title: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+  const composingRef = useRef(false);
+  const errorId = useId();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pendingRef.current || composingRef.current || !value.trim()) return;
+    pendingRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(value);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Library request failed',
+      );
+    } finally {
+      pendingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  function cancel() {
+    if (!pendingRef.current && !composingRef.current) onCancel();
+  }
+
+  return (
+    <form
+      className="document-draft-row"
+      style={{ '--tree-depth': depth } as CSSProperties}
+      aria-busy={submitting || undefined}
+      onSubmit={(event) => void submit(event)}
+      onKeyDown={(event) => {
+        // Keep Enter, arrows and F2 away from the tree's keyboard model.
+        event.stopPropagation();
+        if (
+          composingRef.current ||
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.keyCode === 229
+        ) {
+          if (event.key === 'Enter') event.preventDefault();
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          cancel();
+        }
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        if (!value.trim() && !error) cancel();
+      }}
+    >
+      <span className="document-draft-row-main">
+        <FilePlus2 aria-hidden="true" size={15} />
+        <input
+          autoFocus
+          required
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          maxLength={300}
+          placeholder="Untitled note"
+          value={value}
+          readOnly={submitting}
+          onChange={(event) => setValue(event.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+        />
+      </span>
+      <span className="document-draft-row-keys">
+        <button
+          type="submit"
+          aria-label={submitLabel}
+          disabled={submitting || !value.trim()}
+        >
+          ↵
+        </button>
+        <button
+          type="button"
+          aria-label="Cancel"
+          disabled={submitting}
+          onClick={cancel}
+        >
+          esc
+        </button>
+      </span>
+      {error && (
+        <p id={errorId} className="document-draft-row-error" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
   );
 }
 

@@ -1032,6 +1032,102 @@ describe('DocumentWorkspace', () => {
     ).toBeInTheDocument();
   });
 
+  it('places the new note draft where each created note will appear', async () => {
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('child', 'Vault', { parent_id: 'root' }),
+        document('grandchild', 'Index', { parent_id: 'child' }),
+        document('release', 'Release notes', { position: 1 }),
+        document('project-note', 'Project note', { project_id: 'project-1' }),
+      ]),
+    );
+    await screen.findByText('Editor root');
+    const follows = (first: Element, second: Element) =>
+      Boolean(
+        first.compareDocumentPosition(second) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    const draft = screen.getByRole('textbox', { name: 'Note title' });
+    expect(draft).toHaveFocus();
+    expect(
+      follows(screen.getByRole('treeitem', { name: 'Release notes' }), draft),
+    ).toBe(true);
+    expect(
+      follows(draft, screen.getByRole('treeitem', { name: 'Project note' })),
+    ).toBe(true);
+    fireEvent.keyDown(draft, { key: 'Escape' });
+    expect(
+      screen.queryByRole('textbox', { name: 'Note title' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add nested note' }));
+    const nested = await screen.findByRole('textbox', {
+      name: 'Nested note title',
+    });
+    expect(
+      follows(screen.getByRole('treeitem', { name: 'Index' }), nested),
+    ).toBe(true);
+    expect(
+      follows(nested, screen.getByRole('treeitem', { name: 'Release notes' })),
+    ).toBe(true);
+  });
+
+  it('closes an empty draft on blur but keeps a typed title', async () => {
+    renderWorkspace(createServer([document('root', 'Architecture')]));
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Note title' }));
+    expect(
+      screen.queryByRole('textbox', { name: 'Note title' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    const draft = screen.getByRole('textbox', { name: 'Note title' });
+    fireEvent.change(draft, { target: { value: 'Draft' } });
+    fireEvent.blur(draft);
+    expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue(
+      'Draft',
+    );
+  });
+
+  it('keeps the draft and reports a failed create', async () => {
+    const fetchMock = vi.fn((url: string, options?: RequestInit) =>
+      options?.method === 'POST'
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: { code: 'validation', message: 'Title is reserved' },
+              }),
+              { status: 422, headers: { 'content-type': 'application/json' } },
+            ),
+          )
+        : createServer([document('root', 'Architecture')])(url, options),
+    );
+    renderWorkspace(fetchMock);
+    await screen.findByText('Editor root');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Library note' }));
+    const draft = screen.getByRole('textbox', { name: 'Note title' });
+    expect(screen.getByRole('button', { name: 'Create note' })).toBeDisabled();
+    fireEvent.change(draft, { target: { value: 'Reserved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create note' }));
+
+    expect(
+      await screen.findByText('Title is reserved', {
+        selector: '.document-draft-row-error',
+      }),
+    ).toBeInTheDocument();
+    expect(draft).toHaveValue('Reserved');
+    expect(draft).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('downloads the saved Markdown from the note menu after flushing edits', async () => {
     const saved: { name: string; blob: Blob }[] = [];
     stubFileDownloads(saved);
