@@ -5853,6 +5853,9 @@ html[data-input-modality='keyboard']
 
 .document-workspace {
   --document-content-gutter: var(--space-8);
+  /* Matches .ui-native-scrollbar so the reserved gutter keeps all four
+     content edges equal whether or not the document overflows. */
+  --document-scrollbar-size: 10px;
 
   display: grid;
   min-width: 0;
@@ -6368,8 +6371,12 @@ html[data-input-modality='keyboard']
 }
 
 .markdown-editor .cm-scroller {
-  padding: var(--space-4) var(--document-content-gutter) var(--space-8);
+  padding: var(--document-content-gutter);
+  padding-right: calc(
+    var(--document-content-gutter) - var(--document-scrollbar-size)
+  );
   line-height: 1.65;
+  scrollbar-gutter: stable;
 }
 
 .markdown-editor .cm-content {
@@ -6590,6 +6597,7 @@ html[data-input-modality='keyboard']
 .milkdown-editor {
   flex: 1 1 auto;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .milkdown-crepe-editor .milkdown {
@@ -6620,13 +6628,33 @@ html[data-input-modality='keyboard']
 
 .milkdown-crepe-editor .milkdown .ProseMirror {
   min-height: 100%;
-  padding: var(--space-4) var(--document-content-gutter) var(--space-8);
+  padding: var(--document-content-gutter);
+  padding-right: calc(
+    var(--document-content-gutter) - var(--document-scrollbar-size)
+  );
   color: var(--color-text);
   background: transparent;
   font-family: var(--font-ui);
   font-size: 0.89rem;
   line-height: 1.68;
   overflow-wrap: anywhere;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror > :first-child,
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  > .markdown-block-exit:first-child
+  + * {
+  margin-top: 0;
+}
+
+.milkdown-crepe-editor .milkdown .ProseMirror > :last-child,
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  > :has(+ .markdown-block-exit:last-child) {
+  margin-bottom: 0;
 }
 
 .milkdown-crepe-editor .milkdown-code-block .cm-scroller {
