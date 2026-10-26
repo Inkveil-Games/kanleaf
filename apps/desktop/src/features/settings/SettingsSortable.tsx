@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefCallback,
 } from 'react';
-import { reorderSettingsIds } from './settingsSortable';
+import { reorderSettingsIds } from './settingsReorder';
 import { Tooltip } from '../../components/ui/Tooltip';
 
 const SortableDisabledContext = createContext(false);

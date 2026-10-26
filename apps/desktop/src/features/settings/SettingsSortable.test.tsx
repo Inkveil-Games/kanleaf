@@ -5,7 +5,7 @@ import {
   SettingsSortableProvider,
   SettingsSortableRow,
 } from './SettingsSortable';
-import { reorderSettingsIds } from './settingsSortable';
+import { reorderSettingsIds } from './settingsReorder';
 
 describe('SettingsSortable', () => {
   it('exposes the library keyboard instructions and stable reorder result', async () => {
