@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
+import { saveFile } from '../../lib/saveFile';
+import { readMarkdownDocument } from '../markdown/api';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
 import {
@@ -363,6 +365,24 @@ export function DocumentWorkspace({
     }
   }
 
+  async function downloadMarkdown(documentId: string) {
+    const target = availableDocuments.find(({ id }) => id === documentId);
+    if (!target) return;
+    await run(async () => {
+      // Flush the open editor first so the file matches the latest draft.
+      if (!(await onPrepareDocumentMutation())) return;
+      const { content } = await readMarkdownDocument({
+        ...context,
+        workspaceId,
+        target: { kind: 'page', id: documentId },
+      });
+      saveFile(
+        new Blob([content], { type: 'text/markdown;charset=utf-8' }),
+        markdownFileName(target),
+      );
+    }).catch(() => undefined);
+  }
+
   function setBusy(documentIds: ReadonlySet<string>, busy: boolean) {
     setBusyIds((current) => {
       const next = new Set(current);
@@ -475,6 +495,7 @@ export function DocumentWorkspace({
           setArchiveCandidateId(documentId);
         }}
         onDelete={setDeleteCandidateId}
+        onDownload={(documentId) => void downloadMarkdown(documentId)}
       />
 
       <AppDialog
@@ -520,6 +541,7 @@ export function DocumentWorkspace({
             onCancelArchive={() => setArchiveCandidateId(null)}
             onConfirmArchive={() => confirmArchive(selected.id)}
             onRequestDelete={() => setDeleteCandidateId(selected.id)}
+            onDownload={() => void downloadMarkdown(selected.id)}
             onBack={() => {
               void onSelectDocument(null, { replace: true });
             }}
@@ -538,6 +560,10 @@ export function DocumentWorkspace({
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Library request failed';
+}
+
+function markdownFileName(document: WorkspaceDocument) {
+  return document.library_path.split('/').pop() || `${document.title}.md`;
 }
 
 function nearestVisibleSelection(

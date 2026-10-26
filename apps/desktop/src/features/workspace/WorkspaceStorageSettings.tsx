@@ -2,6 +2,7 @@ import { Archive, Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Checkbox } from '../../components/ui/Checkbox';
+import { saveFile } from '../../lib/saveFile';
 import { SettingsArticle } from '../settings/SettingsArticle';
 import { errorMessage } from '../settings/utils';
 import type { ApiContext } from './api';
@@ -109,12 +110,7 @@ export function WorkspaceStorageSettings({
     setArchiveError(null);
     try {
       const download = await downloadWorkspaceExport(context, archive);
-      const url = URL.createObjectURL(download.blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = download.fileName ?? archive.file_name;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      saveFile(download.blob, download.fileName ?? archive.file_name);
     } catch (error) {
       setArchiveError(errorMessage(error));
     } finally {

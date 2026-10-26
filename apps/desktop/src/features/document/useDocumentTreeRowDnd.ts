@@ -10,8 +10,8 @@ export function useDocumentTreeRowDnd(document: WorkspaceDocument) {
       'Document tree rows must be rendered inside DocumentTreeDnd',
     );
   }
-  const disabled =
-    !document.can_edit || context.persisting || context.busyIds.size > 0;
+  const busy = context.persisting || context.busyIds.size > 0;
+  const disabled = !document.can_edit || busy;
   const { ref: draggableRef, handleRef } = useDraggable({
     id: document.id,
     type: 'library-document',
@@ -22,7 +22,7 @@ export function useDocumentTreeRowDnd(document: WorkspaceDocument) {
     id: document.id,
     type: 'library-document-row',
     accept: 'library-document',
-    disabled: context.persisting || context.busyIds.size > 0,
+    disabled: busy,
   });
   const ref = useCallback(
     (element: Element | null) => {
@@ -36,6 +36,7 @@ export function useDocumentTreeRowDnd(document: WorkspaceDocument) {
   return {
     ref,
     handleRef,
+    busy,
     disabled,
     isDragging: context.activeId === document.id,
     dropIntent: preview?.intent ?? null,

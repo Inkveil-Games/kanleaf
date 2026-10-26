@@ -49,6 +49,7 @@ function renderTree(
     onKeepExpanded: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
+    onDownload: vi.fn(),
     ...overrides,
   };
   render(<DocumentTree {...props} />);

@@ -2,6 +2,7 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Download,
   FilePlus2,
   FileText,
   GripVertical,
@@ -56,6 +57,7 @@ interface DocumentTreeProps {
   onKeepExpanded: (documentId: string) => void;
   onArchive: (documentId: string) => void;
   onDelete: (documentId: string) => void;
+  onDownload: (documentId: string) => void;
 }
 
 export function DocumentTree({
@@ -83,6 +85,7 @@ export function DocumentTree({
   onKeepExpanded,
   onArchive,
   onDelete,
+  onDownload,
 }: DocumentTreeProps) {
   return (
     <section
@@ -118,6 +121,7 @@ export function DocumentTree({
             onRename={onRename}
             onArchive={onArchive}
             onDelete={onDelete}
+            onDownload={onDownload}
           />
         )}
       </DocumentTreeDnd>
@@ -150,6 +154,7 @@ function DocumentTreeContent({
   onRename,
   onArchive,
   onDelete,
+  onDownload,
 }: Omit<
   DocumentTreeProps,
   'documents' | 'actionError' | 'busyIds' | 'onMove' | 'onKeepExpanded'
@@ -282,6 +287,7 @@ function DocumentTreeContent({
                         onRename={() => onStartRename(entry.document.id)}
                         onArchive={() => onArchive(entry.document.id)}
                         onDelete={() => onDelete(entry.document.id)}
+                        onDownload={() => onDownload(entry.document.id)}
                       />
                     )}
                     {creatingParentId === entry.document.id && (
@@ -378,6 +384,7 @@ function DocumentTreeRow({
   onRename,
   onArchive,
   onDelete,
+  onDownload,
 }: {
   entry: TreeEntry;
   active: boolean;
@@ -388,8 +395,9 @@ function DocumentTreeRow({
   onRename: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onDownload: () => void;
 }) {
-  const { ref, handleRef, disabled, isDragging, dropIntent } =
+  const { ref, handleRef, busy, disabled, isDragging, dropIntent } =
     useDocumentTreeRowDnd(entry.document);
   const temporaryChevron = dropIntent === 'inside' && !entry.hasChildren;
   const style = { '--tree-depth': entry.depth } as CSSProperties;
@@ -457,26 +465,35 @@ function DocumentTreeRow({
         <FileText aria-hidden="true" size={14} />
         <span>{entry.document.title}</span>
       </button>
-      {entry.document.can_edit && (
-        <DropdownMenu
-          label={`Actions for ${entry.document.title}`}
-          disabled={disabled}
-        >
-          <DropdownMenuItem onClick={onCreateChild}>
-            <FilePlus2 aria-hidden="true" size={14} /> Add nested note
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onRename}>
-            <Pencil aria-hidden="true" size={14} /> Rename
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={onArchive}>
-            <Archive aria-hidden="true" size={14} /> Archive
-          </DropdownMenuItem>
-          <DropdownMenuItem className="danger-menu-item" onClick={onDelete}>
-            <Trash2 aria-hidden="true" size={14} /> Delete permanently
-          </DropdownMenuItem>
-        </DropdownMenu>
-      )}
+      <DropdownMenu
+        label={`Actions for ${entry.document.title}`}
+        disabled={busy}
+      >
+        {entry.document.can_edit && (
+          <>
+            <DropdownMenuItem onClick={onCreateChild}>
+              <FilePlus2 aria-hidden="true" size={14} /> Add nested note
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil aria-hidden="true" size={14} /> Rename
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuItem onClick={onDownload}>
+          <Download aria-hidden="true" size={14} /> Download Markdown
+        </DropdownMenuItem>
+        {entry.document.can_edit && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onArchive}>
+              <Archive aria-hidden="true" size={14} /> Archive
+            </DropdownMenuItem>
+            <DropdownMenuItem className="danger-menu-item" onClick={onDelete}>
+              <Trash2 aria-hidden="true" size={14} /> Delete permanently
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenu>
     </div>
   );
 }

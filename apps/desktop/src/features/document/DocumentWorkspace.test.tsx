@@ -8,7 +8,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { Project } from '../workspace/types';
 import { DocumentWorkspace } from './DocumentWorkspace';
@@ -74,6 +74,10 @@ function createServer(initial: WorkspaceDocument[]) {
     .fn()
     .mockImplementation((url: string, options?: RequestInit) => {
       const method = options?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/content')) {
+        const id = url.split('/').at(-2)!;
+        return response({ content: `# ${id}\n`, revision: 'a'.repeat(64) });
+      }
       if (method === 'POST' && url.endsWith('/delete')) {
         const id = url.split('/').at(-2)!;
         const deletedIds = descendantIds(documents, id);
@@ -239,6 +243,28 @@ function renderWorkspace(
   }
   render(<Harness />);
   return { client };
+}
+
+function stubFileDownloads(saved: { name: string; blob: Blob }[]) {
+  const blobs = new Map<string, Blob>();
+  const { createObjectURL, revokeObjectURL } = URL;
+  URL.createObjectURL = (blob: Blob) => {
+    const url = `blob:test-${blobs.size}`;
+    blobs.set(url, blob);
+    return url;
+  };
+  URL.revokeObjectURL = () => undefined;
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, 'click')
+    .mockImplementation(function (this: HTMLAnchorElement) {
+      const blob = blobs.get(this.getAttribute('href') ?? '');
+      if (blob) saved.push({ name: this.download, blob });
+    });
+  onTestFinished(() => {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    click.mockRestore();
+  });
 }
 
 async function moveSelectedDocument(location: string, parent?: string) {
@@ -1006,6 +1032,78 @@ describe('DocumentWorkspace', () => {
     ).toBeInTheDocument();
   });
 
+  it('downloads the saved Markdown from the note menu after flushing edits', async () => {
+    const saved: { name: string; blob: Blob }[] = [];
+    stubFileDownloads(saved);
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(true);
+    const fetchMock = createServer([
+      document('root', 'Architecture', {
+        library_path: 'library/design/architecture.md',
+      }),
+    ]);
+    renderWorkspace(fetchMock, {
+      selectedDocumentId: 'root',
+      onPrepareDocumentMutation,
+    });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'More document actions' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Download Markdown' }),
+    );
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(onPrepareDocumentMutation).toHaveBeenCalled();
+    expect(saved[0]?.name).toBe('architecture.md');
+    expect(await saved[0]?.blob.text()).toBe('# root\n');
+  });
+
+  it('offers only Download Markdown in the tree menu of a read-only note', async () => {
+    const saved: { name: string; blob: Blob }[] = [];
+    stubFileDownloads(saved);
+    renderWorkspace(
+      createServer([document('root', 'Architecture', { can_edit: false })]),
+    );
+    await screen.findByText('Editor root');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    expect(
+      screen.getAllByRole('menuitem').map((item) => item.textContent?.trim()),
+    ).toEqual(['Download Markdown']);
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Download Markdown' }),
+    );
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]?.name).toBe('root.md');
+  });
+
+  it('does not download while the open note cannot be saved', async () => {
+    const saved: { name: string; blob: Blob }[] = [];
+    stubFileDownloads(saved);
+    const onPrepareDocumentMutation = vi.fn().mockResolvedValue(false);
+    const fetchMock = createServer([document('root', 'Architecture')]);
+    renderWorkspace(fetchMock, { onPrepareDocumentMutation });
+    await screen.findByText('Editor root');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Actions for Architecture' }),
+    );
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Download Markdown' }),
+    );
+
+    await waitFor(() => expect(onPrepareDocumentMutation).toHaveBeenCalled());
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).endsWith('/content')),
+    ).toBe(false);
+    expect(saved).toHaveLength(0);
+  });
+
   it('navigates the tree by keyboard and keeps selection through rename and nesting', async () => {
     const fetchMock = createServer([
       document('root', 'Architecture'),
@@ -1018,11 +1116,13 @@ describe('DocumentWorkspace', () => {
       name: 'Workspace Library',
     });
     expect(await screen.findByText('Editor root')).toBeInTheDocument();
-    expect(screen.queryByText('Wiki/root.md')).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'More document actions' }),
     );
-    expect(screen.getByText('Wiki/root.md')).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Download Markdown' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Wiki/root.md')).not.toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     tree.focus();
     fireEvent.keyDown(tree, { key: 'ArrowDown' });

@@ -1,4 +1,10 @@
-import { Archive, ArrowLeft, FolderInput, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  ArrowLeft,
+  Download,
+  FolderInput,
+  Trash2,
+} from 'lucide-react';
 import { lazy, Suspense, useState, type FormEvent } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { Button } from '../../components/ui/Button';
@@ -34,6 +40,7 @@ export function DocumentDetail({
   onCancelArchive,
   onConfirmArchive,
   onRequestDelete,
+  onDownload,
   onBack,
 }: {
   context: ApiContext;
@@ -48,6 +55,7 @@ export function DocumentDetail({
   onCancelArchive: () => void;
   onConfirmArchive: () => Promise<boolean | void>;
   onRequestDelete: () => void;
+  onDownload: () => void;
   onBack: () => void;
 }) {
   return (
@@ -87,13 +95,9 @@ export function DocumentDetail({
           </>
         ) : null}
         <DropdownMenu label="More document actions">
-          <div
-            className="document-file-menu-info"
-            title={document.library_path}
-          >
-            <span>File</span>
-            <code>{document.library_path}</code>
-          </div>
+          <DropdownMenuItem onClick={onDownload}>
+            <Download aria-hidden="true" size={14} /> Download Markdown
+          </DropdownMenuItem>
           {document.can_edit ? (
             <>
               <DropdownMenuSeparator />

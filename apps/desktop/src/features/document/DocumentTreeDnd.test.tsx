@@ -1,12 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { Fragment, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocumentTree } from './DocumentTree';
@@ -128,6 +121,7 @@ function renderTree(
       onKeepExpanded={onKeepExpanded}
       onArchive={vi.fn()}
       onDelete={vi.fn()}
+      onDownload={vi.fn()}
     />,
   );
   return { onKeepExpanded, onMove };
@@ -647,12 +641,17 @@ describe('DocumentWorkspace optimistic move', () => {
       ),
     );
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'More document actions' }),
+    await waitFor(() =>
+      expect(
+        client
+          .getQueryData<WorkspaceDocument[]>([
+            'documents',
+            'workspace-1',
+            'all',
+          ])
+          ?.find(({ id }) => id === 'b')?.library_path,
+      ).toBe('Wiki/server-normalized-b.md'),
     );
-    expect(
-      await screen.findByText('Wiki/server-normalized-b.md'),
-    ).toBeVisible();
     expect(onSelectDocument).not.toHaveBeenCalled();
   });
 
