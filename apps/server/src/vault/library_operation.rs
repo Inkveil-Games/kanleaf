@@ -1610,6 +1610,8 @@ fn regular_files_equal_blocking(left: &Path, right: &Path) -> Result<bool, Vault
 fn sync_directory_blocking(path: &Path) -> Result<(), VaultError> {
     #[cfg(unix)]
     std::fs::File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
