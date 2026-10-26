@@ -32,7 +32,7 @@ import { kanleafMathBlockView } from './mathBlockView';
 import { normalizeMilkdownImageTitles } from './milkdownMarkdown';
 import {
   blockBoundaryCursor,
-  placeCursorAfterBlock,
+  placeCursorAtBlockBoundary,
 } from './blockBoundaryCursor';
 import {
   useCallback,
@@ -251,7 +251,7 @@ export function MilkdownEditor({
         handleDOMEvents: {
           ...options.handleDOMEvents,
           mousedown: (view, event) =>
-            placeCursorAfterBlock(view, event) ||
+            placeCursorAtBlockBoundary(view, event) ||
             options.handleDOMEvents?.mousedown?.(view, event) ||
             false,
         },
