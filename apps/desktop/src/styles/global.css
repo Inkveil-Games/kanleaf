@@ -6258,61 +6258,11 @@ html[data-input-modality='keyboard'] .document-tree-body:focus-visible {
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: 16px minmax(0, 1fr) 20px 24px;
+  grid-template-columns: 16px minmax(0, 1fr) 24px;
   align-items: center;
   padding: 0 var(--space-1) 0 calc(var(--space-2) + var(--tree-depth) * 16px);
   border-radius: var(--radius-md);
   transition: var(--transition-hover);
-}
-
-.document-tree-drag-handle,
-.document-tree-drag-spacer {
-  grid-column: 3;
-  grid-row: 1;
-  display: grid;
-  width: 20px;
-  height: 27px;
-  padding: 0;
-  place-items: center;
-}
-
-.document-tree-drag-handle {
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  background: transparent;
-  cursor: grab;
-  opacity: 0;
-  touch-action: none;
-  transition:
-    color 120ms ease-out,
-    opacity 120ms ease-out;
-}
-
-.document-tree-row:hover .document-tree-drag-handle,
-.document-tree-row:focus-within .document-tree-drag-handle,
-.document-tree-row[data-dragging='true'] .document-tree-drag-handle {
-  opacity: 1;
-}
-
-.document-tree-drag-handle:hover:not(:disabled) {
-  color: var(--color-text);
-  background: transparent;
-}
-
-html[data-input-modality='keyboard'] .document-tree-drag-handle:focus-visible {
-  color: var(--color-text);
-  background: transparent;
-}
-
-.document-tree-drag-handle:active,
-.document-tree-row[data-dragging='true'] .document-tree-drag-handle {
-  cursor: grabbing;
-}
-
-.document-tree-drag-handle:disabled {
-  cursor: default;
-  opacity: 0.3;
 }
 
 .document-tree-toggle {
@@ -6351,62 +6301,14 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
   pointer-events: none;
 }
 
-.document-tree-ghost-chevron {
-  min-width: 13px;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
-}
-
-.document-tree-chevron-slot[data-open='true'] .document-tree-ghost-chevron {
-  opacity: 1;
-}
-
 .document-tree-row:hover,
 .document-tree-row[data-selected='true'] {
   background: var(--color-surface-hover);
 }
 
-.document-tree-row[data-dragging='true'] {
-  opacity: 0.28;
-}
-
 .document-tree-row[data-selected='true'] {
   color: var(--color-text-emphasis);
   background: var(--color-selection);
-}
-
-.document-tree-row[data-drop-intent='before']::before,
-.document-tree-row[data-drop-intent='after']::after {
-  position: absolute;
-  right: 3px;
-  left: calc(var(--tree-depth) * 16px + 24px);
-  z-index: 1;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--color-info);
-  pointer-events: none;
-  content: '';
-}
-
-.document-tree-row[data-drop-intent='before']::before {
-  top: 0;
-  transform: translateY(-50%);
-}
-
-.document-tree-row[data-drop-intent='after']::after {
-  bottom: 0;
-  transform: translateY(50%);
-}
-
-.document-tree-row[data-drop-intent='inside-pending'] {
-  background: var(--color-info-muted);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-info) 55%, transparent);
-}
-
-.document-tree-row[data-drop-intent='inside'] {
-  background: var(--color-selection);
-  box-shadow: inset 0 0 0 1px var(--color-focus);
 }
 
 .document-tree-main {
@@ -6450,7 +6352,7 @@ html[data-input-modality='keyboard'] .document-tree-toggle:focus-visible {
 }
 
 .document-tree-row > .context-menu {
-  grid-column: 4;
+  grid-column: 3;
   grid-row: 1;
 }
 
@@ -6472,38 +6374,8 @@ html[data-input-modality='keyboard']
   opacity: 1;
 }
 
-.document-drag-overlay-container {
-  z-index: 40;
-}
-
-.document-drag-overlay {
-  display: grid;
-  min-width: 180px;
-  max-width: 300px;
-  height: 31px;
-  grid-template-columns: 18px 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 4px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-popover);
-  cursor: grabbing;
-  font-size: 0.74rem;
-}
-
-.document-drag-overlay span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .document-tree-drag-handle,
-  .document-tree-toggle,
-  .document-tree-ghost-chevron {
+  .document-tree-toggle {
     transition: none;
   }
 }

@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { chooseSelectOption } from '../../test/select';
 import type { Project } from '../workspace/types';
 import { DocumentWorkspace } from './DocumentWorkspace';
-import { descendantIds, moveTreeNode } from './tree';
+import { descendantIds } from './tree';
 import type { WorkspaceDocument } from './types';
 
 vi.mock('../markdown/MarkdownDocument', () => ({
@@ -121,29 +121,6 @@ function createServer(initial: WorkspaceDocument[]) {
           candidate.id === id ? updated : candidate,
         );
         return response(updated);
-      }
-      if (method === 'PUT') {
-        const input = JSON.parse(String(options?.body)) as {
-          parent_id: string | null;
-          index: number;
-        };
-        const id = url.split('/').at(-2)!;
-        documents =
-          moveTreeNode(documents, {
-            documentId: id,
-            destination: { parentId: input.parent_id, index: input.index },
-          })?.documents ?? documents;
-        return response({
-          documents: documents.map(
-            ({ id, parent_id, position, library_path, updated_at }) => ({
-              id,
-              parent_id,
-              position,
-              library_path,
-              updated_at,
-            }),
-          ),
-        });
       }
       if (method === 'DELETE') {
         const id = url.split('/').at(-1)!;
@@ -807,7 +784,7 @@ describe('DocumentWorkspace', () => {
     expect(onSelectDocument).not.toHaveBeenCalled();
   });
 
-  it('uses drag handles without keeping Move up or Move down menu actions', async () => {
+  it('offers no drag handles or Move up and Move down actions', async () => {
     const onSelectDocument = vi.fn();
     renderWorkspace(
       createServer([
@@ -819,8 +796,8 @@ describe('DocumentWorkspace', () => {
     await screen.findByText('Editor release');
 
     expect(
-      screen.getByRole('button', { name: 'Reorder Release notes' }),
-    ).toBeInTheDocument();
+      screen.queryByRole('button', { name: /^Reorder/ }),
+    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Actions for Release notes' }),
     );
@@ -1105,6 +1082,56 @@ describe('DocumentWorkspace', () => {
     expect(
       follows(nested, screen.getByRole('treeitem', { name: 'Release notes' })),
     ).toBe(true);
+  });
+
+  it('starts New note beside the note last used in the tree', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture'),
+        document('child', 'Vault', { parent_id: 'root' }),
+        document('sibling', 'Index', { parent_id: 'root', position: 1 }),
+        document('release', 'Release notes', { position: 1 }),
+      ]),
+      { selectedDocumentId: 'child', onSelectDocument },
+    );
+    await screen.findByText('Editor child');
+    const newNote = screen.getByRole('button', { name: 'New Library note' });
+    const follows = (first: Element, second: Element) =>
+      Boolean(
+        first.compareDocumentPosition(second) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+    // An open note alone does not make New note nested.
+    fireEvent.click(newNote);
+    expect(
+      screen.getByRole('textbox', { name: 'Note title' }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Note title' }), {
+      key: 'Escape',
+    });
+
+    fireEvent.pointerDown(screen.getByRole('treeitem', { name: 'Vault' }));
+    fireEvent.pointerDown(newNote);
+    fireEvent.click(newNote);
+    const draft = screen.getByRole('textbox', { name: 'Nested note title' });
+    expect(
+      follows(screen.getByRole('treeitem', { name: 'Index' }), draft),
+    ).toBe(true);
+    expect(
+      follows(draft, screen.getByRole('treeitem', { name: 'Release notes' })),
+    ).toBe(true);
+    expect(onSelectDocument).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'root' }),
+    );
+    fireEvent.keyDown(draft, { key: 'Escape' });
+
+    fireEvent.pointerDown(screen.getByText('Editor child'));
+    fireEvent.click(newNote);
+    expect(
+      screen.getByRole('textbox', { name: 'Note title' }),
+    ).toBeInTheDocument();
   });
 
   it('closes an empty draft on blur but keeps a typed title', async () => {

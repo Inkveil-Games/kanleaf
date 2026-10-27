@@ -5,7 +5,6 @@ import {
   Download,
   FilePlus2,
   FileText,
-  GripVertical,
   Pencil,
   Plus,
   Trash2,
@@ -28,15 +27,10 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
-import { Tooltip } from '../../components/ui/Tooltip';
-import { DocumentTreeDnd } from './DocumentTreeDnd';
-import type { DocumentSection, TreeDestination, TreeEntry } from './tree';
-import type { WorkspaceDocument } from './types';
-import { useDocumentTreeRowDnd } from './useDocumentTreeRowDnd';
+import type { DocumentSection, TreeEntry } from './tree';
 
 interface DocumentTreeProps {
   sections: DocumentSection[];
-  documents: WorkspaceDocument[];
   projectId: string | null;
   selectedId: string | null;
   collapsedIds: ReadonlySet<string>;
@@ -49,14 +43,16 @@ interface DocumentTreeProps {
   busyIds: ReadonlySet<string>;
   onSelect: (documentId: string) => void;
   onToggleCollapsed: (documentId: string) => void;
-  onStartCreate: (parentId: string | null) => void;
+  /** A sibling draft keeps the selection on the note it was started from. */
+  onStartCreate: (
+    parentId: string | null,
+    options?: { keepSelection?: boolean },
+  ) => void;
   onCancelCreate: () => void;
   onCreate: (title: string, parentId: string | null) => Promise<void>;
   onStartRename: (documentId: string) => void;
   onCancelRename: () => void;
   onRename: (documentId: string, title: string) => Promise<void>;
-  onMove: (documentId: string, destination: TreeDestination) => Promise<void>;
-  onKeepExpanded: (documentId: string) => void;
   onArchive: (documentId: string) => void;
   onDelete: (documentId: string) => void;
   onDownload: (documentId: string) => void;
@@ -64,7 +60,6 @@ interface DocumentTreeProps {
 
 export function DocumentTree({
   sections,
-  documents,
   projectId,
   selectedId,
   collapsedIds,
@@ -83,8 +78,6 @@ export function DocumentTree({
   onStartRename,
   onCancelRename,
   onRename,
-  onMove,
-  onKeepExpanded,
   onArchive,
   onDelete,
   onDownload,
@@ -94,39 +87,29 @@ export function DocumentTree({
       className="collection-pane document-collection-pane"
       aria-label={projectId ? 'Project Library' : 'Workspace Library'}
     >
-      <DocumentTreeDnd
-        collapsedIds={collapsedIds}
-        documents={documents}
+      <DocumentTreeContent
         sections={sections}
+        projectId={projectId}
+        selectedId={selectedId}
+        collapsedIds={collapsedIds}
+        creatingParentId={creatingParentId}
+        renamingId={renamingId}
+        canCreate={canCreate}
+        loading={loading}
+        error={error}
         busyIds={busyIds}
-        onKeepExpanded={onKeepExpanded}
-        onMove={onMove}
-      >
-        {({ sections: visible, collapsedIds: effectiveCollapsedIds }) => (
-          <DocumentTreeContent
-            sections={visible}
-            projectId={projectId}
-            selectedId={selectedId}
-            collapsedIds={effectiveCollapsedIds}
-            creatingParentId={creatingParentId}
-            renamingId={renamingId}
-            canCreate={canCreate}
-            loading={loading}
-            error={error}
-            onSelect={onSelect}
-            onToggleCollapsed={onToggleCollapsed}
-            onStartCreate={onStartCreate}
-            onCancelCreate={onCancelCreate}
-            onCreate={onCreate}
-            onStartRename={onStartRename}
-            onCancelRename={onCancelRename}
-            onRename={onRename}
-            onArchive={onArchive}
-            onDelete={onDelete}
-            onDownload={onDownload}
-          />
-        )}
-      </DocumentTreeDnd>
+        onSelect={onSelect}
+        onToggleCollapsed={onToggleCollapsed}
+        onStartCreate={onStartCreate}
+        onCancelCreate={onCancelCreate}
+        onCreate={onCreate}
+        onStartRename={onStartRename}
+        onCancelRename={onCancelRename}
+        onRename={onRename}
+        onArchive={onArchive}
+        onDelete={onDelete}
+        onDownload={onDownload}
+      />
       {actionError && (
         <p className="document-action-error" role="alert">
           {actionError}
@@ -146,6 +129,7 @@ function DocumentTreeContent({
   canCreate,
   loading,
   error,
+  busyIds,
   onSelect,
   onToggleCollapsed,
   onStartCreate,
@@ -157,10 +141,7 @@ function DocumentTreeContent({
   onArchive,
   onDelete,
   onDownload,
-}: Omit<
-  DocumentTreeProps,
-  'documents' | 'actionError' | 'busyIds' | 'onMove' | 'onKeepExpanded'
->) {
+}: Omit<DocumentTreeProps, 'actionError' | 'outline'>) {
   const entries = sections.flatMap((section) => section.entries);
   // Drafts sit exactly where the created note will appear: after the target
   // section's last entry, or after the parent's last visible descendant.
@@ -171,6 +152,24 @@ function DocumentTreeContent({
   const nestedDraft = creatingParentId
     ? nestedDraftPlacement(entries, creatingParentId)
     : null;
+  // Like a file explorer, New note goes beside the note the user last
+  // interacted with in the tree; clicking anywhere else resets it to the top
+  // level, even though that note stays open.
+  const [contextId, setContextId] = useState<string | null>(null);
+  useEffect(() => {
+    const track = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      // The Library header holds New note, so using it keeps the context.
+      if (event.target.closest('.document-tree-header')) return;
+      const row = event.target.closest<HTMLElement>('[data-document-tree-id]');
+      setContextId(row?.dataset.documentTreeId ?? null);
+    };
+    document.addEventListener('pointerdown', track, true);
+    return () => document.removeEventListener('pointerdown', track, true);
+  }, []);
+  const siblingParentId =
+    entries.find(({ document }) => document.id === contextId)?.document
+      .parent_id ?? null;
   const treeRef = useRef<HTMLDivElement>(null);
   useTreeLayoutAnimation(
     treeRef,
@@ -215,7 +214,10 @@ function DocumentTreeContent({
     } else {
       return;
     }
-    if (nextId) onSelect(nextId);
+    if (nextId) {
+      setContextId(nextId);
+      onSelect(nextId);
+    }
     event.preventDefault();
   }
 
@@ -229,8 +231,10 @@ function DocumentTreeContent({
             size="sm"
             type="button"
             aria-label="New Library note"
-            data-active={creatingParentId === null || undefined}
-            onClick={() => onStartCreate(null)}
+            data-active={creatingParentId === siblingParentId || undefined}
+            onClick={() =>
+              onStartCreate(siblingParentId, { keepSelection: true })
+            }
           >
             <Plus aria-hidden="true" size={14} /> New note
           </Button>
@@ -300,6 +304,7 @@ function DocumentTreeContent({
                         onRename={() => onStartRename(entry.document.id)}
                         onArchive={() => onArchive(entry.document.id)}
                         onDelete={() => onDelete(entry.document.id)}
+                        busy={busyIds.size > 0}
                         onDownload={() => onDownload(entry.document.id)}
                       />
                     )}
@@ -360,12 +365,7 @@ function useTreeLayoutAnimation(
       const next = row.getBoundingClientRect();
       nextPositions.set(documentId, next);
       const previous = previousPositions.current.get(documentId);
-      if (
-        !previous ||
-        reduceMotion ||
-        row.dataset.dragging === 'true' ||
-        typeof row.animate !== 'function'
-      )
+      if (!previous || reduceMotion || typeof row.animate !== 'function')
         continue;
       const x = previous.left - next.left;
       const y = previous.top - next.top;
@@ -409,6 +409,7 @@ function DocumentTreeRow({
   onRename,
   onArchive,
   onDelete,
+  busy,
   onDownload,
 }: {
   entry: TreeEntry;
@@ -420,41 +421,17 @@ function DocumentTreeRow({
   onRename: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  busy: boolean;
   onDownload: () => void;
 }) {
-  const { ref, handleRef, busy, disabled, isDragging, dropIntent } =
-    useDocumentTreeRowDnd(entry.document);
-  const temporaryChevron = dropIntent === 'inside' && !entry.hasChildren;
   const style = { '--tree-depth': entry.depth } as CSSProperties;
   return (
     <div
-      ref={ref}
       className="document-tree-row"
       style={style}
       data-document-tree-id={entry.document.id}
       data-selected={active}
-      data-dragging={isDragging || undefined}
-      data-drop-intent={dropIntent ?? undefined}
     >
-      {entry.document.can_edit ? (
-        <Tooltip
-          label="Drag or press Space, then use arrow keys"
-          disabled={disabled}
-          trigger={
-            <button
-              ref={handleRef as (element: HTMLButtonElement | null) => void}
-              className="document-tree-drag-handle"
-              type="button"
-              aria-label={`Reorder ${entry.document.title}`}
-              disabled={disabled}
-            >
-              <GripVertical aria-hidden="true" size={14} />
-            </button>
-          }
-        />
-      ) : (
-        <span className="document-tree-drag-spacer" aria-hidden="true" />
-      )}
       {entry.hasChildren ? (
         <button
           className="document-tree-toggle"
@@ -470,13 +447,7 @@ function DocumentTreeRow({
           )}
         </button>
       ) : (
-        <span
-          className="document-tree-chevron-slot"
-          data-open={temporaryChevron}
-          aria-hidden="true"
-        >
-          <ChevronDown className="document-tree-ghost-chevron" size={13} />
-        </span>
+        <span className="document-tree-chevron-slot" aria-hidden="true" />
       )}
       <button
         className="document-tree-main"

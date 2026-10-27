@@ -11,7 +11,6 @@ import {
   createDocument,
   deleteDocument,
   listDocuments,
-  moveDocument,
   updateDocument,
 } from './api';
 import { DocumentDetail } from './DocumentDetail';
@@ -20,11 +19,9 @@ import {
   buildSections,
   descendantIds,
   isProjectEditor,
-  moveTreeNode,
   visibleSections,
-  type TreeDestination,
 } from './tree';
-import type { DocumentPatch, MovedDocument, WorkspaceDocument } from './types';
+import type { DocumentPatch, WorkspaceDocument } from './types';
 
 interface DocumentWorkspaceProps {
   context: ApiContext;
@@ -236,50 +233,6 @@ export function DocumentWorkspace({
     return true;
   }
 
-  async function moveTreeDocument(
-    documentId: string,
-    destination: TreeDestination,
-  ) {
-    const mutationIds = descendantIds(availableDocuments, documentId);
-    mutationIds.add(documentId);
-    if ([...mutationIds].some((id) => busyIds.has(id))) {
-      throw new Error('This Library note is already being changed.');
-    }
-    const snapshots = queryClient.getQueriesData<WorkspaceDocument[]>({
-      queryKey: ['documents', workspaceId],
-    });
-    setBusy(mutationIds, true);
-    setActionError(null);
-    queryClient.setQueriesData<WorkspaceDocument[]>(
-      { queryKey: ['documents', workspaceId] },
-      (current) => {
-        if (!current?.some(({ id }) => id === documentId)) return current;
-        return (
-          moveTreeNode(current, { documentId, destination })?.documents ??
-          current
-        );
-      },
-    );
-    try {
-      if (!(await onPrepareDocumentMutation())) {
-        throw new Error('Save the open note before moving it.');
-      }
-      const response = await moveDocument(context, workspaceId, documentId, {
-        parent_id: destination.parentId,
-        index: destination.index,
-      });
-      reconcileMovedDocuments(response.documents);
-    } catch (caught) {
-      for (const [key, snapshot] of snapshots) {
-        queryClient.setQueryData(key, snapshot);
-      }
-      setActionError(errorMessage(caught));
-      throw caught;
-    } finally {
-      setBusy(mutationIds, false);
-    }
-  }
-
   async function confirmArchive(documentId: string) {
     const mutationIds = descendantIds(availableDocuments, documentId);
     mutationIds.add(documentId);
@@ -394,29 +347,6 @@ export function DocumentWorkspace({
     });
   }
 
-  function reconcileMovedDocuments(authoritative: MovedDocument[]) {
-    const byId = new Map(
-      authoritative.map((document) => [document.id, document]),
-    );
-    const reconcile = (current: WorkspaceDocument) => {
-      const moved = byId.get(current.id);
-      return moved ? { ...current, ...moved } : current;
-    };
-    queryClient.setQueriesData<WorkspaceDocument[]>(
-      { queryKey: ['documents', workspaceId] },
-      (current) => current?.map(reconcile),
-    );
-    queryClient.setQueriesData<WorkspaceDocument>(
-      {
-        predicate: (query) =>
-          query.queryKey[1] === workspaceId &&
-          (query.queryKey[0] === 'document' ||
-            query.queryKey[0] === 'routed-document'),
-      },
-      (current) => (current ? reconcile(current) : current),
-    );
-  }
-
   async function toggleCollapsed(documentId: string) {
     const collapsing = !collapsedIds.has(documentId);
     if (
@@ -441,8 +371,7 @@ export function DocumentWorkspace({
   return (
     <>
       <DocumentTree
-        sections={allSections}
-        documents={availableDocuments}
+        sections={sections}
         projectId={projectId}
         selectedId={activeSelectedId}
         collapsedIds={collapsedIds}
@@ -462,10 +391,11 @@ export function DocumentWorkspace({
         onToggleCollapsed={(documentId) => {
           void toggleCollapsed(documentId);
         }}
-        onStartCreate={(parentId) => {
+        onStartCreate={(parentId, options) => {
           if (parentId) {
             const parent = documents.data?.find(({ id }) => id === parentId);
-            if (parent) void onSelectDocument(parent);
+            if (parent && !options?.keepSelection)
+              void onSelectDocument(parent);
             setCollapsedIds((current) => {
               const next = new Set(current);
               next.delete(parentId);
@@ -480,14 +410,6 @@ export function DocumentWorkspace({
         onCancelRename={() => setRenamingId(null)}
         onRename={async (documentId, title) => {
           await patchDocument(documentId, { title });
-        }}
-        onMove={moveTreeDocument}
-        onKeepExpanded={(documentId) => {
-          setCollapsedIds((current) => {
-            const next = new Set(current);
-            next.delete(documentId);
-            return next;
-          });
         }}
         onArchive={(documentId) => {
           const document = documents.data?.find(({ id }) => id === documentId);
