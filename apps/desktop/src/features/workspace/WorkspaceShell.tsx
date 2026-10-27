@@ -21,6 +21,10 @@ import { ToastProvider } from '../../components/ui/Toast';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { Wordmark } from '../../components/ui/Wordmark';
 import { useWorkspaceNotifications } from './useWorkspaceNotifications';
+import {
+  InternalLinkNavigationContext,
+  type InternalLinkNavigation,
+} from '../markdown/internalLinkContext';
 import { ApiError } from '../../lib/api/client';
 import { AccountSwitcher } from '../account/AccountSwitcher';
 import { WorkspaceSetupStep } from '../onboarding/WorkspaceSetupStep';
@@ -729,6 +733,32 @@ function WorkspaceShellContent({
       return true;
     },
     [onNavigate, prepareDocumentMutation],
+  );
+
+  const internalLinkNavigation = useMemo<InternalLinkNavigation | null>(
+    () =>
+      workspaceId
+        ? {
+            open: (entry) =>
+              void navigateSafely(
+                entry.kind === 'task'
+                  ? { kind: 'all-tasks', workspaceId, taskId: entry.id }
+                  : entry.projectId
+                    ? {
+                        kind: 'project-library',
+                        workspaceId,
+                        projectId: entry.projectId,
+                        documentId: entry.id,
+                      }
+                    : {
+                        kind: 'workspace-library',
+                        workspaceId,
+                        documentId: entry.id,
+                      },
+              ),
+          }
+        : null,
+    [navigateSafely, workspaceId],
   );
 
   const navigateTask = useCallback(
@@ -1894,431 +1924,438 @@ function WorkspaceShellContent({
   }
 
   return (
-    <main
-      ref={shellRef}
-      className={shellClassName}
-      style={shellStyle}
-      data-navigation-mode={paneLayout.navigationMode}
-    >
-      {inlineNavigationMode === 'expanded'
-        ? renderWorkspaceControl('expanded')
-        : null}
-      <WorkspaceTopBar
-        context={context}
-        onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
-          void openNotificationTask(notificationWorkspaceId, taskId)
-        }
-        onOpenInvitations={() => openAccountSettings('invitations')}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-      />
-      {renderWorkspaceNavigation(inlineNavigationMode)}
-      {paneLayout.narrow ? (
-        <WorkspaceNavigationDrawer
-          navigationWidth={paneLayout.navigationWidth}
-          open={paneLayout.navigationMode === 'drawer'}
-          finalFocus={navigationDrawerTriggerRef}
-          onOpenChange={(open) => {
-            if (!open) paneLayout.closeNavigationDrawer();
-          }}
-        >
-          {renderWorkspaceControl('drawer')}
-          {renderWorkspaceNavigation('drawer')}
-        </WorkspaceNavigationDrawer>
-      ) : null}
-      {!paneLayout.narrow && paneLayout.navigationMode === 'expanded' && (
-        <PaneResizeHandle
-          className="navigation-resize-handle"
-          label="Resize navigation"
-          value={paneLayout.navigationWidth}
-          limits={PANE_LIMITS.navigation}
-          resizeTarget={shellRef}
-          resizeProperty="--navigation-pane-width"
-          onChange={paneLayout.setNavigationWidth}
-        />
-      )}
-      {!paneLayout.narrow && collectionResizable && (
-        <PaneResizeHandle
-          className="collection-resize-handle"
-          label="Resize collection"
-          value={paneLayout.collectionWidth}
-          limits={PANE_LIMITS.collection}
-          resizeTarget={shellRef}
-          resizeProperty="--collection-pane-width"
-          onChange={paneLayout.setCollectionWidth}
-        />
-      )}
-      {visibleSurface === 'home' ? (
-        <WorkspaceHome
-          key={`${serverUrl}:${token}:${workspaceId}`}
+    <InternalLinkNavigationContext.Provider value={internalLinkNavigation}>
+      <main
+        ref={shellRef}
+        className={shellClassName}
+        style={shellStyle}
+        data-navigation-mode={paneLayout.navigationMode}
+      >
+        {inlineNavigationMode === 'expanded'
+          ? renderWorkspaceControl('expanded')
+          : null}
+        <WorkspaceTopBar
           context={context}
-          workspace={activeWorkspace}
-          displayName={user.display_name}
-          userId={user.id}
-          accessSettled={hasSettledWorkspaceAccess}
-          projects={projects.data ?? []}
-          projectsAccessSettled={projectAccessSettled}
-          projectsError={projects.error}
-          onRetryProjects={() => {
-            void projects.refetch();
-          }}
-          onNavigate={(next) => {
-            void navigateSafely(next);
-          }}
-        />
-      ) : visibleSurface === 'project-overview' && activeProject ? (
-        <ProjectOverview
-          project={activeProject}
-          joining={joiningProject}
-          onJoin={joinActiveProject}
-          onOpenWorkItems={() =>
-            selectCollection({ kind: 'project', projectId: activeProject.id })
+          onOpenNotificationTask={(notificationWorkspaceId, taskId) =>
+            void openNotificationTask(notificationWorkspaceId, taskId)
           }
-          onOpenCycles={() => openPlanning(activeProject.id, 'cycles')}
-          onOpenModules={() => openPlanning(activeProject.id, 'modules')}
-          onOpenPages={() => openDocuments(activeProject.id)}
-          onOpenViews={() => openProjectViews(activeProject.id)}
-          onOpenSettings={() => openProjectSettings(activeProject.id)}
+          onOpenInvitations={() => openAccountSettings('invitations')}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         />
-      ) : visibleSurface === 'views' && activeProject ? (
-        <ProjectViewsPane
-          project={activeProject}
-          views={projectViews.data ?? []}
-          loading={projectViews.isPending}
-          error={projectViews.error ? errorMessage(projectViews.error) : null}
-          canShare={
-            activeProject.effective_role === 'admin' ||
-            activeProject.effective_role === 'contributor'
-          }
-          onCreate={addProjectSavedView}
-          onOpen={openSavedView}
-          onRetry={() => void projectViews.refetch()}
-        />
-      ) : visibleSurface === 'documents' ? (
-        <DocumentWorkspace
-          key={`${workspaceId}:${activeProjectId ?? 'workspace'}`}
-          context={context}
-          workspaceId={workspaceId}
-          projects={projects.data ?? []}
-          projectId={activeProjectId}
-          accessSettled={
-            activeProjectId
-              ? Boolean(projectAccessSettled && activeProject?.effective_role)
-              : hasSettledContentAccess
-          }
-          canCreateWorkspaceDocuments={hasContentAccess}
-          selectedDocumentId={selectedDocumentId}
-          onSelectDocument={selectDocument}
-          onPrepareDocumentMutation={prepareDocumentMutation}
-          onInvalidSelection={rejectDocumentSelection}
-        />
-      ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
-        activeProject &&
-        (visibleSurface === 'cycles'
-          ? activeProject.cycles_enabled
-          : activeProject.modules_enabled) ? (
-        <ProjectPlanningPane
-          key={`${activeProject.id}:${visibleSurface}`}
-          context={context}
-          workspaceId={workspaceId}
-          project={activeProject}
-          accessSettled={Boolean(
-            projectAccessSettled && activeProject.effective_role,
-          )}
-          members={activeProjectMembers.data ?? []}
-          kind={visibleSurface}
-          selectedId={presentation?.planningSelectedId ?? null}
-          onSelectId={selectPlanningItem}
-          onOpenTask={openPlanningTask}
-        />
-      ) : !hasCollectionAccess ? (
-        <section className="restricted-workspace">
-          <div>
-            <p className="pane-eyebrow">Guest access</p>
-            <h1>No projects shared yet</h1>
-            <p>
-              Guests can only open projects explicitly shared with them. Ask a
-              Workspace Admin to add you to a project.
-            </p>
-            <Button
-              variant="secondary"
-              type="button"
-              onClick={() => openWorkspaceSettings('members')}
-            >
-              View Workspace members
-            </Button>
-          </div>
-        </section>
-      ) : (
-        <>
-          <TaskListPane
-            key={collectionKey}
-            collection={collection}
-            projects={projects.data ?? []}
-            states={taskConfiguration.data?.states ?? []}
-            labels={taskConfiguration.data?.labels ?? []}
-            cycles={selectedProjectCycles.data ?? []}
-            modules={selectedProjectModules.data ?? []}
-            members={viewMembers}
-            tasks={visibleTasks}
-            selectedTaskId={selectedTaskId}
-            query={taskQuery}
-            layout={taskLayout}
-            graphSettings={graphSettings}
-            onGraphSettingsChange={(settings) => {
-              if (currentTaskDraft)
-                setTaskDraft({ ...currentTaskDraft, graphSettings: settings });
+        {renderWorkspaceNavigation(inlineNavigationMode)}
+        {paneLayout.narrow ? (
+          <WorkspaceNavigationDrawer
+            navigationWidth={paneLayout.navigationWidth}
+            open={paneLayout.navigationMode === 'drawer'}
+            finalFocus={navigationDrawerTriggerRef}
+            onOpenChange={(open) => {
+              if (!open) paneLayout.closeNavigationDrawer();
             }}
-            activeView={activeView}
-            loading={tasks.isPending || tasks.isFetching}
-            error={tasks.error ? errorMessage(tasks.error) : null}
-            canCreate={canCreateTask}
-            canShareView={canShareView}
-            canManageActiveView={canManageActiveView}
-            canChangeActiveViewVisibility={canChangeActiveViewVisibility}
-            canEditTask={canEditTask}
-            onQueryChange={changeTaskQuery}
-            onLayoutChange={changeTaskLayout}
-            onSelectTask={(taskId) => navigateTask(taskId)}
-            onCreateTask={addTask}
-            onUpdateState={async (currentTask: Task, stateId) => {
-              setActionError(null);
-              try {
-                await patchTask(currentTask.id, { state_id: stateId });
-              } catch (caught) {
-                setActionError(errorMessage(caught));
-              }
-            }}
-            onPatchTask={async (taskId, patch) => {
-              setActionError(null);
-              try {
-                await patchTask(taskId, patch);
-              } catch (caught) {
-                setActionError(errorMessage(caught));
-              }
-            }}
-            onBulkUpdate={patchTasks}
-            onCreateView={addSavedView}
-            onUpdateView={patchSavedView}
-            onSaveViewConfiguration={saveViewConfiguration}
-            onDuplicateView={duplicateSavedView}
-            onDeleteView={removeSavedView}
-            onViewActionError={setActionError}
-            onRetry={() => void tasks.refetch()}
-            onClearSelection={() => navigateTask(null, true)}
+          >
+            {renderWorkspaceControl('drawer')}
+            {renderWorkspaceNavigation('drawer')}
+          </WorkspaceNavigationDrawer>
+        ) : null}
+        {!paneLayout.narrow && paneLayout.navigationMode === 'expanded' && (
+          <PaneResizeHandle
+            className="navigation-resize-handle"
+            label="Resize navigation"
+            value={paneLayout.navigationWidth}
+            limits={PANE_LIMITS.navigation}
+            resizeTarget={shellRef}
+            resizeProperty="--navigation-pane-width"
+            onChange={paneLayout.setNavigationWidth}
           />
-          {!paneLayout.narrow && selectedTaskId !== null && (
-            <PaneResizeHandle
-              className="task-detail-resize-handle"
-              label="Resize task detail"
-              value={paneLayout.taskDetailDrawerWidth}
-              limits={paneLayout.taskDetailDrawerLimits}
-              inverted
-              resizeTarget={shellRef}
-              resizeProperty="--task-detail-drawer-width"
-              onChange={paneLayout.setTaskDetailDrawerWidth}
-              onReset={paneLayout.resetTaskDetailDrawerWidth}
-            />
-          )}
-          {selectedTaskId !== null && (
-            <TaskDetailPane
-              serverUrl={serverUrl}
-              token={token}
-              workspaceId={workspaceId}
-              task={selectedTask}
+        )}
+        {!paneLayout.narrow && collectionResizable && (
+          <PaneResizeHandle
+            className="collection-resize-handle"
+            label="Resize collection"
+            value={paneLayout.collectionWidth}
+            limits={PANE_LIMITS.collection}
+            resizeTarget={shellRef}
+            resizeProperty="--collection-pane-width"
+            onChange={paneLayout.setCollectionWidth}
+          />
+        )}
+        {visibleSurface === 'home' ? (
+          <WorkspaceHome
+            key={`${serverUrl}:${token}:${workspaceId}`}
+            context={context}
+            workspace={activeWorkspace}
+            displayName={user.display_name}
+            userId={user.id}
+            accessSettled={hasSettledWorkspaceAccess}
+            projects={projects.data ?? []}
+            projectsAccessSettled={projectAccessSettled}
+            projectsError={projects.error}
+            onRetryProjects={() => {
+              void projects.refetch();
+            }}
+            onNavigate={(next) => {
+              void navigateSafely(next);
+            }}
+          />
+        ) : visibleSurface === 'project-overview' && activeProject ? (
+          <ProjectOverview
+            project={activeProject}
+            joining={joiningProject}
+            onJoin={joinActiveProject}
+            onOpenWorkItems={() =>
+              selectCollection({ kind: 'project', projectId: activeProject.id })
+            }
+            onOpenCycles={() => openPlanning(activeProject.id, 'cycles')}
+            onOpenModules={() => openPlanning(activeProject.id, 'modules')}
+            onOpenPages={() => openDocuments(activeProject.id)}
+            onOpenViews={() => openProjectViews(activeProject.id)}
+            onOpenSettings={() => openProjectSettings(activeProject.id)}
+          />
+        ) : visibleSurface === 'views' && activeProject ? (
+          <ProjectViewsPane
+            project={activeProject}
+            views={projectViews.data ?? []}
+            loading={projectViews.isPending}
+            error={projectViews.error ? errorMessage(projectViews.error) : null}
+            canShare={
+              activeProject.effective_role === 'admin' ||
+              activeProject.effective_role === 'contributor'
+            }
+            onCreate={addProjectSavedView}
+            onOpen={openSavedView}
+            onRetry={() => void projectViews.refetch()}
+          />
+        ) : visibleSurface === 'documents' ? (
+          <DocumentWorkspace
+            key={`${workspaceId}:${activeProjectId ?? 'workspace'}`}
+            context={context}
+            workspaceId={workspaceId}
+            projects={projects.data ?? []}
+            projectId={activeProjectId}
+            accessSettled={
+              activeProjectId
+                ? Boolean(projectAccessSettled && activeProject?.effective_role)
+                : hasSettledContentAccess
+            }
+            canCreateWorkspaceDocuments={hasContentAccess}
+            selectedDocumentId={selectedDocumentId}
+            onSelectDocument={selectDocument}
+            onPrepareDocumentMutation={prepareDocumentMutation}
+            onInvalidSelection={rejectDocumentSelection}
+          />
+        ) : (visibleSurface === 'cycles' || visibleSurface === 'modules') &&
+          activeProject &&
+          (visibleSurface === 'cycles'
+            ? activeProject.cycles_enabled
+            : activeProject.modules_enabled) ? (
+          <ProjectPlanningPane
+            key={`${activeProject.id}:${visibleSurface}`}
+            context={context}
+            workspaceId={workspaceId}
+            project={activeProject}
+            accessSettled={Boolean(
+              projectAccessSettled && activeProject.effective_role,
+            )}
+            members={activeProjectMembers.data ?? []}
+            kind={visibleSurface}
+            selectedId={presentation?.planningSelectedId ?? null}
+            onSelectId={selectPlanningItem}
+            onOpenTask={openPlanningTask}
+          />
+        ) : !hasCollectionAccess ? (
+          <section className="restricted-workspace">
+            <div>
+              <p className="pane-eyebrow">Guest access</p>
+              <h1>No projects shared yet</h1>
+              <p>
+                Guests can only open projects explicitly shared with them. Ask a
+                Workspace Admin to add you to a project.
+              </p>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => openWorkspaceSettings('members')}
+              >
+                View Workspace members
+              </Button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <TaskListPane
+              key={collectionKey}
+              collection={collection}
               projects={projects.data ?? []}
               states={taskConfiguration.data?.states ?? []}
               labels={taskConfiguration.data?.labels ?? []}
               cycles={selectedProjectCycles.data ?? []}
               modules={selectedProjectModules.data ?? []}
-              assigneeCandidates={
-                selectedProjectId
-                  ? (selectedProjectMembers.data ?? [])
-                  : (workspaceMembers.data ?? []).filter(
-                      ({ role }) => role !== 'guest',
-                    )
-              }
-              taskCandidates={visibleTasks}
-              loading={Boolean(selectedTaskId) && task.isPending}
-              error={task.error ? errorMessage(task.error) : null}
-              canEdit={selectedTask ? canEditTask(selectedTask) : false}
-              canManageProperties={
-                activeWorkspace.role === 'owner' ||
-                activeWorkspace.role === 'admin'
-              }
-              customProperties={customProperties.data ?? []}
-              customPropertiesLoading={customProperties.isPending}
-              customPropertiesError={
-                customProperties.error
-                  ? errorMessage(customProperties.error)
-                  : null
-              }
-              onRetryCustomProperties={() => void customProperties.refetch()}
-              undefinedProperties={undefinedTaskProperties.data ?? []}
-              undefinedPropertiesLoading={undefinedTaskProperties.isPending}
-              undefinedPropertiesError={
-                undefinedTaskProperties.error
-                  ? errorMessage(undefinedTaskProperties.error)
-                  : null
-              }
-              onRetryUndefinedProperties={() =>
-                void undefinedTaskProperties.refetch()
-              }
-              currentUserId={user.id}
-              canComment={selectedTask ? canCommentTask(selectedTask) : false}
-              canModerate={selectedTask ? canModerateTask(selectedTask) : false}
-              onPatch={(patch) => patchTask(selectedTaskId!, patch)}
-              onCustomPropertyChange={(propertyId, value) =>
-                changeTaskProperty(selectedTaskId!, propertyId, value)
-              }
-              onDefineProperty={async (name) => {
-                if (!workspaceId) return;
+              members={viewMembers}
+              tasks={visibleTasks}
+              selectedTaskId={selectedTaskId}
+              query={taskQuery}
+              layout={taskLayout}
+              graphSettings={graphSettings}
+              onGraphSettingsChange={(settings) => {
+                if (currentTaskDraft)
+                  setTaskDraft({
+                    ...currentTaskDraft,
+                    graphSettings: settings,
+                  });
+              }}
+              activeView={activeView}
+              loading={tasks.isPending || tasks.isFetching}
+              error={tasks.error ? errorMessage(tasks.error) : null}
+              canCreate={canCreateTask}
+              canShareView={canShareView}
+              canManageActiveView={canManageActiveView}
+              canChangeActiveViewVisibility={canChangeActiveViewVisibility}
+              canEditTask={canEditTask}
+              onQueryChange={changeTaskQuery}
+              onLayoutChange={changeTaskLayout}
+              onSelectTask={(taskId) => navigateTask(taskId)}
+              onCreateTask={addTask}
+              onUpdateState={async (currentTask: Task, stateId) => {
                 setActionError(null);
                 try {
-                  await flushDocumentSaves();
-                  onNavigate({
-                    kind: 'workspace-settings',
-                    workspaceId,
-                    section: 'properties',
-                    detail: 'new',
-                    definePropertyName: name,
-                    returnTo: presentation?.content ?? null,
-                  });
+                  await patchTask(currentTask.id, { state_id: stateId });
                 } catch (caught) {
                   setActionError(errorMessage(caught));
                 }
               }}
-              onArchive={removeTask}
-              onDelete={permanentlyDeleteTask}
-              onAddRelation={addRelation}
-              onRemoveRelation={removeRelation}
-              onOpenTask={(taskId) => navigateTask(taskId)}
-              onClose={() => navigateTask(null, true)}
-              onRetry={() => void task.refetch()}
-            />
-          )}
-        </>
-      )}
-      {location?.kind === 'account-settings' &&
-        isAccountSettingsSection(location.section) && (
-          <SettingsDialog label="Account settings" onClose={closeSettings}>
-            <AccountSettingsShell
-              context={context}
-              user={user}
-              section={location.section}
-              onSectionChange={changeAccountSettingsSection}
-              onWorkspaceJoined={finishWorkspaceJoin}
-              onClose={closeSettings}
-              onDeleteAccount={onDeleteAccount}
-            />
-          </SettingsDialog>
-        )}
-      {importDialogOpen && (
-        <WorkspaceImportDialog
-          context={context}
-          onApplyImport={applyWorkspaceImportIntent}
-          onClose={() => setImportDialogOpen(false)}
-        />
-      )}
-      {hasSettledWorkspaceAccess &&
-        location?.kind === 'workspace-settings' &&
-        isWorkspaceSettingsSection(location.section) && (
-          <SettingsDialog
-            label={`${activeWorkspace.name} Workspace settings`}
-            onClose={closeSettings}
-          >
-            <WorkspaceSettingsShell
-              context={context}
-              user={user}
-              workspace={activeWorkspace}
-              workspaceCount={workspaces.data?.length ?? 0}
-              onOpenDeveloperConsole={() => {
-                void flushDocumentSaves()
-                  .then(() => onOpenDeveloperConsole?.(activeWorkspace.id))
-                  .catch((caught) => setActionError(errorMessage(caught)));
-              }}
-              section={location.section}
-              detail={location.detail}
-              definePropertyName={location.definePropertyName}
-              onSectionChange={changeWorkspaceSettingsSection}
-              onDetailChange={changeWorkspaceSettingsDetail}
-              onClose={closeSettings}
-              onWorkspaceUpdated={refreshWorkspace}
-              onConfigurationUpdated={refreshTaskConfiguration}
-              onProjectsChanged={async () => {
-                await queryClient.invalidateQueries({
-                  queryKey: ['projects', workspaceId],
-                });
-              }}
-              onRemoveWorkspace={removeWorkspaceIntent}
-            />
-          </SettingsDialog>
-        )}
-      {location?.kind === 'project-settings' &&
-        isProjectSettingsSection(location.section) &&
-        activeProject && (
-          <SettingsDialog
-            label={`${activeProject.name} Project settings`}
-            onClose={closeSettings}
-          >
-            <ProjectSettings
-              context={context}
-              workspace={activeWorkspace}
-              project={activeProject}
-              userId={user.id}
-              accessSettled={Boolean(
-                projectAccessSettled && activeProject.effective_role,
-              )}
-              configuration={
-                taskConfiguration.data ?? {
-                  states: [],
-                  labels: [],
-                  default_state_id: activeProject.default_state_id,
-                  default_priority: 'none',
-                  default_start_date: null,
-                  default_due_date: null,
-                  state_property_description: '',
-                  default_label_ids: [],
-                  label_property_description: '',
+              onPatchTask={async (taskId, patch) => {
+                setActionError(null);
+                try {
+                  await patchTask(taskId, patch);
+                } catch (caught) {
+                  setActionError(errorMessage(caught));
                 }
-              }
-              section={location.section}
-              onSectionChange={changeProjectSettingsSection}
-              onClose={closeSettings}
-              onUpdated={refreshProject}
-              onRemoved={refreshAfterProjectRemoval}
+              }}
+              onBulkUpdate={patchTasks}
+              onCreateView={addSavedView}
+              onUpdateView={patchSavedView}
+              onSaveViewConfiguration={saveViewConfiguration}
+              onDuplicateView={duplicateSavedView}
+              onDeleteView={removeSavedView}
+              onViewActionError={setActionError}
+              onRetry={() => void tasks.refetch()}
+              onClearSelection={() => navigateTask(null, true)}
             />
-          </SettingsDialog>
+            {!paneLayout.narrow && selectedTaskId !== null && (
+              <PaneResizeHandle
+                className="task-detail-resize-handle"
+                label="Resize task detail"
+                value={paneLayout.taskDetailDrawerWidth}
+                limits={paneLayout.taskDetailDrawerLimits}
+                inverted
+                resizeTarget={shellRef}
+                resizeProperty="--task-detail-drawer-width"
+                onChange={paneLayout.setTaskDetailDrawerWidth}
+                onReset={paneLayout.resetTaskDetailDrawerWidth}
+              />
+            )}
+            {selectedTaskId !== null && (
+              <TaskDetailPane
+                serverUrl={serverUrl}
+                token={token}
+                workspaceId={workspaceId}
+                task={selectedTask}
+                projects={projects.data ?? []}
+                states={taskConfiguration.data?.states ?? []}
+                labels={taskConfiguration.data?.labels ?? []}
+                cycles={selectedProjectCycles.data ?? []}
+                modules={selectedProjectModules.data ?? []}
+                assigneeCandidates={
+                  selectedProjectId
+                    ? (selectedProjectMembers.data ?? [])
+                    : (workspaceMembers.data ?? []).filter(
+                        ({ role }) => role !== 'guest',
+                      )
+                }
+                taskCandidates={visibleTasks}
+                loading={Boolean(selectedTaskId) && task.isPending}
+                error={task.error ? errorMessage(task.error) : null}
+                canEdit={selectedTask ? canEditTask(selectedTask) : false}
+                canManageProperties={
+                  activeWorkspace.role === 'owner' ||
+                  activeWorkspace.role === 'admin'
+                }
+                customProperties={customProperties.data ?? []}
+                customPropertiesLoading={customProperties.isPending}
+                customPropertiesError={
+                  customProperties.error
+                    ? errorMessage(customProperties.error)
+                    : null
+                }
+                onRetryCustomProperties={() => void customProperties.refetch()}
+                undefinedProperties={undefinedTaskProperties.data ?? []}
+                undefinedPropertiesLoading={undefinedTaskProperties.isPending}
+                undefinedPropertiesError={
+                  undefinedTaskProperties.error
+                    ? errorMessage(undefinedTaskProperties.error)
+                    : null
+                }
+                onRetryUndefinedProperties={() =>
+                  void undefinedTaskProperties.refetch()
+                }
+                currentUserId={user.id}
+                canComment={selectedTask ? canCommentTask(selectedTask) : false}
+                canModerate={
+                  selectedTask ? canModerateTask(selectedTask) : false
+                }
+                onPatch={(patch) => patchTask(selectedTaskId!, patch)}
+                onCustomPropertyChange={(propertyId, value) =>
+                  changeTaskProperty(selectedTaskId!, propertyId, value)
+                }
+                onDefineProperty={async (name) => {
+                  if (!workspaceId) return;
+                  setActionError(null);
+                  try {
+                    await flushDocumentSaves();
+                    onNavigate({
+                      kind: 'workspace-settings',
+                      workspaceId,
+                      section: 'properties',
+                      detail: 'new',
+                      definePropertyName: name,
+                      returnTo: presentation?.content ?? null,
+                    });
+                  } catch (caught) {
+                    setActionError(errorMessage(caught));
+                  }
+                }}
+                onArchive={removeTask}
+                onDelete={permanentlyDeleteTask}
+                onAddRelation={addRelation}
+                onRemoveRelation={removeRelation}
+                onOpenTask={(taskId) => navigateTask(taskId)}
+                onClose={() => navigateTask(null, true)}
+                onRetry={() => void task.refetch()}
+              />
+            )}
+          </>
         )}
-      {commandPaletteOpen && (
-        <CommandPalette
-          context={context}
-          workspaceId={workspaceId}
-          projects={projects.data ?? []}
-          canUseWorkspaceContent={hasContentAccess}
-          onClose={() => setCommandPaletteOpen(false)}
-          onOpenCollection={selectCollection}
-          onOpenProject={openProjectOverview}
-          onOpenTask={openCommandTask}
-          onOpenDocument={openCommandDocument}
-          onOpenLibrary={() => openDocuments(null)}
-          onOpenAccountSettings={() => openAccountSettings('profile')}
-          onOpenWorkspaceSettings={() => openWorkspaceSettings('general')}
+        {location?.kind === 'account-settings' &&
+          isAccountSettingsSection(location.section) && (
+            <SettingsDialog label="Account settings" onClose={closeSettings}>
+              <AccountSettingsShell
+                context={context}
+                user={user}
+                section={location.section}
+                onSectionChange={changeAccountSettingsSection}
+                onWorkspaceJoined={finishWorkspaceJoin}
+                onClose={closeSettings}
+                onDeleteAccount={onDeleteAccount}
+              />
+            </SettingsDialog>
+          )}
+        {importDialogOpen && (
+          <WorkspaceImportDialog
+            context={context}
+            onApplyImport={applyWorkspaceImportIntent}
+            onClose={() => setImportDialogOpen(false)}
+          />
+        )}
+        {hasSettledWorkspaceAccess &&
+          location?.kind === 'workspace-settings' &&
+          isWorkspaceSettingsSection(location.section) && (
+            <SettingsDialog
+              label={`${activeWorkspace.name} Workspace settings`}
+              onClose={closeSettings}
+            >
+              <WorkspaceSettingsShell
+                context={context}
+                user={user}
+                workspace={activeWorkspace}
+                workspaceCount={workspaces.data?.length ?? 0}
+                onOpenDeveloperConsole={() => {
+                  void flushDocumentSaves()
+                    .then(() => onOpenDeveloperConsole?.(activeWorkspace.id))
+                    .catch((caught) => setActionError(errorMessage(caught)));
+                }}
+                section={location.section}
+                detail={location.detail}
+                definePropertyName={location.definePropertyName}
+                onSectionChange={changeWorkspaceSettingsSection}
+                onDetailChange={changeWorkspaceSettingsDetail}
+                onClose={closeSettings}
+                onWorkspaceUpdated={refreshWorkspace}
+                onConfigurationUpdated={refreshTaskConfiguration}
+                onProjectsChanged={async () => {
+                  await queryClient.invalidateQueries({
+                    queryKey: ['projects', workspaceId],
+                  });
+                }}
+                onRemoveWorkspace={removeWorkspaceIntent}
+              />
+            </SettingsDialog>
+          )}
+        {location?.kind === 'project-settings' &&
+          isProjectSettingsSection(location.section) &&
+          activeProject && (
+            <SettingsDialog
+              label={`${activeProject.name} Project settings`}
+              onClose={closeSettings}
+            >
+              <ProjectSettings
+                context={context}
+                workspace={activeWorkspace}
+                project={activeProject}
+                userId={user.id}
+                accessSettled={Boolean(
+                  projectAccessSettled && activeProject.effective_role,
+                )}
+                configuration={
+                  taskConfiguration.data ?? {
+                    states: [],
+                    labels: [],
+                    default_state_id: activeProject.default_state_id,
+                    default_priority: 'none',
+                    default_start_date: null,
+                    default_due_date: null,
+                    state_property_description: '',
+                    default_label_ids: [],
+                    label_property_description: '',
+                  }
+                }
+                section={location.section}
+                onSectionChange={changeProjectSettingsSection}
+                onClose={closeSettings}
+                onUpdated={refreshProject}
+                onRemoved={refreshAfterProjectRemoval}
+              />
+            </SettingsDialog>
+          )}
+        {commandPaletteOpen && (
+          <CommandPalette
+            context={context}
+            workspaceId={workspaceId}
+            projects={projects.data ?? []}
+            canUseWorkspaceContent={hasContentAccess}
+            onClose={() => setCommandPaletteOpen(false)}
+            onOpenCollection={selectCollection}
+            onOpenProject={openProjectOverview}
+            onOpenTask={openCommandTask}
+            onOpenDocument={openCommandDocument}
+            onOpenLibrary={() => openDocuments(null)}
+            onOpenAccountSettings={() => openAccountSettings('profile')}
+            onOpenWorkspaceSettings={() => openWorkspaceSettings('general')}
+          />
+        )}
+        <AppDialog
+          open={deleteViewTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteViewTarget(null);
+          }}
+          type="confirm"
+          variant="danger"
+          title={`Delete the View “${deleteViewTarget?.name ?? ''}”?`}
+          description="This removes the saved View configuration. It does not delete its Tasks."
+          confirmLabel="Delete View"
+          loadingLabel="Deleting…"
+          onConfirm={confirmRemoveSavedView}
         />
-      )}
-      <AppDialog
-        open={deleteViewTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteViewTarget(null);
-        }}
-        type="confirm"
-        variant="danger"
-        title={`Delete the View “${deleteViewTarget?.name ?? ''}”?`}
-        description="This removes the saved View configuration. It does not delete its Tasks."
-        confirmLabel="Delete View"
-        loadingLabel="Deleting…"
-        onConfirm={confirmRemoveSavedView}
-      />
-    </main>
+      </main>
+    </InternalLinkNavigationContext.Provider>
   );
 }
 

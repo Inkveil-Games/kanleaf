@@ -6,6 +6,7 @@ import {
   useEffect,
   useContext,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type ComponentProps,
   type InputHTMLAttributes,
@@ -23,11 +24,18 @@ import { mathOptions } from './markdownExtensions';
 import { remarkSmartPunctuation } from './smartPunctuation';
 import { MermaidDiagram } from './MermaidDiagram';
 import { readMarkdownAsset, type DocumentContext } from './api';
+import type { InternalLinkController } from './internalLinkController';
+import {
+  internalLinkLabel,
+  parseInternalLink,
+  remarkInternalLinks,
+} from './internalLinks';
 
 interface MarkdownPreviewProps {
   content: string;
   onTaskToggle?: (content: string) => void;
   assetContext?: DocumentContext;
+  internalLinks?: InternalLinkController;
 }
 
 interface TaskMarker {
@@ -45,10 +53,13 @@ const MarkdownTaskContext = createContext<MarkdownTaskContextValue | null>(
 );
 const MarkdownAssetContext = createContext<DocumentContext | null>(null);
 
+const InternalLinkContext = createContext<InternalLinkController | null>(null);
+
 export function MarkdownPreview({
   content,
   onTaskToggle,
   assetContext,
+  internalLinks,
 }: MarkdownPreviewProps) {
   if (!content.trim()) {
     return (
@@ -60,67 +71,107 @@ export function MarkdownPreview({
 
   return (
     <article className="markdown-preview">
-      <MarkdownAssetContext.Provider value={assetContext ?? null}>
-        <MarkdownTaskContext.Provider value={{ content, onTaskToggle }}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath, remarkSmartPunctuation]}
-            rehypePlugins={[[rehypeKatex, mathOptions]]}
-            skipHtml
-            urlTransform={(url, key) =>
-              key === 'src' &&
-              /^kanleaf-asset:\/\/images\/[0-9a-f-]+\.(?:png|jpg|gif|webp)$/.test(
-                url,
-              )
-                ? url
-                : defaultUrlTransform(url)
-            }
-            components={{
-              a: ({ children, ...props }) => (
-                <a {...props} target="_blank" rel="noreferrer noopener">
-                  {children}
-                </a>
-              ),
-              pre: ({ className, children, ...props }) => {
-                const child = Children.toArray(children)[0];
-                if (
-                  isValidElement<{ className?: string; children?: ReactNode }>(
-                    child,
-                  ) &&
-                  child.props.className === 'language-mermaid'
-                ) {
+      <InternalLinkContext.Provider value={internalLinks ?? null}>
+        <MarkdownAssetContext.Provider value={assetContext ?? null}>
+          <MarkdownTaskContext.Provider value={{ content, onTaskToggle }}>
+            <ReactMarkdown
+              remarkPlugins={[
+                remarkGfm,
+                remarkMath,
+                remarkSmartPunctuation,
+                remarkInternalLinks,
+              ]}
+              rehypePlugins={[[rehypeKatex, mathOptions]]}
+              skipHtml
+              urlTransform={(url, key) =>
+                key === 'src' &&
+                /^kanleaf-asset:\/\/images\/[0-9a-f-]+\.(?:png|jpg|gif|webp)$/.test(
+                  url,
+                )
+                  ? url
+                  : defaultUrlTransform(url)
+              }
+              components={{
+                a: ({ children, node, ...props }) => {
+                  void node;
+                  const raw = (props as Record<string, unknown>)[
+                    'data-internal-link'
+                  ];
+                  if (typeof raw === 'string') {
+                    return <InternalLinkChip raw={raw} />;
+                  }
                   return (
-                    <MermaidDiagram
-                      source={String(child.props.children ?? '').replace(
-                        /\n$/,
-                        '',
-                      )}
-                    />
+                    <a {...props} target="_blank" rel="noreferrer noopener">
+                      {children}
+                    </a>
                   );
-                }
-                return (
-                  <pre
+                },
+                pre: ({ className, children, ...props }) => {
+                  const child = Children.toArray(children)[0];
+                  if (
+                    isValidElement<{
+                      className?: string;
+                      children?: ReactNode;
+                    }>(child) &&
+                    child.props.className === 'language-mermaid'
+                  ) {
+                    return (
+                      <MermaidDiagram
+                        source={String(child.props.children ?? '').replace(
+                          /\n$/,
+                          '',
+                        )}
+                      />
+                    );
+                  }
+                  return (
+                    <pre
+                      {...props}
+                      className={nativeScrollbarClassName(className)}
+                    >
+                      {children}
+                    </pre>
+                  );
+                },
+                table: ({ className, ...props }) => (
+                  <table
                     {...props}
                     className={nativeScrollbarClassName(className)}
-                  >
-                    {children}
-                  </pre>
-                );
-              },
-              table: ({ className, ...props }) => (
-                <table
-                  {...props}
-                  className={nativeScrollbarClassName(className)}
-                />
-              ),
-              li: MarkdownListItem,
-              img: MarkdownImage,
-            }}
-          >
-            {content}
-          </ReactMarkdown>
-        </MarkdownTaskContext.Provider>
-      </MarkdownAssetContext.Provider>
+                  />
+                ),
+                li: MarkdownListItem,
+                img: MarkdownImage,
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          </MarkdownTaskContext.Provider>
+        </MarkdownAssetContext.Provider>
+      </InternalLinkContext.Provider>
     </article>
+  );
+}
+
+function InternalLinkChip({ raw }: { raw: string }) {
+  const controller = useContext(InternalLinkContext);
+  const index = useSyncExternalStore(
+    (listener) => controller?.subscribe(listener) ?? (() => undefined),
+    () => controller?.index ?? null,
+  );
+  const parts = parseInternalLink(raw);
+  const entry = parts && index ? index.resolve(parts.target) : null;
+  const label = parts ? internalLinkLabel(parts, entry) : raw;
+  if (!controller) return <span className="internal-link">{label}</span>;
+  return (
+    <button
+      type="button"
+      className="internal-link"
+      data-broken={Boolean(index && !entry)}
+      title={entry ? raw : `${raw} — no page or Task with this name`}
+      onClick={() => controller.onOpen(raw)}
+    >
+      {label}
+    </button>
   );
 }
 

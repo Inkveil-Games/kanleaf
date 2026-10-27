@@ -3,6 +3,7 @@ import '@milkdown/crepe/theme/common/style.css';
 import { $prose, insert, replaceAll } from '@milkdown/kit/utils';
 import { Plugin, type EditorState } from '@milkdown/kit/prose/state';
 import { editorViewOptionsCtx, serializerCtx } from '@milkdown/kit/core';
+import { blockConfig } from '@milkdown/kit/plugin/block';
 import {
   captureMilkdownViewport,
   restoreMilkdownViewport,
@@ -30,6 +31,8 @@ import { smartPunctuationPlugin } from './milkdownSmartPunctuation';
 import { kanleafMarkdownTheme } from './markdownEditorTheme';
 import { kanleafMathBlockView } from './mathBlockView';
 import { normalizeMilkdownImageTitles } from './milkdownMarkdown';
+import { milkdownInternalLinks } from './milkdownInternalLinks';
+import type { InternalLinkController } from './internalLinkController';
 import {
   blockBoundaryCursor,
   placeCursorAtBlockBoundary,
@@ -52,6 +55,7 @@ interface MilkdownEditorProps {
   onChange: (markdown: string) => void;
   uploadImage: (file: File) => Promise<string>;
   resolveAsset: (reference: string) => Promise<string>;
+  internalLinks?: InternalLinkController;
 }
 
 export function MilkdownEditor({
@@ -61,6 +65,7 @@ export function MilkdownEditor({
   onChange,
   uploadImage,
   resolveAsset,
+  internalLinks,
 }: MilkdownEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const crepeRef = useRef<Crepe | null>(null);
@@ -245,6 +250,11 @@ export function MilkdownEditor({
       },
     });
     crepe.editor.config((ctx) => {
+      // Hovering an inline atom such as an internal link resolves to that
+      // node; rejecting it makes the block handle climb to the line's block.
+      ctx.update(blockConfig.key, ({ filterNodes }) => ({
+        filterNodes: (pos, node) => !node.isInline && filterNodes(pos, node),
+      }));
       ctx.update(editorViewOptionsCtx, (options) => ({
         ...options,
         attributes: { spellcheck: 'false' },
@@ -261,6 +271,7 @@ export function MilkdownEditor({
     crepe.editor.use(blockBoundaryCursor);
     crepe.editor.use(kanleafMathBlockView);
     crepe.editor.use(smartPunctuationPlugin);
+    if (internalLinks) crepe.editor.use(milkdownInternalLinks(internalLinks));
     crepe.editor.use(
       $prose(
         (ctx) =>
@@ -316,7 +327,7 @@ export function MilkdownEditor({
       void crepe.destroy();
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [onUpload, resolveAsset]);
+  }, [onUpload, resolveAsset, internalLinks]);
 
   useEffect(() => {
     const crepe = crepeRef.current;

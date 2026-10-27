@@ -2,6 +2,7 @@ import {
   Bold,
   Braces,
   Code,
+  FileSymlink,
   Image,
   Italic,
   Link,
@@ -23,6 +24,7 @@ export type EditorAction =
   | 'strike'
   | 'inlineCode'
   | 'link'
+  | 'internalLink'
   | 'bullet'
   | 'ordered'
   | 'checklist'
@@ -42,6 +44,7 @@ const controls = [
   { action: 'strike', label: 'Strikethrough', Icon: Strikethrough },
   { action: 'inlineCode', label: 'Inline code', Icon: Code },
   { action: 'link', label: 'Link', Icon: Link },
+  { action: 'internalLink', label: 'Link to page or Task', Icon: FileSymlink },
   { action: 'bullet', label: 'Bullet list', Icon: List },
   { action: 'ordered', label: 'Ordered list', Icon: ListOrdered },
   { action: 'checklist', label: 'Checklist', Icon: ListChecks },
@@ -88,7 +91,7 @@ export function MarkdownEditorToolbar({
         <span
           key={action}
           className={
-            index === 0 || index === 5 || index === 8
+            index === 0 || index === 6 || index === 9
               ? 'toolbar-group-start'
               : undefined
           }

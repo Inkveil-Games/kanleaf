@@ -11,6 +11,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DocumentSaveCoordinator } from './DocumentSaveCoordinator';
 import { MarkdownDocument } from './MarkdownDocument';
 
+// The link index has its own data source; these tests count document requests.
+vi.mock('./internalLinkContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./internalLinkContext')>()),
+  useInternalLinkIndex: () => null,
+}));
+
 vi.mock('@uiw/react-codemirror', () => ({
   default: (props: {
     value: string;

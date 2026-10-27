@@ -117,6 +117,11 @@ export function applyEditorAction(ctx: Ctx, action: EditorAction) {
     case 'link':
       commands.call(toggleLinkCommand.key);
       break;
+    case 'internalLink':
+      // Typing `[[` opens the shared page/Task picker at the caret.
+      view.dispatch(view.state.tr.insertText('[['));
+      view.focus();
+      break;
     case 'bullet':
       if (editorToolbarState(view.state).active.includes('bullet')) {
         commands.call(liftListItemCommand.key);

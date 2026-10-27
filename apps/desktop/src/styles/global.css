@@ -5935,6 +5935,269 @@ html[data-input-modality='keyboard']
   gap: 6px;
 }
 
+.internal-link {
+  display: inline;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-accent-strong);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: var(--transition-hover);
+}
+
+.internal-link:hover,
+.internal-link:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.internal-link[data-broken='true'] {
+  color: var(--color-text-muted);
+  background: transparent;
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+
+.internal-link-chip {
+  position: relative;
+}
+
+.ProseMirror-selectednode > .internal-link {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+/* The pencil floats just past the link's right edge on the same row. An
+   invisible bridge spans the gap so the pointer can travel from the link onto
+   it without leaving the hovered chip; until the chip is hovered it ignores
+   the pointer, so approaching from elsewhere never reveals it. Scoped under
+   .milkdown to outrank Crepe's `.milkdown button` reset. */
+.milkdown .internal-link-edit {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 2px);
+  z-index: 10;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-text-emphasis);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-3px, -50%) scale(0.9);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.milkdown .internal-link-edit::before {
+  position: absolute;
+  inset: -1px 100% -1px -6px;
+  content: '';
+}
+
+/* Lift the hovered chip so the pencil paints above later text and chips. */
+.internal-link-chip:hover {
+  z-index: 10;
+}
+
+.milkdown .internal-link-chip:hover .internal-link-edit {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+
+.milkdown .internal-link-edit-halo {
+  stroke: var(--color-canvas);
+}
+
+.milkdown .internal-link-edit:hover {
+  color: var(--color-accent);
+}
+
+.milkdown .internal-link-edit:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--color-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .milkdown .internal-link-edit {
+    transition: opacity 120ms ease-out;
+  }
+}
+
+.internal-link-editor {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  width: 300px;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 18%));
+  font-size: var(--font-size-sm);
+}
+
+.internal-link-editor-target {
+  display: grid;
+  min-height: var(--control-height-sm);
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-emphasis);
+}
+
+.internal-link-editor-target > svg {
+  color: var(--color-text-muted);
+}
+
+.internal-link-editor-target > span {
+  overflow: hidden;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.internal-link-editor-field {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.internal-link-editor input {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  font: inherit;
+}
+
+.internal-link-editor input:focus-visible {
+  border-color: var(--color-focus);
+  outline: none;
+}
+
+.internal-link-editor-combobox {
+  position: relative;
+  display: grid;
+}
+
+.internal-link-editor-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 1;
+  max-height: 200px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 18%));
+}
+
+.internal-link-editor-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+
+.internal-link-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.internal-link-picker {
+  position: fixed;
+  z-index: 60;
+  width: 320px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 18%));
+  font-size: var(--font-size-sm);
+}
+
+.internal-link-picker-list {
+  max-height: 248px;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.internal-link-picker-option {
+  display: grid;
+  height: 32px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.internal-link-picker-option > svg {
+  color: var(--color-text-muted);
+}
+
+.internal-link-picker-option[aria-selected='true'] {
+  color: var(--color-text-emphasis);
+  background: var(--color-selection);
+}
+
+.internal-link-picker-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.internal-link-picker-hint {
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.internal-link-picker-empty {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.internal-link-picker-footer {
+  margin: 0;
+  padding: 6px var(--space-2);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.internal-link-picker-footer kbd {
+  margin-right: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+
 .unsaved-document-actions {
   display: flex;
   flex-wrap: wrap;

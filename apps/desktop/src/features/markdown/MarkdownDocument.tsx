@@ -29,6 +29,22 @@ import {
   UnsavedDocumentError,
   useDocumentSaveCoordinator,
 } from './documentSaveCoordinatorContext';
+import { InternalLinkPicker } from './InternalLinkPicker';
+import {
+  useInternalLinkIndex,
+  useInternalLinkNavigation,
+} from './internalLinkContext';
+import {
+  InternalLinkController,
+  type InternalLinkEdit,
+  type InternalLinkTrigger,
+} from './internalLinkController';
+import { InternalLinkEditor } from './InternalLinkEditor';
+import {
+  parseInternalLink,
+  searchInternalLinks,
+  type InternalLinkEntry,
+} from './internalLinks';
 import { MarkdownPreview } from './MarkdownPreview';
 import { visualEditingSupport } from './visualEditingSupport';
 import type {
@@ -161,6 +177,94 @@ function LoadedMarkdownDocument({
     }),
     [serverUrl, target.id, target.kind, token, workspaceId],
   );
+  const linkIndex = useInternalLinkIndex(context);
+  const linkNavigation = useInternalLinkNavigation();
+  const [internalLinks] = useState(() => new InternalLinkController());
+  const [linkTrigger, setLinkTrigger] = useState<InternalLinkTrigger | null>(
+    null,
+  );
+  const [linkActive, setLinkActive] = useState(0);
+  const [linkEdit, setLinkEdit] = useState<InternalLinkEdit | null>(null);
+  const closeLinkEdit = useCallback(() => setLinkEdit(null), []);
+  const linkResults = useMemo(
+    () =>
+      linkTrigger && linkIndex
+        ? searchInternalLinks(linkIndex, linkTrigger.query)
+        : [],
+    [linkIndex, linkTrigger],
+  );
+  const linkStateRef = useRef({ linkTrigger, linkResults, linkActive });
+  const dismissedLinkRef = useRef<number | null>(null);
+  const pickLinkRef = useRef<(entry: InternalLinkEntry) => void>(
+    () => undefined,
+  );
+
+  useEffect(() => {
+    linkStateRef.current = { linkTrigger, linkResults, linkActive };
+  }, [linkActive, linkResults, linkTrigger]);
+
+  useEffect(() => {
+    internalLinks.setIndex(linkIndex);
+  }, [internalLinks, linkIndex]);
+
+  useEffect(() => {
+    const pick = (entry: InternalLinkEntry) => {
+      const trigger = linkStateRef.current.linkTrigger;
+      if (!trigger || !linkIndex) return;
+      trigger.insert(linkIndex.linkTarget(entry));
+      setLinkTrigger(null);
+    };
+    const onTrigger = (trigger: InternalLinkTrigger | null) => {
+      if (!trigger) {
+        dismissedLinkRef.current = null;
+        setLinkTrigger(null);
+        return;
+      }
+      // Escape keeps this `[[` closed until the caret leaves it.
+      if (dismissedLinkRef.current === trigger.from) return;
+      if (linkStateRef.current.linkTrigger?.query !== trigger.query) {
+        setLinkActive(0);
+      }
+      setLinkTrigger(trigger);
+    };
+    const onKey = (key: string) => {
+      const {
+        linkTrigger: trigger,
+        linkResults: results,
+        linkActive: active,
+      } = linkStateRef.current;
+      if (!trigger) return false;
+      if (key === 'Escape') {
+        dismissedLinkRef.current = trigger.from;
+        setLinkTrigger(null);
+        return true;
+      }
+      if (results.length === 0) return false;
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        const step = key === 'ArrowDown' ? 1 : -1;
+        setLinkActive(
+          (current) => (current + step + results.length) % results.length,
+        );
+        return true;
+      }
+      const entry = results[active];
+      if (!entry) return false;
+      pick(entry);
+      return true;
+    };
+    const onOpen = (raw: string) => {
+      const parts = parseInternalLink(raw);
+      const entry = parts ? linkIndex?.resolve(parts.target) : null;
+      if (entry) linkNavigation?.open(entry);
+    };
+    internalLinks.setHandlers({
+      onTrigger,
+      onKey,
+      onOpen,
+      onEdit: setLinkEdit,
+    });
+    pickLinkRef.current = pick;
+  }, [internalLinks, linkIndex, linkNavigation]);
 
   const changeDraft = useCallback((next: string) => {
     draftRef.current = next;
@@ -415,7 +519,11 @@ function LoadedMarkdownDocument({
 
       {readOnly ? (
         <ScrollArea className="markdown-preview-scroll-area" orientation="both">
-          <MarkdownPreview content={draft} assetContext={context} />
+          <MarkdownPreview
+            content={draft}
+            assetContext={context}
+            internalLinks={internalLinks}
+          />
         </ScrollArea>
       ) : (
         <div className={`document-workspace document-${tab}`}>
@@ -436,6 +544,7 @@ function LoadedMarkdownDocument({
                   onChange={changeDraft}
                   uploadImage={uploadImage}
                   resolveAsset={resolveAsset}
+                  internalLinks={internalLinks}
                 />
               ) : (
                 <MarkdownSourceEditor
@@ -443,9 +552,29 @@ function LoadedMarkdownDocument({
                   initialViewport={viewport}
                   value={draft}
                   onChange={changeDraft}
+                  internalLinks={internalLinks}
                 />
               )}
             </Suspense>
+            {linkEdit && (
+              <InternalLinkEditor
+                key={linkEdit.raw}
+                edit={linkEdit}
+                index={linkIndex}
+                onOpen={(raw) => internalLinks.onOpen(raw)}
+                onClose={closeLinkEdit}
+              />
+            )}
+            {linkTrigger && (
+              <InternalLinkPicker
+                trigger={linkTrigger}
+                results={linkResults}
+                activeIndex={linkActive}
+                loading={!linkIndex}
+                onHover={setLinkActive}
+                onPick={(entry) => pickLinkRef.current(entry)}
+              />
+            )}
           </div>
         </div>
       )}
