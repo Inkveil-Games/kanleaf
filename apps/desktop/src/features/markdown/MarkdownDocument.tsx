@@ -16,6 +16,7 @@ import { InlineAlert } from '../../components/ui/InlineAlert';
 import { LoadError } from '../../components/ui/LoadError';
 import { ScrollArea } from '../../components/ui/ScrollArea';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { ApiError } from '../../lib/api/client';
 import {
   readMarkdownAsset,
@@ -24,7 +25,10 @@ import {
   writeMarkdownDocument,
   type MarkdownTarget,
 } from './api';
-import { useDocumentSaveCoordinator } from './documentSaveCoordinatorContext';
+import {
+  UnsavedDocumentError,
+  useDocumentSaveCoordinator,
+} from './documentSaveCoordinatorContext';
 import { MarkdownPreview } from './MarkdownPreview';
 import { visualEditingSupport } from './visualEditingSupport';
 import type {
@@ -129,6 +133,7 @@ function LoadedMarkdownDocument({
     visualEditingSupport(initialContent).supported ? 'editor' : 'source',
   );
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(
     () => visualEditingSupport(initialContent).reason ?? null,
   );
@@ -136,6 +141,7 @@ function LoadedMarkdownDocument({
   const savedRef = useRef(initialContent);
   const revisionRef = useRef(initialRevision);
   const conflictRef = useRef(false);
+  const saveErrorRef = useRef<string | null>(null);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const autosaveTimeoutRef = useRef<number | undefined>(undefined);
   const editorRef = useRef<MarkdownEditorHandle>(null);
@@ -185,6 +191,7 @@ function LoadedMarkdownDocument({
           );
           savedRef.current = nextContent;
           revisionRef.current = saved.revision;
+          setLastSavedAt(new Date());
         });
       saveChainRef.current = save;
       try {
@@ -194,7 +201,8 @@ function LoadedMarkdownDocument({
         );
         return true;
       } catch (caught) {
-        setSaveError(errorMessage(caught));
+        saveErrorRef.current = errorMessage(caught);
+        setSaveError(saveErrorRef.current);
         if (caught instanceof ApiError && caught.code === 'conflict') {
           conflictRef.current = true;
           setSaveState('conflict');
@@ -207,11 +215,31 @@ function LoadedMarkdownDocument({
     [context, readOnly],
   );
 
+  const reloadRemote = useCallback(async () => {
+    const remote = await readMarkdownDocument(context);
+    draftRef.current = remote.content;
+    savedRef.current = remote.content;
+    revisionRef.current = remote.revision;
+    conflictRef.current = false;
+    setDraft(remote.content);
+    setViewport(null);
+    setTab(
+      visualEditingSupport(remote.content).supported ? 'editor' : 'source',
+    );
+    setSaveError(null);
+    setSaveState('saved');
+  }, [context]);
+
   const flushForTransition = useCallback(async () => {
-    if (!(await persist(draftRef.current))) {
-      throw new Error('Resolve unsaved Markdown before leaving this document');
-    }
-  }, [persist]);
+    if (await persist(draftRef.current)) return;
+    throw new UnsavedDocumentError(
+      conflictRef.current ? 'conflict' : 'error',
+      saveErrorRef.current ?? '',
+      draftRef.current,
+      () => persist(draftRef.current),
+      reloadRemote,
+    );
+  }, [persist, reloadRemote]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -261,20 +289,9 @@ function LoadedMarkdownDocument({
     [persist, readOnly],
   );
 
-  async function reloadRemote() {
+  async function discardLocal() {
     try {
-      const remote = await readMarkdownDocument(context);
-      draftRef.current = remote.content;
-      savedRef.current = remote.content;
-      revisionRef.current = remote.revision;
-      conflictRef.current = false;
-      setDraft(remote.content);
-      setViewport(null);
-      setTab(
-        visualEditingSupport(remote.content).supported ? 'editor' : 'source',
-      );
-      setSaveError(null);
-      setSaveState('saved');
+      await reloadRemote();
     } catch (caught) {
       setSaveError(errorMessage(caught));
       setSaveState('error');
@@ -332,16 +349,22 @@ function LoadedMarkdownDocument({
           </span>
         ) : (
           <div className="save-controls">
-            <span
-              className={`save-indicator save-${saveState}`}
-              role={
-                saveState === 'error' || saveState === 'conflict'
-                  ? 'alert'
-                  : 'status'
+            <Tooltip
+              placement="bottom"
+              label={saveDetail(saveState, lastSavedAt, saveError)}
+              trigger={
+                <span
+                  className={`save-indicator save-${saveState}`}
+                  role={
+                    saveState === 'error' || saveState === 'conflict'
+                      ? 'alert'
+                      : 'status'
+                  }
+                >
+                  {saveLabel(saveState)}
+                </span>
               }
-            >
-              {saveLabel(saveState)}
-            </span>
+            />
           </div>
         )}
       </header>
@@ -381,7 +404,7 @@ function LoadedMarkdownDocument({
               variant="secondary"
               size="sm"
               type="button"
-              onClick={() => void reloadRemote()}
+              onClick={() => void discardLocal()}
             >
               <RotateCcw aria-hidden="true" size={14} />
               Discard local
@@ -448,6 +471,24 @@ function DocumentFrame({
       {children}
     </section>
   );
+}
+
+function saveDetail(
+  state: SaveState,
+  lastSavedAt: Date | null,
+  error: string | null,
+) {
+  if (state === 'saving') return 'Saving your latest edits';
+  if (state === 'unsaved') return 'Edits save automatically in a moment';
+  if (state === 'error' || state === 'conflict') {
+    return error ?? 'Markdown could not be saved';
+  }
+  return lastSavedAt
+    ? `Saved at ${lastSavedAt.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`
+    : 'No edits since this note opened';
 }
 
 function saveLabel(state: SaveState) {

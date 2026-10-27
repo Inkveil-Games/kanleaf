@@ -5833,14 +5833,53 @@ html[data-input-modality='keyboard']
 }
 
 .save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 var(--space-1);
   color: var(--color-text-muted);
   font-size: 0.67rem;
 }
 
+.save-indicator:is(
+    .save-saved,
+    .save-unsaved,
+    .save-saving,
+    .save-error,
+    .save-conflict
+  )::before {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+  opacity: 0.85;
+}
+
+.save-saved::before {
+  background: var(--color-success);
+}
+
 .save-unsaved,
 .save-saving {
-  color: var(--color-accent);
+  color: var(--color-warning);
+}
+
+.save-saving::before {
+  animation: save-indicator-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes save-indicator-pulse {
+  to {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-saving::before {
+    animation: none;
+  }
 }
 
 .save-error {
@@ -5893,6 +5932,12 @@ html[data-input-modality='keyboard']
 .document-conflict-actions {
   display: flex;
   flex: 0 0 auto;
+  gap: 6px;
+}
+
+.unsaved-document-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
