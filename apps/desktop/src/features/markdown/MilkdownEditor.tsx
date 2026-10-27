@@ -2,7 +2,11 @@ import { Crepe } from '@milkdown/crepe';
 import '@milkdown/crepe/theme/common/style.css';
 import { $prose, insert, replaceAll } from '@milkdown/kit/utils';
 import { Plugin, type EditorState } from '@milkdown/kit/prose/state';
-import { editorViewOptionsCtx, serializerCtx } from '@milkdown/kit/core';
+import {
+  editorViewOptionsCtx,
+  remarkStringifyOptionsCtx,
+  serializerCtx,
+} from '@milkdown/kit/core';
 import { blockConfig } from '@milkdown/kit/plugin/block';
 import {
   captureMilkdownViewport,
@@ -31,6 +35,7 @@ import { smartPunctuationPlugin } from './milkdownSmartPunctuation';
 import { kanleafMarkdownTheme } from './markdownEditorTheme';
 import { kanleafMathBlockView } from './mathBlockView';
 import { normalizeMilkdownImageTitles } from './milkdownMarkdown';
+import { inlineMarksPlugin } from './milkdownInlineMarks';
 import { milkdownInternalLinks } from './milkdownInternalLinks';
 import type { InternalLinkController } from './internalLinkController';
 import {
@@ -264,6 +269,11 @@ export function MilkdownEditor({
       },
     });
     crepe.editor.config((ctx) => {
+      // New italic is written as `_text_`; parsed marks keep their own marker.
+      ctx.update(remarkStringifyOptionsCtx, (options) => ({
+        ...options,
+        emphasis: '_' as const,
+      }));
       // Hovering an inline atom such as an internal link resolves to that
       // node; rejecting it makes the block handle climb to the line's block.
       ctx.update(blockConfig.key, ({ filterNodes }) => ({
@@ -285,6 +295,7 @@ export function MilkdownEditor({
     crepe.editor.use(blockBoundaryCursor);
     crepe.editor.use(kanleafMathBlockView);
     crepe.editor.use(smartPunctuationPlugin);
+    crepe.editor.use(inlineMarksPlugin);
     if (internalLinks) crepe.editor.use(milkdownInternalLinks(internalLinks));
     crepe.editor.use(
       $prose(

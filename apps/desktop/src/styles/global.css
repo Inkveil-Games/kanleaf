@@ -7683,10 +7683,73 @@ html[data-input-modality='keyboard']
   margin-top: var(--space-2);
 }
 
-.milkdown-editor .ProseMirror code {
-  padding: 0.12em 0.35em;
-  border-radius: 3px;
-  background: var(--color-surface-muted);
+/* Scoped through .milkdown to outrank Crepe's translucent inline-code fill. */
+.milkdown-editor .milkdown .ProseMirror.is-typing-inline-code {
+  caret-color: var(--color-syntax-code);
+}
+
+/* At an inline code edge the native caret is drawn on the wrong side, so it
+   is hidden and this one marks where typing goes. */
+.milkdown-editor .milkdown .ProseMirror.has-drawn-caret {
+  caret-color: transparent;
+}
+
+.milkdown-editor .milkdown .ProseMirror .inline-mark-caret {
+  display: none;
+  position: relative;
+  width: 0;
+}
+
+.milkdown-editor .milkdown .ProseMirror-focused .inline-mark-caret {
+  display: inline-block;
+}
+
+.milkdown-editor .milkdown .ProseMirror .inline-mark-caret::after {
+  position: absolute;
+  top: -0.95em;
+  left: 0;
+  width: 1.5px;
+  height: 1.2em;
+  background: currentColor;
+  animation: inline-mark-caret-blink 1.06s steps(1) infinite;
+  content: '';
+}
+
+.milkdown-editor
+  .milkdown
+  .ProseMirror.is-typing-inline-code
+  .inline-mark-caret::after {
+  background: var(--color-syntax-code);
+}
+
+@keyframes inline-mark-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .milkdown-editor .milkdown .ProseMirror .inline-mark-caret::after {
+    animation: none;
+  }
+}
+
+/* Marks where an inline code started from the toolbar or a backtick will
+   appear until its first character is typed. */
+.milkdown-editor .milkdown .ProseMirror code.inline-code-pending {
+  display: inline-block;
+  width: 0.7em;
+  height: 1.2em;
+  margin-left: -0.15em;
+  padding: 0;
+  vertical-align: -0.2em;
+}
+
+.milkdown-editor .milkdown .ProseMirror code {
+  padding: 0.14em 0.42em;
+  border-radius: 5px;
+  color: var(--color-syntax-code);
+  background: color-mix(in srgb, var(--color-syntax-code) 15%, transparent);
   font-family: var(--font-mono);
   font-size: 0.86em;
 }
@@ -7882,9 +7945,10 @@ html[data-input-modality='keyboard']
 }
 
 .markdown-preview code {
-  padding: 0.12em 0.35em;
-  border-radius: 3px;
-  background: var(--color-surface-muted);
+  padding: 0.14em 0.42em;
+  border-radius: 5px;
+  color: var(--color-syntax-code);
+  background: color-mix(in srgb, var(--color-syntax-code) 15%, transparent);
   font-family: var(--font-mono);
   font-size: 0.86em;
 }
@@ -7900,6 +7964,7 @@ html[data-input-modality='keyboard']
 
 .markdown-preview pre code {
   padding: 0;
+  color: inherit;
   background: transparent;
   font-size: 0.78rem;
 }
