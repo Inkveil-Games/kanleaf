@@ -6769,6 +6769,24 @@ html[data-input-modality='keyboard']
   margin-bottom: 0;
 }
 
+/* Edge targets move into the content gutter instead of overlapping the
+   block whose outer margin was removed above, which would cover them. */
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  > .markdown-block-exit:first-child {
+  margin-top: calc(-1 * var(--space-4));
+  margin-bottom: 0;
+}
+
+.milkdown-crepe-editor
+  .milkdown
+  .ProseMirror
+  > .markdown-block-exit:last-child {
+  margin-top: 0;
+  margin-bottom: calc(-1 * var(--space-4));
+}
+
 .milkdown-crepe-editor .milkdown-code-block .cm-scroller {
   padding: 0;
 }
