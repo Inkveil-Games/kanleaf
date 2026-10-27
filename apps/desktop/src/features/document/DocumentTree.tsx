@@ -28,7 +28,6 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
-import { InlineTextForm } from '../../components/ui/InlineTextForm';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { DocumentTreeDnd } from './DocumentTreeDnd';
 import type { DocumentSection, TreeDestination, TreeEntry } from './tree';
@@ -280,7 +279,7 @@ function DocumentTreeContent({
                 {section.entries.map((entry) => (
                   <div key={entry.document.id}>
                     {renamingId === entry.document.id ? (
-                      <DocumentNameForm
+                      <DocumentDraftRow
                         label="Note title"
                         initialValue={entry.document.title}
                         submitLabel="Rename note"
@@ -524,37 +523,6 @@ function DocumentTreeRow({
   );
 }
 
-function DocumentNameForm({
-  label,
-  initialValue = '',
-  submitLabel,
-  depth = 0,
-  onSubmit,
-  onCancel,
-}: {
-  label: string;
-  initialValue?: string;
-  submitLabel: string;
-  depth?: number;
-  onSubmit: (title: string) => Promise<void>;
-  onCancel: () => void;
-}) {
-  return (
-    <InlineTextForm
-      className="document-name-form"
-      style={{ '--tree-depth': depth } as CSSProperties}
-      label={label}
-      initialValue={initialValue}
-      maxLength={300}
-      submitLabel={submitLabel}
-      submitIcon={<Plus aria-hidden="true" size={14} />}
-      errorLabel="Library request failed"
-      onSubmit={onSubmit}
-      onCancel={onCancel}
-    />
-  );
-}
-
 function nestedDraftPlacement(entries: TreeEntry[], parentId: string) {
   const index = entries.findIndex(({ document }) => document.id === parentId);
   const parent = entries[index];
@@ -569,18 +537,21 @@ function nestedDraftPlacement(entries: TreeEntry[], parentId: string) {
 
 function DocumentDraftRow({
   label,
+  initialValue = '',
   submitLabel,
   depth,
   onSubmit,
   onCancel,
 }: {
   label: string;
+  initialValue?: string;
   submitLabel: string;
   depth: number;
   onSubmit: (title: string) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [value, setValue] = useState('');
+  const renaming = initialValue !== '';
+  const [value, setValue] = useState(initialValue);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
@@ -634,14 +605,21 @@ function DocumentDraftRow({
       onBlur={(event) => {
         const next = event.relatedTarget;
         if (next instanceof Node && event.currentTarget.contains(next)) return;
-        if (!value.trim() && !error) cancel();
+        if (value.trim() === initialValue.trim() && !error) cancel();
       }}
     >
       <span className="document-draft-row-main">
-        <FilePlus2 aria-hidden="true" size={15} />
+        {renaming ? (
+          <Pencil aria-hidden="true" size={14} />
+        ) : (
+          <FilePlus2 aria-hidden="true" size={15} />
+        )}
         <input
           autoFocus
           required
+          onFocus={(event) => {
+            if (renaming) event.currentTarget.select();
+          }}
           aria-label={label}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}

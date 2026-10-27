@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -1030,6 +1031,34 @@ describe('DocumentWorkspace', () => {
     expect(
       screen.getByRole('treeitem', { name: 'Architecture' }),
     ).toBeInTheDocument();
+  });
+
+  it('shows the note location and opens an ancestor from the breadcrumb', async () => {
+    const onSelectDocument = vi.fn();
+    renderWorkspace(
+      createServer([
+        document('root', 'Architecture', { project_id: 'project-1' }),
+        document('child', 'Vault', {
+          parent_id: 'root',
+          project_id: 'project-1',
+        }),
+      ]),
+      { selectedDocumentId: 'child', onSelectDocument },
+    );
+    await screen.findByText('Editor child');
+
+    const location = screen.getByRole('navigation', { name: 'Note location' });
+    expect(location).toHaveTextContent('KanleafArchitectureVault');
+    expect(
+      within(location).getByText('Vault', { selector: '[aria-current]' }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(location).getByRole('button', { name: 'Architecture' }),
+    );
+
+    expect(onSelectDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'root' }),
+    );
   });
 
   it('places the new note draft where each created note will appear', async () => {

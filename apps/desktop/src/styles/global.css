@@ -6357,10 +6357,6 @@ html[data-input-modality='keyboard']
   }
 }
 
-.document-name-form {
-  margin: 2px var(--space-1) 3px calc(var(--tree-depth) * 16px + var(--space-2));
-}
-
 .document-collection-state {
   margin: var(--space-4) var(--space-2);
   color: var(--color-text-muted);
@@ -6389,17 +6385,82 @@ html[data-input-modality='keyboard']
   flex-direction: column;
 }
 
+/* Matches .document-tree-header so the two pane rules line up. */
 .document-shell-actions {
   display: flex;
-  min-height: 39px;
+  min-height: 48px;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);
   border-bottom: 1px solid var(--color-border);
 }
 
-.document-shell-spacer {
+.document-breadcrumb {
   flex: 1;
+  min-width: 0;
+  padding-left: var(--space-1);
+}
+
+.document-breadcrumb ol {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.document-breadcrumb li {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Ancestors shrink first so the current note title stays readable. */
+.document-breadcrumb li:last-child {
+  flex-shrink: 0;
+  max-width: 60%;
+}
+
+.document-breadcrumb li > svg {
+  flex: none;
+  opacity: 0.7;
+}
+
+.document-breadcrumb-scope,
+.document-breadcrumb button,
+.document-breadcrumb [aria-current='page'] {
+  overflow: hidden;
+  padding: 2px 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-breadcrumb button {
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: var(--transition-hover);
+}
+
+.document-breadcrumb button:hover,
+.document-breadcrumb button:focus-visible {
+  color: var(--color-text-emphasis);
+  background: var(--color-surface-hover);
+}
+
+.document-breadcrumb [aria-current='page'] {
+  color: var(--color-text);
+  font-weight: 560;
 }
 
 .document-move-menu .context-menu-trigger {

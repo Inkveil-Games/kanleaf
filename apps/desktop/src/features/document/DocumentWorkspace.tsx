@@ -542,6 +542,7 @@ export function DocumentWorkspace({
             onConfirmArchive={() => confirmArchive(selected.id)}
             onRequestDelete={() => setDeleteCandidateId(selected.id)}
             onDownload={() => void downloadMarkdown(selected.id)}
+            onOpen={(document) => void onSelectDocument(document)}
             onBack={() => {
               void onSelectDocument(null, { replace: true });
             }}

@@ -1,6 +1,7 @@
 import {
   Archive,
   ArrowLeft,
+  ChevronRight,
   Download,
   FolderInput,
   Trash2,
@@ -41,6 +42,7 @@ export function DocumentDetail({
   onConfirmArchive,
   onRequestDelete,
   onDownload,
+  onOpen,
   onBack,
 }: {
   context: ApiContext;
@@ -56,6 +58,7 @@ export function DocumentDetail({
   onConfirmArchive: () => Promise<boolean | void>;
   onRequestDelete: () => void;
   onDownload: () => void;
+  onOpen: (document: WorkspaceDocument) => void;
   onBack: () => void;
 }) {
   return (
@@ -74,7 +77,12 @@ export function DocumentDetail({
         >
           <ArrowLeft aria-hidden="true" size={16} />
         </IconButton>
-        <span className="document-shell-spacer" />
+        <DocumentBreadcrumb
+          document={document}
+          documents={documents}
+          projects={projects}
+          onOpen={onOpen}
+        />
         {document.can_edit ? (
           <>
             <DocumentMovePopover
@@ -140,6 +148,54 @@ export function DocumentDetail({
         </Suspense>
       </div>
     </section>
+  );
+}
+
+function DocumentBreadcrumb({
+  document,
+  documents,
+  projects,
+  onOpen,
+}: {
+  document: WorkspaceDocument;
+  documents: WorkspaceDocument[];
+  projects: Project[];
+  onOpen: (document: WorkspaceDocument) => void;
+}) {
+  const ancestors: WorkspaceDocument[] = [];
+  const seen = new Set([document.id]);
+  let parentId = document.parent_id;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = documents.find(({ id }) => id === parentId);
+    if (!parent) break;
+    ancestors.unshift(parent);
+    parentId = parent.parent_id;
+  }
+  const scope = document.project_id
+    ? (projects.find(({ id }) => id === document.project_id)?.name ?? 'Project')
+    : 'Workspace';
+
+  return (
+    <nav className="document-breadcrumb" aria-label="Note location">
+      <ol>
+        <li>
+          <span className="document-breadcrumb-scope">{scope}</span>
+        </li>
+        {ancestors.map((ancestor) => (
+          <li key={ancestor.id}>
+            <ChevronRight aria-hidden="true" size={12} />
+            <button type="button" onClick={() => onOpen(ancestor)}>
+              {ancestor.title}
+            </button>
+          </li>
+        ))}
+        <li>
+          <ChevronRight aria-hidden="true" size={12} />
+          <span aria-current="page">{document.title}</span>
+        </li>
+      </ol>
+    </nav>
   );
 }
 
