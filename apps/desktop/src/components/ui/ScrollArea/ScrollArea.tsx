@@ -1,5 +1,11 @@
 import { ScrollArea as BaseScrollArea } from '@base-ui/react/scroll-area';
-import { forwardRef, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import './ScrollArea.css';
 
 export type ScrollAreaOrientation = 'vertical' | 'horizontal' | 'both';
@@ -18,6 +24,28 @@ export const ScrollArea = forwardRef<HTMLDivElement, ScrollAreaProps>(
   ) {
     const vertical = orientation !== 'horizontal';
     const horizontal = orientation !== 'vertical';
+    const viewportRef = useRef<HTMLDivElement | null>(null);
+    const setViewportRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        viewportRef.current = node;
+        if (typeof ref === 'function') ref(node);
+        else if (ref) ref.current = node;
+      },
+      [ref],
+    );
+
+    // Base UI measures overflow when it mounts and then only on size changes.
+    // A pane laid out after that first pass (its width or height settling in
+    // the same frame) can keep a stale "overflowing" state with no further
+    // resize to correct it, leaving a scrollbar on content that fits.
+    // Re-measuring once after the first paint goes through its own scroll
+    // handler.
+    useEffect(() => {
+      const frame = requestAnimationFrame(() => {
+        viewportRef.current?.dispatchEvent(new Event('scroll'));
+      });
+      return () => cancelAnimationFrame(frame);
+    }, []);
 
     return (
       <BaseScrollArea.Root
@@ -26,7 +54,7 @@ export const ScrollArea = forwardRef<HTMLDivElement, ScrollAreaProps>(
       >
         <BaseScrollArea.Viewport
           {...viewportProps}
-          ref={ref}
+          ref={setViewportRef}
           className={mergeViewportClassName(viewportProps?.className)}
         >
           <BaseScrollArea.Content
