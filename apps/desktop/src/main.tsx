@@ -6,7 +6,10 @@ import { AppRouter } from './app/routing/AppRouter';
 import { installInputModality } from './lib/inputModality';
 import { installNativeScrollbarReveal } from './lib/nativeScrollbarReveal';
 import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource-variable/geist-mono/wght-italic.css';
 import '@fontsource-variable/geist/wght.css';
+// font-synthesis is off, so emphasis needs the real italic faces.
+import '@fontsource-variable/geist/wght-italic.css';
 import './styles/tokens.css';
 import './styles/global.css';
 

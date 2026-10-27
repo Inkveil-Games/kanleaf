@@ -7534,8 +7534,24 @@ html[data-input-modality='keyboard']
   gap: var(--space-2);
 }
 
-.milkdown-crepe-editor .milkdown-table-block :is(th, td) {
+/* prosemirror-tables fixes tables to the full width; size them to their
+   content like the preview, wrapping only when they reach the editor width. */
+.milkdown-crepe-editor .milkdown-table-block table {
+  width: auto;
+  max-width: 100%;
+  table-layout: auto;
+}
+
+/* Scoped through .milkdown to outrank Crepe. */
+.milkdown-crepe-editor .milkdown .milkdown-table-block :is(th, td) {
   padding: var(--space-2) var(--space-3);
+}
+
+/* Table cells ignore min-width, so the floor sits on the cell content. Columns
+   grow to fit their text and only wrap once the table reaches the editor
+   width. */
+.milkdown-crepe-editor .milkdown .milkdown-table-block :is(th, td) > * {
+  min-width: 9em;
 }
 
 .milkdown-crepe-editor .milkdown-table-block :is(th, td) p {
