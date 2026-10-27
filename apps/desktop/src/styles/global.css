@@ -7212,6 +7212,13 @@ html[data-input-modality='keyboard']
   color: var(--color-text-muted);
 }
 
+/* Hint the targets around a block while it is hovered, so the escape route
+   above or below fenced code is discoverable. */
+.milkdown-editor .ProseMirror > :hover + .markdown-block-exit,
+.milkdown-editor .ProseMirror > .markdown-block-exit:has(+ :hover) {
+  color: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+}
+
 .milkdown-crepe-editor .milkdown .milkdown-code-block {
   margin: var(--space-4) 0;
   padding: var(--space-3) var(--space-4);
