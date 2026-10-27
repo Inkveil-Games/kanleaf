@@ -8,6 +8,8 @@ export interface MarkdownViewport {
 
 export interface MarkdownEditorHandle {
   captureViewport: () => MarkdownViewport | null;
+  /** Scrolls the block at this Markdown source offset to the top. */
+  revealOffset: (offset: number) => void;
 }
 
 function visualBlocks(ctx: Ctx, markdown: string) {

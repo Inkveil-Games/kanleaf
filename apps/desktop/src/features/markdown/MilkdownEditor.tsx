@@ -48,6 +48,8 @@ import {
   type Ref,
 } from 'react';
 
+const OUTLINE_REVEAL_INSET = 12;
+
 interface MilkdownEditorProps {
   ref?: Ref<MarkdownEditorHandle>;
   initialViewport?: MarkdownViewport | null;
@@ -83,6 +85,18 @@ export function MilkdownEditor({
         if (!crepe || !root || !ready) return null;
         return crepe.editor.action((ctx) =>
           captureMilkdownViewport(ctx, root, markdownRef.current),
+        );
+      },
+      revealOffset: (offset) => {
+        const crepe = crepeRef.current;
+        const root = rootRef.current;
+        if (!crepe || !root || !ready) return;
+        stopRestoringRef.current?.();
+        stopRestoringRef.current = crepe.editor.action((ctx) =>
+          restoreMilkdownViewport(ctx, root, markdownRef.current, {
+            offset,
+            inset: OUTLINE_REVEAL_INSET,
+          }),
         );
       },
     }),

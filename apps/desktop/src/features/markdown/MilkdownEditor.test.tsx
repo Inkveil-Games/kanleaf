@@ -4,6 +4,7 @@ import { EditorView } from '@codemirror/view';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MilkdownEditor } from './MilkdownEditor';
 import { createRef } from 'react';
+import type { MarkdownEditorHandle } from './markdownViewport';
 
 beforeAll(() => {
   // JSDOM has no hit testing; let unhandled pointer events find no position.
@@ -143,9 +144,7 @@ describe('MilkdownEditor image uploads', () => {
 
 describe('MilkdownEditor Crepe block editing', () => {
   it('captures the visible Markdown block without changing the draft', async () => {
-    const ref = createRef<{
-      captureViewport: () => { offset: number; inset: number } | null;
-    }>();
+    const ref = createRef<MarkdownEditorHandle>();
     const value =
       '# First\n\nText\n\n$$\nx^2\n$$\n\n## Thiết kế\n\nLast paragraph';
     const onChange = vi.fn();

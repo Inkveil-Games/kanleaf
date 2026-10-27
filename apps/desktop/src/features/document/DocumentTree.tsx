@@ -18,6 +18,7 @@ import {
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from 'react';
 import {
@@ -56,6 +57,8 @@ interface DocumentTreeProps {
   onArchive: (documentId: string) => void;
   onDelete: (documentId: string) => void;
   onDownload: (documentId: string) => void;
+  /** Rendered below the tree, pinned to the bottom of the pane. */
+  outline?: ReactNode;
 }
 
 export function DocumentTree({
@@ -81,6 +84,7 @@ export function DocumentTree({
   onArchive,
   onDelete,
   onDownload,
+  outline,
 }: DocumentTreeProps) {
   return (
     <section
@@ -110,6 +114,7 @@ export function DocumentTree({
         onDelete={onDelete}
         onDownload={onDownload}
       />
+      {outline}
       {actionError && (
         <p className="document-action-error" role="alert">
           {actionError}

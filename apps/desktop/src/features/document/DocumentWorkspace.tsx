@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppDialog } from '../../components/ui/AppDialog';
 import { saveFile } from '../../lib/saveFile';
 import { readMarkdownDocument } from '../markdown/api';
+import {
+  DocumentOutlineContext,
+  DocumentOutlineStore,
+} from '../markdown/documentOutline';
 import type { ApiContext } from '../workspace/api';
 import type { Project } from '../workspace/types';
 import {
@@ -14,6 +18,7 @@ import {
   updateDocument,
 } from './api';
 import { DocumentDetail } from './DocumentDetail';
+import { DocumentOutline } from './DocumentOutline';
 import { DocumentTree } from './DocumentTree';
 import {
   buildSections,
@@ -70,6 +75,7 @@ export function DocumentWorkspace({
   );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [outline] = useState(() => new DocumentOutlineStore());
   const [actionError, setActionError] = useState<string | null>(null);
   const [suppressImplicitSelection, setSuppressImplicitSelection] =
     useState(false);
@@ -369,7 +375,7 @@ export function DocumentWorkspace({
   }
 
   return (
-    <>
+    <DocumentOutlineContext.Provider value={outline}>
       <DocumentTree
         sections={sections}
         projectId={projectId}
@@ -418,6 +424,7 @@ export function DocumentWorkspace({
         }}
         onDelete={setDeleteCandidateId}
         onDownload={(documentId) => void downloadMarkdown(documentId)}
+        outline={<DocumentOutline key={activeSelectedId ?? 'none'} />}
       />
 
       <AppDialog
@@ -477,7 +484,7 @@ export function DocumentWorkspace({
           </div>
         )}
       </section>
-    </>
+    </DocumentOutlineContext.Provider>
   );
 }
 

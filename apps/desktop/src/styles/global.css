@@ -6213,6 +6213,173 @@ html[data-input-modality='keyboard']
   padding: var(--space-2);
 }
 
+/* Pinned below the tree; the tree keeps the remaining height. */
+.document-outline {
+  display: grid;
+  grid-row: 3;
+  min-height: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.document-outline-heading {
+  margin: 0;
+  font-size: inherit;
+}
+
+.document-outline-heading button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-3);
+  border: 0;
+  color: var(--color-text-emphasis);
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.document-outline-heading button:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Open points down at the list; closed points up to where it will appear. */
+.document-outline-heading svg,
+.document-outline-toggle svg {
+  color: var(--color-text-muted);
+  transition: transform 180ms ease-out;
+}
+
+.document-outline-heading button[aria-expanded='false'] svg {
+  transform: rotate(180deg);
+}
+
+.document-outline-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+/* Height animates through a 0fr/1fr grid row, so content keeps its natural
+   size and nothing has to be measured. */
+.document-outline-collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 200ms ease-out,
+    opacity 160ms ease-out;
+}
+
+.document-outline-collapsible[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.document-outline-collapsible > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* A fixed height keeps the tree above from jumping between notes. */
+.document-outline-scroll-area {
+  height: min(260px, 36vh);
+}
+
+.document-outline-list {
+  padding: 0 var(--space-2) var(--space-2) var(--space-5);
+}
+
+.document-outline-empty {
+  margin: 0;
+  padding: 6px var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.document-outline-children > div {
+  padding-left: 14px;
+}
+
+.document-outline-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.document-outline-item {
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-muted);
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    background-color 120ms ease-out;
+}
+
+.document-outline-item:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.document-outline-item[data-active='true'] {
+  color: var(--color-text-emphasis);
+  font-weight: 560;
+}
+
+.document-outline-toggle {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.document-outline-toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.document-outline-toggle:hover svg {
+  color: var(--color-text);
+}
+
+:is(
+  .document-outline-heading button,
+  .document-outline-item,
+  .document-outline-toggle
+):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-outline-collapsible,
+  .document-outline-heading svg,
+  .document-outline-toggle svg,
+  .document-outline-item {
+    transition: none;
+  }
+}
+
 .document-tree-body {
   outline: 0;
 }

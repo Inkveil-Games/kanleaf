@@ -46,6 +46,7 @@ import {
   type InternalLinkEntry,
 } from './internalLinks';
 import { MarkdownPreview } from './MarkdownPreview';
+import { useDocumentOutline } from './useDocumentOutline';
 import { visualEditingSupport } from './visualEditingSupport';
 import type {
   MarkdownEditorHandle,
@@ -162,6 +163,13 @@ function LoadedMarkdownDocument({
   const autosaveTimeoutRef = useRef<number | undefined>(undefined);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const [viewport, setViewport] = useState<MarkdownViewport | null>(null);
+  const scrollHostRef = useRef<HTMLDivElement>(null);
+  useDocumentOutline({
+    draft,
+    mode: readOnly ? 'preview' : tab,
+    editorRef,
+    scrollHostRef,
+  });
   function switchTab(next: EditingTab) {
     if (next === tab) return;
     setViewport(editorRef.current?.captureViewport() ?? null);
@@ -518,7 +526,11 @@ function LoadedMarkdownDocument({
       )}
 
       {readOnly ? (
-        <ScrollArea className="markdown-preview-scroll-area" orientation="both">
+        <ScrollArea
+          ref={scrollHostRef}
+          className="markdown-preview-scroll-area"
+          orientation="both"
+        >
           <MarkdownPreview
             content={draft}
             assetContext={context}
@@ -526,7 +538,10 @@ function LoadedMarkdownDocument({
           />
         </ScrollArea>
       ) : (
-        <div className={`document-workspace document-${tab}`}>
+        <div
+          ref={scrollHostRef}
+          className={`document-workspace document-${tab}`}
+        >
           {saveError && saveState === 'saved' && (
             <InlineAlert className="document-source-advisory">
               {saveError}

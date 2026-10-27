@@ -150,6 +150,16 @@ export function MarkdownSourceEditor({
         const line = view.lineBlockAtHeight(top - view.documentTop);
         return { offset: line.from, inset: line.top + view.documentTop - top };
       },
+      revealOffset: (offset) => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch({
+          effects: EditorView.scrollIntoView(
+            Math.min(offset, view.state.doc.length),
+            { y: 'start', yMargin: 12 },
+          ),
+        });
+      },
     }),
     [],
   );
