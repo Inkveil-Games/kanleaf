@@ -784,7 +784,7 @@ describe('DocumentWorkspace', () => {
     expect(onSelectDocument).not.toHaveBeenCalled();
   });
 
-  it('offers no drag handles or Move up and Move down actions', async () => {
+  it('drags rows without handles, extra roles, or Move up and Move down', async () => {
     const onSelectDocument = vi.fn();
     renderWorkspace(
       createServer([
@@ -798,6 +798,17 @@ describe('DocumentWorkspace', () => {
     expect(
       screen.queryByRole('button', { name: /^Reorder/ }),
     ).not.toBeInTheDocument();
+    // The row stays a plain container around the treeitem and its controls.
+    const row = screen.getByRole('treeitem', {
+      name: 'Release notes',
+    }).parentElement;
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(row).toHaveAttribute('data-draggable', 'true');
+    expect(row).not.toHaveAttribute('role');
+    expect(row).not.toHaveAttribute('tabindex');
+    expect(row).not.toHaveAttribute('aria-roledescription');
     fireEvent.click(
       screen.getByRole('button', { name: 'Actions for Release notes' }),
     );

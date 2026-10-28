@@ -1406,11 +1406,46 @@ Author --> Edit
   await page.getByRole('button', { name: 'New Library note' }).click();
   await page.getByLabel('Note title').fill('Library persistence check');
   await page.getByRole('button', { name: 'Create note' }).click();
-  // Library notes are reordered and nested through Move to, not dragging.
+  // Notes are dragged by the row itself; there is no separate handle.
+  await expect(page.getByRole('button', { name: /^Reorder / })).toHaveCount(0);
+  const draggedRow = page.getByRole('treeitem', {
+    name: 'Library persistence check',
+  });
+  const parentRow = page
+    .getByRole('treeitem', { name: 'Project handbook' })
+    .locator('..');
+  const rowBounds = await draggedRow.boundingBox();
+  const parentBounds = await parentRow.boundingBox();
+  if (!rowBounds || !parentBounds) {
+    throw new Error('Library drag rows must have measurable bounds');
+  }
+  await page.mouse.move(
+    rowBounds.x + rowBounds.width / 2,
+    rowBounds.y + rowBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    parentBounds.x + parentBounds.width / 2,
+    parentBounds.y + parentBounds.height / 2,
+    { steps: 8 },
+  );
+  await expect(parentRow).toHaveAttribute('data-drop-intent', 'inside');
+  const pageMoved = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === 'PUT' &&
+      /\/api\/workspaces\/[^/]+\/documents\/[^/]+\/move$/.test(path)
+    );
+  });
+  await page.mouse.up();
+  expect((await pageMoved).ok()).toBe(true);
   await expect(
     page.getByRole('treeitem', { name: 'Library persistence check' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Reorder / })).toHaveCount(0);
+  ).toHaveAttribute('aria-level', '2');
+  await page.reload();
+  await expect(
+    page.getByRole('treeitem', { name: 'Library persistence check' }),
+  ).toHaveAttribute('aria-level', '2');
 
   await page
     .getByRole('button', { name: 'Actions for Library persistence check' })

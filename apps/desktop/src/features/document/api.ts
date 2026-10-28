@@ -3,6 +3,7 @@ import type { ApiContext } from '../workspace/api';
 import type {
   DeleteDocumentsResponse,
   DocumentPatch,
+  MoveDocumentResponse,
   WorkspaceDocument,
 } from './types';
 
@@ -76,6 +77,26 @@ export function updateDocument(
       method: 'PATCH',
       token: context.token,
       body: JSON.stringify(patch),
+    },
+  );
+}
+
+export function moveDocument(
+  context: ApiContext,
+  workspaceId: string,
+  documentId: string,
+  input: {
+    parent_id: string | null;
+    index: number;
+  },
+) {
+  return apiRequest<MoveDocumentResponse>(
+    context.serverUrl,
+    `/api/workspaces/${workspaceId}/documents/${documentId}/move`,
+    {
+      method: 'PUT',
+      token: context.token,
+      body: JSON.stringify(input),
     },
   );
 }

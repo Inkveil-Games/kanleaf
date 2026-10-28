@@ -26,6 +26,7 @@ function renderTree(
 ) {
   const props: ComponentProps<typeof DocumentTree> = {
     sections: buildSections([note], [], null),
+    documents: [note],
     projectId: null,
     selectedId: note.id,
     collapsedIds: new Set(),
@@ -44,6 +45,8 @@ function renderTree(
     onStartRename: vi.fn(),
     onCancelRename: vi.fn(),
     onRename: vi.fn().mockResolvedValue(undefined),
+    onMove: vi.fn().mockResolvedValue(undefined),
+    onKeepExpanded: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
     onDownload: vi.fn(),

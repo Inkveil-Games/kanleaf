@@ -28,10 +28,14 @@ import {
 } from '../../components/ui/DropdownMenu';
 import { Button } from '../../components/ui/Button';
 import { ScrollArea } from '../../components/ui/ScrollArea';
-import type { DocumentSection, TreeEntry } from './tree';
+import { DocumentTreeDnd } from './DocumentTreeDnd';
+import type { DocumentSection, TreeDestination, TreeEntry } from './tree';
+import type { WorkspaceDocument } from './types';
+import { useDocumentTreeRowDnd } from './useDocumentTreeRowDnd';
 
 interface DocumentTreeProps {
   sections: DocumentSection[];
+  documents: WorkspaceDocument[];
   projectId: string | null;
   selectedId: string | null;
   collapsedIds: ReadonlySet<string>;
@@ -54,6 +58,8 @@ interface DocumentTreeProps {
   onStartRename: (documentId: string) => void;
   onCancelRename: () => void;
   onRename: (documentId: string, title: string) => Promise<void>;
+  onMove: (documentId: string, destination: TreeDestination) => Promise<void>;
+  onKeepExpanded: (documentId: string) => void;
   onArchive: (documentId: string) => void;
   onDelete: (documentId: string) => void;
   onDownload: (documentId: string) => void;
@@ -63,6 +69,7 @@ interface DocumentTreeProps {
 
 export function DocumentTree({
   sections,
+  documents,
   projectId,
   selectedId,
   collapsedIds,
@@ -81,6 +88,8 @@ export function DocumentTree({
   onStartRename,
   onCancelRename,
   onRename,
+  onMove,
+  onKeepExpanded,
   onArchive,
   onDelete,
   onDownload,
@@ -91,29 +100,39 @@ export function DocumentTree({
       className="collection-pane document-collection-pane"
       aria-label={projectId ? 'Project Library' : 'Workspace Library'}
     >
-      <DocumentTreeContent
-        sections={sections}
-        projectId={projectId}
-        selectedId={selectedId}
+      <DocumentTreeDnd
         collapsedIds={collapsedIds}
-        creatingParentId={creatingParentId}
-        renamingId={renamingId}
-        canCreate={canCreate}
-        loading={loading}
-        error={error}
+        documents={documents}
+        sections={sections}
         busyIds={busyIds}
-        onSelect={onSelect}
-        onToggleCollapsed={onToggleCollapsed}
-        onStartCreate={onStartCreate}
-        onCancelCreate={onCancelCreate}
-        onCreate={onCreate}
-        onStartRename={onStartRename}
-        onCancelRename={onCancelRename}
-        onRename={onRename}
-        onArchive={onArchive}
-        onDelete={onDelete}
-        onDownload={onDownload}
-      />
+        onKeepExpanded={onKeepExpanded}
+        onMove={onMove}
+      >
+        {({ sections: visible, collapsedIds: effectiveCollapsedIds }) => (
+          <DocumentTreeContent
+            sections={visible}
+            projectId={projectId}
+            selectedId={selectedId}
+            collapsedIds={effectiveCollapsedIds}
+            creatingParentId={creatingParentId}
+            renamingId={renamingId}
+            canCreate={canCreate}
+            loading={loading}
+            error={error}
+            onSelect={onSelect}
+            onToggleCollapsed={onToggleCollapsed}
+            onStartCreate={onStartCreate}
+            onCancelCreate={onCancelCreate}
+            onCreate={onCreate}
+            onStartRename={onStartRename}
+            onCancelRename={onCancelRename}
+            onRename={onRename}
+            onArchive={onArchive}
+            onDelete={onDelete}
+            onDownload={onDownload}
+          />
+        )}
+      </DocumentTreeDnd>
       {outline}
       {actionError && (
         <p className="document-action-error" role="alert">
@@ -134,7 +153,6 @@ function DocumentTreeContent({
   canCreate,
   loading,
   error,
-  busyIds,
   onSelect,
   onToggleCollapsed,
   onStartCreate,
@@ -146,7 +164,15 @@ function DocumentTreeContent({
   onArchive,
   onDelete,
   onDownload,
-}: Omit<DocumentTreeProps, 'actionError' | 'outline'>) {
+}: Omit<
+  DocumentTreeProps,
+  | 'documents'
+  | 'actionError'
+  | 'busyIds'
+  | 'onMove'
+  | 'onKeepExpanded'
+  | 'outline'
+>) {
   const entries = sections.flatMap((section) => section.entries);
   // Drafts sit exactly where the created note will appear: after the target
   // section's last entry, or after the parent's last visible descendant.
@@ -309,7 +335,6 @@ function DocumentTreeContent({
                         onRename={() => onStartRename(entry.document.id)}
                         onArchive={() => onArchive(entry.document.id)}
                         onDelete={() => onDelete(entry.document.id)}
-                        busy={busyIds.size > 0}
                         onDownload={() => onDownload(entry.document.id)}
                       />
                     )}
@@ -370,7 +395,12 @@ function useTreeLayoutAnimation(
       const next = row.getBoundingClientRect();
       nextPositions.set(documentId, next);
       const previous = previousPositions.current.get(documentId);
-      if (!previous || reduceMotion || typeof row.animate !== 'function')
+      if (
+        !previous ||
+        reduceMotion ||
+        row.dataset.dragging === 'true' ||
+        typeof row.animate !== 'function'
+      )
         continue;
       const x = previous.left - next.left;
       const y = previous.top - next.top;
@@ -414,7 +444,6 @@ function DocumentTreeRow({
   onRename,
   onArchive,
   onDelete,
-  busy,
   onDownload,
 }: {
   entry: TreeEntry;
@@ -426,16 +455,23 @@ function DocumentTreeRow({
   onRename: () => void;
   onArchive: () => void;
   onDelete: () => void;
-  busy: boolean;
   onDownload: () => void;
 }) {
+  const { ref, busy, isDragging, dropIntent } = useDocumentTreeRowDnd(
+    entry.document,
+  );
+  const temporaryChevron = dropIntent === 'inside' && !entry.hasChildren;
   const style = { '--tree-depth': entry.depth } as CSSProperties;
   return (
     <div
+      ref={ref}
       className="document-tree-row"
       style={style}
       data-document-tree-id={entry.document.id}
       data-selected={active}
+      data-draggable={entry.document.can_edit || undefined}
+      data-dragging={isDragging || undefined}
+      data-drop-intent={dropIntent ?? undefined}
     >
       {entry.hasChildren ? (
         <button
@@ -452,7 +488,13 @@ function DocumentTreeRow({
           )}
         </button>
       ) : (
-        <span className="document-tree-chevron-slot" aria-hidden="true" />
+        <span
+          className="document-tree-chevron-slot"
+          data-open={temporaryChevron}
+          aria-hidden="true"
+        >
+          <ChevronDown className="document-tree-ghost-chevron" size={13} />
+        </span>
       )}
       <button
         className="document-tree-main"
