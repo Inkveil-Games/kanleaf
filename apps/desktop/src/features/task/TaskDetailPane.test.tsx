@@ -311,7 +311,7 @@ describe('TaskDetailPane', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('uses the shared typed confirmation dialog for permanent deletion', async () => {
+  it('confirms permanent deletion without typing the Task reference', async () => {
     const user = userEvent.setup();
     const onDelete = vi.fn().mockResolvedValue(undefined);
     const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -352,9 +352,9 @@ describe('TaskDetailPane', () => {
     });
     expect(nativeConfirm).not.toHaveBeenCalled();
     const deleteButton = screen.getByRole('button', { name: 'Delete Task' });
-    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).toBeEnabled();
+    expect(within(dialog).queryByRole('textbox')).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/Type #1 to confirm/), '#1');
     await user.click(deleteButton);
 
     await waitFor(() => expect(onDelete).toHaveBeenCalledOnce());

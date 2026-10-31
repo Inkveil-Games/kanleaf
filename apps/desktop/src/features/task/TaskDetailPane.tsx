@@ -214,11 +214,10 @@ function TaskDetailActions({
         onOpenChange={(open) => {
           if (!open) setConfirmation(null);
         }}
-        type="typed-confirm"
+        type="confirm"
         variant="danger"
         title={`Delete ${task.title} permanently?`}
         description="This removes the Task and its Markdown file. This cannot be undone."
-        confirmationText={task.reference}
         confirmLabel="Delete Task"
         loadingLabel="Deleting…"
         onConfirm={() => onDelete(task.reference)}
