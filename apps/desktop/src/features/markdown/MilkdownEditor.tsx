@@ -30,6 +30,7 @@ import { Check, Copy, Eye, GripVertical, Pencil, Plus } from 'lucide-react';
 import '../../components/ui/Checkbox/Checkbox.css';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { blockHandleFilter } from './blockHandleFilter';
+import { firstLineRect } from './blockHandlePosition';
 import { createMermaidPreview, mountMermaidPreviews } from './mermaidPreview';
 import { mathOptions } from './markdownExtensions';
 import { smartPunctuationPlugin } from './milkdownSmartPunctuation';
@@ -227,7 +228,11 @@ export function MilkdownEditor({
           virtual: false,
         },
         [Crepe.Feature.BlockEdit]: {
-          blockHandle: { getOffset: () => 4 },
+          blockHandle: {
+            getOffset: () => 4,
+            getPlacement: () => 'left',
+            getPosition: ({ active }) => firstLineRect(active.el),
+          },
           handleAddIcon: renderToStaticMarkup(<Plus size={16} />),
           handleDragIcon: renderToStaticMarkup(<GripVertical size={16} />),
           textGroup: {
