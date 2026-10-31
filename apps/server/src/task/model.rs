@@ -6,7 +6,7 @@ use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{domain::RecurrenceRule, error::AppError};
 
 #[derive(Debug, Serialize)]
 pub(crate) struct TaskStateSummary {
@@ -63,6 +63,15 @@ pub struct TaskCustomPropertyValue {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct TaskRecurrenceSummary {
+    #[serde(flatten)]
+    pub rule: RecurrenceRule,
+    pub timezone: String,
+    pub next_run_at: DateTime<Utc>,
+    pub paused_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct TaskResponse {
     pub id: Uuid,
     pub workspace_id: Uuid,
@@ -87,6 +96,7 @@ pub struct TaskResponse {
     pub relations: Vec<TaskRelationSummary>,
     pub comment_count: i64,
     pub custom_properties: Vec<TaskCustomPropertyValue>,
+    pub(crate) recurrence: Option<TaskRecurrenceSummary>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -146,6 +156,7 @@ impl From<TaskRow> for TaskResponse {
             relations: Vec::new(),
             comment_count: 0,
             custom_properties: Vec::new(),
+            recurrence: None,
             archived_at: row.archived_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -237,6 +248,11 @@ pub(super) async fn hydrate_tasks(
                 property_id: row.property_id,
                 value: row.value,
             });
+    }
+
+    for (task_id, recurrence) in super::recurrence::load_summaries(pool, workspace_id, &ids).await?
+    {
+        tasks[indexes[&task_id]].recurrence = Some(recurrence);
     }
 
     let cycles = sqlx::query_as::<_, TaskPlanningRow>(

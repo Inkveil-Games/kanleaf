@@ -30,6 +30,7 @@ import {
   isPinnedProperty,
   type ExtendedPropertyKey,
 } from './taskPropertyModel';
+import { TaskRepeatControl } from './TaskRepeatControl';
 import type { TaskPropertyEditing } from './useTaskPropertyEditing';
 
 interface TaskPropertiesProps {
@@ -428,6 +429,27 @@ export function TaskProperties({
                   moduleIds.length > 0,
                 );
               }}
+            />
+          </PropertyRow>
+        )}
+
+        {isVisible('repeat') && (
+          <PropertyRow
+            label="Repeat"
+            propertyKey="repeat"
+            onLeaveEmpty={() => dismissEmpty('repeat')}
+          >
+            <TaskRepeatControl
+              recurrence={task.recurrence}
+              readOnly={!canEdit}
+              saving={editing.savingProperties.has('repeat')}
+              onChange={(rule) =>
+                patchExtendedProperty(
+                  'repeat',
+                  { recurrence: rule },
+                  rule !== null,
+                )
+              }
             />
           </PropertyRow>
         )}

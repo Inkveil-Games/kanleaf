@@ -121,6 +121,22 @@ User ──< Session
   special Task Type contract.
 - A task belongs to one workspace and optionally one project, with required
   State identity guarded by a composite Workspace foreign key.
+- A Task may carry one Repeat rule (`task_recurrences`): daily, weekly on ISO
+  weekdays, or monthly on a day clamped to short months, at a local time in
+  the editor's account timezone. `schedule` mode creates the next Task when
+  the occurrence time passes; `after_completion` waits for a `done` or
+  `cancelled` role. The `duplicate` action copies title, Project, Priority,
+  Estimate, Parent, valid Assignees, active Labels, active custom values, and
+  the Markdown body with checked task-list items cleared; Cycle and Modules
+  are not copied, and dates shift by the occurrence offset. The rule then
+  moves to the new Task, so earlier instances remain history. The `reset`
+  action instead reopens the same Task: it clears checked items, shifts the
+  dates, and returns the State to the Project default. Neither action reopens
+  into a terminal default; it uses Todo instead so after-completion rules
+  cannot fire repeatedly. Missed
+  occurrences collapse into one Task. Spawning acts as the rule's last editor
+  and pauses the rule when that user lost edit access. Rules are not yet part
+  of frontmatter or Workspace export.
 - Each task receives a monotonic workspace number under a workspace row lock.
   Human references use that number as `#<number>` without reuse, while the UUID
   remains the permanent database identity and the number is the stable vault

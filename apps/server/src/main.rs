@@ -14,7 +14,7 @@ use kanleaf_server::{
     },
     project::recover_project_deletions,
     router, router_with_web_client,
-    task::{recover_projection_jobs, spawn_projection_worker},
+    task::{recover_projection_jobs, spawn_projection_worker, spawn_recurrence_worker},
     webhook::{spawn_webhook_workers, validate_signing_key},
     workspace::{
         migrate_workspace_vaults, recover_workspace_deletions, register_workspace_vault_paths,
@@ -89,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to bind server address")?;
     let address = listener.local_addr()?;
     spawn_projection_worker(state.clone());
+    spawn_recurrence_worker(state.clone());
     spawn_config_projection_worker(state.clone());
     spawn_export_cleanup_worker(state.clone());
     spawn_import_cleanup_worker(state.clone());

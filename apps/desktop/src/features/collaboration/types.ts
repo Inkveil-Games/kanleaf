@@ -26,7 +26,8 @@ export interface TaskActivityEvent {
     | 'task_archived'
     | 'relation_added'
     | 'relation_removed'
-    | 'document_updated';
+    | 'document_updated'
+    | 'task_repeat_reset';
   actor: CollaborationUser | null;
   data: { fields?: string[]; related_task_id?: string };
   created_at: string;

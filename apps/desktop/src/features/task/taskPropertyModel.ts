@@ -6,7 +6,7 @@ export type PinnedPropertyKey =
 export type PropertyKey = PinnedPropertyKey | ExtendedPropertyKey;
 
 export type ExtendedPropertyKey =
-  'project' | 'labels' | 'estimate' | 'parent' | 'cycle' | 'modules';
+  'project' | 'labels' | 'estimate' | 'parent' | 'cycle' | 'modules' | 'repeat';
 
 export interface TaskPropertyDefinition {
   key: ExtendedPropertyKey;
@@ -48,6 +48,7 @@ export const EXTENDED_PROPERTIES: TaskPropertyDefinition[] = [
   { key: 'parent', label: 'Parent' },
   { key: 'cycle', label: 'Cycle' },
   { key: 'modules', label: 'Modules' },
+  { key: 'repeat', label: 'Repeat' },
 ];
 
 export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
@@ -64,6 +65,8 @@ export function hasPropertyValue(task: Task, key: ExtendedPropertyKey) {
       return task.cycle !== null;
     case 'modules':
       return task.modules.length > 0;
+    case 'repeat':
+      return Boolean(task.recurrence);
   }
 }
 

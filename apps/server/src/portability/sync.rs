@@ -108,6 +108,7 @@ impl ResolvedTaskUpdate {
             label_ids: Some(self.label_ids),
             cycle_id: Some(self.cycle_id),
             module_ids: Some(self.module_ids),
+            recurrence: None,
             cleanup_invalid: false,
         }
     }

@@ -1092,6 +1092,79 @@ describe('TaskDetailPane', () => {
     );
     expect(screen.getByLabelText('Estimate')).toBeVisible();
   });
+  it('adds a Repeat rule through the task patch and shows the saved schedule', async () => {
+    const user = userEvent.setup();
+    const onPatch = vi.fn().mockResolvedValue(undefined);
+    const props = {
+      serverUrl: 'https://kanleaf.example.com',
+      token: 'token',
+      workspaceId: 'workspace-1',
+      projects,
+      states,
+      labels: [],
+      cycles: [],
+      modules: [],
+      assigneeCandidates: [],
+      taskCandidates: [task],
+      loading: false,
+      error: null,
+      canEdit: true,
+      onPatch,
+      onArchive: vi.fn(),
+      onDelete: vi.fn(),
+      onAddRelation: vi.fn(),
+      onRemoveRelation: vi.fn(),
+      onOpenTask: vi.fn(),
+      onClose: vi.fn(),
+      onRetry: vi.fn(),
+    };
+    const { rerender } = render(<TaskDetailPane {...props} task={task} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add property' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Add Repeat property' }),
+    );
+    const trigger = await screen.findByRole('button', { name: 'Edit repeat' });
+    expect(trigger).toHaveTextContent('No repeat');
+    await user.click(trigger);
+    await user.click(await screen.findByRole('button', { name: 'Daily' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(onPatch).toHaveBeenCalledWith({
+        recurrence: {
+          frequency: 'daily',
+          weekdays: [],
+          month_day: null,
+          time: '09:00',
+          mode: 'schedule',
+          action: 'duplicate',
+        },
+      }),
+    );
+
+    rerender(
+      <TaskDetailPane
+        {...props}
+        task={{
+          ...task,
+          recurrence: {
+            frequency: 'daily',
+            weekdays: [],
+            month_day: null,
+            time: '09:00',
+            mode: 'schedule',
+            action: 'duplicate',
+            timezone: 'UTC',
+            next_run_at: '2026-11-02T09:00:00Z',
+            paused_at: null,
+          },
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Edit repeat' }),
+    ).toHaveTextContent('Every day at 09:00');
+  });
 });
 
 function taskState(

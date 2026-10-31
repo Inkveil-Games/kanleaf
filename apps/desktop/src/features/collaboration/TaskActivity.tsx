@@ -652,6 +652,8 @@ function activityMessage(event: TaskActivityEvent) {
       return 'removed a Task relation.';
     case 'document_updated':
       return 'saved the Markdown document.';
+    case 'task_repeat_reset':
+      return 'reset the Task for its next repeat.';
   }
 }
 

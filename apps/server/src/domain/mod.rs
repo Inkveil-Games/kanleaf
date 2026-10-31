@@ -1,5 +1,10 @@
 mod date_default;
+mod recurrence;
 pub use date_default::{DateDefault, DateDirection, DateUnit, local_reference_date};
+pub use recurrence::{
+    Occurrence, RecurrenceAction, RecurrenceFrequency, RecurrenceMode, RecurrenceRule,
+    local_date as recurrence_local_date,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

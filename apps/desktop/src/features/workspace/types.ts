@@ -302,9 +302,32 @@ export interface Task {
   relations: TaskRelation[];
   comment_count: number;
   custom_properties?: TaskCustomPropertyValue[];
+  recurrence?: TaskRecurrence | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type TaskRecurrenceFrequency = 'daily' | 'weekly' | 'monthly';
+
+export type TaskRecurrenceMode = 'schedule' | 'after_completion';
+
+export type TaskRecurrenceAction = 'duplicate' | 'reset';
+
+/** Weekdays use ISO numbering: 1 is Monday and 7 is Sunday. */
+export interface TaskRecurrenceRule {
+  frequency: TaskRecurrenceFrequency;
+  weekdays: number[];
+  month_day: number | null;
+  time: string;
+  mode: TaskRecurrenceMode;
+  action: TaskRecurrenceAction;
+}
+
+export interface TaskRecurrence extends TaskRecurrenceRule {
+  timezone: string;
+  next_run_at: string;
+  paused_at: string | null;
 }
 
 export interface TaskPlanningLink {
@@ -352,6 +375,7 @@ export interface TaskPatch {
   label_ids?: string[];
   cycle_id?: string | null;
   module_ids?: string[];
+  recurrence?: TaskRecurrenceRule | null;
   cleanup_invalid?: boolean;
 }
 

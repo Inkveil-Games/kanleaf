@@ -3,6 +3,7 @@ mod model;
 mod planning;
 mod projection;
 mod query_engine;
+mod recurrence;
 
 pub(crate) use frontmatter::{
     CustomProperty, TaskProperties, UndefinedProperty, read_properties as read_task_properties,
@@ -14,6 +15,7 @@ pub(crate) use projection::{
     initialize as initialize_projection, project_many, project_now,
 };
 pub use projection::{recover_projection_jobs, spawn_projection_worker};
+pub use recurrence::{spawn_next as spawn_next_repeated_task, spawn_recurrence_worker};
 
 use std::collections::HashSet;
 
@@ -38,7 +40,7 @@ use crate::{
     collaboration::{notify_assignments, notify_task_change, record_activity, subscribe},
     custom_property::apply_default_values,
     domain::events::EventType,
-    domain::{TaskPriority, TaskTitle, VaultStorageName},
+    domain::{RecurrenceRule, TaskPriority, TaskTitle, VaultStorageName},
     domain_event::task_event,
     error::{AppError, is_unique_violation},
     project::{require_project_access, require_project_editor},
@@ -113,6 +115,8 @@ pub(crate) struct UpdateTaskRequest {
     pub(crate) cycle_id: Option<Option<Uuid>>,
     #[serde(default)]
     pub(crate) module_ids: Option<Vec<Uuid>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub(crate) recurrence: Option<Option<RecurrenceRule>>,
     #[serde(default)]
     pub(crate) cleanup_invalid: bool,
 }
@@ -400,92 +404,28 @@ pub(crate) async fn create(
     )
     .await?;
 
-    let task_number: i64 = sqlx::query_scalar(
-        r#"
-        UPDATE workspaces
-        SET next_task_number = next_task_number + 1
-        WHERE id = $1
-        RETURNING next_task_number - 1
-        "#,
-    )
-    .bind(workspace_id)
-    .fetch_one(&mut *transaction)
-    .await?;
-
-    let task_id = Uuid::new_v4();
-    let storage_name = VaultStorageName::from_initial_name(title.as_str(), task_id);
-    sqlx::query(
-        r#"
-        INSERT INTO tasks
-            (id, workspace_id, project_id, task_number, title, storage_name,
-             state_id, priority, start_date, due_date, estimate, parent_id, position)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        "#,
-    )
-    .bind(task_id)
-    .bind(workspace_id)
-    .bind(request.project_id)
-    .bind(task_number)
-    .bind(title.as_str())
-    .bind(storage_name.as_str())
-    .bind(state_id)
-    .bind(priority)
-    .bind(start_date)
-    .bind(due_date)
-    .bind(request.estimate)
-    .bind(request.parent_id)
-    .bind(task_number * 1024)
-    .execute(&mut *transaction)
-    .await?;
-    apply_default_values(&mut transaction, workspace_id, task_id, reference_date).await?;
-    initialize_projection(&mut transaction, workspace_id, task_id).await?;
-    replace_assignees(&mut transaction, workspace_id, task_id, &assignee_ids).await?;
-    replace_labels(&mut transaction, workspace_id, task_id, &label_ids).await?;
-    replace_cycle(
+    let vault_row = insert_task(
         &mut transaction,
         workspace_id,
-        request.project_id,
-        task_id,
-        request.cycle_id,
-    )
-    .await?;
-    replace_modules(
-        &mut transaction,
-        workspace_id,
-        request.project_id,
-        task_id,
-        &module_ids,
-    )
-    .await?;
-    subscribe(&mut transaction, workspace_id, task_id, auth.user.id).await?;
-    notify_assignments(
-        &mut transaction,
-        workspace_id,
-        task_id,
         auth.user.id,
-        &assignee_ids,
+        NewTask {
+            project_id: request.project_id,
+            title: &title,
+            state_id,
+            priority,
+            start_date,
+            due_date,
+            estimate: request.estimate,
+            parent_id: request.parent_id,
+            assignee_ids: &assignee_ids,
+            label_ids: &label_ids,
+            cycle_id: request.cycle_id,
+            module_ids: &module_ids,
+        },
+        NewTaskValues::Defaults(reference_date),
     )
     .await?;
-    record_activity(
-        &mut transaction,
-        workspace_id,
-        task_id,
-        auth.user.id,
-        "task_created",
-        json!({}),
-    )
-    .await?;
-
-    let vault_row = task_vault_row(&mut transaction, workspace_id, task_id, false).await?;
-    task_event(
-        &mut transaction,
-        workspace_id,
-        task_id,
-        auth.user.id,
-        EventType::TaskCreated,
-        &[],
-    )
-    .await?;
+    let task_id = vault_row.kanleaf_id;
     let task_path = vault_row.path()?;
     let source = frontmatter::render_new(&vault_row.properties(), "");
     state
@@ -509,6 +449,148 @@ pub(crate) async fn create(
     project_now(&state, workspace_id, task_id).await;
     let task = find_task(&state.pool, workspace_id, task_id, auth.user.id).await?;
     Ok((StatusCode::CREATED, Json(task)))
+}
+
+struct NewTask<'a> {
+    project_id: Option<Uuid>,
+    title: &'a TaskTitle,
+    state_id: Uuid,
+    priority: &'a str,
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
+    estimate: Option<i32>,
+    parent_id: Option<Uuid>,
+    assignee_ids: &'a [Uuid],
+    label_ids: &'a [Uuid],
+    cycle_id: Option<Uuid>,
+    module_ids: &'a [Uuid],
+}
+
+enum NewTaskValues {
+    Defaults(NaiveDate),
+    CopyFrom(Uuid),
+}
+
+/// Inserts an already validated Task with its metadata, activity, and event.
+/// The caller holds the Workspace assignment lock and creates the vault
+/// document before committing.
+async fn insert_task(
+    transaction: &mut Transaction<'_, Postgres>,
+    workspace_id: Uuid,
+    actor_id: Uuid,
+    task: NewTask<'_>,
+    values: NewTaskValues,
+) -> Result<TaskVaultRow, AppError> {
+    let task_number: i64 = sqlx::query_scalar(
+        r#"
+        UPDATE workspaces
+        SET next_task_number = next_task_number + 1
+        WHERE id = $1
+        RETURNING next_task_number - 1
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    let task_id = Uuid::new_v4();
+    let storage_name = VaultStorageName::from_initial_name(task.title.as_str(), task_id);
+    sqlx::query(
+        r#"
+        INSERT INTO tasks
+            (id, workspace_id, project_id, task_number, title, storage_name,
+             state_id, priority, start_date, due_date, estimate, parent_id, position)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        "#,
+    )
+    .bind(task_id)
+    .bind(workspace_id)
+    .bind(task.project_id)
+    .bind(task_number)
+    .bind(task.title.as_str())
+    .bind(storage_name.as_str())
+    .bind(task.state_id)
+    .bind(task.priority)
+    .bind(task.start_date)
+    .bind(task.due_date)
+    .bind(task.estimate)
+    .bind(task.parent_id)
+    .bind(task_number * 1024)
+    .execute(&mut **transaction)
+    .await?;
+    match values {
+        NewTaskValues::Defaults(reference_date) => {
+            apply_default_values(transaction, workspace_id, task_id, reference_date).await?;
+        }
+        NewTaskValues::CopyFrom(source_task_id) => {
+            sqlx::query(
+                r#"
+                INSERT INTO task_custom_property_values
+                    (workspace_id, task_id, property_id, value)
+                SELECT source.workspace_id, $3, source.property_id, source.value
+                FROM task_custom_property_values AS source
+                JOIN custom_property_definitions AS definitions
+                  ON definitions.workspace_id = source.workspace_id
+                 AND definitions.id = source.property_id
+                WHERE source.workspace_id = $1 AND source.task_id = $2
+                  AND definitions.archived_at IS NULL
+                "#,
+            )
+            .bind(workspace_id)
+            .bind(source_task_id)
+            .bind(task_id)
+            .execute(&mut **transaction)
+            .await?;
+        }
+    }
+    initialize_projection(transaction, workspace_id, task_id).await?;
+    replace_assignees(transaction, workspace_id, task_id, task.assignee_ids).await?;
+    replace_labels(transaction, workspace_id, task_id, task.label_ids).await?;
+    replace_cycle(
+        transaction,
+        workspace_id,
+        task.project_id,
+        task_id,
+        task.cycle_id,
+    )
+    .await?;
+    replace_modules(
+        transaction,
+        workspace_id,
+        task.project_id,
+        task_id,
+        task.module_ids,
+    )
+    .await?;
+    subscribe(transaction, workspace_id, task_id, actor_id).await?;
+    notify_assignments(
+        transaction,
+        workspace_id,
+        task_id,
+        actor_id,
+        task.assignee_ids,
+    )
+    .await?;
+    record_activity(
+        transaction,
+        workspace_id,
+        task_id,
+        actor_id,
+        "task_created",
+        json!({}),
+    )
+    .await?;
+    let vault_row = task_vault_row(transaction, workspace_id, task_id, false).await?;
+    task_event(
+        transaction,
+        workspace_id,
+        task_id,
+        actor_id,
+        EventType::TaskCreated,
+        &[],
+    )
+    .await?;
+    Ok(vault_row)
 }
 
 pub(crate) async fn get(
@@ -594,6 +676,7 @@ pub(crate) async fn update_task_with_properties(
         && request.label_ids.is_none()
         && request.cycle_id.is_none()
         && request.module_ids.is_none()
+        && request.recurrence.is_none()
     {
         return Err(AppError::Validation(
             "Provide at least one task field to update".to_owned(),
@@ -859,6 +942,19 @@ pub(crate) async fn update_task_with_properties(
         .await?;
     }
     let mut changed_fields = Vec::new();
+    if let Some(rule) = request.recurrence
+        && recurrence::apply_rule(
+            &mut transaction,
+            workspace_id,
+            task_id,
+            actor_id,
+            rule,
+            target_start_date.or(target_due_date),
+        )
+        .await?
+    {
+        changed_fields.push("repeat");
+    }
     if title
         .as_ref()
         .is_some_and(|value| value.as_str() != current.title)
