@@ -29,6 +29,7 @@ import { EditorView } from '@codemirror/view';
 import { Check, Copy, Eye, GripVertical, Pencil, Plus } from 'lucide-react';
 import '../../components/ui/Checkbox/Checkbox.css';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { blockHandleFilter } from './blockHandleFilter';
 import { createMermaidPreview, mountMermaidPreviews } from './mermaidPreview';
 import { mathOptions } from './markdownExtensions';
 import { smartPunctuationPlugin } from './milkdownSmartPunctuation';
@@ -274,10 +275,8 @@ export function MilkdownEditor({
         ...options,
         emphasis: '_' as const,
       }));
-      // Hovering an inline atom such as an internal link resolves to that
-      // node; rejecting it makes the block handle climb to the line's block.
       ctx.update(blockConfig.key, ({ filterNodes }) => ({
-        filterNodes: (pos, node) => !node.isInline && filterNodes(pos, node),
+        filterNodes: blockHandleFilter(filterNodes),
       }));
       ctx.update(editorViewOptionsCtx, (options) => ({
         ...options,
