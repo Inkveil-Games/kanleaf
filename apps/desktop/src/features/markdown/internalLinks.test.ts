@@ -1,4 +1,10 @@
-import { Editor, parserCtx, rootCtx, serializerCtx } from '@milkdown/kit/core';
+import {
+  defaultValueCtx,
+  Editor,
+  parserCtx,
+  rootCtx,
+  serializerCtx,
+} from '@milkdown/kit/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,6 +50,7 @@ const entries: InternalLinkEntry[] = [
     path: 'tasks/42',
     hint: '#42',
     projectId: null,
+    stateRole: 'todo',
   },
 ];
 
@@ -112,5 +119,51 @@ describe('internal links', () => {
 
     expect(output).toBe(source);
     expect(await roundTrip(output)).toBe(output);
+  });
+
+  it('shows page and Task links as chips with their icons', async () => {
+    const controller = new InternalLinkController();
+    controller.setIndex(createInternalLinkIndex(entries));
+    const root = document.createElement('div');
+    const editor = await Editor.make()
+      .config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(
+          defaultValueCtx,
+          'See [[42]], [[42|that one]], [[grep_sed_awk]] and [[missing]].',
+        );
+      })
+      .use(commonmark)
+      .use(milkdownInternalLinks(controller))
+      .create();
+    editors.push(editor);
+
+    const [link, aliased, page, broken] =
+      root.querySelectorAll<HTMLElement>('.internal-link');
+    expect(link).toHaveAttribute('data-kind', 'task');
+    expect(link).toHaveTextContent('#42 Đổi tên vault');
+    expect(link?.querySelector('.internal-link-ref')).toHaveTextContent('#42');
+    expect(link?.querySelector('svg[data-state-role="todo"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(aliased).toHaveTextContent('that one');
+    expect(aliased?.querySelector('.internal-link-ref')).toBeNull();
+    expect(page).toHaveAttribute('data-kind', 'page');
+    expect(page).toHaveTextContent('grep - sed - awk');
+    expect(page?.querySelector('svg.internal-link-page-icon')).not.toBeNull();
+    expect(broken).toHaveAttribute('data-broken', 'true');
+    expect(broken?.querySelector('svg')).toBeNull();
+
+    controller.setIndex(
+      createInternalLinkIndex(
+        entries.map((entry) =>
+          entry.id === 'task-42' ? { ...entry, stateRole: 'done' } : entry,
+        ),
+      ),
+    );
+    expect(link).toHaveAttribute('data-state-role', 'done');
+    expect(link?.querySelectorAll('svg')).toHaveLength(1);
+    expect(link?.querySelector('svg[data-state-role="done"]')).not.toBeNull();
   });
 });

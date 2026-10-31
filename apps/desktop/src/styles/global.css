@@ -5935,13 +5935,20 @@ html[data-input-modality='keyboard']
   gap: 6px;
 }
 
-.internal-link {
+/* Page and Task links share one compact mention chip: a leading icon (the
+   page glyph or the Task's live State), then the title on a neutral surface.
+   The .milkdown variants outrank Crepe's `.milkdown *` padding reset. */
+.internal-link,
+.milkdown .internal-link {
   display: inline;
-  padding: 0 3px;
+  padding: 1px 6px 1px 5px;
   border: 0;
-  border-radius: 4px;
-  color: var(--color-accent-strong);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: 5px;
+  color: var(--color-text-emphasis);
+  background: var(--color-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
   font: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -5950,18 +5957,50 @@ html[data-input-modality='keyboard']
 
 .internal-link:hover,
 .internal-link:focus-visible {
-  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: var(--color-surface-hover);
 }
 
-.internal-link[data-broken='true'] {
+.internal-link[data-broken='true'],
+.milkdown .internal-link[data-broken='true'] {
+  padding-left: 6px;
   color: var(--color-text-muted);
   background: transparent;
-  text-decoration: underline dashed;
-  text-underline-offset: 3px;
+  box-shadow: none;
+  outline: 1px dashed var(--color-border);
+  outline-offset: -1px;
 }
 
+.internal-link[data-state-role='done'],
+.internal-link[data-state-role='cancelled'] {
+  color: var(--color-text-muted);
+}
+
+.internal-link > svg,
+.milkdown .internal-link > svg {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 5px;
+  vertical-align: -0.18em;
+}
+
+.internal-link > .internal-link-page-icon {
+  color: var(--color-text-muted);
+}
+
+.internal-link-ref {
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chromium draws the caret after an inline non-editable span inside the span's
+   last box, where the positioned chip paints over it (most visibly at the end
+   of a line). As an atomic inline-block the caret lands outside its edge. */
 .internal-link-chip {
   position: relative;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .ProseMirror-selectednode > .internal-link {

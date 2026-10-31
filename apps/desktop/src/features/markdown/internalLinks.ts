@@ -1,3 +1,5 @@
+import type { TaskState } from '../workspace/types';
+
 interface MdastNode {
   type: string;
   value?: string;
@@ -25,6 +27,8 @@ export interface InternalLinkEntry {
   /** What the picker shows beside the title (`#42`, the parent folder). */
   hint: string;
   projectId: string | null;
+  /** Live State role of a Task target, shown as its icon on the link. */
+  stateRole?: TaskState['system_role'];
 }
 
 export interface InternalLinkParts {
@@ -132,6 +136,14 @@ export function internalLinkLabel(
       : entry.title
     : parts.target;
   return parts.heading ? `${base} › ${parts.heading}` : base;
+}
+
+/** The Task reference that leads an unaliased Task link label, if any. */
+export function internalLinkTaskReference(
+  parts: InternalLinkParts,
+  entry: InternalLinkEntry | null,
+) {
+  return entry?.kind === 'task' && !parts.alias ? entry.hint : null;
 }
 
 /**

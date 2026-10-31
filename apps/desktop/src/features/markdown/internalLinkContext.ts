@@ -72,6 +72,7 @@ export function useInternalLinkIndex(context: {
           path: `tasks/${task.task_number}`,
           hint: task.reference,
           projectId: task.project_id,
+          stateRole: task.state.system_role,
         })),
     ];
     return createInternalLinkIndex(entries);

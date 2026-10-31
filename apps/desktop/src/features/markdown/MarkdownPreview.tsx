@@ -24,9 +24,12 @@ import { mathOptions } from './markdownExtensions';
 import { remarkSmartPunctuation } from './smartPunctuation';
 import { MermaidDiagram } from './MermaidDiagram';
 import { readMarkdownAsset, type DocumentContext } from './api';
+import { FileText } from 'lucide-react';
+import { StateIcon } from '../task/TaskValueIcon';
 import type { InternalLinkController } from './internalLinkController';
 import {
   internalLinkLabel,
+  internalLinkTaskReference,
   parseInternalLink,
   remarkInternalLinks,
 } from './internalLinks';
@@ -161,16 +164,49 @@ function InternalLinkChip({ raw }: { raw: string }) {
   const parts = parseInternalLink(raw);
   const entry = parts && index ? index.resolve(parts.target) : null;
   const label = parts ? internalLinkLabel(parts, entry) : raw;
-  if (!controller) return <span className="internal-link">{label}</span>;
+  const reference = parts ? internalLinkTaskReference(parts, entry) : null;
+  const content = (
+    <>
+      {entry?.kind === 'page' && (
+        <FileText
+          aria-hidden="true"
+          className="internal-link-page-icon"
+          size={14}
+        />
+      )}
+      {entry?.stateRole && <StateIcon role={entry.stateRole} size={14} />}
+      {reference ? (
+        <>
+          <span className="internal-link-ref">{reference}</span>
+          {label.slice(reference.length)}
+        </>
+      ) : (
+        label
+      )}
+    </>
+  );
+  if (!controller) {
+    return (
+      <span
+        className="internal-link"
+        data-kind={entry?.kind}
+        data-state-role={entry?.stateRole}
+      >
+        {content}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
       className="internal-link"
+      data-kind={entry?.kind}
+      data-state-role={entry?.stateRole}
       data-broken={Boolean(index && !entry)}
       title={entry ? raw : `${raw} — no page or Task with this name`}
       onClick={() => controller.onOpen(raw)}
     >
-      {label}
+      {content}
     </button>
   );
 }

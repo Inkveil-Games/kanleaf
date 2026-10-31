@@ -5,10 +5,12 @@ import {
   INTERNAL_LINK_TRIGGER,
   type InternalLinkController,
 } from './internalLinkController';
+import { stateIconMarkup } from '../task/stateIconMarkup';
 import {
   parseInternalLink,
   remarkInternalLinks,
   internalLinkLabel,
+  internalLinkTaskReference,
 } from './internalLinks';
 
 // Lucide "pencil", inlined because node views are built outside React. The
@@ -17,6 +19,12 @@ import {
 const PENCIL_PATHS =
   '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>';
 const PENCIL_ICON = `<svg aria-hidden="true" width="16" height="16" viewBox="-2 -2 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><g class="internal-link-edit-halo" stroke-width="6">${PENCIL_PATHS}</g><g stroke="currentColor" stroke-width="2">${PENCIL_PATHS}</g></svg>`;
+
+let stateIconCount = 0;
+
+// Lucide "file-text", the page counterpart of a Task's State icon.
+const PAGE_ICON =
+  '<svg aria-hidden="true" class="internal-link-page-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>';
 
 const NAVIGATION_KEYS = new Set([
   'ArrowDown',
@@ -80,12 +88,34 @@ export function milkdownInternalLinks(controller: InternalLinkController) {
     edit.title = 'Edit link';
     edit.innerHTML = PENCIL_ICON;
     dom.append(link, edit);
+    const maskId = `internal-link-state-${(stateIconCount += 1)}`;
     const render = () => {
       const parts = parseInternalLink(raw);
       const entry = parts
         ? (controller.index?.resolve(parts.target) ?? null)
         : null;
-      link.textContent = parts ? internalLinkLabel(parts, entry) : raw;
+      const label = parts ? internalLinkLabel(parts, entry) : raw;
+      const reference = parts ? internalLinkTaskReference(parts, entry) : null;
+      link.replaceChildren();
+      if (entry?.kind === 'task' && entry.stateRole) {
+        link.insertAdjacentHTML(
+          'afterbegin',
+          stateIconMarkup(entry.stateRole, maskId, 14),
+        );
+      } else if (entry?.kind === 'page') {
+        link.insertAdjacentHTML('afterbegin', PAGE_ICON);
+      }
+      if (reference) {
+        const ref = document.createElement('span');
+        ref.className = 'internal-link-ref';
+        ref.textContent = reference;
+        link.append(ref, label.slice(reference.length));
+      } else {
+        link.append(label);
+      }
+      link.dataset.kind = entry?.kind ?? '';
+      if (entry?.stateRole) link.dataset.stateRole = entry.stateRole;
+      else delete link.dataset.stateRole;
       link.dataset.broken = String(Boolean(controller.index && !entry));
       link.title = entry
         ? `${raw} — Ctrl or Cmd+click to edit`
